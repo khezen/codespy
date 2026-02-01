@@ -233,7 +233,13 @@ class ReviewPipeline:
         # Fetch PR data
         logger.info("Fetching PR data from GitHub...")
         pr = self.github_client.fetch_pull_request(pr_url)
-        logger.info(f"PR #{pr.number}: {pr.title} ({len(pr.changed_files)} files changed)")
+        if pr.excluded_files_count > 0:
+            logger.info(
+                f"PR #{pr.number}: {pr.title} ({len(pr.changed_files)} files to review, "
+                f"{pr.excluded_files_count} vendor files excluded)"
+            )
+        else:
+            logger.info(f"PR #{pr.number}: {pr.title} ({len(pr.changed_files)} files changed)")
 
         # Build review context (includes related files)
         logger.info("Building review context...")
