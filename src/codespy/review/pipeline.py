@@ -15,7 +15,7 @@ from codespy.review.modules import (
     BugDetector,
     ContextAnalyzer,
     DocumentationReviewer,
-    SecurityAnalyzer,
+    SecurityAuditor,
 )
 from codespy.review.signatures import PRSummary
 
@@ -143,7 +143,7 @@ class ReviewPipeline:
         self._configure_dspy()
 
         # Initialize review modules
-        self.security_analyzer = SecurityAnalyzer()
+        self.security_analyzer = SecurityAuditor()
         self.bug_detector = BugDetector()
         self.docs_reviewer = DocumentationReviewer()
         self.context_analyzer = ContextAnalyzer()

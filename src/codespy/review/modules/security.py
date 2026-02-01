@@ -10,7 +10,7 @@ from codespy.review.modules.base import BaseReviewModule
 from codespy.review.signatures import SecurityAnalysis
 
 
-class SecurityAnalyzer(BaseReviewModule):
+class SecurityAuditor(BaseReviewModule):
     """Analyzes code for security vulnerabilities using DSPy."""
 
     category = IssueCategory.SECURITY
