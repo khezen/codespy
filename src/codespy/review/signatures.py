@@ -61,21 +61,29 @@ class SecurityAnalysis(dspy.Signature):
 
 
 class BugDetection(dspy.Signature):
-    """Detect potential bugs and logic errors in code changes.
+    """Detect VERIFIED bugs and logic errors in code changes.
 
-    You are an expert software engineer reviewing code for bugs. Look for:
-    - Logic errors and incorrect conditions
-    - Off-by-one errors
-    - Null/undefined reference issues
-    - Resource leaks (memory, file handles, connections)
-    - Incorrect error handling
-    - Race conditions and concurrency issues
-    - Type mismatches
-    - Incorrect API usage
-    - Edge cases not handled
-    - Incorrect algorithm implementation
+    You are an expert software engineer reviewing code for bugs.
 
-    Focus on actual bugs, not style issues or minor improvements.
+    CRITICAL RULES:
+    - ONLY report bugs you can DIRECTLY SEE in the code diff or full content
+    - DO NOT speculate about potential issues you cannot verify
+    - DO NOT report "might be", "could be", "possibly", "may cause" issues
+    - If you cannot point to the EXACT buggy code, do NOT report it
+    - Quality over quantity: prefer 0 reports over 1 speculative report
+
+    Look for CONCRETE bugs:
+    - Logic errors with clear incorrect conditions visible in code
+    - Null/undefined references where you can see the missing check
+    - Resource leaks where you can see open without close
+    - Error handling where you can see the missing try/catch or error check
+    - Type mismatches visible in the code
+    - Off-by-one errors with clear evidence
+
+    DO NOT report:
+    - Style issues or minor improvements
+    - Hypothetical edge cases you cannot see evidence for
+    - "This might cause problems" without concrete evidence
     """
 
     diff: str = dspy.InputField(
@@ -95,18 +103,18 @@ class BugDetection(dspy.Signature):
     )
 
     issues_json: str = dspy.OutputField(
-        desc="""JSON array of bugs found. Each bug should have:
+        desc="""JSON array of VERIFIED bugs found. Each bug should have:
         {
             "title": "Brief title",
             "severity": "critical|high|medium|low|info",
-            "description": "What the bug is and why it's problematic",
+            "description": "What the bug is and why it's problematic - must include SPECIFIC code evidence",
             "line_start": <number or null>,
             "line_end": <number or null>,
-            "code_snippet": "Buggy code",
+            "code_snippet": "The EXACT buggy code",
             "suggestion": "How to fix the bug",
-            "confidence": <0.0-1.0>
+            "confidence": <0.0-1.0> - set low if not 100% sure
         }
-        Return empty array [] if no bugs found."""
+        Return empty array [] if no VERIFIED bugs found. Do NOT include speculative issues."""
     )
 
 
@@ -154,19 +162,25 @@ class DocumentationReview(dspy.Signature):
 
 
 class ContextualAnalysis(dspy.Signature):
-    """Analyze if code changes make sense within the broader codebase context.
+    """Analyze code changes ONLY based on VERIFIED facts from provided context.
 
-    You are reviewing code changes considering the broader codebase. Check for:
-    - Breaking changes to existing interfaces
-    - Inconsistencies with existing patterns in the codebase
-    - Missing updates to related files
-    - Duplicate functionality that already exists
-    - Incorrect assumptions about how other parts of the code work
-    - Missing tests for new functionality
-    - API contract violations
+    CRITICAL RULES - READ CAREFULLY:
+    - ONLY report issues you can VERIFY from the related_files content provided
+    - If you cannot see the caller/callee in related_files, DO NOT report issues about them
+    - NEVER say "cannot be verified" or "without access to" - if you can't verify, don't report
+    - NEVER speculate about what "might" be wrong elsewhere in the codebase
+    - Quality over quantity: return [] if you cannot VERIFY issues from provided context
 
-    This analysis requires understanding how the changed code interacts with
-    the rest of the codebase.
+    What to check (ONLY if you can see evidence in related_files):
+    - Breaking changes where you can SEE callers in related_files that need updating
+    - Pattern inconsistencies where you can SHOW the existing pattern in related_files
+    - API mismatches where you can SHOW the expected API in related_files
+
+    DO NOT REPORT:
+    - "Callers may need updating" without showing the actual callers
+    - "This could break X" without showing X in the context
+    - "Verify that Y" - you do the verification, or don't report
+    - Any issue where your evidence is "I assume" or "there might be"
     """
 
     diff: str = dspy.InputField(
@@ -176,25 +190,26 @@ class ContextualAnalysis(dspy.Signature):
         desc="Path to the file being analyzed"
     )
     related_files: str = dspy.InputField(
-        desc="Content of related files (imports, dependencies)"
+        desc="Content of related files - ONLY use these for verification, do not assume files exist outside this"
     )
     repo_structure: str = dspy.InputField(
         desc="Overview of the repository structure"
     )
 
     issues_json: str = dspy.OutputField(
-        desc="""JSON array of contextual issues. Each issue should have:
+        desc="""JSON array of VERIFIED contextual issues. Each issue should have:
         {
             "title": "Brief title",
             "severity": "critical|high|medium|low|info",
-            "description": "How the change conflicts with or misses context",
+            "description": "MUST cite specific evidence from related_files that proves this issue",
             "line_start": <number or null>,
             "line_end": <number or null>,
-            "code_snippet": "Relevant code",
-            "suggestion": "How to align with codebase",
-            "confidence": <0.0-1.0>
+            "code_snippet": "Code from diff AND the related code that proves the conflict",
+            "suggestion": "How to fix based on what you can see in context",
+            "confidence": <0.0-1.0> - set to 0.5 or lower if not 100% verified
         }
-        Return empty array [] if changes align well with codebase."""
+        Return empty array [] if you cannot VERIFY any issues from the provided context.
+        Do NOT include speculative issues - only report what you can PROVE from the inputs."""
     )
 
 
