@@ -1,15 +1,17 @@
 # syntax=docker/dockerfile:1
 
 # Build stage with Poetry
-FROM python:3.11-slim as builder
+FROM python:3.11-alpine AS builder
 
 WORKDIR /app
 
-# Install build dependencies and Poetry
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install build dependencies for Python packages with native extensions
+RUN apk add --no-cache \
     git \
     curl \
-    && rm -rf /var/lib/apt/lists/* \
+    gcc \
+    musl-dev \
+    libffi-dev \
     && pip install --no-cache-dir poetry
 
 # Copy project files
@@ -21,16 +23,15 @@ RUN poetry config virtualenvs.create false \
     && poetry install --only main --no-interaction --no-ansi
 
 # Runtime stage
-FROM python:3.11-slim
+FROM python:3.11-alpine
 
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
     git \
     ripgrep \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd -m -u 1000 codespy
+    && adduser -D -u 1000 codespy
 
 # Copy installed packages from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages

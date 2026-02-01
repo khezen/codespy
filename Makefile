@@ -75,8 +75,13 @@ clean:
 build: clean
 	poetry build
 
+# Build Docker image (works with docker or podman)
 docker-build:
-	docker build -t codespy .
+	docker build -t codespy:latest .
+
+# Check if image exists, build if not
+docker-ensure-image:
+	@docker image inspect codespy:latest >/dev/null 2>&1 || $(MAKE) docker-build
 
 # ============================================================================
 # Run
@@ -103,11 +108,27 @@ config:
 
 # Run in Docker (requires PR_URL environment variable)
 # Usage: make docker-run PR_URL=https://github.com/owner/repo/pull/123
-docker-run:
+# Works with both docker and podman
+docker-run: docker-ensure-image
 ifndef PR_URL
 	$(error PR_URL is required. Usage: make docker-run PR_URL=https://github.com/owner/repo/pull/123)
 endif
-	docker compose run --rm codespy review $(PR_URL)
+	@docker run --rm \
+		--env-file .env \
+		-v $${HOME}/.aws:/home/codespy/.aws:ro \
+		-v codespy-cache:/home/codespy/.cache/codespy \
+		codespy:latest review $(PR_URL)
+
+# Run in Docker with JSON output
+docker-run-json: docker-ensure-image
+ifndef PR_URL
+	$(error PR_URL is required. Usage: make docker-run-json PR_URL=https://github.com/owner/repo/pull/123)
+endif
+	@docker run --rm \
+		--env-file .env \
+		-v $${HOME}/.aws:/home/codespy/.aws:ro \
+		-v codespy-cache:/home/codespy/.cache/codespy \
+		codespy:latest review $(PR_URL) --output json
 
 # ============================================================================
 # Setup
