@@ -162,25 +162,32 @@ class DocumentationReview(dspy.Signature):
 
 
 class ContextualAnalysis(dspy.Signature):
-    """Analyze code changes ONLY based on VERIFIED facts from provided context.
+    """Analyze code changes using VERIFIED caller information and related files.
 
     CRITICAL RULES - READ CAREFULLY:
-    - ONLY report issues you can VERIFY from the related_files content provided
-    - If you cannot see the caller/callee in related_files, DO NOT report issues about them
-    - NEVER say "cannot be verified" or "without access to" - if you can't verify, don't report
-    - NEVER speculate about what "might" be wrong elsewhere in the codebase
-    - Quality over quantity: return [] if you cannot VERIFY issues from provided context
+    - The related_files input includes VERIFIED caller information from codebase search
+    - If "Verified Callers of Changed Functions" section exists, USE IT to report concrete issues
+    - ONLY report issues where you can cite SPECIFIC file:line references
+    - NEVER say "cannot be verified" - if you can't verify, don't report
+    - NEVER speculate about callers that might exist - only report about callers you can see
 
-    What to check (ONLY if you can see evidence in related_files):
-    - Breaking changes where you can SEE callers in related_files that need updating
-    - Pattern inconsistencies where you can SHOW the existing pattern in related_files
-    - API mismatches where you can SHOW the expected API in related_files
+    USING VERIFIED CALLER INFORMATION:
+    - Look for "=== Verified Callers of Changed Functions ===" section in related_files
+    - This shows REAL callers found via code search - use these for your analysis
+    - Report issues like: "Caller at api/handler.go:45 needs to be updated..."
+    - Include the actual caller file and line in your issue description
+
+    What to check:
+    - Breaking changes where verified callers need updating (cite the file:line)
+    - Signature changes that affect callers shown in the verified list
+    - Renamed/removed functions that have callers in the verified list
+    - Pattern inconsistencies you can SHOW in related_files content
 
     DO NOT REPORT:
-    - "Callers may need updating" without showing the actual callers
+    - "Callers may need updating" without citing specific callers from verified list
+    - "Unknown callers might be affected" - only report what you can see
     - "This could break X" without showing X in the context
-    - "Verify that Y" - you do the verification, or don't report
-    - Any issue where your evidence is "I assume" or "there might be"
+    - Any issue where your evidence is speculative
     """
 
     diff: str = dspy.InputField(
@@ -190,7 +197,7 @@ class ContextualAnalysis(dspy.Signature):
         desc="Path to the file being analyzed"
     )
     related_files: str = dspy.InputField(
-        desc="Content of related files - ONLY use these for verification, do not assume files exist outside this"
+        desc="Content of related files AND verified callers - includes 'Verified Callers of Changed Functions' section with file:line references when available"
     )
     repo_structure: str = dspy.InputField(
         desc="Overview of the repository structure"
@@ -199,17 +206,17 @@ class ContextualAnalysis(dspy.Signature):
     issues_json: str = dspy.OutputField(
         desc="""JSON array of VERIFIED contextual issues. Each issue should have:
         {
-            "title": "Brief title",
+            "title": "Brief title - be specific about what caller/file is affected",
             "severity": "critical|high|medium|low|info",
-            "description": "MUST cite specific evidence from related_files that proves this issue",
+            "description": "MUST cite specific file:line from verified callers or related_files. Example: 'The caller at api/handler.go:45 calls parse() with 2 args but signature changed to 3 args'",
             "line_start": <number or null>,
             "line_end": <number or null>,
-            "code_snippet": "Code from diff AND the related code that proves the conflict",
-            "suggestion": "How to fix based on what you can see in context",
-            "confidence": <0.0-1.0> - set to 0.5 or lower if not 100% verified
+            "code_snippet": "The changed code AND the caller code that needs updating",
+            "suggestion": "Specific fix with file:line references",
+            "confidence": <0.0-1.0> - set to 0.9+ if you have verified caller info
         }
-        Return empty array [] if you cannot VERIFY any issues from the provided context.
-        Do NOT include speculative issues - only report what you can PROVE from the inputs."""
+        Return empty array [] if no verified callers need updating and no issues found in related_files.
+        Quality over quantity - only report issues with concrete evidence."""
     )
 
 

@@ -115,6 +115,15 @@ class PullRequest(BaseModel):
         return [f for f in self.changed_files if f.is_code_file]
 
 
+class CallerInfo(BaseModel):
+    """Information about a caller of a function/method."""
+
+    file: str = Field(description="File containing the caller")
+    line_number: int = Field(description="Line number of the call")
+    line_content: str = Field(description="Content of the line")
+    function_name: str = Field(description="Name of the function being called")
+
+
 class ReviewContext(BaseModel):
     """Context information for code review."""
 
@@ -125,6 +134,10 @@ class ReviewContext(BaseModel):
     )
     repository_structure: Optional[str] = Field(
         default=None, description="Overview of repository structure"
+    )
+    callers: dict[str, list[CallerInfo]] = Field(
+        default_factory=dict,
+        description="Callers of changed functions, keyed by filename",
     )
 
     def get_context_for_file(self, filename: str) -> str:
@@ -146,3 +159,35 @@ class ReviewContext(BaseModel):
                 context_parts.append(f"=== Related file: {related_name} ===\n{content}")
 
         return "\n\n".join(context_parts)
+
+    def get_callers_for_file(self, filename: str) -> str:
+        """Get formatted caller information for a specific file.
+
+        Args:
+            filename: The file to get callers for
+
+        Returns:
+            Formatted string listing all callers of functions in this file
+        """
+        if filename not in self.callers or not self.callers[filename]:
+            return "No callers found for functions in this file."
+
+        callers = self.callers[filename]
+        lines = ["=== Verified Callers of Changed Functions ==="]
+
+        # Group by function name
+        by_function: dict[str, list[CallerInfo]] = {}
+        for caller in callers:
+            if caller.function_name not in by_function:
+                by_function[caller.function_name] = []
+            by_function[caller.function_name].append(caller)
+
+        for func_name, func_callers in by_function.items():
+            lines.append(f"\nFunction: {func_name}")
+            lines.append(f"  Called from {len(func_callers)} location(s):")
+            for caller in func_callers[:10]:  # Limit to 10 callers per function
+                lines.append(f"    - {caller.file}:{caller.line_number}: {caller.line_content.strip()}")
+            if len(func_callers) > 10:
+                lines.append(f"    ... and {len(func_callers) - 10} more callers")
+
+        return "\n".join(lines)

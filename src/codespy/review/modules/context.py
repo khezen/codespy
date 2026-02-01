@@ -70,6 +70,12 @@ class ContextAnalyzer(BaseReviewModule):
                 content = content[:5000] + "\n... (truncated)"
             context_parts.append(f"=== {filename} ===\n{content}")
 
+        # Add verified caller information if available
+        callers_str = review_context.get_callers_for_file(file.filename)
+        if callers_str and "No callers found" not in callers_str:
+            context_parts.append(callers_str)
+            logger.debug(f"Including caller information for {file.filename}")
+
         related_files_str = "\n\n".join(context_parts) if context_parts else "No related files."
         repo_structure = review_context.repository_structure or "Structure not available."
 

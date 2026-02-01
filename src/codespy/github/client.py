@@ -9,8 +9,9 @@ from git import Repo
 from github import Auth, Github
 from github.PullRequest import PullRequest as GHPullRequest
 
+from codespy.analysis.ripgrep import RipgrepSearch
 from codespy.config import Settings, get_settings
-from codespy.github.models import ChangedFile, FileStatus, PullRequest, ReviewContext
+from codespy.github.models import CallerInfo, ChangedFile, FileStatus, PullRequest, ReviewContext
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +231,7 @@ class GitHubClient:
         """
         related_files: dict[str, str] = {}
         repo_structure: Optional[str] = None
+        callers: dict[str, list[CallerInfo]] = {}
 
         if include_repo_context:
             try:
@@ -257,15 +259,148 @@ class GitHubClient:
                 # Respect max context size
                 self._trim_context(related_files, self.settings.max_context_size)
 
-            except Exception:
+                # Find callers of changed functions using ripgrep
+                callers = self._find_callers_for_pr(pr, repo_dir)
+
+            except Exception as e:
                 # If cloning fails, continue without repo context
-                pass
+                logger.debug(f"Failed to build full context: {e}")
 
         return ReviewContext(
             pull_request=pr,
             related_files=related_files,
             repository_structure=repo_structure,
+            callers=callers,
         )
+
+    def _find_callers_for_pr(
+        self,
+        pr: PullRequest,
+        repo_dir: Path,
+    ) -> dict[str, list[CallerInfo]]:
+        """Find callers of functions changed in the PR.
+
+        Args:
+            pr: The pull request
+            repo_dir: Path to the cloned repository
+
+        Returns:
+            Dictionary mapping filenames to lists of CallerInfo
+        """
+        callers: dict[str, list[CallerInfo]] = {}
+        search = RipgrepSearch(repo_dir)
+
+        for changed_file in pr.code_files:
+            if not changed_file.patch:
+                continue
+
+            # Extract function names from the diff
+            function_names = self._extract_changed_functions(
+                changed_file.patch,
+                changed_file.extension,
+            )
+
+            if not function_names:
+                continue
+
+            file_callers: list[CallerInfo] = []
+
+            for func_name in function_names:
+                # Search for callers of this function
+                # Convert extension to glob pattern
+                file_pattern = f"*.{changed_file.extension}" if changed_file.extension else None
+                file_patterns = [file_pattern] if file_pattern else None
+                results = search.find_function_usages(func_name, file_patterns)
+
+                for result in results:
+                    # Skip if the result is in the same file (definition, not caller)
+                    if result.file == changed_file.filename:
+                        continue
+
+                    file_callers.append(
+                        CallerInfo(
+                            file=result.file,
+                            line_number=result.line_number,
+                            line_content=result.line_content,
+                            function_name=func_name,
+                        )
+                    )
+
+            if file_callers:
+                callers[changed_file.filename] = file_callers
+                logger.debug(
+                    f"Found {len(file_callers)} callers for functions in {changed_file.filename}"
+                )
+
+        return callers
+
+    def _extract_changed_functions(self, patch: str, extension: str) -> list[str]:
+        """Extract function/method names that were modified in a diff.
+
+        Args:
+            patch: The diff patch
+            extension: File extension
+
+        Returns:
+            List of function names that were changed
+        """
+        function_names: list[str] = []
+
+        # Patterns for different languages
+        if extension == "py":
+            # Python: def function_name( or async def function_name(
+            pattern = re.compile(r"^[+-]\s*(?:async\s+)?def\s+(\w+)\s*\(", re.MULTILINE)
+        elif extension == "go":
+            # Go: func FunctionName( or func (receiver) MethodName(
+            pattern = re.compile(r"^[+-]\s*func\s+(?:\([^)]+\)\s+)?(\w+)\s*\(", re.MULTILINE)
+        elif extension in ("js", "ts", "jsx", "tsx"):
+            # JavaScript/TypeScript: function name(, const name = (, name(, async name(
+            pattern = re.compile(
+                r"^[+-]\s*(?:export\s+)?(?:async\s+)?(?:function\s+(\w+)|"
+                r"(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[^=])\s*=>|"
+                r"(\w+)\s*\([^)]*\)\s*\{)",
+                re.MULTILINE,
+            )
+        elif extension in ("java", "kt", "cs"):
+            # Java/Kotlin/C#: public void methodName( or fun methodName(
+            pattern = re.compile(
+                r"^[+-]\s*(?:public|private|protected|internal|override|suspend|fun|static|\s)*"
+                r"(?:\w+\s+)*(\w+)\s*\(",
+                re.MULTILINE,
+            )
+        elif extension in ("c", "cpp", "h", "hpp"):
+            # C/C++: type function_name( or Class::method_name(
+            pattern = re.compile(
+                r"^[+-]\s*(?:\w+\s+)+(?:\w+::)?(\w+)\s*\(",
+                re.MULTILINE,
+            )
+        elif extension == "rs":
+            # Rust: fn function_name( or pub fn function_name(
+            pattern = re.compile(r"^[+-]\s*(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*[<(]", re.MULTILINE)
+        elif extension == "rb":
+            # Ruby: def method_name
+            pattern = re.compile(r"^[+-]\s*def\s+(\w+)", re.MULTILINE)
+        else:
+            return []
+
+        for match in pattern.finditer(patch):
+            # Get the first non-None group
+            for group in match.groups():
+                if group:
+                    # Skip common false positives
+                    if group not in ("if", "for", "while", "switch", "catch", "return"):
+                        function_names.append(group)
+                    break
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_names = []
+        for name in function_names:
+            if name not in seen:
+                seen.add(name)
+                unique_names.append(name)
+
+        return unique_names[:20]  # Limit to 20 functions per file
 
     def _get_repo_structure(self, repo_dir: Path, max_depth: int = 2) -> str:
         """Get a tree-like overview of the repository structure.
