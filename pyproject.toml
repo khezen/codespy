@@ -31,6 +31,11 @@ boto3 = ">=1.35.0"  # Required for AWS Bedrock
 cloudpickle = "^3.1.2"
 json-repair = "^0.55.1"
 asyncer = "^0.0.12"
+tree-sitter = ">=0.23"
+tree-sitter-go = ">=0.23"
+tree-sitter-python = ">=0.23"
+tree-sitter-javascript = ">=0.23"
+tree-sitter-typescript = ">=0.23"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0.0"

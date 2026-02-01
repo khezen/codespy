@@ -3,13 +3,13 @@
 import logging
 import re
 from pathlib import Path
-from typing import Optional
 
 from git import Repo
 from github import Auth, Github
 from github.PullRequest import PullRequest as GHPullRequest
 
 from codespy.analysis.ripgrep import RipgrepSearch
+from codespy.analysis.treesitter import TreeSitterAnalyzer
 from codespy.config import Settings, get_settings
 from codespy.github.models import CallerInfo, ChangedFile, FileStatus, PullRequest, ReviewContext
 
@@ -23,14 +23,14 @@ class GitHubClient:
         r"https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)"
     )
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         """Initialize the GitHub client.
 
         Args:
             settings: Application settings. Uses global settings if not provided.
         """
         self.settings = settings or get_settings()
-        self._github: Optional[Github] = None
+        self._github: Github | None = None
 
     @property
     def github(self) -> Github:
@@ -230,7 +230,7 @@ class GitHubClient:
             ReviewContext with PR and related files
         """
         related_files: dict[str, str] = {}
-        repo_structure: Optional[str] = None
+        repo_structure: str | None = None
         callers: dict[str, list[CallerInfo]] = {}
 
         if include_repo_context:
@@ -280,6 +280,9 @@ class GitHubClient:
     ) -> dict[str, list[CallerInfo]]:
         """Find callers of functions changed in the PR.
 
+        Uses tree-sitter for accurate AST-based analysis when available,
+        falls back to ripgrep for text-based search.
+
         Args:
             pr: The pull request
             repo_dir: Path to the cloned repository
@@ -288,7 +291,16 @@ class GitHubClient:
             Dictionary mapping filenames to lists of CallerInfo
         """
         callers: dict[str, list[CallerInfo]] = {}
-        search = RipgrepSearch(repo_dir)
+
+        # Try tree-sitter first for accurate analysis
+        ts_analyzer = TreeSitterAnalyzer(repo_dir)
+        rg_search = RipgrepSearch(repo_dir)
+
+        use_treesitter = ts_analyzer.available
+        if use_treesitter:
+            logger.debug("Using tree-sitter for caller analysis")
+        else:
+            logger.debug("Tree-sitter unavailable, using ripgrep fallback")
 
         for changed_file in pr.code_files:
             if not changed_file.patch:
@@ -306,30 +318,85 @@ class GitHubClient:
             file_callers: list[CallerInfo] = []
 
             for func_name in function_names:
-                # Search for callers of this function
-                # Convert extension to glob pattern
-                file_pattern = f"*.{changed_file.extension}" if changed_file.extension else None
-                file_patterns = [file_pattern] if file_pattern else None
-                results = search.find_function_usages(func_name, file_patterns)
-
-                for result in results:
-                    # Skip if the result is in the same file (definition, not caller)
-                    if result.file == changed_file.filename:
-                        continue
-
-                    file_callers.append(
-                        CallerInfo(
-                            file=result.file,
-                            line_number=result.line_number,
-                            line_content=result.line_content,
-                            function_name=func_name,
-                        )
+                if use_treesitter:
+                    # Use tree-sitter for accurate AST-based search
+                    callers_found = self._find_callers_treesitter(
+                        ts_analyzer, repo_dir, func_name, changed_file.filename, changed_file.extension
                     )
+                    file_callers.extend(callers_found)
+                else:
+                    # Fallback to ripgrep text search
+                    file_pattern = f"*.{changed_file.extension}" if changed_file.extension else None
+                    file_patterns = [file_pattern] if file_pattern else None
+                    results = rg_search.find_function_usages(func_name, file_patterns)
+
+                    for result in results:
+                        # Skip if the result is in the same file (definition, not caller)
+                        if result.file == changed_file.filename:
+                            continue
+
+                        file_callers.append(
+                            CallerInfo(
+                                file=result.file,
+                                line_number=result.line_number,
+                                line_content=result.line_content,
+                                function_name=func_name,
+                            )
+                        )
 
             if file_callers:
                 callers[changed_file.filename] = file_callers
                 logger.debug(
                     f"Found {len(file_callers)} callers for functions in {changed_file.filename}"
+                )
+
+        return callers
+
+    def _find_callers_treesitter(
+        self,
+        analyzer: TreeSitterAnalyzer,
+        repo_dir: Path,
+        function_name: str,
+        source_file: str,
+        extension: str,
+    ) -> list[CallerInfo]:
+        """Find callers using tree-sitter AST analysis.
+
+        Args:
+            analyzer: Tree-sitter analyzer instance
+            repo_dir: Repository directory
+            function_name: Function name to find calls for
+            source_file: File where function is defined (to exclude)
+            extension: File extension to search
+
+        Returns:
+            List of CallerInfo for each call found
+        """
+        callers: list[CallerInfo] = []
+
+        # Find all files with matching extension
+        pattern = f"**/*.{extension}"
+        for file_path in repo_dir.glob(pattern):
+            # Skip the source file
+            rel_path = str(file_path.relative_to(repo_dir))
+            if rel_path == source_file:
+                continue
+
+            # Skip vendor/node_modules directories
+            if any(skip in str(file_path) for skip in ["vendor/", "node_modules/", "__pycache__/"]):
+                continue
+
+            # Find calls to this function in the file
+            calls = analyzer.find_function_calls(file_path, function_name)
+
+            for call in calls:
+                callers.append(
+                    CallerInfo(
+                        file=rel_path,
+                        line_number=call.line_number,
+                        line_content=call.line_content,
+                        function_name=function_name,
+                    )
                 )
 
         return callers

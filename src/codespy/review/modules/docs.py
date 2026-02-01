@@ -15,7 +15,7 @@ MARKDOWN_EXTENSIONS = {".md", ".markdown", ".mdx", ".rst", ".txt"}
 
 class DocumentationReviewer(BaseReviewModule):
     """Reviews markdown documentation files for accuracy and completeness.
-    
+
     Only analyzes markdown files (*.md, *.markdown, *.mdx, *.rst).
     Skips code files - use other modules for code documentation like docstrings.
     """
@@ -34,9 +34,9 @@ class DocumentationReviewer(BaseReviewModule):
 
     def analyze(self, file: ChangedFile, context: str = "") -> list[Issue]:
         """Analyze a file for documentation issues.
-        
+
         Only analyzes markdown files. Returns empty list for non-markdown files.
-        
+
         Args:
             file: The changed file to analyze
             context: Not used for documentation review
@@ -47,7 +47,7 @@ class DocumentationReviewer(BaseReviewModule):
         # Skip non-markdown files
         if not self._is_markdown_file(file.filename):
             return []
-        
+
         # Call parent's analyze method for markdown files
         return super().analyze(file, context)
 

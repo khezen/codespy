@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -23,12 +22,12 @@ class ChangedFile(BaseModel):
     status: FileStatus = Field(description="Type of change (added, modified, removed, renamed)")
     additions: int = Field(default=0, description="Number of lines added")
     deletions: int = Field(default=0, description="Number of lines deleted")
-    patch: Optional[str] = Field(default=None, description="The diff patch for this file")
-    previous_filename: Optional[str] = Field(
+    patch: str | None = Field(default=None, description="The diff patch for this file")
+    previous_filename: str | None = Field(
         default=None, description="Previous filename if renamed"
     )
-    content: Optional[str] = Field(default=None, description="Full file content after changes")
-    previous_content: Optional[str] = Field(
+    content: str | None = Field(default=None, description="Full file content after changes")
+    previous_content: str | None = Field(
         default=None, description="Full file content before changes"
     )
 
@@ -75,7 +74,7 @@ class PullRequest(BaseModel):
 
     number: int = Field(description="PR number")
     title: str = Field(description="PR title")
-    body: Optional[str] = Field(default=None, description="PR description/body")
+    body: str | None = Field(default=None, description="PR description/body")
     state: str = Field(description="PR state (open, closed, merged)")
     author: str = Field(description="PR author username")
     base_branch: str = Field(description="Target branch")
@@ -132,7 +131,7 @@ class ReviewContext(BaseModel):
         default_factory=dict,
         description="Related files content (imports, dependencies)",
     )
-    repository_structure: Optional[str] = Field(
+    repository_structure: str | None = Field(
         default=None, description="Overview of repository structure"
     )
     callers: dict[str, list[CallerInfo]] = Field(

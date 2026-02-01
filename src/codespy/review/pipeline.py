@@ -3,7 +3,6 @@
 import json
 import logging
 import threading
-from typing import Optional
 
 import dspy
 import litellm
@@ -130,7 +129,7 @@ def _litellm_success_callback(kwargs, completion_response, start_time, end_time)
 class ReviewPipeline:
     """Orchestrates the code review process using DSPy modules."""
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         """Initialize the review pipeline.
 
         Args:
@@ -191,7 +190,7 @@ class ReviewPipeline:
         model = self.settings.litellm_model
         try:
             # Make a minimal test call
-            response = litellm.completion(
+            litellm.completion(
                 model=model,
                 messages=[{"role": "user", "content": "Hi"}],
                 max_tokens=5,

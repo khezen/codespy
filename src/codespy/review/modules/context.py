@@ -1,6 +1,5 @@
 """Contextual analysis module for codebase-aware review."""
 
-import json
 import logging
 from typing import Any
 

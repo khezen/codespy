@@ -2,8 +2,7 @@
 
 import json
 import logging
-import sys
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -32,7 +31,7 @@ def version_callback(value: bool) -> None:
 @app.callback()
 def main(
     version: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option(
             "--version",
             "-v",
@@ -71,7 +70,7 @@ def review(
         ),
     ] = True,
     model: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--model",
             "-m",
@@ -198,7 +197,7 @@ def config() -> None:
     if settings.github_token:
         console.print(f"[bold]GitHub Token:[/bold] [green]configured[/green] [dim]({token_source})[/dim]")
     else:
-        console.print(f"[bold]GitHub Token:[/bold] [red]not found[/red]")
+        console.print("[bold]GitHub Token:[/bold] [red]not found[/red]")
     console.print(
         f"[bold]OpenAI API Key:[/bold] {'[green]configured[/green]' if settings.openai_api_key else '[dim]not set[/dim]'}"
     )

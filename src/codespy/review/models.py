@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -34,11 +33,11 @@ class Issue(BaseModel):
     title: str = Field(description="Brief title of the issue")
     description: str = Field(description="Detailed description of the issue")
     file: str = Field(description="File where the issue was found")
-    line_start: Optional[int] = Field(default=None, description="Starting line number")
-    line_end: Optional[int] = Field(default=None, description="Ending line number")
-    code_snippet: Optional[str] = Field(default=None, description="Relevant code snippet")
-    suggestion: Optional[str] = Field(default=None, description="Suggested fix or improvement")
-    cwe_id: Optional[str] = Field(
+    line_start: int | None = Field(default=None, description="Starting line number")
+    line_end: int | None = Field(default=None, description="Ending line number")
+    code_snippet: str | None = Field(default=None, description="Relevant code snippet")
+    suggestion: str | None = Field(default=None, description="Suggested fix or improvement")
+    cwe_id: str | None = Field(
         default=None, description="CWE ID for security issues (e.g., CWE-79)"
     )
     confidence: float = Field(
@@ -60,9 +59,9 @@ class FileReview(BaseModel):
 
     filename: str = Field(description="Path to the reviewed file")
     issues: list[Issue] = Field(default_factory=list, description="Issues found in this file")
-    summary: Optional[str] = Field(default=None, description="Brief summary of file changes")
+    summary: str | None = Field(default=None, description="Brief summary of file changes")
     reviewed: bool = Field(default=True, description="Whether the file was actually reviewed")
-    skip_reason: Optional[str] = Field(
+    skip_reason: str | None = Field(
         default=None, description="Reason if file was skipped"
     )
 
@@ -96,10 +95,10 @@ class ReviewResult(BaseModel):
     file_reviews: list[FileReview] = Field(
         default_factory=list, description="Per-file review results"
     )
-    overall_summary: Optional[str] = Field(
+    overall_summary: str | None = Field(
         default=None, description="Overall summary of the PR"
     )
-    recommendation: Optional[str] = Field(
+    recommendation: str | None = Field(
         default=None, description="Overall recommendation (approve, request changes, etc.)"
     )
     total_cost: float = Field(default=0.0, description="Total cost in USD")
