@@ -111,32 +111,30 @@ class BugDetection(dspy.Signature):
 
 
 class DocumentationReview(dspy.Signature):
-    """Review code changes for documentation completeness.
+    """Review markdown documentation files for accuracy and completeness.
 
-    You are reviewing code for documentation quality. Check for:
-    - Missing function/method docstrings
-    - Missing class docstrings
-    - Incomplete parameter documentation
-    - Missing return value documentation
-    - Outdated comments that don't match the code
-    - Missing inline comments for complex logic
-    - Missing README updates for public API changes
-    - Missing type hints (for typed languages)
+    You are reviewing markdown documentation files (README.md, docs/*.md, etc.).
+    This is NOT about code comments or docstrings - focus ONLY on:
 
-    Focus on documentation that helps understand and maintain the code.
+    - Is the documentation accurate and up-to-date?
+    - Are there factual errors or outdated information?
+    - Is important information missing that users/developers need?
+    - Are code examples correct and working?
+    - Are links valid and pointing to the right resources?
+    - Is the documentation clear and well-organized?
+
+    Only report issues for MARKDOWN documentation files.
+    Do NOT report issues about missing docstrings in code files.
     """
 
     diff: str = dspy.InputField(
-        desc="The code diff showing changes"
+        desc="The markdown documentation diff showing changes"
     )
     full_content: str = dspy.InputField(
-        desc="The full file content after changes"
+        desc="The full markdown file content after changes"
     )
     file_path: str = dspy.InputField(
-        desc="Path to the file being analyzed"
-    )
-    language: str = dspy.InputField(
-        desc="Programming language of the file"
+        desc="Path to the markdown file being analyzed"
     )
 
     issues_json: str = dspy.OutputField(
@@ -144,11 +142,11 @@ class DocumentationReview(dspy.Signature):
         {
             "title": "Brief title",
             "severity": "medium|low|info",
-            "description": "What documentation is missing or incorrect",
+            "description": "What is inaccurate, outdated, or missing in the docs",
             "line_start": <number or null>,
             "line_end": <number or null>,
-            "code_snippet": "Code needing documentation",
-            "suggestion": "Suggested documentation to add",
+            "code_snippet": "Relevant documentation text",
+            "suggestion": "How to improve the documentation",
             "confidence": <0.0-1.0>
         }
         Return empty array [] if documentation is adequate."""
