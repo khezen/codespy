@@ -181,6 +181,29 @@ class Settings(BaseSettings):
         description="Whether to include repository context (imports, dependencies)",
     )
 
+    # File exclusion settings
+    exclude_patterns: list[str] = Field(
+        default=[
+            "vendor/",
+            "node_modules/",
+            "third_party/",
+            "external/",
+            "deps/",
+            ".bundle/",
+            "Pods/",
+            "Carthage/",
+            "bower_components/",
+            "jspm_packages/",
+            "_vendor/",
+            "vendored/",
+        ],
+        description="Path patterns to exclude from review (vendor directories, etc.)",
+    )
+    include_vendor: bool = Field(
+        default=False,
+        description="Include vendor/dependency files in review (overrides exclude_patterns)",
+    )
+
     # Output settings
     output_format: Literal["markdown", "json"] = Field(
         default="markdown",

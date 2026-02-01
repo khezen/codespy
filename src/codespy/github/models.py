@@ -90,6 +90,9 @@ class PullRequest(BaseModel):
         default_factory=list, description="List of changed files"
     )
     labels: list[str] = Field(default_factory=list, description="PR labels")
+    excluded_files_count: int = Field(
+        default=0, description="Number of files excluded (vendor, etc.)"
+    )
 
     @property
     def repo_full_name(self) -> str:
