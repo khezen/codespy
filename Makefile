@@ -1,0 +1,127 @@
+.PHONY: help install install-dev lint format typecheck test clean build docker-build docker-run review
+
+# Default target
+help:
+	@echo "codespy - Code review agent powered by DSPy"
+	@echo ""
+	@echo "Usage: make [target]"
+	@echo ""
+	@echo "Development:"
+	@echo "  install       Install package in production mode"
+	@echo "  install-dev   Install package with dev dependencies"
+	@echo "  lint          Run ruff linter"
+	@echo "  format        Format code with ruff"
+	@echo "  typecheck     Run mypy type checker"
+	@echo "  test          Run pytest tests"
+	@echo "  clean         Remove build artifacts and caches"
+	@echo ""
+	@echo "Build:"
+	@echo "  build         Build Python package"
+	@echo "  docker-build  Build Docker image"
+	@echo ""
+	@echo "Run:"
+	@echo "  docker-run    Run codespy in Docker (use PR_URL=...)"
+	@echo "  review        Run review on a PR (use PR_URL=...)"
+	@echo "  config        Show current configuration"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make install-dev"
+	@echo "  make lint"
+	@echo "  make review PR_URL=https://github.com/owner/repo/pull/123"
+	@echo "  make docker-run PR_URL=https://github.com/owner/repo/pull/123"
+
+# ============================================================================
+# Development
+# ============================================================================
+
+install:
+	pip install -e .
+
+install-dev:
+	pip install -e ".[dev]"
+
+lint:
+	ruff check src/
+
+format:
+	ruff check --fix src/
+	ruff format src/
+
+typecheck:
+	mypy src/
+
+test:
+	pytest tests/ -v
+
+clean:
+	rm -rf build/
+	rm -rf dist/
+	rm -rf *.egg-info/
+	rm -rf src/*.egg-info/
+	rm -rf .pytest_cache/
+	rm -rf .mypy_cache/
+	rm -rf .ruff_cache/
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+
+# ============================================================================
+# Build
+# ============================================================================
+
+build: clean
+	pip install build
+	python -m build
+
+docker-build:
+	docker build -t codespy .
+
+# ============================================================================
+# Run
+# ============================================================================
+
+# Run review command (requires PR_URL environment variable)
+# Usage: make review PR_URL=https://github.com/owner/repo/pull/123
+review:
+ifndef PR_URL
+	$(error PR_URL is required. Usage: make review PR_URL=https://github.com/owner/repo/pull/123)
+endif
+	codespy review $(PR_URL)
+
+# Run review with JSON output
+review-json:
+ifndef PR_URL
+	$(error PR_URL is required. Usage: make review-json PR_URL=https://github.com/owner/repo/pull/123)
+endif
+	codespy review $(PR_URL) --output json
+
+# Show current configuration
+config:
+	codespy config
+
+# Run in Docker (requires PR_URL environment variable)
+# Usage: make docker-run PR_URL=https://github.com/owner/repo/pull/123
+docker-run:
+ifndef PR_URL
+	$(error PR_URL is required. Usage: make docker-run PR_URL=https://github.com/owner/repo/pull/123)
+endif
+	docker compose run --rm codespy review $(PR_URL)
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+# Create .env from example if it doesn't exist
+setup-env:
+	@if [ ! -f .env ]; then \
+		cp .env.example .env; \
+		echo "Created .env from .env.example. Please edit it with your settings."; \
+	else \
+		echo ".env already exists."; \
+	fi
+
+# Full setup for new developers
+setup: setup-env install-dev
+	@echo ""
+	@echo "Setup complete! Next steps:"
+	@echo "1. Edit .env with your GitHub token and LLM settings"
+	@echo "2. Run 'make review PR_URL=<github_pr_url>' to review a PR"

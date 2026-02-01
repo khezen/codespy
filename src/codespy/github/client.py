@@ -1,0 +1,391 @@
+"""GitHub API client for fetching PR data."""
+
+import re
+from pathlib import Path
+from typing import Optional
+
+from git import Repo
+from github import Auth, Github
+from github.PullRequest import PullRequest as GHPullRequest
+
+from codespy.config import Settings, get_settings
+from codespy.github.models import ChangedFile, FileStatus, PullRequest, ReviewContext
+
+
+class GitHubClient:
+    """Client for interacting with GitHub API."""
+
+    PR_URL_PATTERN = re.compile(
+        r"https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)"
+    )
+
+    def __init__(self, settings: Optional[Settings] = None) -> None:
+        """Initialize the GitHub client.
+
+        Args:
+            settings: Application settings. Uses global settings if not provided.
+        """
+        self.settings = settings or get_settings()
+        self._github: Optional[Github] = None
+
+    @property
+    def github(self) -> Github:
+        """Get or create GitHub client instance."""
+        if self._github is None:
+            if self.settings.github_token:
+                auth = Auth.Token(self.settings.github_token)
+                self._github = Github(auth=auth)
+            else:
+                self._github = Github()
+        return self._github
+
+    def parse_pr_url(self, url: str) -> tuple[str, str, int]:
+        """Parse a GitHub PR URL into owner, repo, and PR number.
+
+        Args:
+            url: GitHub PR URL
+
+        Returns:
+            Tuple of (owner, repo, pr_number)
+
+        Raises:
+            ValueError: If URL is not a valid GitHub PR URL
+        """
+        match = self.PR_URL_PATTERN.match(url)
+        if not match:
+            raise ValueError(
+                f"Invalid GitHub PR URL: {url}. "
+                "Expected format: https://github.com/owner/repo/pull/123"
+            )
+        return match.group("owner"), match.group("repo"), int(match.group("number"))
+
+    def fetch_pull_request(self, pr_url: str) -> PullRequest:
+        """Fetch pull request data from GitHub.
+
+        Args:
+            pr_url: GitHub PR URL
+
+        Returns:
+            PullRequest model with all data
+        """
+        owner, repo_name, pr_number = self.parse_pr_url(pr_url)
+
+        # Get repository and PR
+        repo = self.github.get_repo(f"{owner}/{repo_name}")
+        gh_pr: GHPullRequest = repo.get_pull(pr_number)
+
+        # Build changed files list
+        changed_files: list[ChangedFile] = []
+        for file in gh_pr.get_files():
+            status = FileStatus(file.status)
+
+            # Get file content if available
+            content = None
+            previous_content = None
+
+            if status != FileStatus.REMOVED:
+                try:
+                    content_file = repo.get_contents(file.filename, ref=gh_pr.head.sha)
+                    if not isinstance(content_file, list):
+                        content = content_file.decoded_content.decode("utf-8")
+                except Exception:
+                    pass  # File might be binary or too large
+
+            if status in (FileStatus.MODIFIED, FileStatus.RENAMED):
+                try:
+                    prev_filename = file.previous_filename or file.filename
+                    prev_content_file = repo.get_contents(prev_filename, ref=gh_pr.base.sha)
+                    if not isinstance(prev_content_file, list):
+                        previous_content = prev_content_file.decoded_content.decode("utf-8")
+                except Exception:
+                    pass
+
+            changed_files.append(
+                ChangedFile(
+                    filename=file.filename,
+                    status=status,
+                    additions=file.additions,
+                    deletions=file.deletions,
+                    patch=file.patch,
+                    previous_filename=file.previous_filename,
+                    content=content,
+                    previous_content=previous_content,
+                )
+            )
+
+        return PullRequest(
+            number=gh_pr.number,
+            title=gh_pr.title,
+            body=gh_pr.body,
+            state=gh_pr.state,
+            author=gh_pr.user.login,
+            base_branch=gh_pr.base.ref,
+            head_branch=gh_pr.head.ref,
+            base_sha=gh_pr.base.sha,
+            head_sha=gh_pr.head.sha,
+            created_at=gh_pr.created_at,
+            updated_at=gh_pr.updated_at,
+            repo_owner=owner,
+            repo_name=repo_name,
+            changed_files=changed_files,
+            labels=[label.name for label in gh_pr.labels],
+        )
+
+    def clone_repository(self, owner: str, repo_name: str, ref: str) -> Path:
+        """Clone or update a repository for context analysis.
+
+        Args:
+            owner: Repository owner
+            repo_name: Repository name
+            ref: Git ref (branch, tag, or commit) to checkout
+
+        Returns:
+            Path to the cloned repository
+        """
+        cache_dir = self.settings.cache_dir
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        repo_dir = cache_dir / owner / repo_name
+
+        if repo_dir.exists():
+            # Update existing clone
+            repo = Repo(repo_dir)
+            repo.remotes.origin.fetch()
+        else:
+            # Fresh clone (shallow to save space)
+            repo_url = f"https://github.com/{owner}/{repo_name}.git"
+            if self.settings.github_token:
+                repo_url = f"https://{self.settings.github_token}@github.com/{owner}/{repo_name}.git"
+
+            repo_dir.mkdir(parents=True, exist_ok=True)
+            repo = Repo.clone_from(
+                repo_url,
+                repo_dir,
+                depth=1,
+                no_single_branch=True,
+            )
+
+        # Checkout the specific ref
+        repo.git.checkout(ref)
+
+        return repo_dir
+
+    def build_review_context(
+        self,
+        pr: PullRequest,
+        include_repo_context: bool = True,
+    ) -> ReviewContext:
+        """Build review context for a pull request.
+
+        Args:
+            pr: The pull request to build context for
+            include_repo_context: Whether to include related files from the repo
+
+        Returns:
+            ReviewContext with PR and related files
+        """
+        related_files: dict[str, str] = {}
+        repo_structure: Optional[str] = None
+
+        if include_repo_context:
+            try:
+                repo_dir = self.clone_repository(pr.repo_owner, pr.repo_name, pr.head_sha)
+
+                # Get repository structure (top-level overview)
+                repo_structure = self._get_repo_structure(repo_dir)
+
+                # Find related files (imports/dependencies)
+                for changed_file in pr.code_files:
+                    file_path = repo_dir / changed_file.filename
+                    if file_path.exists():
+                        imports = self._find_imports(file_path, changed_file.extension)
+                        for import_path in imports:
+                            full_path = repo_dir / import_path
+                            if full_path.exists() and import_path not in related_files:
+                                try:
+                                    content = full_path.read_text()
+                                    # Limit size per file
+                                    if len(content) < 10000:
+                                        related_files[import_path] = content
+                                except Exception:
+                                    pass
+
+                # Respect max context size
+                self._trim_context(related_files, self.settings.max_context_size)
+
+            except Exception:
+                # If cloning fails, continue without repo context
+                pass
+
+        return ReviewContext(
+            pull_request=pr,
+            related_files=related_files,
+            repository_structure=repo_structure,
+        )
+
+    def _get_repo_structure(self, repo_dir: Path, max_depth: int = 2) -> str:
+        """Get a tree-like overview of the repository structure.
+
+        Args:
+            repo_dir: Path to the repository
+            max_depth: Maximum depth to traverse
+
+        Returns:
+            String representation of the repo structure
+        """
+        lines = []
+
+        def walk(path: Path, prefix: str = "", depth: int = 0) -> None:
+            if depth > max_depth:
+                return
+
+            # Skip hidden and common non-essential directories
+            skip_dirs = {
+                ".git",
+                "node_modules",
+                "__pycache__",
+                ".venv",
+                "venv",
+                ".tox",
+                "dist",
+                "build",
+                ".eggs",
+            }
+
+            try:
+                entries = sorted(path.iterdir(), key=lambda x: (x.is_file(), x.name))
+                dirs = [e for e in entries if e.is_dir() and e.name not in skip_dirs]
+                files = [e for e in entries if e.is_file()]
+
+                # Show directories
+                for d in dirs[:10]:  # Limit directories shown
+                    lines.append(f"{prefix}📁 {d.name}/")
+                    walk(d, prefix + "  ", depth + 1)
+
+                if len(dirs) > 10:
+                    lines.append(f"{prefix}... and {len(dirs) - 10} more directories")
+
+                # Show files at top level only
+                if depth == 0:
+                    for f in files[:5]:
+                        lines.append(f"{prefix}📄 {f.name}")
+                    if len(files) > 5:
+                        lines.append(f"{prefix}... and {len(files) - 5} more files")
+
+            except PermissionError:
+                pass
+
+        walk(repo_dir)
+        return "\n".join(lines[:50])  # Limit total lines
+
+    def _find_imports(self, file_path: Path, extension: str) -> list[str]:
+        """Find import statements in a file and resolve to file paths.
+
+        Args:
+            file_path: Path to the source file
+            extension: File extension
+
+        Returns:
+            List of relative file paths that are imported
+        """
+        imports: list[str] = []
+
+        try:
+            content = file_path.read_text()
+        except Exception:
+            return imports
+
+        if extension == "py":
+            imports.extend(self._parse_python_imports(content, file_path))
+        elif extension in ("js", "ts", "jsx", "tsx"):
+            imports.extend(self._parse_js_imports(content, file_path))
+        elif extension == "go":
+            imports.extend(self._parse_go_imports(content, file_path))
+
+        return imports
+
+    def _parse_python_imports(self, content: str, file_path: Path) -> list[str]:
+        """Parse Python import statements."""
+        imports: list[str] = []
+        import_pattern = re.compile(
+            r"^(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.MULTILINE
+        )
+
+        for match in import_pattern.finditer(content):
+            module = match.group(1) or match.group(2)
+            if module:
+                # Convert module path to file path
+                parts = module.split(".")
+                # Try to find the file relative to the source file
+                for i in range(len(parts), 0, -1):
+                    potential_path = "/".join(parts[:i]) + ".py"
+                    imports.append(potential_path)
+                    # Also try as package
+                    imports.append("/".join(parts[:i]) + "/__init__.py")
+
+        return imports[:10]  # Limit number of imports to check
+
+    def _parse_js_imports(self, content: str, file_path: Path) -> list[str]:
+        """Parse JavaScript/TypeScript import statements."""
+        imports: list[str] = []
+        # Match: import ... from '...' or require('...')
+        import_pattern = re.compile(
+            r"(?:import\s+.*?\s+from\s+['\"](.+?)['\"]|require\s*\(\s*['\"](.+?)['\"]\s*\))"
+        )
+
+        for match in import_pattern.finditer(content):
+            path = match.group(1) or match.group(2)
+            if path and path.startswith("."):
+                # Relative import
+                resolved = (file_path.parent / path).resolve()
+                # Try different extensions
+                for ext in ["", ".js", ".ts", ".jsx", ".tsx", "/index.js", "/index.ts"]:
+                    imports.append(str(resolved) + ext)
+
+        return imports[:10]
+
+    def _parse_go_imports(self, content: str, file_path: Path) -> list[str]:
+        """Parse Go import statements."""
+        imports: list[str] = []
+        # Match import blocks and single imports
+        import_pattern = re.compile(r'import\s+(?:\(\s*([\s\S]*?)\s*\)|"(.+?)")')
+
+        for match in import_pattern.finditer(content):
+            if match.group(1):
+                # Multi-line import block
+                for line in match.group(1).split("\n"):
+                    line = line.strip().strip('"')
+                    if line and not line.startswith("//"):
+                        imports.append(line)
+            elif match.group(2):
+                imports.append(match.group(2))
+
+        return imports[:10]
+
+    def _trim_context(self, related_files: dict[str, str], max_size: int) -> None:
+        """Trim related files to fit within max context size.
+
+        Modifies the dict in place, removing files if total size exceeds limit.
+        """
+        total_size = sum(len(content) for content in related_files.values())
+
+        if total_size <= max_size:
+            return
+
+        # Sort by size (keep smaller files)
+        sorted_files = sorted(related_files.items(), key=lambda x: len(x[1]))
+
+        current_size = 0
+        files_to_keep: set[str] = set()
+
+        for filename, content in sorted_files:
+            if current_size + len(content) <= max_size:
+                files_to_keep.add(filename)
+                current_size += len(content)
+            else:
+                break
+
+        # Remove files that don't fit
+        for filename in list(related_files.keys()):
+            if filename not in files_to_keep:
+                del related_files[filename]
