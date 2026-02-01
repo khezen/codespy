@@ -13,15 +13,29 @@
 
 ## Installation
 
-### Using pip (recommended)
+### Using Poetry (recommended)
 
 ```bash
 # Clone the repository
 git clone https://github.com/khezen/codespy.git
 cd codespy
 
-# Install in development mode
-pip install -e .
+# Install dependencies
+poetry install
+
+# Or install only production dependencies
+poetry install --only main
+```
+
+### Using pip
+
+```bash
+# Clone the repository
+git clone https://github.com/khezen/codespy.git
+cd codespy
+
+# Install from pyproject.toml
+pip install .
 ```
 
 ### Using Docker
@@ -270,29 +284,25 @@ All languages are supported for security, bug, and documentation analysis.
 # Quick setup (creates .env and installs dependencies)
 make setup
 
-# Or manually:
-pip install -e ".[dev]"
+# Or manually with Poetry:
+poetry install           # Install all dependencies including dev
+poetry lock              # Update lock file
 
 # Available make targets
 make help
 
-# Run linter
-make lint
+# Run commands with Poetry
+make lint                # Run ruff linter
+make format              # Format code with ruff
+make typecheck           # Run mypy type checker
+make test                # Run pytest tests
+make build               # Build package with Poetry
+make clean               # Clean build artifacts
 
-# Format code
-make format
-
-# Run type checker
-make typecheck
-
-# Run tests
-make test
-
-# Build package
-make build
-
-# Clean build artifacts
-make clean
+# Or run directly:
+poetry run codespy review https://github.com/owner/repo/pull/123
+poetry run ruff check src/
+poetry run mypy src/
 ```
 
 ## License

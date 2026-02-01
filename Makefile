@@ -9,6 +9,7 @@ help:
 	@echo "Development:"
 	@echo "  install       Install package in production mode"
 	@echo "  install-dev   Install package with dev dependencies"
+	@echo "  lock          Generate/update poetry.lock"
 	@echo "  lint          Run ruff linter"
 	@echo "  format        Format code with ruff"
 	@echo "  typecheck     Run mypy type checker"
@@ -35,23 +36,26 @@ help:
 # ============================================================================
 
 install:
-	pip install -e .
+	poetry install --only main
 
 install-dev:
-	pip install -e ".[dev]"
+	poetry install
+
+lock:
+	poetry lock
 
 lint:
-	ruff check src/
+	poetry run ruff check src/
 
 format:
-	ruff check --fix src/
-	ruff format src/
+	poetry run ruff check --fix src/
+	poetry run ruff format src/
 
 typecheck:
-	mypy src/
+	poetry run mypy src/
 
 test:
-	pytest tests/ -v
+	poetry run pytest tests/ -v
 
 clean:
 	rm -rf build/
@@ -69,8 +73,7 @@ clean:
 # ============================================================================
 
 build: clean
-	pip install build
-	python -m build
+	poetry build
 
 docker-build:
 	docker build -t codespy .
@@ -85,18 +88,18 @@ review:
 ifndef PR_URL
 	$(error PR_URL is required. Usage: make review PR_URL=https://github.com/owner/repo/pull/123)
 endif
-	codespy review $(PR_URL)
+	poetry run codespy review $(PR_URL)
 
 # Run review with JSON output
 review-json:
 ifndef PR_URL
 	$(error PR_URL is required. Usage: make review-json PR_URL=https://github.com/owner/repo/pull/123)
 endif
-	codespy review $(PR_URL) --output json
+	poetry run codespy review $(PR_URL) --output json
 
 # Show current configuration
 config:
-	codespy config
+	poetry run codespy config
 
 # Run in Docker (requires PR_URL environment variable)
 # Usage: make docker-run PR_URL=https://github.com/owner/repo/pull/123

@@ -1,19 +1,24 @@
 # syntax=docker/dockerfile:1
 
-# Build stage
+# Build stage with Poetry
 FROM python:3.11-slim as builder
 
 WORKDIR /app
 
-# Install build dependencies
+# Install build dependencies and Poetry
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir poetry
 
-# Install Python dependencies
-COPY pyproject.toml README.md ./
-RUN pip install --no-cache-dir build && \
-    pip wheel --no-cache-dir --wheel-dir /wheels .
+# Copy project files
+COPY pyproject.toml poetry.lock* README.md ./
+COPY src/ ./src/
+
+# Configure Poetry: no virtualenv in container, install deps
+RUN poetry config virtualenvs.create false \
+    && poetry install --only main --no-interaction --no-ansi
 
 # Runtime stage
 FROM python:3.11-slim
@@ -26,9 +31,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 1000 codespy
 
-# Copy wheels from builder and install
-COPY --from=builder /wheels /wheels
-RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
+# Copy installed packages from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin/codespy /usr/local/bin/codespy
 
 # Copy source code
 COPY src/ ./src/
