@@ -51,5 +51,4 @@ USER codespy
 ENV PYTHONUNBUFFERED=1
 ENV HOME=/home/codespy
 
-ENTRYPOINT ["codespy"]
-CMD ["--help"]
+CMD ["codespy", "--help"]
