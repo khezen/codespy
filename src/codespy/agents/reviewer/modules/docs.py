@@ -1,5 +1,6 @@
 """Documentation review module."""
 
+import os
 from typing import Any
 
 import dspy
@@ -7,13 +8,12 @@ import dspy
 from codespy.tools.github.models import ChangedFile
 from codespy.agents.reviewer.models import Issue, IssueCategory
 from codespy.agents.reviewer.modules.base import BaseReviewModule
-from codespy.agents.reviewer.signatures import DocumentationReview
 
 # Markdown file extensions to review
 MARKDOWN_EXTENSIONS = {".md", ".markdown", ".mdx", ".rst", ".txt"}
 
 
-class DocumentationReview(dspy.Signature):
+class DocumentationReviewSignature(dspy.Signature):
     """Review markdown documentation files for accuracy and completeness.
 
     You are reviewing markdown documentation files (README.md, docs/*.md, etc.).
@@ -61,17 +61,20 @@ class DocumentationReviewer(BaseReviewModule):
 
     Only analyzes markdown files (*.md, *.markdown, *.mdx, *.rst).
     Skips code files - use other modules for code documentation like docstrings.
+    
+    This module uses chain-of-thought reasoning to identify documentation
+    quality issues like inaccuracies, outdated information, and missing content.
     """
 
     category = IssueCategory.DOCUMENTATION
 
-    def _create_predictor(self) -> dspy.Module:
-        """Create the documentation review predictor."""
-        return dspy.ChainOfThought(DocumentationReview)
+    def __init__(self) -> None:
+        """Initialize the documentation reviewer with chain-of-thought reasoning."""
+        super().__init__()
+        self.predictor = dspy.ChainOfThought(DocumentationReviewSignature)
 
     def _is_markdown_file(self, filename: str) -> bool:
         """Check if the file is a markdown documentation file."""
-        import os
         _, ext = os.path.splitext(filename.lower())
         return ext in MARKDOWN_EXTENSIONS
 

@@ -8,11 +8,11 @@ import dspy
 from codespy.tools.github.models import ChangedFile, ReviewContext
 from codespy.agents.reviewer.models import Issue, IssueCategory
 from codespy.agents.reviewer.modules.base import BaseReviewModule
-from codespy.agents.reviewer.signatures import ContextualAnalysis
 
 logger = logging.getLogger(__name__)
 
-class ContextualAnalysis(dspy.Signature):
+
+class ContextualAnalysisSignature(dspy.Signature):
     """Analyze code changes using VERIFIED caller information and related files.
 
     CRITICAL RULES - READ CAREFULLY:
@@ -70,14 +70,21 @@ class ContextualAnalysis(dspy.Signature):
         Quality over quantity - only report issues with concrete evidence."""
     )
 
+
 class ContextAnalyzer(BaseReviewModule):
-    """Analyzes code changes in the context of the broader codebase using DSPy."""
+    """Analyzes code changes in the context of the broader codebase using DSPy.
+    
+    This module uses chain-of-thought reasoning to identify issues that require
+    understanding of how the changed code relates to other parts of the codebase.
+    It focuses on verified callers and related files to find breaking changes.
+    """
 
     category = IssueCategory.CONTEXT
 
-    def _create_predictor(self) -> dspy.Module:
-        """Create the contextual analysis predictor."""
-        return dspy.ChainOfThought(ContextualAnalysis)
+    def __init__(self) -> None:
+        """Initialize the context analyzer with chain-of-thought reasoning."""
+        super().__init__()
+        self.predictor = dspy.ChainOfThought(ContextualAnalysisSignature)
 
     def _prepare_inputs(
         self,
@@ -106,6 +113,9 @@ class ContextAnalyzer(BaseReviewModule):
         review_context: ReviewContext,
     ) -> list[Issue]:
         """Analyze a file with full review context.
+        
+        This is an enhanced version of analyze() that takes the full ReviewContext
+        object and extracts related files and caller information automatically.
 
         Args:
             file: The changed file to analyze
@@ -142,8 +152,8 @@ class ContextAnalyzer(BaseReviewModule):
                 "related_files": related_files_str,
                 "repo_structure": repo_structure,
             }
-            result = self._predictor(**inputs)
-            return self._parse_issues(result, file)
+            issues_json = self.forward(**inputs)
+            return self._parse_and_filter_issues(issues_json, file)
         except Exception as e:
             logger.error(f"Error in contextual analysis of {file.filename}: {e}")
             return []

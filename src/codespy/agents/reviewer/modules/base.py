@@ -2,7 +2,7 @@
 
 import json
 import logging
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import Any
 
 import dspy
@@ -73,19 +73,44 @@ SPECULATIVE_PHRASES = [
 MIN_CONFIDENCE = 0.7
 
 
-class BaseReviewModule(ABC):
-    """Base class for all review modules."""
+class BaseReviewModule(dspy.Module):
+    """Base class for all review modules.
+    
+    Inherits from dspy.Module for idiomatic DSPy patterns:
+    - Submodules (self.predictor) are automatically tracked
+    - Compatible with DSPy optimizers (BootstrapFewShot, MIPRO, etc.)
+    - forward() method provides the DSPy interface
+    
+    Subclasses should:
+    1. Set the `category` class attribute
+    2. Initialize `self.predictor` in __init__ with a DSPy module
+    3. Implement `_prepare_inputs()` to convert ChangedFile to predictor inputs
+    """
 
     category: IssueCategory
 
     def __init__(self) -> None:
-        """Initialize the module."""
-        self._predictor = self._create_predictor()
+        """Initialize the module.
+        
+        Subclasses must call super().__init__() and then set self.predictor.
+        """
+        super().__init__()
+        # Subclasses set: self.predictor = dspy.ChainOfThought(SomeSignature)
 
-    @abstractmethod
-    def _create_predictor(self) -> dspy.Module:
-        """Create the DSPy predictor for this module."""
-        pass
+    def forward(self, **kwargs: Any) -> str:
+        """DSPy forward method - runs the predictor and returns raw issues JSON.
+        
+        This method is the DSPy-standard interface used by optimizers and
+        other DSPy tooling. It returns the raw issues_json string from the LLM.
+        
+        Args:
+            **kwargs: Inputs matching the predictor's signature fields
+            
+        Returns:
+            Raw issues_json string from the LLM
+        """
+        result = self.predictor(**kwargs)
+        return result.issues_json
 
     @abstractmethod
     def _prepare_inputs(
@@ -93,7 +118,18 @@ class BaseReviewModule(ABC):
         file: ChangedFile,
         context: str = "",
     ) -> dict[str, Any]:
-        """Prepare inputs for the predictor."""
+        """Prepare inputs for the predictor.
+        
+        Converts domain objects (ChangedFile) into the dict of inputs
+        expected by the predictor's signature.
+        
+        Args:
+            file: The changed file to analyze
+            context: Additional context from related files
+            
+        Returns:
+            Dict of inputs matching the predictor's signature
+        """
         pass
 
     def get_language(self, file: ChangedFile) -> str:
@@ -106,13 +142,18 @@ class BaseReviewModule(ABC):
         context: str = "",
     ) -> list[Issue]:
         """Analyze a file and return issues.
-
+        
+        This is the high-level API for domain use. It:
+        1. Prepares inputs from the ChangedFile
+        2. Calls forward() for DSPy inference
+        3. Parses and filters the results
+        
         Args:
             file: The changed file to analyze
             context: Additional context from related files
 
         Returns:
-            List of issues found
+            List of issues found (filtered for quality)
         """
         if not file.patch:
             logger.debug(f"Skipping {file.filename}: no patch available")
@@ -120,8 +161,8 @@ class BaseReviewModule(ABC):
 
         try:
             inputs = self._prepare_inputs(file, context)
-            result = self._predictor(**inputs)
-            return self._parse_issues(result, file)
+            issues_json = self.forward(**inputs)
+            return self._parse_and_filter_issues(issues_json, file)
         except Exception as e:
             logger.error(f"Error analyzing {file.filename}: {e}")
             return []
@@ -153,11 +194,11 @@ class BaseReviewModule(ABC):
 
         return False
 
-    def _parse_issues(self, result: Any, file: ChangedFile) -> list[Issue]:
-        """Parse the predictor result into Issue objects.
+    def _parse_and_filter_issues(self, issues_json: str, file: ChangedFile) -> list[Issue]:
+        """Parse the issues JSON and filter for quality.
 
         Args:
-            result: The DSPy predictor result
+            issues_json: Raw JSON string from the LLM
             file: The file being analyzed
 
         Returns:
@@ -166,9 +207,6 @@ class BaseReviewModule(ABC):
         issues: list[Issue] = []
 
         try:
-            # Get the issues_json field from the result
-            issues_json = getattr(result, "issues_json", "[]")
-
             # Clean up the JSON string (handle markdown code blocks)
             issues_json = issues_json.strip()
             if issues_json.startswith("```"):

@@ -16,11 +16,10 @@ from codespy.agents.reviewer.modules import (
     DocumentationReviewer,
     SecurityAuditor,
 )
-from codespy.agents.reviewer.signatures import PRSummary
 
 logger = logging.getLogger(__name__)
 
-class PRSummary(dspy.Signature):
+class PRSummarySignature(dspy.Signature):
     """Generate an overall summary and recommendation for a pull request.
 
     Based on all the issues found during review, provide:
@@ -68,7 +67,7 @@ class ReviewPipeline:
         self.context_analyzer = ContextAnalyzer()
 
         # Summary generator
-        self.summary_generator = dspy.ChainOfThought(PRSummary)
+        self.summary_generator = dspy.ChainOfThought(PRSummarySignature)
 
     def run(self, pr_url: str, verify_model: bool = True) -> ReviewResult:
         """Run the complete review pipeline on a pull request.

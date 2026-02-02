@@ -7,9 +7,9 @@ import dspy
 from codespy.tools.github.models import ChangedFile
 from codespy.agents.reviewer.models import IssueCategory
 from codespy.agents.reviewer.modules.base import BaseReviewModule
-from codespy.agents.reviewer.signatures import SecurityAnalysis
 
-class SecurityAnalysis(dspy.Signature):
+
+class SecurityAnalysisSignature(dspy.Signature):
     """Analyze code changes for security vulnerabilities.
 
     You are a security expert reviewing code changes. Identify potential security
@@ -65,14 +65,21 @@ class SecurityAnalysis(dspy.Signature):
         Return empty array [] if no issues found."""
     )
 
+
 class SecurityAuditor(BaseReviewModule):
-    """Analyzes code for security vulnerabilities using DSPy."""
+    """Analyzes code for security vulnerabilities using DSPy.
+    
+    This module uses chain-of-thought reasoning to identify security issues
+    in code changes. It focuses on common vulnerability patterns and provides
+    CWE IDs where applicable.
+    """
 
     category = IssueCategory.SECURITY
 
-    def _create_predictor(self) -> dspy.Module:
-        """Create the security analysis predictor with chain-of-thought reasoning."""
-        return dspy.ChainOfThought(SecurityAnalysis)
+    def __init__(self) -> None:
+        """Initialize the security auditor with chain-of-thought reasoning."""
+        super().__init__()
+        self.predictor = dspy.ChainOfThought(SecurityAnalysisSignature)
 
     def _prepare_inputs(
         self,

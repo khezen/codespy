@@ -7,10 +7,9 @@ import dspy
 from codespy.tools.github.models import ChangedFile
 from codespy.agents.reviewer.models import IssueCategory
 from codespy.agents.reviewer.modules.base import BaseReviewModule
-from codespy.agents.reviewer.signatures import BugDetection
 
 
-class BugDetection(dspy.Signature):
+class BugDetectionSignature(dspy.Signature):
     """Detect VERIFIED bugs and logic errors in code changes.
 
     You are an expert software engineer reviewing code for bugs.
@@ -69,13 +68,18 @@ class BugDetection(dspy.Signature):
 
 
 class BugDetector(BaseReviewModule):
-    """Detects potential bugs and logic errors using DSPy."""
+    """Detects potential bugs and logic errors using DSPy.
+    
+    This module uses chain-of-thought reasoning to identify bugs in code changes.
+    It focuses on verified issues with concrete evidence in the code.
+    """
 
     category = IssueCategory.BUG
 
-    def _create_predictor(self) -> dspy.Module:
-        """Create the bug detection predictor with chain-of-thought reasoning."""
-        return dspy.ChainOfThought(BugDetection)
+    def __init__(self) -> None:
+        """Initialize the bug detector with chain-of-thought reasoning."""
+        super().__init__()
+        self.predictor = dspy.ChainOfThought(BugDetectionSignature)
 
     def _prepare_inputs(
         self,
