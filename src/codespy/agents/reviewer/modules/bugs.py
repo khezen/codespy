@@ -1,12 +1,14 @@
 """Bug detection module."""
 
-from typing import Any
+import logging
 
 import dspy  # type: ignore[import-untyped]
 
 from codespy.tools.github.models import ChangedFile
-from codespy.agents.reviewer.models import IssueCategory
-from codespy.agents.reviewer.modules.base import BaseReviewModule
+from codespy.agents.reviewer.models import Issue, IssueCategory
+from codespy.agents.reviewer.modules.helpers import get_language, parse_issues_json
+
+logger = logging.getLogger(__name__)
 
 
 class BugDetectionSignature(dspy.Signature):
@@ -67,12 +69,8 @@ class BugDetectionSignature(dspy.Signature):
     )
 
 
-class BugDetector(BaseReviewModule):
-    """Detects potential bugs and logic errors using DSPy.
-    
-    This module uses chain-of-thought reasoning to identify bugs in code changes.
-    It focuses on verified issues with concrete evidence in the code.
-    """
+class BugDetector(dspy.Module):
+    """Detects potential bugs and logic errors using DSPy."""
 
     category = IssueCategory.BUG
 
@@ -81,24 +79,29 @@ class BugDetector(BaseReviewModule):
         super().__init__()
         self.predictor = dspy.ChainOfThought(BugDetectionSignature)
 
-    def _prepare_inputs(
-        self,
-        file: ChangedFile,
-        context: str = "",
-    ) -> dict[str, Any]:
-        """Prepare inputs for bug detection.
+    def forward(self, file: ChangedFile, context: str = "") -> list[Issue]:
+        """Analyze a file for bugs and return issues.
 
         Args:
             file: The changed file to analyze
             context: Additional context from related files
 
         Returns:
-            Dictionary of inputs for the predictor
+            List of bug issues found
         """
-        return {
-            "diff": file.patch or "",
-            "full_content": file.content or "",
-            "file_path": file.filename,
-            "language": self.get_language(file),
-            "context": context or "No additional context available.",
-        }
+        if not file.patch:
+            logger.debug(f"Skipping {file.filename}: no patch available")
+            return []
+
+        try:
+            result = self.predictor(
+                diff=file.patch or "",
+                full_content=file.content or "",
+                file_path=file.filename,
+                language=get_language(file),
+                context=context or "No additional context available.",
+            )
+            return parse_issues_json(result.issues_json, file, self.category)
+        except Exception as e:
+            logger.error(f"Error analyzing {file.filename}: {e}")
+            return []

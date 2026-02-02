@@ -1,13 +1,12 @@
 """Contextual analysis module for codebase-aware review."""
 
 import logging
-from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 
 from codespy.tools.github.models import ChangedFile, ReviewContext
 from codespy.agents.reviewer.models import Issue, IssueCategory
-from codespy.agents.reviewer.modules.base import BaseReviewModule
+from codespy.agents.reviewer.modules.helpers import parse_issues_json
 
 logger = logging.getLogger(__name__)
 
@@ -71,13 +70,37 @@ class ContextualAnalysisSignature(dspy.Signature):
     )
 
 
-class ContextAnalyzer(BaseReviewModule):
-    """Analyzes code changes in the context of the broader codebase using DSPy.
+def build_context_string(file: ChangedFile, review_context: ReviewContext) -> tuple[str, str]:
+    """Build context strings from ReviewContext for a specific file.
     
-    This module uses chain-of-thought reasoning to identify issues that require
-    understanding of how the changed code relates to other parts of the codebase.
-    It focuses on verified callers and related files to find breaking changes.
+    Args:
+        file: The changed file being analyzed
+        review_context: Full review context including related files
+        
+    Returns:
+        Tuple of (related_files_str, repo_structure_str)
     """
+    context_parts = []
+    for filename, content in review_context.related_files.items():
+        # Truncate large files
+        if len(content) > 5000:
+            content = content[:5000] + "\n... (truncated)"
+        context_parts.append(f"=== {filename} ===\n{content}")
+
+    # Add verified caller information if available
+    callers_str = review_context.get_callers_for_file(file.filename)
+    if callers_str and "No callers found" not in callers_str:
+        context_parts.append(callers_str)
+        logger.debug(f"Including caller information for {file.filename}")
+
+    related_files_str = "\n\n".join(context_parts) if context_parts else "No related files."
+    repo_structure = review_context.repository_structure or "Structure not available."
+    
+    return related_files_str, repo_structure
+
+
+class ContextAnalyzer(dspy.Module):
+    """Analyzes code changes in the context of the broader codebase using DSPy."""
 
     category = IssueCategory.CONTEXT
 
@@ -86,40 +109,13 @@ class ContextAnalyzer(BaseReviewModule):
         super().__init__()
         self.predictor = dspy.ChainOfThought(ContextualAnalysisSignature)
 
-    def _prepare_inputs(
-        self,
-        file: ChangedFile,
-        context: str = "",
-    ) -> dict[str, Any]:
-        """Prepare inputs for contextual analysis.
+    def forward(self, file: ChangedFile, context: str = "", repo_structure: str = "") -> list[Issue]:
+        """Analyze a file with codebase context and return issues.
 
         Args:
             file: The changed file to analyze
             context: Related files content as formatted string
-
-        Returns:
-            Dictionary of inputs for the predictor
-        """
-        return {
-            "diff": file.patch or "",
-            "file_path": file.filename,
-            "related_files": context or "No related files available.",
-            "repo_structure": "Repository structure not available.",
-        }
-
-    def analyze_with_context(
-        self,
-        file: ChangedFile,
-        review_context: ReviewContext,
-    ) -> list[Issue]:
-        """Analyze a file with full review context.
-        
-        This is an enhanced version of analyze() that takes the full ReviewContext
-        object and extracts related files and caller information automatically.
-
-        Args:
-            file: The changed file to analyze
-            review_context: Full review context including related files
+            repo_structure: Repository structure overview
 
         Returns:
             List of contextual issues found
@@ -128,32 +124,14 @@ class ContextAnalyzer(BaseReviewModule):
             logger.debug(f"Skipping {file.filename}: no patch available")
             return []
 
-        # Build context string from related files
-        context_parts = []
-        for filename, content in review_context.related_files.items():
-            # Truncate large files
-            if len(content) > 5000:
-                content = content[:5000] + "\n... (truncated)"
-            context_parts.append(f"=== {filename} ===\n{content}")
-
-        # Add verified caller information if available
-        callers_str = review_context.get_callers_for_file(file.filename)
-        if callers_str and "No callers found" not in callers_str:
-            context_parts.append(callers_str)
-            logger.debug(f"Including caller information for {file.filename}")
-
-        related_files_str = "\n\n".join(context_parts) if context_parts else "No related files."
-        repo_structure = review_context.repository_structure or "Structure not available."
-
         try:
-            inputs = {
-                "diff": file.patch or "",
-                "file_path": file.filename,
-                "related_files": related_files_str,
-                "repo_structure": repo_structure,
-            }
-            issues_json = self.forward(**inputs)
-            return self._parse_and_filter_issues(issues_json, file)
+            result = self.predictor(
+                diff=file.patch or "",
+                file_path=file.filename,
+                related_files=context or "No related files available.",
+                repo_structure=repo_structure or "Repository structure not available.",
+            )
+            return parse_issues_json(result.issues_json, file, self.category)
         except Exception as e:
             logger.error(f"Error in contextual analysis of {file.filename}: {e}")
             return []

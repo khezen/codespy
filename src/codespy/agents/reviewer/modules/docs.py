@@ -1,13 +1,15 @@
 """Documentation review module."""
 
+import logging
 import os
-from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 
 from codespy.tools.github.models import ChangedFile
 from codespy.agents.reviewer.models import Issue, IssueCategory
-from codespy.agents.reviewer.modules.base import BaseReviewModule
+from codespy.agents.reviewer.modules.helpers import parse_issues_json
+
+logger = logging.getLogger(__name__)
 
 # Markdown file extensions to review
 MARKDOWN_EXTENSIONS = {".md", ".markdown", ".mdx", ".rst", ".txt"}
@@ -56,15 +58,14 @@ class DocumentationReviewSignature(dspy.Signature):
     )
 
 
-class DocumentationReviewer(BaseReviewModule):
-    """Reviews markdown documentation files for accuracy and completeness.
+def is_markdown_file(filename: str) -> bool:
+    """Check if the file is a markdown documentation file."""
+    _, ext = os.path.splitext(filename.lower())
+    return ext in MARKDOWN_EXTENSIONS
 
-    Only analyzes markdown files (*.md, *.markdown, *.mdx, *.rst).
-    Skips code files - use other modules for code documentation like docstrings.
-    
-    This module uses chain-of-thought reasoning to identify documentation
-    quality issues like inaccuracies, outdated information, and missing content.
-    """
+
+class DocumentationReviewer(dspy.Module):
+    """Reviews markdown documentation files for accuracy and completeness."""
 
     category = IssueCategory.DOCUMENTATION
 
@@ -73,13 +74,8 @@ class DocumentationReviewer(BaseReviewModule):
         super().__init__()
         self.predictor = dspy.ChainOfThought(DocumentationReviewSignature)
 
-    def _is_markdown_file(self, filename: str) -> bool:
-        """Check if the file is a markdown documentation file."""
-        _, ext = os.path.splitext(filename.lower())
-        return ext in MARKDOWN_EXTENSIONS
-
-    def analyze(self, file: ChangedFile, context: str = "") -> list[Issue]:
-        """Analyze a file for documentation issues.
+    def forward(self, file: ChangedFile, context: str = "") -> list[Issue]:
+        """Analyze a markdown file for documentation issues.
 
         Only analyzes markdown files. Returns empty list for non-markdown files.
 
@@ -91,28 +87,20 @@ class DocumentationReviewer(BaseReviewModule):
             List of documentation issues found
         """
         # Skip non-markdown files
-        if not self._is_markdown_file(file.filename):
+        if not is_markdown_file(file.filename):
             return []
 
-        # Call parent's analyze method for markdown files
-        return super().analyze(file, context)
+        if not file.patch:
+            logger.debug(f"Skipping {file.filename}: no patch available")
+            return []
 
-    def _prepare_inputs(
-        self,
-        file: ChangedFile,
-        context: str = "",
-    ) -> dict[str, Any]:
-        """Prepare inputs for documentation review.
-
-        Args:
-            file: The changed markdown file to analyze
-            context: Not used for documentation review
-
-        Returns:
-            Dictionary of inputs for the predictor
-        """
-        return {
-            "diff": file.patch or "",
-            "full_content": file.content or "",
-            "file_path": file.filename,
-        }
+        try:
+            result = self.predictor(
+                diff=file.patch or "",
+                full_content=file.content or "",
+                file_path=file.filename,
+            )
+            return parse_issues_json(result.issues_json, file, self.category)
+        except Exception as e:
+            logger.error(f"Error analyzing {file.filename}: {e}")
+            return []

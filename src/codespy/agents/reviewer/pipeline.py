@@ -16,6 +16,7 @@ from codespy.agents.reviewer.modules import (
     DocumentationReviewer,
     SecurityAuditor,
 )
+from codespy.agents.reviewer.modules.context import build_context_string
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +177,7 @@ class ReviewPipeline:
 
         # Run security analysis
         try:
-            security_issues = self.security_analyzer.analyze(changed_file, file_context)
+            security_issues = self.security_analyzer.forward(changed_file, file_context)
             issues.extend(security_issues)
             logger.debug(f"  Security: {len(security_issues)} issues")
         except Exception as e:
@@ -184,7 +185,7 @@ class ReviewPipeline:
 
         # Run bug detection
         try:
-            bug_issues = self.bug_detector.analyze(changed_file, file_context)
+            bug_issues = self.bug_detector.forward(changed_file, file_context)
             issues.extend(bug_issues)
             logger.debug(f"  Bugs: {len(bug_issues)} issues")
         except Exception as e:
@@ -192,7 +193,7 @@ class ReviewPipeline:
 
         # Run documentation review
         try:
-            doc_issues = self.docs_reviewer.analyze(changed_file)
+            doc_issues = self.docs_reviewer.forward(changed_file)
             issues.extend(doc_issues)
             logger.debug(f"  Documentation: {len(doc_issues)} issues")
         except Exception as e:
@@ -201,8 +202,11 @@ class ReviewPipeline:
         # Run contextual analysis (if we have context)
         if review_context.related_files or review_context.repository_structure:
             try:
-                context_issues = self.context_analyzer.analyze_with_context(
+                related_files_str, repo_structure = build_context_string(
                     changed_file, review_context
+                )
+                context_issues = self.context_analyzer.forward(
+                    changed_file, related_files_str, repo_structure
                 )
                 issues.extend(context_issues)
                 logger.debug(f"  Context: {len(context_issues)} issues")
