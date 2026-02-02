@@ -1,13 +1,13 @@
 """DSPy modules for code review."""
 
-from codespy.agents.reviewer.modules.bugs import BugDetector
-from codespy.agents.reviewer.modules.context import ContextAnalyzer
-from codespy.agents.reviewer.modules.docs import DocumentationReviewer
-from codespy.agents.reviewer.modules.security import SecurityAuditor
+from codespy.agents.reviewer.modules.bug_detector import BugDetector
+from codespy.agents.reviewer.modules.domain_expert import DomainExpert
+from codespy.agents.reviewer.modules.doc_reviewer import DocumentationReviewer
+from codespy.agents.reviewer.modules.security_auditor import SecurityAuditor
 
 __all__ = [
     "SecurityAuditor",
     "BugDetector",
     "DocumentationReviewer",
-    "ContextAnalyzer",
+    "DomainExpert",
 ]

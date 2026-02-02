@@ -1,4 +1,4 @@
-"""Contextual analysis module for codebase-aware review."""
+"""Domain expert module for codebase-aware review."""
 
 import logging
 
@@ -11,7 +11,7 @@ from codespy.agents.reviewer.modules.helpers import parse_issues_json
 logger = logging.getLogger(__name__)
 
 
-class ContextualAnalysisSignature(dspy.Signature):
+class DomainExpertSignature(dspy.Signature):
     """Analyze code changes using VERIFIED caller information and related files.
 
     CRITICAL RULES - READ CAREFULLY:
@@ -70,15 +70,15 @@ class ContextualAnalysisSignature(dspy.Signature):
     )
 
 
-class ContextAnalyzer(dspy.Module):
+class DomainExpert(dspy.Module):
     """Analyzes code changes in the context of the broader codebase using DSPy."""
 
     category = IssueCategory.CONTEXT
 
     def __init__(self) -> None:
-        """Initialize the context analyzer with chain-of-thought reasoning."""
+        """Initialize the domain expert with chain-of-thought reasoning."""
         super().__init__()
-        self.predictor = dspy.ChainOfThought(ContextualAnalysisSignature)
+        self.predictor = dspy.ChainOfThought(DomainExpertSignature)
 
     def forward(self, file: ChangedFile, context: str = "", repo_structure: str = "") -> list[Issue]:
         """Analyze a file with codebase context and return issues.

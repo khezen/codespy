@@ -136,7 +136,7 @@ def review(
     )
 
     try:
-        from codespy.agents.reviewer.pipeline import ReviewPipeline
+        from codespy.agents.reviewer.reviewer import ReviewPipeline
         from codespy.agents import verify_model_access
 
         pipeline = ReviewPipeline(settings)

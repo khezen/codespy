@@ -12,7 +12,7 @@ from codespy.tools.github.models import ReviewContext
 from codespy.agents.reviewer.models import FileReview, Issue, ReviewResult
 from codespy.agents.reviewer.modules import (
     BugDetector,
-    ContextAnalyzer,
+    DomainExpert,
     DocumentationReviewer,
     SecurityAuditor,
 )
@@ -66,7 +66,7 @@ class ReviewPipeline(dspy.Module):
         self.security_analyzer = SecurityAuditor()
         self.bug_detector = BugDetector()
         self.docs_reviewer = DocumentationReviewer()
-        self.context_analyzer = ContextAnalyzer()
+        self.domain_expert = DomainExpert()
 
         # Summary generator
         self.summary_generator = dspy.ChainOfThought(PRSummarySignature)
@@ -206,7 +206,7 @@ class ReviewPipeline(dspy.Module):
                 related_files_str, repo_structure = build_context_string(
                     changed_file, review_context
                 )
-                context_issues = self.context_analyzer.forward(
+                context_issues = self.domain_expert.forward(
                     changed_file, related_files_str, repo_structure
                 )
                 issues.extend(context_issues)

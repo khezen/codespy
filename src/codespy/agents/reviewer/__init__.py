@@ -7,7 +7,7 @@ from codespy.agents.reviewer.models import (
     IssueSeverity,
     ReviewResult,
 )
-from codespy.agents.reviewer.pipeline import ReviewPipeline
+from codespy.agents.reviewer.reviewer import ReviewPipeline
 
 __all__ = [
     "ReviewPipeline",
