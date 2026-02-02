@@ -1,6 +1,6 @@
 # codespy
 
-**Code review agent powered by DSPy** - Automatically review GitHub pull requests for security vulnerabilities, bugs, and documentation issues.
+**Code review agent written with DSPy** - Automatically review GitHub pull requests for security vulnerabilities, bugs, and documentation issues.
 
 ## Features
 

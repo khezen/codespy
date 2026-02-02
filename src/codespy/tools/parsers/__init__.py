@@ -1,7 +1,7 @@
-"""Code analysis tools for verified context."""
+"""Code parsing tools for verified context."""
 
-from codespy.analysis.ripgrep import RipgrepSearch, SearchResult
-from codespy.analysis.treesitter import (
+from codespy.tools.parsers.ripgrep import RipgrepSearch, SearchResult
+from codespy.tools.parsers.treesitter import (
     CallInfo,
     FunctionInfo,
     SymbolInfo,

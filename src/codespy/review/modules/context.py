@@ -5,7 +5,7 @@ from typing import Any
 
 import dspy
 
-from codespy.github.models import ChangedFile, ReviewContext
+from codespy.tools.github.models import ChangedFile, ReviewContext
 from codespy.review.models import Issue, IssueCategory
 from codespy.review.modules.base import BaseReviewModule
 from codespy.review.signatures import ContextualAnalysis

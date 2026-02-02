@@ -8,10 +8,10 @@ from git import Repo
 from github import Auth, Github
 from github.PullRequest import PullRequest as GHPullRequest
 
-from codespy.analysis.ripgrep import RipgrepSearch
-from codespy.analysis.treesitter import TreeSitterAnalyzer
+from codespy.tools.parsers.ripgrep import RipgrepSearch
+from codespy.tools.parsers.treesitter import TreeSitterAnalyzer
 from codespy.config import Settings, get_settings
-from codespy.github.models import CallerInfo, ChangedFile, FileStatus, PullRequest, ReviewContext
+from codespy.tools.github.models import CallerInfo, ChangedFile, FileStatus, PullRequest, ReviewContext
 
 logger = logging.getLogger(__name__)
 

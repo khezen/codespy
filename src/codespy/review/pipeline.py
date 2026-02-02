@@ -8,8 +8,8 @@ import dspy
 import litellm
 
 from codespy.config import Settings, get_settings
-from codespy.github.client import GitHubClient
-from codespy.github.models import ReviewContext
+from codespy.tools.github.client import GitHubClient
+from codespy.tools.github.models import ReviewContext
 from codespy.review.models import FileReview, Issue, ReviewResult
 from codespy.review.modules import (
     BugDetector,
