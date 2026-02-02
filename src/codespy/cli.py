@@ -150,7 +150,7 @@ def review(
             console.print(f"[red]Error:[/red] {message}")
             raise typer.Exit(1)
 
-        result = pipeline.run(pr_url, verify_model=False)  # Already verified
+        result = pipeline.forward(pr_url, verify_model=False)  # Already verified
 
         # Show cost summary
         if result.llm_calls > 0:

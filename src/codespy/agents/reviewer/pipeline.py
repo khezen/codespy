@@ -45,7 +45,7 @@ class PRSummarySignature(dspy.Signature):
         desc="One of: APPROVE, REQUEST_CHANGES, or NEEDS_DISCUSSION with brief justification"
     )
 
-class ReviewPipeline:
+class ReviewPipeline(dspy.Module):
     """Orchestrates the code review process using DSPy modules."""
 
     def __init__(self, settings: Settings | None = None) -> None:
@@ -54,6 +54,7 @@ class ReviewPipeline:
         Args:
             settings: Application settings. Uses global settings if not provided.
         """
+        super().__init__()
         self.settings = settings or get_settings()
         self.github_client = GitHubClient(self.settings)
         self.cost_tracker = get_cost_tracker()
@@ -70,7 +71,7 @@ class ReviewPipeline:
         # Summary generator
         self.summary_generator = dspy.ChainOfThought(PRSummarySignature)
 
-    def run(self, pr_url: str, verify_model: bool = True) -> ReviewResult:
+    def forward(self, pr_url: str, verify_model: bool = True) -> ReviewResult:
         """Run the complete review pipeline on a pull request.
 
         Args:
