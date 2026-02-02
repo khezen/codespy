@@ -1,18 +1,14 @@
 """Documentation review module."""
 
 import logging
-import os
 
 import dspy  # type: ignore[import-untyped]
 
 from codespy.tools.github.models import ChangedFile
 from codespy.agents.reviewer.models import Issue, IssueCategory
-from codespy.agents.reviewer.modules.helpers import parse_issues_json
+from codespy.agents.reviewer.modules.helpers import is_markdown_file, parse_issues_json
 
 logger = logging.getLogger(__name__)
-
-# Markdown file extensions to review
-MARKDOWN_EXTENSIONS = {".md", ".markdown", ".mdx", ".rst", ".txt"}
 
 
 class DocumentationReviewSignature(dspy.Signature):
@@ -56,12 +52,6 @@ class DocumentationReviewSignature(dspy.Signature):
         }
         Return empty array [] if documentation is adequate."""
     )
-
-
-def is_markdown_file(filename: str) -> bool:
-    """Check if the file is a markdown documentation file."""
-    _, ext = os.path.splitext(filename.lower())
-    return ext in MARKDOWN_EXTENSIONS
 
 
 class DocumentationReviewer(dspy.Module):

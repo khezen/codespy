@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 
 from codespy.tools.github.models import ChangedFile
 from codespy.agents.reviewer.models import Issue, IssueCategory
@@ -67,6 +68,15 @@ SPECULATIVE_PHRASES = [
 
 # Minimum confidence threshold
 MIN_CONFIDENCE = 0.7
+
+# Markdown file extensions to review
+MARKDOWN_EXTENSIONS = {".md", ".markdown", ".mdx", ".rst", ".txt"}
+
+
+def is_markdown_file(filename: str) -> bool:
+    """Check if the file is a markdown documentation file."""
+    _, ext = os.path.splitext(filename.lower())
+    return ext in MARKDOWN_EXTENSIONS
 
 
 def get_language(file: ChangedFile) -> str:
