@@ -5,13 +5,13 @@ from codespy.tools.parsers.treesitter import (
     CallInfo,
     FunctionInfo,
     SymbolInfo,
-    TreeSitterAnalyzer,
+    TreeSitterParser,
 )
 
 __all__ = [
     "RipgrepSearch",
     "SearchResult",
-    "TreeSitterAnalyzer",
+    "TreeSitterParser",
     "FunctionInfo",
     "CallInfo",
     "SymbolInfo",

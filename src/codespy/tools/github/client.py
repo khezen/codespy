@@ -9,7 +9,7 @@ from github import Auth, Github
 from github.PullRequest import PullRequest as GHPullRequest
 
 from codespy.tools.parsers.ripgrep import RipgrepSearch
-from codespy.tools.parsers.treesitter import TreeSitterAnalyzer
+from codespy.tools.parsers.treesitter import TreeSitterParser
 from codespy.config import Settings, get_settings
 from codespy.tools.github.models import CallerInfo, ChangedFile, FileStatus, PullRequest, ReviewContext
 
@@ -293,10 +293,10 @@ class GitHubClient:
         callers: dict[str, list[CallerInfo]] = {}
 
         # Try tree-sitter first for accurate analysis
-        ts_analyzer = TreeSitterAnalyzer(repo_dir)
+        ts_parser = TreeSitterParser(repo_dir)
         rg_search = RipgrepSearch(repo_dir)
 
-        use_treesitter = ts_analyzer.available
+        use_treesitter = ts_parser.available
         if use_treesitter:
             logger.debug("Using tree-sitter for caller analysis")
         else:
@@ -321,7 +321,7 @@ class GitHubClient:
                 if use_treesitter:
                     # Use tree-sitter for accurate AST-based search
                     callers_found = self._find_callers_treesitter(
-                        ts_analyzer, repo_dir, func_name, changed_file.filename, changed_file.extension
+                        ts_parser, repo_dir, func_name, changed_file.filename, changed_file.extension
                     )
                     file_callers.extend(callers_found)
                 else:
@@ -354,7 +354,7 @@ class GitHubClient:
 
     def _find_callers_treesitter(
         self,
-        analyzer: TreeSitterAnalyzer,
+        parser: TreeSitterParser,
         repo_dir: Path,
         function_name: str,
         source_file: str,
@@ -387,7 +387,7 @@ class GitHubClient:
                 continue
 
             # Find calls to this function in the file
-            calls = analyzer.find_function_calls(file_path, function_name)
+            calls = parser.find_function_calls(file_path, function_name)
 
             for call in calls:
                 callers.append(
