@@ -8,7 +8,7 @@ from mcp.server.fastmcp import FastMCP
 from codespy.config import Settings
 from codespy.tools.github.client import GitHubClient
 
-mcp = FastMCP("github-server")
+mcp = FastMCP("github")
 _client: GitHubClient | None = None
 
 

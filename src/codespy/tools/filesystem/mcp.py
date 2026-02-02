@@ -7,7 +7,7 @@ from mcp.server.fastmcp import FastMCP
 
 from codespy.tools.filesystem.client import FileSystem
 
-mcp = FastMCP("filesystem-server")
+mcp = FastMCP("filesystem")
 _fs: FileSystem | None = None
 
 

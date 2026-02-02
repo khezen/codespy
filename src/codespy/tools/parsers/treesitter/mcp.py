@@ -7,7 +7,7 @@ from mcp.server.fastmcp import FastMCP
 
 from codespy.tools.parsers.treesitter.parser import TreeSitterParser
 
-mcp = FastMCP("treesitter-server")
+mcp = FastMCP("treesitter")
 _parser: TreeSitterParser | None = None
 
 

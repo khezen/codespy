@@ -4,7 +4,7 @@ from mcp.server.fastmcp import FastMCP
 
 from codespy.tools.web.client import WebBrowser
 
-mcp = FastMCP("web-server")
+mcp = FastMCP("web")
 _browser: WebBrowser | None = None
 
 

@@ -7,7 +7,7 @@ from mcp.server.fastmcp import FastMCP
 
 from codespy.tools.parsers.ripgrep.client import RipgrepSearch
 
-mcp = FastMCP("ripgrep-server")
+mcp = FastMCP("ripgrep")
 _search: RipgrepSearch | None = None
 
 
