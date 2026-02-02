@@ -25,6 +25,60 @@ class IssueCategory(str, Enum):
     CONTEXT = "context"  # Issues found from codebase context analysis
 
 
+class ScopeType(str, Enum):
+    """Type of code scope in a repository."""
+
+    LIBRARY = "library"  # Shared code that others import
+    SERVICE = "service"  # Isolated microservice with explicit APIs
+    APPLICATION = "application"  # Standalone app or frontend
+    SCRIPT = "script"  # Build/deployment scripts, tooling
+
+
+class PackageManifest(BaseModel):
+    """Package management file information for a scope."""
+
+    manifest_path: str = Field(description="Path to manifest file (e.g., package.json)")
+    lock_file_path: str | None = Field(
+        default=None, description="Path to lock file (e.g., package-lock.json)"
+    )
+    package_manager: str = Field(description="Package manager name (e.g., npm, go, pip)")
+    dependencies_changed: bool = Field(
+        default=False, description="Whether PR modified this manifest or lock file"
+    )
+
+
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from codespy.tools.github.models import ChangedFile
+
+
+class ScopeResult(BaseModel):
+    """A detected scope/subroot in the repository."""
+
+    subroot: str = Field(description="Path relative to repo root (e.g., packages/auth)")
+    scope_type: ScopeType = Field(description="Type of scope (library, service, etc.)")
+    has_changes: bool = Field(
+        default=False, description="Whether this scope has changed files from PR"
+    )
+    is_dependency: bool = Field(
+        default=False, description="Whether this scope depends on a changed scope"
+    )
+    confidence: float = Field(
+        default=0.8, ge=0.0, le=1.0, description="Confidence score for scope identification"
+    )
+    language: str | None = Field(default=None, description="Primary language detected")
+    package_manifest: PackageManifest | None = Field(
+        default=None, description="Package manifest info if present"
+    )
+    changed_files: list[Any] = Field(
+        default_factory=list, description="Changed files belonging to this scope"
+    )
+    reason: str = Field(description="Explanation for why this scope was identified")
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
 class Issue(BaseModel):
     """Represents a single issue found during review."""
 

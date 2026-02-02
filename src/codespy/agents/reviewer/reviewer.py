@@ -14,6 +14,7 @@ from codespy.agents.reviewer.modules import (
     BugDetector,
     DomainExpert,
     DocumentationReviewer,
+    ScopeIdentifier,
     SecurityAuditor,
 )
 from codespy.agents.reviewer.modules.helpers import build_context_string
@@ -63,6 +64,7 @@ class ReviewPipeline(dspy.Module):
         configure_dspy(self.settings)
 
         # Initialize review modules
+        self.scope_identifier = ScopeIdentifier()
         self.security_analyzer = SecurityAuditor()
         self.bug_detector = BugDetector()
         self.docs_reviewer = DocumentationReviewer()
@@ -105,6 +107,27 @@ class ReviewPipeline(dspy.Module):
             )
         else:
             logger.info(f"PR #{pr.number}: {pr.title} ({len(pr.changed_files)} files changed)")
+
+        # Clone repository for scope identification
+        logger.info("Cloning repository for analysis...")
+        repo_path = self.github_client.clone_repository(
+            pr.repo_owner, pr.repo_name, pr.head_sha
+        )
+        logger.info(f"Repository cloned to {repo_path}")
+
+        # Identify scopes in the repository
+        logger.info("Identifying code scopes...")
+        scopes = self.scope_identifier.forward(pr, repo_path)
+        for scope in scopes:
+            manifest_info = ""
+            if scope.package_manifest:
+                manifest_info = f" [{scope.package_manifest.package_manager}]"
+                if scope.package_manifest.dependencies_changed:
+                    manifest_info += " (deps changed)"
+            logger.info(
+                f"  Scope: {scope.subroot} ({scope.scope_type.value}){manifest_info} - "
+                f"{len(scope.changed_files)} files"
+            )
 
         # Create review context
         review_context = ReviewContext(
