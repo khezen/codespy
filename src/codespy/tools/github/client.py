@@ -447,6 +447,19 @@ class GitHubClient:
         elif extension == "rb":
             # Ruby: def method_name
             pattern = re.compile(r"^[+-]\s*def\s+(\w+)", re.MULTILINE)
+        elif extension == "swift":
+            # Swift: func functionName( or static func, private func, etc.
+            pattern = re.compile(
+                r"^[+-]\s*(?:@\w+\s+)*(?:public|private|internal|fileprivate|open|static|class|override|\s)*"
+                r"func\s+(\w+)\s*[<(]",
+                re.MULTILINE,
+            )
+        elif extension in ("m", "mm"):
+            # Objective-C: - (type)methodName or + (type)methodName
+            pattern = re.compile(
+                r"^[+-]\s*[-+]\s*\([^)]+\)\s*(\w+)",
+                re.MULTILINE,
+            )
         else:
             return []
 
