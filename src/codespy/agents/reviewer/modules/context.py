@@ -4,7 +4,7 @@ import logging
 
 import dspy  # type: ignore[import-untyped]
 
-from codespy.tools.github.models import ChangedFile, ReviewContext
+from codespy.tools.github.models import ChangedFile
 from codespy.agents.reviewer.models import Issue, IssueCategory
 from codespy.agents.reviewer.modules.helpers import parse_issues_json
 
@@ -68,35 +68,6 @@ class ContextualAnalysisSignature(dspy.Signature):
         Return empty array [] if no verified callers need updating and no issues found in related_files.
         Quality over quantity - only report issues with concrete evidence."""
     )
-
-
-def build_context_string(file: ChangedFile, review_context: ReviewContext) -> tuple[str, str]:
-    """Build context strings from ReviewContext for a specific file.
-    
-    Args:
-        file: The changed file being analyzed
-        review_context: Full review context including related files
-        
-    Returns:
-        Tuple of (related_files_str, repo_structure_str)
-    """
-    context_parts = []
-    for filename, content in review_context.related_files.items():
-        # Truncate large files
-        if len(content) > 5000:
-            content = content[:5000] + "\n... (truncated)"
-        context_parts.append(f"=== {filename} ===\n{content}")
-
-    # Add verified caller information if available
-    callers_str = review_context.get_callers_for_file(file.filename)
-    if callers_str and "No callers found" not in callers_str:
-        context_parts.append(callers_str)
-        logger.debug(f"Including caller information for {file.filename}")
-
-    related_files_str = "\n\n".join(context_parts) if context_parts else "No related files."
-    repo_structure = review_context.repository_structure or "Structure not available."
-    
-    return related_files_str, repo_structure
 
 
 class ContextAnalyzer(dspy.Module):

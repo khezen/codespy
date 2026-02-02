@@ -16,7 +16,7 @@ from codespy.agents.reviewer.modules import (
     DocumentationReviewer,
     SecurityAuditor,
 )
-from codespy.agents.reviewer.modules.context import build_context_string
+from codespy.agents.reviewer.modules.helpers import build_context_string
 
 logger = logging.getLogger(__name__)
 
