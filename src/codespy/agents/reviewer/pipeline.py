@@ -20,6 +20,30 @@ from codespy.agents.reviewer.signatures import PRSummary
 
 logger = logging.getLogger(__name__)
 
+class PRSummary(dspy.Signature):
+    """Generate an overall summary and recommendation for a pull request.
+
+    Based on all the issues found during review, provide:
+    - A concise summary of what the PR does
+    - An overall assessment of the code quality
+    - A recommendation (approve, request changes, or needs discussion)
+    """
+
+    pr_title: str = dspy.InputField(desc="Title of the pull request")
+    pr_description: str = dspy.InputField(desc="Description/body of the PR")
+    changed_files: str = dspy.InputField(
+        desc="List of changed files with change counts"
+    )
+    all_issues: str = dspy.InputField(
+        desc="JSON array of all issues found during review"
+    )
+
+    summary: str = dspy.OutputField(
+        desc="2-3 sentence summary of what this PR accomplishes"
+    )
+    recommendation: str = dspy.OutputField(
+        desc="One of: APPROVE, REQUEST_CHANGES, or NEEDS_DISCUSSION with brief justification"
+    )
 
 class ReviewPipeline:
     """Orchestrates the code review process using DSPy modules."""

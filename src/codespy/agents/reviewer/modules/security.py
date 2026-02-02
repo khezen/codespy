@@ -9,6 +9,61 @@ from codespy.agents.reviewer.models import IssueCategory
 from codespy.agents.reviewer.modules.base import BaseReviewModule
 from codespy.agents.reviewer.signatures import SecurityAnalysis
 
+class SecurityAnalysis(dspy.Signature):
+    """Analyze code changes for security vulnerabilities.
+
+    You are a security expert reviewing code changes. Identify potential security
+    vulnerabilities including but not limited to:
+    - Injection attacks (SQL, command, XSS, etc.)
+    - Authentication and authorization issues
+    - Sensitive data exposure
+    - Insecure cryptographic practices
+    - Security misconfigurations
+    - Input validation issues
+    - Path traversal vulnerabilities
+    - Race conditions
+    - Memory safety issues
+
+    For each issue, provide:
+    - A clear title
+    - Severity (critical, high, medium, low, info)
+    - Detailed description of the vulnerability
+    - The affected code location
+    - A suggested fix
+    - CWE ID if applicable
+    """
+
+    diff: str = dspy.InputField(
+        desc="The code diff showing changes (unified diff format)"
+    )
+    full_content: str = dspy.InputField(
+        desc="The full file content after changes"
+    )
+    file_path: str = dspy.InputField(
+        desc="Path to the file being analyzed"
+    )
+    language: str = dspy.InputField(
+        desc="Programming language of the file"
+    )
+    context: str = dspy.InputField(
+        desc="Additional context from related files in the codebase"
+    )
+
+    issues_json: str = dspy.OutputField(
+        desc="""JSON array of security issues found. Each issue should have:
+        {
+            "title": "Brief title",
+            "severity": "critical|high|medium|low|info",
+            "description": "Detailed explanation",
+            "line_start": <number or null>,
+            "line_end": <number or null>,
+            "code_snippet": "Affected code",
+            "suggestion": "How to fix",
+            "cwe_id": "CWE-XXX or null",
+            "confidence": <0.0-1.0>
+        }
+        Return empty array [] if no issues found."""
+    )
 
 class SecurityAuditor(BaseReviewModule):
     """Analyzes code for security vulnerabilities using DSPy."""
