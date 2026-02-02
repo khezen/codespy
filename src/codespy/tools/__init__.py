@@ -1,13 +1,15 @@
-"""Tools for code parsing and GitHub integration."""
+"""Tools for code parsing, GitHub integration, and filesystem operations."""
 
+from codespy.tools.filesystem import FileSystem
+from codespy.tools.github import ChangedFile, GitHubClient, PullRequest
 from codespy.tools.parsers import RipgrepSearch, SearchResult, TreeSitterParser
-from codespy.tools.github import GitHubClient, ChangedFile, PullRequest
 
 __all__ = [
-    "RipgrepSearch",
-    "SearchResult",
-    "TreeSitterParser",
+    "FileSystem",
     "GitHubClient",
     "ChangedFile",
     "PullRequest",
+    "RipgrepSearch",
+    "SearchResult",
+    "TreeSitterParser",
 ]
