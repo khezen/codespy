@@ -2,8 +2,8 @@
 
 import logging
 
-import dspy
-import litellm
+import dspy  # type: ignore[import-untyped]
+import litellm  # type: ignore[import-untyped]
 
 from codespy.agents.cost_tracker import get_cost_tracker
 from codespy.config import Settings

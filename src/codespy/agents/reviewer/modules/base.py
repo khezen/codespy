@@ -5,7 +5,7 @@ import logging
 from abc import abstractmethod
 from typing import Any
 
-import dspy
+import dspy  # type: ignore[import-untyped]
 
 from codespy.tools.github.models import ChangedFile
 from codespy.agents.reviewer.models import Issue, IssueCategory

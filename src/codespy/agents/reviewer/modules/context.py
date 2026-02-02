@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-import dspy
+import dspy  # type: ignore[import-untyped]
 
 from codespy.tools.github.models import ChangedFile, ReviewContext
 from codespy.agents.reviewer.models import Issue, IssueCategory

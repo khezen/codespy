@@ -3,7 +3,7 @@
 import json
 import logging
 
-import dspy
+import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 from codespy.config import Settings, get_settings
