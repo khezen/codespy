@@ -2,128 +2,23 @@
 
 import json
 import logging
-import threading
 
 import dspy
-import litellm
 
+from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 from codespy.config import Settings, get_settings
 from codespy.tools.github.client import GitHubClient
 from codespy.tools.github.models import ReviewContext
-from codespy.review.models import FileReview, Issue, ReviewResult
-from codespy.review.modules import (
+from codespy.agents.reviewer.models import FileReview, Issue, ReviewResult
+from codespy.agents.reviewer.modules import (
     BugDetector,
     ContextAnalyzer,
     DocumentationReviewer,
     SecurityAuditor,
 )
-from codespy.review.signatures import PRSummary
+from codespy.agents.reviewer.signatures import PRSummary
 
 logger = logging.getLogger(__name__)
-
-
-class CostTracker:
-    """Track LLM costs across multiple calls."""
-
-    def __init__(self) -> None:
-        """Initialize the cost tracker."""
-        self._lock = threading.Lock()
-        self._total_cost = 0.0
-        self._total_tokens = 0
-        self._call_count = 0
-        self._last_call_cost = 0.0
-        self._last_call_tokens = 0
-
-    def reset(self) -> None:
-        """Reset all tracking."""
-        with self._lock:
-            self._total_cost = 0.0
-            self._total_tokens = 0
-            self._call_count = 0
-            self._last_call_cost = 0.0
-            self._last_call_tokens = 0
-
-    def add_call(self, cost: float, tokens: int) -> None:
-        """Record a call's cost and tokens."""
-        with self._lock:
-            self._total_cost += cost
-            self._total_tokens += tokens
-            self._call_count += 1
-            self._last_call_cost = cost
-            self._last_call_tokens = tokens
-
-    @property
-    def total_cost(self) -> float:
-        """Get total cost in USD."""
-        return self._total_cost
-
-    @property
-    def total_tokens(self) -> int:
-        """Get total tokens used."""
-        return self._total_tokens
-
-    @property
-    def call_count(self) -> int:
-        """Get number of calls made."""
-        return self._call_count
-
-    @property
-    def last_call_cost(self) -> float:
-        """Get cost of last call."""
-        return self._last_call_cost
-
-    @property
-    def last_call_tokens(self) -> int:
-        """Get tokens of last call."""
-        return self._last_call_tokens
-
-
-# Global cost tracker instance
-_cost_tracker = CostTracker()
-
-
-def get_cost_tracker() -> CostTracker:
-    """Get the global cost tracker instance."""
-    return _cost_tracker
-
-
-def _litellm_success_callback(kwargs, completion_response, start_time, end_time):
-    """Callback for successful LiteLLM calls to track costs."""
-    try:
-        # Get cost from response (LiteLLM provides this)
-        cost = kwargs.get("response_cost", 0.0)
-        if cost == 0.0 and hasattr(completion_response, "_hidden_params"):
-            cost = getattr(completion_response._hidden_params, "response_cost", 0.0) or 0.0
-
-        # Calculate tokens
-        prompt_tokens = 0
-        completion_tokens = 0
-        if hasattr(completion_response, "usage") and completion_response.usage:
-            prompt_tokens = getattr(completion_response.usage, "prompt_tokens", 0) or 0
-            completion_tokens = getattr(completion_response.usage, "completion_tokens", 0) or 0
-
-        total_tokens = prompt_tokens + completion_tokens
-
-        # Try to get cost from litellm's cost calculator if not available
-        if cost == 0.0 and total_tokens > 0:
-            try:
-                model = kwargs.get("model", "")
-                cost = litellm.completion_cost(
-                    model=model,
-                    prompt=str(prompt_tokens),
-                    completion=str(completion_tokens),
-                )
-            except Exception:
-                pass
-
-        _cost_tracker.add_call(cost, total_tokens)
-
-        logger.debug(
-            f"LLM call: {total_tokens} tokens, ${cost:.4f} "
-            f"(total: {_cost_tracker.call_count} calls, ${_cost_tracker.total_cost:.4f})"
-        )
-    except Exception as e:
-        logger.debug(f"Cost tracking error: {e}")
 
 
 class ReviewPipeline:
@@ -139,8 +34,8 @@ class ReviewPipeline:
         self.github_client = GitHubClient(self.settings)
         self.cost_tracker = get_cost_tracker()
 
-        # Initialize DSPy with LiteLLM
-        self._configure_dspy()
+        # Initialize DSPy with LiteLLM using shared configuration
+        configure_dspy(self.settings)
 
         # Initialize review modules
         self.security_analyzer = SecurityAuditor()
@@ -150,60 +45,6 @@ class ReviewPipeline:
 
         # Summary generator
         self.summary_generator = dspy.ChainOfThought(PRSummary)
-
-    def _configure_dspy(self) -> None:
-        """Configure DSPy with the LLM backend."""
-        model = self.settings.litellm_model
-
-        # Configure LiteLLM environment if needed
-        if self.settings.openai_api_key:
-            litellm.openai_key = self.settings.openai_api_key
-        if self.settings.anthropic_api_key:
-            litellm.anthropic_key = self.settings.anthropic_api_key
-
-        # Set up AWS credentials for Bedrock if using Bedrock model
-        if model.startswith("bedrock/"):
-            import os
-
-            os.environ["AWS_REGION_NAME"] = self.settings.aws_region
-            if self.settings.aws_access_key_id:
-                os.environ["AWS_ACCESS_KEY_ID"] = self.settings.aws_access_key_id
-            if self.settings.aws_secret_access_key:
-                os.environ["AWS_SECRET_ACCESS_KEY"] = self.settings.aws_secret_access_key
-
-        # Register cost tracking callback
-        if _litellm_success_callback not in litellm.success_callback:
-            litellm.success_callback.append(_litellm_success_callback)
-
-        # Configure DSPy with LiteLLM
-        lm = dspy.LM(model=model)
-        dspy.configure(lm=lm)
-
-        logger.info(f"Configured DSPy with model: {model}")
-
-    def verify_model_access(self) -> tuple[bool, str]:
-        """Verify that the model is accessible.
-
-        Returns:
-            Tuple of (success, message)
-        """
-        model = self.settings.litellm_model
-        try:
-            # Make a minimal test call
-            litellm.completion(
-                model=model,
-                messages=[{"role": "user", "content": "Hi"}],
-                max_tokens=5,
-            )
-            return True, "Model access verified"
-        except litellm.AuthenticationError as e:
-            return False, f"Authentication failed: {e}"
-        except litellm.RateLimitError as e:
-            return False, f"Rate limit exceeded: {e}"
-        except litellm.APIConnectionError as e:
-            return False, f"Connection error: {e}"
-        except Exception as e:
-            return False, f"Model access error: {e}"
 
     def run(self, pr_url: str, verify_model: bool = True) -> ReviewResult:
         """Run the complete review pipeline on a pull request.
@@ -223,7 +64,7 @@ class ReviewPipeline:
         # Verify model access if requested
         if verify_model:
             logger.info("Verifying model access...")
-            success, message = self.verify_model_access()
+            success, message = verify_model_access(self.settings)
             if success:
                 logger.info(f"Model access: {message}")
             else:

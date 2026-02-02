@@ -5,9 +5,9 @@ from typing import Any
 import dspy
 
 from codespy.tools.github.models import ChangedFile
-from codespy.review.models import IssueCategory
-from codespy.review.modules.base import BaseReviewModule
-from codespy.review.signatures import BugDetection
+from codespy.agents.reviewer.models import IssueCategory
+from codespy.agents.reviewer.modules.base import BaseReviewModule
+from codespy.agents.reviewer.signatures import BugDetection
 
 
 class BugDetector(BaseReviewModule):

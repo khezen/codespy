@@ -6,9 +6,9 @@ from typing import Any
 import dspy
 
 from codespy.tools.github.models import ChangedFile, ReviewContext
-from codespy.review.models import Issue, IssueCategory
-from codespy.review.modules.base import BaseReviewModule
-from codespy.review.signatures import ContextualAnalysis
+from codespy.agents.reviewer.models import Issue, IssueCategory
+from codespy.agents.reviewer.modules.base import BaseReviewModule
+from codespy.agents.reviewer.signatures import ContextualAnalysis
 
 logger = logging.getLogger(__name__)
 

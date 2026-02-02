@@ -8,7 +8,7 @@ from typing import Any
 import dspy
 
 from codespy.tools.github.models import ChangedFile
-from codespy.review.models import Issue, IssueCategory
+from codespy.agents.reviewer.models import Issue, IssueCategory
 
 logger = logging.getLogger(__name__)
 

@@ -136,13 +136,14 @@ def review(
     )
 
     try:
-        from codespy.review.pipeline import ReviewPipeline
+        from codespy.agents.reviewer.pipeline import ReviewPipeline
+        from codespy.agents import verify_model_access
 
         pipeline = ReviewPipeline(settings)
 
         # Verify model access
         console.print("[dim]Verifying model access...[/dim]")
-        success, message = pipeline.verify_model_access()
+        success, message = verify_model_access(settings)
         if success:
             console.print(f"[bold]Model:[/bold] [green]verified[/green] [dim]({settings.litellm_model})[/dim]")
         else:
