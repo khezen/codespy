@@ -240,12 +240,13 @@ class ReviewPipeline:
         else:
             logger.info(f"PR #{pr.number}: {pr.title} ({len(pr.changed_files)} files changed)")
 
-        # Build review context (includes related files)
-        logger.info("Building review context...")
-        review_context = self.github_client.build_review_context(
-            pr, include_repo_context=self.settings.include_repo_context
+        # Create review context
+        review_context = ReviewContext(
+            pull_request=pr,
+            related_files={},
+            repository_structure=None,
+            callers={},
         )
-        logger.info(f"Found {len(review_context.related_files)} related files for context")
 
         # Review each code file
         file_reviews: list[FileReview] = []
