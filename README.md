@@ -7,8 +7,8 @@
 - 🔒 **Security Analysis** - Detects common vulnerabilities (injection, auth issues, data exposure, etc.) with CWE references
 - 🐛 **Bug Detection** - Identifies logic errors, null references, resource leaks, edge cases
 - 📝 **Documentation Review** - Checks for missing docstrings, outdated comments, incomplete docs
-- 🧠 **Domain Expert Analysis** - Analyzes changes in context of the broader codebase (imports, dependencies)
-- 🔍 **Intelligent Scope Detection** - Automatically identifies code scopes (frontend, backend, infra, etc.)
+- 🧠 **Domain Expert Analysis** - Analyzes changes in context of the broader codebase
+- 🔍 **Intelligent Scope Detection** - Automatically identifies code scopes (frontend, backend, infra, microservice in mono repo, etc.)
 - 🔄 **Smart Deduplication** - LLM-powered issue deduplication across reviewers
 - 💰 **Cost Tracking** - Track LLM calls, tokens, and costs per review
 - 🤖 **Model Agnostic** - Works with OpenAI, AWS Bedrock, Anthropic, Ollama, and more via LiteLLM
@@ -46,9 +46,6 @@ pip install .
 ```bash
 # Build the image
 docker build -t codespy .
-
-# Or use docker compose
-docker compose build
 ```
 
 ## Configuration
@@ -186,26 +183,6 @@ Use parameterized queries instead...
 **Reference:** [CWE-89](https://cwe.mitre.org/data/definitions/89.html)
 
 ---
-```
-
-### JSON
-
-```json
-{
-  "pr_number": 123,
-  "pr_title": "Add user authentication",
-  "pr_url": "https://github.com/owner/repo/pull/123",
-  "repo": "owner/repo",
-  "reviewed_at": "2024-01-15T10:30:00Z",
-  "model_used": "gpt-4o",
-  "issues": [...],
-  "overall_summary": "...",
-  "quality_assessment": "...",
-  "recommendation": "REQUEST_CHANGES: Found 1 critical issues...",
-  "total_cost": 0.0234,
-  "total_tokens": 15420,
-  "llm_calls": 8
-}
 ```
 
 ## Architecture
