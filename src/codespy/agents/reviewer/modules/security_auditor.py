@@ -47,9 +47,6 @@ class SecurityAnalysisSignature(dspy.Signature):
     language: str = dspy.InputField(
         desc="Programming language of the file"
     )
-    context: str = dspy.InputField(
-        desc="Additional context from related files in the codebase"
-    )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field)"
     )
@@ -67,14 +64,12 @@ class SecurityAuditor(dspy.Module):
     def __init__(self) -> None:
         """Initialize the security auditor with chain-of-thought reasoning."""
         super().__init__()
-        self.predictor = dspy.ChainOfThought(SecurityAnalysisSignature)
 
-    def forward(self, file: ChangedFile, context: str = "") -> list[Issue]:
+    def forward(self, file: ChangedFile) -> list[Issue]:
         """Analyze a file for security vulnerabilities and return issues.
 
         Args:
             file: The changed file to analyze
-            context: Additional context from related files
 
         Returns:
             List of security issues found
@@ -84,12 +79,12 @@ class SecurityAuditor(dspy.Module):
             return []
 
         try:
-            result = self.predictor(
+            agent = dspy.ChainOfThought(SecurityAnalysisSignature)
+            result = agent(
                 diff=file.patch or "",
                 full_content=file.content or "",
                 filename=file.filename,
                 language=get_language(file),
-                context=context or "No additional context available.",
                 category=self.category,
             )
             return [

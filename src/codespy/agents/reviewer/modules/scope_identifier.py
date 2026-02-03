@@ -77,19 +77,13 @@ class ScopeIdentifierSignature(dspy.Signature):
     changed_files: list[str] = dspy.InputField(
         desc="List of changed file paths from the PR. Use these to derive sparse_paths for efficient cloning."
     )
-    
     repo_owner: str = dspy.InputField(desc="Repository owner (e.g., 'facebook')")
-    
     repo_name: str = dspy.InputField(desc="Repository name (e.g., 'react')")
-    
     head_sha: str = dspy.InputField(desc="Git commit SHA to checkout")
-    
     target_repo_path: str = dspy.InputField(
         desc="Absolute path where repository should be cloned. Clone here before exploring."
     )
-    
     pr_title: str = dspy.InputField(desc="PR title for additional context")
-    
     pr_description: str = dspy.InputField(desc="PR description for additional context")
     
     scopes: list[ScopeResult] = dspy.OutputField(
