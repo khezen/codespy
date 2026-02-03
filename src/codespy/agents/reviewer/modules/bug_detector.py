@@ -49,9 +49,6 @@ class BugDetectionSignature(dspy.Signature):
     language: str = dspy.InputField(
         desc="Programming language of the file"
     )
-    context: str = dspy.InputField(
-        desc="Additional context from related files"
-    )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field)"
     )
@@ -70,12 +67,11 @@ class BugDetector(dspy.Module):
         """Initialize the bug detector with chain-of-thought reasoning."""
         super().__init__()
 
-    def forward(self, file: ChangedFile, context: str = "") -> list[Issue]:
+    def forward(self, file: ChangedFile) -> list[Issue]:
         """Analyze a file for bugs and return issues.
 
         Args:
             file: The changed file to analyze
-            context: Additional context from related files
 
         Returns:
             List of bug issues found
@@ -91,7 +87,6 @@ class BugDetector(dspy.Module):
                 full_content=file.content or "",
                 filename=file.filename,
                 language=get_language(file),
-                context=context or "No additional context available.",
                 category=self.category,
             )
             return [
