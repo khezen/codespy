@@ -6,7 +6,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.tools.github.models import ChangedFile
 from codespy.agents.reviewer.models import Issue, IssueCategory
-from codespy.agents.reviewer.modules.helpers import is_markdown_file, parse_issues_json
+from codespy.agents.reviewer.modules.helpers import is_markdown_file, is_speculative, MIN_CONFIDENCE
 
 logger = logging.getLogger(__name__)
 
@@ -37,20 +37,12 @@ class DocumentationReviewSignature(dspy.Signature):
     file_path: str = dspy.InputField(
         desc="Path to the markdown file being analyzed"
     )
+    category: IssueCategory = dspy.InputField(
+        desc="Category for all issues (use this value for the 'category' field)"
+    )
 
-    issues_json: str = dspy.OutputField(
-        desc="""JSON array of documentation issues. Each issue should have:
-        {
-            "title": "Brief title",
-            "severity": "medium|low|info",
-            "description": "What is inaccurate, outdated, or missing in the docs",
-            "line_start": <number or null>,
-            "line_end": <number or null>,
-            "code_snippet": "Relevant documentation text",
-            "suggestion": "How to improve the documentation",
-            "confidence": <0.0-1.0>
-        }
-        Return empty array [] if documentation is adequate."""
+    issues: list[Issue] = dspy.OutputField(
+        desc="Documentation issues found. Use file_path for 'file' field and category for 'category' field. Empty list if documentation is adequate."
     )
 
 
@@ -89,8 +81,12 @@ class DocumentationReviewer(dspy.Module):
                 diff=file.patch or "",
                 full_content=file.content or "",
                 file_path=file.filename,
+                category=self.category,
             )
-            return parse_issues_json(result.issues_json, file, self.category)
+            return [
+                issue for issue in result.issues
+                if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+            ]
         except Exception as e:
             logger.error(f"Error analyzing {file.filename}: {e}")
             return []

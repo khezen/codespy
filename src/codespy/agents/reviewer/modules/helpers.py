@@ -1,11 +1,10 @@
 """Helper functions for DSPy review modules."""
 
-import json
 import logging
 import os
 
 from codespy.tools.github.models import ChangedFile, ReviewContext
-from codespy.agents.reviewer.models import Issue, IssueCategory
+from codespy.agents.reviewer.models import Issue
 
 logger = logging.getLogger(__name__)
 
@@ -116,80 +115,6 @@ def is_speculative(issue: Issue) -> bool:
             return True
 
     return False
-
-
-def parse_issues_json(
-    issues_json: str,
-    file: ChangedFile,
-    category: IssueCategory,
-) -> list[Issue]:
-    """Parse the issues JSON and filter for quality.
-
-    Args:
-        issues_json: Raw JSON string from the LLM
-        file: The file being analyzed
-        category: Issue category for all parsed issues
-
-    Returns:
-        List of parsed issues (filtered for quality)
-    """
-    issues: list[Issue] = []
-
-    try:
-        # Clean up the JSON string (handle markdown code blocks)
-        issues_json = issues_json.strip()
-        if issues_json.startswith("```"):
-            lines = issues_json.split("\n")
-            issues_json = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
-
-        raw_issues = json.loads(issues_json)
-
-        if not isinstance(raw_issues, list):
-            logger.warning(f"Expected list of issues, got {type(raw_issues)}")
-            return []
-
-        for raw in raw_issues:
-            if not isinstance(raw, dict):
-                continue
-
-            try:
-                confidence = raw.get("confidence", 0.8)
-
-                if confidence < MIN_CONFIDENCE:
-                    logger.debug(
-                        f"Filtering low-confidence issue '{raw.get('title', 'Untitled')}': "
-                        f"confidence {confidence} < {MIN_CONFIDENCE}"
-                    )
-                    continue
-
-                issue = Issue(
-                    category=category,
-                    severity=raw.get("severity", "medium"),
-                    title=raw.get("title", "Untitled Issue"),
-                    description=raw.get("description", ""),
-                    file=file.filename,
-                    line_start=raw.get("line_start"),
-                    line_end=raw.get("line_end"),
-                    code_snippet=raw.get("code_snippet"),
-                    suggestion=raw.get("suggestion"),
-                    cwe_id=raw.get("cwe_id"),
-                    confidence=confidence,
-                )
-
-                if is_speculative(issue):
-                    continue
-
-                issues.append(issue)
-            except Exception as e:
-                logger.warning(f"Failed to parse issue: {e}")
-                continue
-
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse issues JSON: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error parsing issues: {e}")
-
-    return issues
 
 
 def build_context_string(file: ChangedFile, review_context: ReviewContext) -> tuple[str, str]:

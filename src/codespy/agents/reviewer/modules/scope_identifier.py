@@ -67,9 +67,11 @@ class ScopeIdentifierSignature(dspy.Signature):
     changed_files: list[str] = dspy.InputField(
         desc="List of changed file paths from the PR"
     )
+    
     pr_title: str = dspy.InputField(desc="PR title for additional context")
+    
     pr_description: str = dspy.InputField(desc="PR description for additional context")
-
+    
     scopes: list[ScopeResult] = dspy.OutputField(
         desc="List of identified scopes. EVERY changed file must appear in exactly one scope's changed_files list."
     )

@@ -6,7 +6,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.tools.github.models import ChangedFile
 from codespy.agents.reviewer.models import Issue, IssueCategory
-from codespy.agents.reviewer.modules.helpers import parse_issues_json
+from codespy.agents.reviewer.modules.helpers import is_speculative, MIN_CONFIDENCE
 
 logger = logging.getLogger(__name__)
 
@@ -52,21 +52,12 @@ class DomainExpertSignature(dspy.Signature):
     repo_structure: str = dspy.InputField(
         desc="Overview of the repository structure"
     )
+    category: IssueCategory = dspy.InputField(
+        desc="Category for all issues (use this value for the 'category' field)"
+    )
 
-    issues_json: str = dspy.OutputField(
-        desc="""JSON array of VERIFIED contextual issues. Each issue should have:
-        {
-            "title": "Brief title - be specific about what caller/file is affected",
-            "severity": "critical|high|medium|low|info",
-            "description": "MUST cite specific file:line from verified callers or related_files. Example: 'The caller at api/handler.go:45 calls parse() with 2 args but signature changed to 3 args'",
-            "line_start": <number or null>,
-            "line_end": <number or null>,
-            "code_snippet": "The changed code AND the caller code that needs updating",
-            "suggestion": "Specific fix with file:line references",
-            "confidence": <0.0-1.0> - set to 0.9+ if you have verified caller info
-        }
-        Return empty array [] if no verified callers need updating and no issues found in related_files.
-        Quality over quantity - only report issues with concrete evidence."""
+    issues: list[Issue] = dspy.OutputField(
+        desc="VERIFIED contextual issues. Use file_path for 'file' field and category for 'category' field. Only report issues with concrete evidence from verified callers. Empty list if none."
     )
 
 
@@ -101,8 +92,12 @@ class DomainExpert(dspy.Module):
                 file_path=file.filename,
                 related_files=context or "No related files available.",
                 repo_structure=repo_structure or "Repository structure not available.",
+                category=self.category,
             )
-            return parse_issues_json(result.issues_json, file, self.category)
+            return [
+                issue for issue in result.issues
+                if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+            ]
         except Exception as e:
             logger.error(f"Error in contextual analysis of {file.filename}: {e}")
             return []

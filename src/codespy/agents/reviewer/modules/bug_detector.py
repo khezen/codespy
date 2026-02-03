@@ -6,7 +6,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.tools.github.models import ChangedFile
 from codespy.agents.reviewer.models import Issue, IssueCategory
-from codespy.agents.reviewer.modules.helpers import get_language, parse_issues_json
+from codespy.agents.reviewer.modules.helpers import get_language, is_speculative, MIN_CONFIDENCE
 
 logger = logging.getLogger(__name__)
 
@@ -52,20 +52,12 @@ class BugDetectionSignature(dspy.Signature):
     context: str = dspy.InputField(
         desc="Additional context from related files"
     )
+    category: IssueCategory = dspy.InputField(
+        desc="Category for all issues (use this value for the 'category' field)"
+    )
 
-    issues_json: str = dspy.OutputField(
-        desc="""JSON array of VERIFIED bugs found. Each bug should have:
-        {
-            "title": "Brief title",
-            "severity": "critical|high|medium|low|info",
-            "description": "What the bug is and why it's problematic - must include SPECIFIC code evidence",
-            "line_start": <number or null>,
-            "line_end": <number or null>,
-            "code_snippet": "The EXACT buggy code",
-            "suggestion": "How to fix the bug",
-            "confidence": <0.0-1.0> - set low if not 100% sure
-        }
-        Return empty array [] if no VERIFIED bugs found. Do NOT include speculative issues."""
+    issues: list[Issue] = dspy.OutputField(
+        desc="VERIFIED bugs found. Use file_path for 'file' field and category for 'category' field. Empty list if none."
     )
 
 
@@ -100,8 +92,12 @@ class BugDetector(dspy.Module):
                 file_path=file.filename,
                 language=get_language(file),
                 context=context or "No additional context available.",
+                category=self.category,
             )
-            return parse_issues_json(result.issues_json, file, self.category)
+            return [
+                issue for issue in result.issues
+                if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+            ]
         except Exception as e:
             logger.error(f"Error analyzing {file.filename}: {e}")
             return []

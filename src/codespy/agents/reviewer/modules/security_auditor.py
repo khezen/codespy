@@ -6,7 +6,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.tools.github.models import ChangedFile
 from codespy.agents.reviewer.models import Issue, IssueCategory
-from codespy.agents.reviewer.modules.helpers import get_language, parse_issues_json
+from codespy.agents.reviewer.modules.helpers import get_language, is_speculative, MIN_CONFIDENCE
 
 logger = logging.getLogger(__name__)
 
@@ -50,21 +50,12 @@ class SecurityAnalysisSignature(dspy.Signature):
     context: str = dspy.InputField(
         desc="Additional context from related files in the codebase"
     )
+    category: IssueCategory = dspy.InputField(
+        desc="Category for all issues (use this value for the 'category' field)"
+    )
 
-    issues_json: str = dspy.OutputField(
-        desc="""JSON array of security issues found. Each issue should have:
-        {
-            "title": "Brief title",
-            "severity": "critical|high|medium|low|info",
-            "description": "Detailed explanation",
-            "line_start": <number or null>,
-            "line_end": <number or null>,
-            "code_snippet": "Affected code",
-            "suggestion": "How to fix",
-            "cwe_id": "CWE-XXX or null",
-            "confidence": <0.0-1.0>
-        }
-        Return empty array [] if no issues found."""
+    issues: list[Issue] = dspy.OutputField(
+        desc="Security issues found. Use file_path for 'file' field and category for 'category' field. Empty list if none."
     )
 
 
@@ -99,8 +90,12 @@ class SecurityAuditor(dspy.Module):
                 file_path=file.filename,
                 language=get_language(file),
                 context=context or "No additional context available.",
+                category=self.category,
             )
-            return parse_issues_json(result.issues_json, file, self.category)
+            return [
+                issue for issue in result.issues
+                if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+            ]
         except Exception as e:
             logger.error(f"Error analyzing {file.filename}: {e}")
             return []
