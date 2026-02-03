@@ -108,14 +108,13 @@ class ReviewPipeline(dspy.Module):
         else:
             logger.info(f"PR #{pr.number}: {pr.title} ({len(pr.changed_files)} files changed)")
 
-        # Clone repository for scope identification
-        logger.info("Cloning repository for analysis...")
-        repo_path = self.github_client.clone_repository(
-            pr.repo_owner, pr.repo_name, pr.head_sha
-        )
-        logger.info(f"Repository cloned to {repo_path}")
+        # Determine target path for repository (ScopeIdentifier agent will clone it)
+        cache_dir = self.settings.cache_dir
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        repo_path = cache_dir / pr.repo_owner / pr.repo_name
+        logger.info(f"Repository target path: {repo_path}")
 
-        # Identify scopes in the repository
+        # Identify scopes in the repository (agent clones repo efficiently with sparse checkout)
         logger.info("Identifying code scopes...")
         scopes = self.scope_identifier.forward(pr, repo_path)
         for scope in scopes:

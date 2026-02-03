@@ -174,41 +174,80 @@ class GitHubClient:
             excluded_files_count=excluded_count,
         )
 
-    def clone_repository(self, owner: str, repo_name: str, ref: str) -> Path:
+    def clone_repository(
+        self,
+        owner: str,
+        repo_name: str,
+        ref: str,
+        target_path: Path | None = None,
+        depth: int | None = 1,
+        sparse_paths: list[str] | None = None,
+    ) -> Path:
         """Clone or update a repository.
 
         Args:
             owner: Repository owner
             repo_name: Repository name
             ref: Git ref (branch, tag, or commit) to checkout
+            target_path: Target directory for clone (defaults to cache_dir/owner/repo_name)
+            depth: Shallow clone depth (None for full history, default 1)
+            sparse_paths: List of paths for sparse checkout (None for full checkout)
 
         Returns:
             Path to the cloned repository
         """
-        cache_dir = self.settings.cache_dir
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        # Determine target directory
+        if target_path is None:
+            cache_dir = self.settings.cache_dir
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            repo_dir = cache_dir / owner / repo_name
+        else:
+            repo_dir = target_path
 
-        repo_dir = cache_dir / owner / repo_name
+        repo_url = f"https://github.com/{owner}/{repo_name}.git"
+        if self.settings.github_token:
+            repo_url = f"https://{self.settings.github_token}@github.com/{owner}/{repo_name}.git"
 
-        if repo_dir.exists():
+        if repo_dir.exists() and (repo_dir / ".git").exists():
             # Update existing clone
             repo = Repo(repo_dir)
             repo.remotes.origin.fetch()
+            # Checkout the specific ref
+            repo.git.checkout(ref)
         else:
-            # Fresh clone (shallow to save space)
-            repo_url = f"https://github.com/{owner}/{repo_name}.git"
-            if self.settings.github_token:
-                repo_url = f"https://{self.settings.github_token}@github.com/{owner}/{repo_name}.git"
-
+            # Fresh clone with optimal settings
             repo_dir.mkdir(parents=True, exist_ok=True)
-            repo = Repo.clone_from(
-                repo_url,
-                repo_dir,
-                depth=1,
-                no_single_branch=True,
-            )
 
-        # Checkout the specific ref
-        repo.git.checkout(ref)
+            if sparse_paths:
+                # Sparse checkout: init repo, configure sparse, then fetch
+                repo = Repo.init(repo_dir)
+                repo.create_remote("origin", repo_url)
+
+                # Enable sparse checkout
+                repo.git.config("core.sparseCheckout", "true")
+
+                # Write sparse paths
+                sparse_file = repo_dir / ".git" / "info" / "sparse-checkout"
+                sparse_file.parent.mkdir(parents=True, exist_ok=True)
+                sparse_file.write_text("\n".join(sparse_paths) + "\n")
+
+                # Fetch with depth and filter for efficiency
+                fetch_args = ["origin", ref]
+                if depth:
+                    fetch_args.extend(["--depth", str(depth)])
+                # Use treeless clone for sparse checkout efficiency
+                fetch_args.extend(["--filter=tree:0"])
+                repo.git.fetch(*fetch_args)
+
+                # Checkout
+                repo.git.checkout(ref)
+            else:
+                # Standard clone
+                clone_kwargs: dict = {"no_single_branch": True}
+                if depth:
+                    clone_kwargs["depth"] = depth
+
+                repo = Repo.clone_from(repo_url, repo_dir, **clone_kwargs)
+                repo.git.checkout(ref)
 
         return repo_dir

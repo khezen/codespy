@@ -17,10 +17,20 @@ logger = logging.getLogger(__name__)
 class ScopeIdentifierSignature(dspy.Signature):
     """Identify code scopes in a repository for a pull request.
 
-    You have tools to explore the repository filesystem and analyze code.
+    You have tools to clone the repository, explore its filesystem, and analyze code.
     Your goal is to identify logical code boundaries (scopes) and assign each changed file to exactly one scope.
 
-    EXPLORATION STRATEGY:
+    FIRST STEP - CLONE THE REPOSITORY:
+    Before exploring, you MUST clone the repository using clone_repository tool:
+    1. Use the repo_owner, repo_name, and head_sha provided in the inputs
+    2. Clone to the target_repo_path provided
+    3. For efficiency, derive sparse_paths from changed_files:
+       - Extract unique parent directories from changed files
+       - Include root directory for package manifests (use "." or specific manifest files)
+       - Example: ["services/auth/", "libs/common/", "package.json", "go.mod"]
+    4. Use depth=1 for fastest clone (single commit)
+
+    EXPLORATION STRATEGY (after cloning):
     1. Examine the changed files list to understand what areas are affected
     2. Use get_tree to explore the repository structure (start with depth 3-4)
     3. Use file_exists and read_file to check for package manifest files (package.json, go.mod, pyproject.toml, Cargo.toml, etc.)
@@ -65,7 +75,17 @@ class ScopeIdentifierSignature(dspy.Signature):
     """
 
     changed_files: list[str] = dspy.InputField(
-        desc="List of changed file paths from the PR"
+        desc="List of changed file paths from the PR. Use these to derive sparse_paths for efficient cloning."
+    )
+    
+    repo_owner: str = dspy.InputField(desc="Repository owner (e.g., 'facebook')")
+    
+    repo_name: str = dspy.InputField(desc="Repository name (e.g., 'react')")
+    
+    head_sha: str = dspy.InputField(desc="Git commit SHA to checkout")
+    
+    target_repo_path: str = dspy.InputField(
+        desc="Absolute path where repository should be cloned. Clone here before exploring."
     )
     
     pr_title: str = dspy.InputField(desc="PR title for additional context")
@@ -113,6 +133,10 @@ class ScopeIdentifier(dspy.Module):
             logger.info(f"Identifying scopes for {len(changed_file_paths)} changed files...")
             result = await agent.acall(
                 changed_files=changed_file_paths,
+                repo_owner=pr.repo_owner,
+                repo_name=pr.repo_name,
+                head_sha=pr.head_sha,
+                target_repo_path=str(repo_path),
                 pr_title=pr.title or "No title",
                 pr_description=pr.body or "No description",
             )
