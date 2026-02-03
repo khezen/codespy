@@ -69,7 +69,6 @@ class BugDetector(dspy.Module):
     def __init__(self) -> None:
         """Initialize the bug detector with chain-of-thought reasoning."""
         super().__init__()
-        self.predictor = dspy.ChainOfThought(BugDetectionSignature)
 
     def forward(self, file: ChangedFile, context: str = "") -> list[Issue]:
         """Analyze a file for bugs and return issues.
@@ -84,9 +83,10 @@ class BugDetector(dspy.Module):
         if not file.patch:
             logger.debug(f"Skipping {file.filename}: no patch available")
             return []
-
+        
         try:
-            result = self.predictor(
+            agent = dspy.ChainOfThought(BugDetectionSignature)
+            result = agent(
                 diff=file.patch or "",
                 full_content=file.content or "",
                 file_path=file.filename,
