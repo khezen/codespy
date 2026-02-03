@@ -182,7 +182,6 @@ Use parameterized queries instead...
 
 **Reference:** [CWE-89](https://cwe.mitre.org/data/definitions/89.html)
 
----
 ```
 
 ## Architecture
