@@ -1,13 +1,14 @@
 """Main review pipeline that orchestrates all review modules."""
 
 import logging
+from pathlib import Path
 
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 from codespy.config import Settings, get_settings
 from codespy.tools.github.client import GitHubClient
-from codespy.tools.github.models import ChangedFile
+from codespy.tools.github.models import ChangedFile, PullRequest
 from codespy.agents.reviewer.models import Issue, ReviewResult
 from codespy.agents.reviewer.modules import (
     BugDetector,
@@ -73,12 +74,18 @@ class ReviewPipeline(dspy.Module):
             raise ValueError(f"Model access failed: {message}")
         logger.info(f"Model access: {message}")
 
-    def _fetch_pr(self, pr_url: str):
+    def _fetch_pr(self, pr_url: str) -> PullRequest:
         """Fetch PR data from GitHub."""
         logger.info("Fetching PR data from GitHub...")
         pr = self.github_client.fetch_pull_request(pr_url)
         logger.info(f"PR #{pr.number}: {pr.title} ({len(pr.changed_files)} files)")
         return pr
+
+    def _get_repo_path(self, pr: PullRequest) -> Path:
+        """Get the local repository path for a PR, creating directories if needed."""
+        cache_dir = self.settings.cache_dir
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir / pr.repo_owner / pr.repo_name
 
     def forward(self, pr_url: str, verify_model: bool = True) -> ReviewResult:
         """Run the complete review pipeline on a pull request."""
@@ -87,46 +94,38 @@ class ReviewPipeline(dspy.Module):
         if verify_model:
             self._verify_model_access()
         pr = self._fetch_pr(pr_url)
-
-        # ScopeIdentifier clones the repo and identifies scopes
-        cache_dir = self.settings.cache_dir
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        repo_path = cache_dir / pr.repo_owner / pr.repo_name
+        repo_path = self._get_repo_path(pr)
         logger.info("Identifying code scopes...")
         scopes = self.scope_identifier(pr, repo_path)
         for scope in scopes:
             logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
-        # Run all review modules
+        # Run all review modules in parallel
         all_issues: list[Issue] = []
-        logger.info("Running bug detection...")
-        try:
-            bugs = self.bug_detector(pr.code_files)
-            all_issues.extend(bugs)
-        except Exception as e:
-            logger.error(f"Bug detection failed: {e}")
-
-        logger.info("Running security analysis...")
-        try:
-            security_issues = self.security_auditor(pr.code_files)
-            all_issues.extend(security_issues)
-        except Exception as e:
-            logger.error(f"Security analysis failed: {e}")
-
-        logger.info("Running documentation review...")
-        try:
-            doc_issues = self.doc_reviewer(scopes, repo_path)
-            all_issues.extend(doc_issues)
-        except Exception as e:
-            logger.error(f"Documentation review failed: {e}")
-
-        logger.info("Running domain expert analysis...")
-        try:
-            domain_issues = self.domain_expert(scopes, repo_path)
-            all_issues.extend(domain_issues)
-        except Exception as e:
-            logger.error(f"Domain expert analysis failed: {e}")
+        logger.info("Running review modules in parallel (bug detection, security analysis, documentation review, domain expert)...")
+        # Define execution pairs: (module, inputs_as_dict)
+        # Note: bug_detector takes 'files', others take 'scopes' and 'repo_path'
+        exec_pairs = [
+            (self.bug_detector, {"files": pr.code_files}),
+            (self.security_auditor, {"scopes": scopes, "repo_path": repo_path}),
+            (self.doc_reviewer, {"scopes": scopes, "repo_path": repo_path}),
+            (self.domain_expert, {"scopes": scopes, "repo_path": repo_path}),
+        ]
+        # Execute in parallel with error handling
+        parallel = dspy.Parallel(num_threads=4, return_failed_examples=True, provide_traceback=True)
+        results, failed_examples, exceptions = parallel(exec_pairs)
+        # Log any failures
+        for i, (failed, exc) in enumerate(zip(failed_examples, exceptions)):
+            if failed is not None:
+                # Find which module failed by checking the failed example
+                for j, (module, inputs) in enumerate(exec_pairs):
+                    if inputs == failed:
+                        logger.error(f"{module} failed: {exc}")
+                        break
+        # Aggregate successful results
+        for result in results:
+            if result is not None:
+                all_issues.extend(result)     
         logger.info(f"Found {len(all_issues)} total issues")
-
         # Generate summary, quality assessment, and recommendation
         logger.info("Generating PR summary...")
         try:
