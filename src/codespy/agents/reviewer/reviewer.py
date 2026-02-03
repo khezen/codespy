@@ -148,10 +148,10 @@ class ReviewPipeline(dspy.Module):
         except Exception as e:
             logger.error(f"  Bug detection failed: {e}")
 
-        # Documentation review on all changed files (module filters to markdown)
+        # Documentation review on all scopes
         logger.info("Running documentation review...")
         try:
-            doc_issues = self.docs_reviewer.forward(pr.changed_files)
+            doc_issues = self.docs_reviewer.forward(scopes, repo_path)
             all_issues.extend(doc_issues)
             logger.info(f"  Documentation: {len(doc_issues)} issues")
         except Exception as e:
