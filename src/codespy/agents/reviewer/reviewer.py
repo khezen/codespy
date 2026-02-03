@@ -1,6 +1,5 @@
 """Main review pipeline that orchestrates all review modules."""
 
-import json
 import logging
 
 import dspy  # type: ignore[import-untyped]
@@ -8,6 +7,7 @@ import dspy  # type: ignore[import-untyped]
 from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 from codespy.config import Settings, get_settings
 from codespy.tools.github.client import GitHubClient
+from codespy.tools.github.models import ChangedFile
 from codespy.agents.reviewer.models import Issue, ReviewResult
 from codespy.agents.reviewer.modules import (
     BugDetector,
@@ -31,11 +31,11 @@ class PRSummarySignature(dspy.Signature):
 
     pr_title: str = dspy.InputField(desc="Title of the pull request")
     pr_description: str = dspy.InputField(desc="Description/body of the PR")
-    changed_files: str = dspy.InputField(
-        desc="List of changed files with change counts"
+    changed_files: list[ChangedFile] = dspy.InputField(
+        desc="List of changed files with their status and line counts"
     )
-    all_issues: str = dspy.InputField(
-        desc="JSON array of all issues found during review"
+    all_issues: list[Issue] = dspy.InputField(
+        desc="All issues found during review"
     )
 
     summary: str = dspy.OutputField(
@@ -126,23 +126,16 @@ class ReviewPipeline(dspy.Module):
         except Exception as e:
             logger.error(f"Domain expert analysis failed: {e}")
         logger.info(f"Found {len(all_issues)} total issues")
+
         # Generate summary, quality assessment, and recommendation
         logger.info("Generating PR summary...")
-        changed_files_str = "\n".join(
-            f"- {f.filename} ({f.status.value}): +{f.additions}/-{f.deletions}"
-            for f in pr.changed_files
-        )
-        issues_json = json.dumps(
-            [{"category": i.category.value, "severity": i.severity.value, "title": i.title, "file": i.filename} for i in all_issues],
-            indent=2,
-        )
         try:
             summarizer = dspy.ChainOfThought(PRSummarySignature)
             result = summarizer(
                 pr_title=pr.title,
                 pr_description=pr.body or "No description provided.",
-                changed_files=changed_files_str,
-                all_issues=issues_json,
+                changed_files=pr.changed_files,
+                all_issues=all_issues,
             )
             summary = result.summary
             quality_assessment = result.quality_assessment
