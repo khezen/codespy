@@ -108,33 +108,6 @@ class Issue(BaseModel):
         return self.filename
 
 
-class FileReview(BaseModel):
-    """Review results for a single file."""
-
-    filename: str = Field(description="Path to the reviewed file")
-    issues: list[Issue] = Field(default_factory=list, description="Issues found in this file")
-    summary: str | None = Field(default=None, description="Brief summary of file changes")
-    reviewed: bool = Field(default=True, description="Whether the file was actually reviewed")
-    skip_reason: str | None = Field(
-        default=None, description="Reason if file was skipped"
-    )
-
-    @property
-    def issue_count(self) -> int:
-        """Get total number of issues."""
-        return len(self.issues)
-
-    @property
-    def critical_count(self) -> int:
-        """Get number of critical issues."""
-        return sum(1 for i in self.issues if i.severity == IssueSeverity.CRITICAL)
-
-    @property
-    def high_count(self) -> int:
-        """Get number of high severity issues."""
-        return sum(1 for i in self.issues if i.severity == IssueSeverity.HIGH)
-
-
 class ReviewResult(BaseModel):
     """Complete review results for a pull request."""
 
@@ -146,11 +119,14 @@ class ReviewResult(BaseModel):
         default_factory=datetime.utcnow, description="Review timestamp"
     )
     model_used: str = Field(description="LLM model used for review")
-    file_reviews: list[FileReview] = Field(
-        default_factory=list, description="Per-file review results"
+    issues: list[Issue] = Field(
+        default_factory=list, description="All issues found during review"
     )
     overall_summary: str | None = Field(
         default=None, description="Overall summary of the PR"
+    )
+    quality_assessment: str | None = Field(
+        default=None, description="Overall assessment of code quality"
     )
     recommendation: str | None = Field(
         default=None, description="Overall recommendation (approve, request changes, etc.)"
@@ -160,47 +136,39 @@ class ReviewResult(BaseModel):
     llm_calls: int = Field(default=0, description="Number of LLM calls made")
 
     @property
-    def all_issues(self) -> list[Issue]:
-        """Get all issues across all files."""
-        issues = []
-        for file_review in self.file_reviews:
-            issues.extend(file_review.issues)
-        return issues
-
-    @property
     def total_issues(self) -> int:
         """Get total number of issues."""
-        return len(self.all_issues)
+        return len(self.issues)
 
     @property
     def critical_issues(self) -> list[Issue]:
         """Get all critical issues."""
-        return [i for i in self.all_issues if i.severity == IssueSeverity.CRITICAL]
+        return [i for i in self.issues if i.severity == IssueSeverity.CRITICAL]
 
     @property
     def security_issues(self) -> list[Issue]:
         """Get all security issues."""
-        return [i for i in self.all_issues if i.category == IssueCategory.SECURITY]
+        return [i for i in self.issues if i.category == IssueCategory.SECURITY]
 
     @property
     def bug_issues(self) -> list[Issue]:
         """Get all bug issues."""
-        return [i for i in self.all_issues if i.category == IssueCategory.BUG]
+        return [i for i in self.issues if i.category == IssueCategory.BUG]
 
     @property
     def documentation_issues(self) -> list[Issue]:
         """Get all documentation issues."""
-        return [i for i in self.all_issues if i.category == IssueCategory.DOCUMENTATION]
+        return [i for i in self.issues if i.category == IssueCategory.DOCUMENTATION]
 
     @property
     def context_issues(self) -> list[Issue]:
         """Get all context issues."""
-        return [i for i in self.all_issues if i.category == IssueCategory.CONTEXT]
+        return [i for i in self.issues if i.category == IssueCategory.CONTEXT]
 
     def issues_by_severity(self) -> dict[IssueSeverity, list[Issue]]:
         """Group issues by severity."""
         result: dict[IssueSeverity, list[Issue]] = {s: [] for s in IssueSeverity}
-        for issue in self.all_issues:
+        for issue in self.issues:
             result[issue.severity].append(issue)
         return result
 
@@ -218,6 +186,10 @@ class ReviewResult(BaseModel):
         # Overall summary
         if self.overall_summary:
             lines.extend(["## Summary", "", self.overall_summary, ""])
+
+        # Quality assessment
+        if self.quality_assessment:
+            lines.extend(["## Quality Assessment", "", self.quality_assessment, ""])
 
         # Statistics
         lines.extend([
@@ -244,7 +216,7 @@ class ReviewResult(BaseModel):
             ])
 
         # Issues by severity
-        if self.all_issues:
+        if self.issues:
             lines.extend(["## Issues", ""])
 
             for severity in [
@@ -254,7 +226,7 @@ class ReviewResult(BaseModel):
                 IssueSeverity.LOW,
                 IssueSeverity.INFO,
             ]:
-                severity_issues = [i for i in self.all_issues if i.severity == severity]
+                severity_issues = [i for i in self.issues if i.severity == severity]
                 if severity_issues:
                     emoji = {
                         IssueSeverity.CRITICAL: "🔴",
