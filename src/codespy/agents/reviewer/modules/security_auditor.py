@@ -142,7 +142,13 @@ class SecurityAuditor(dspy.Module):
         """
         all_issues: list[Issue] = []
         tools, contexts = await self._create_mcp_tools(repo_path)
-        
+        # Create agents once outside loops for better performance
+        code_security_agent = dspy.ChainOfThought(CodeSecuritySignature)
+        dependency_security_agent = dspy.ReAct(
+            signature=DependencySecuritySignature,
+            tools=tools,
+            max_iters=5,
+        )
         try:
             # 1. Run code security analysis for each changed file
             for scope in scopes:
@@ -152,8 +158,7 @@ class SecurityAuditor(dspy.Module):
                         continue
 
                     try:
-                        agent = dspy.ChainOfThought(CodeSecuritySignature)
-                        result = agent(
+                        result = code_security_agent(
                             diff=file.patch or "",
                             full_content=file.content or "",
                             filename=file.filename,
@@ -173,15 +178,9 @@ class SecurityAuditor(dspy.Module):
             for scope in scopes:
                 if not scope.package_manifest:
                     continue
-                
                 manifest = scope.package_manifest
                 try:
-                    agent = dspy.ReAct(
-                        signature=DependencySecuritySignature,
-                        tools=tools,
-                        max_iters=5,
-                    )
-                    result = await agent.acall(
+                    result = await dependency_security_agent.acall(
                         manifest_path=manifest.manifest_path,
                         lock_file_path=manifest.lock_file_path or "",
                         package_manager=manifest.package_manager,
@@ -197,7 +196,6 @@ class SecurityAuditor(dspy.Module):
                     logger.error(f"Error analyzing dependencies in {manifest.manifest_path}: {e}")
         finally:
             await cleanup_mcp_contexts(contexts)
-        
         return all_issues
 
     def forward(self, scopes: Sequence[ScopeResult], repo_path: Path) -> list[Issue]:

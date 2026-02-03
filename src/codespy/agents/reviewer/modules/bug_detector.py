@@ -79,14 +79,15 @@ class BugDetector(dspy.Module):
         """
         all_issues: list[Issue] = []
         
+        # Create agent once outside loop for better performance
+        bug_detection_agent = dspy.ChainOfThought(BugDetectionSignature)
+        
         for file in files:
             if not file.patch:
                 logger.debug(f"Skipping {file.filename}: no patch available")
                 continue
-            
             try:
-                agent = dspy.ChainOfThought(BugDetectionSignature)
-                result = agent(
+                result = bug_detection_agent(
                     diff=file.patch or "",
                     full_content=file.content or "",
                     filename=file.filename,
