@@ -14,6 +14,7 @@ from codespy.agents.reviewer.modules import (
     BugDetector,
     DomainExpert,
     DocumentationReviewer,
+    IssueDeduplicator,
     ScopeIdentifier,
     SecurityAuditor,
 )
@@ -65,6 +66,7 @@ class ReviewPipeline(dspy.Module):
         self.bug_detector = BugDetector()
         self.doc_reviewer = DocumentationReviewer()
         self.domain_expert = DomainExpert()
+        self.deduplicator = IssueDeduplicator()
 
     def _verify_model_access(self) -> None:
         """Verify LLM model access."""
@@ -125,7 +127,11 @@ class ReviewPipeline(dspy.Module):
         for result in results:
             if result is not None:
                 all_issues.extend(result)
-        logger.info(f"Found {len(all_issues)} unique issues")
+        logger.info(f"Found {len(all_issues)} issues before deduplication")
+        # Deduplicate issues across reviewers
+        logger.info("Deduplicating issues...")
+        all_issues = self.deduplicator(all_issues)
+        logger.info(f"After deduplication: {len(all_issues)} unique issues")
         # Generate summary, quality assessment, and recommendation
         logger.info("Generating PR summary...")
         try:
