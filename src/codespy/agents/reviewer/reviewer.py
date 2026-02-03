@@ -157,10 +157,10 @@ class ReviewPipeline(dspy.Module):
         except Exception as e:
             logger.error(f"  Documentation review failed: {e}")
 
-        # Cross-file contextual analysis
+        # Cross-file contextual analysis (uses scopes and repo for deep exploration)
         logger.info("Running domain expert analysis...")
         try:
-            context_issues = self.domain_expert.forward(pr.code_files)
+            context_issues = self.domain_expert.forward(scopes, repo_path)
             all_issues.extend(context_issues)
             logger.info(f"  Context: {len(context_issues)} issues")
         except Exception as e:
