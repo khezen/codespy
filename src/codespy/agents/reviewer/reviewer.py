@@ -9,7 +9,7 @@ from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 from codespy.config import Settings, get_settings
 from codespy.tools.github.client import GitHubClient
 from codespy.tools.github.models import ChangedFile, PullRequest
-from codespy.agents.reviewer.models import Issue, ReviewResult
+from codespy.agents.reviewer.models import Issue, ReviewResult, deduplicate_issues
 from codespy.agents.reviewer.modules import (
     BugDetector,
     DomainExpert,
@@ -124,8 +124,14 @@ class ReviewPipeline(dspy.Module):
         # Aggregate successful results
         for result in results:
             if result is not None:
-                all_issues.extend(result)     
-        logger.info(f"Found {len(all_issues)} total issues")
+                all_issues.extend(result)
+        # Deduplicate issues by location, keeping highest confidence
+        original_count = len(all_issues)
+        all_issues = deduplicate_issues(all_issues)
+        duplicates_removed = original_count - len(all_issues)
+        if duplicates_removed > 0:
+            logger.info(f"Removed {duplicates_removed} duplicate issues")
+        logger.info(f"Found {len(all_issues)} unique issues")
         # Generate summary, quality assessment, and recommendation
         logger.info("Generating PR summary...")
         try:

@@ -105,6 +105,29 @@ class Issue(BaseModel):
         return self.filename
 
 
+def deduplicate_issues(issues: list[Issue]) -> list[Issue]:
+    """Deduplicate issues by location, keeping the one with highest confidence.
+
+    When multiple modules find the same issue at the same file location,
+    this function keeps only the issue with the highest confidence score.
+
+    Args:
+        issues: List of Issue objects to deduplicate.
+
+    Returns:
+        Deduplicated list of issues.
+    """
+    location_map: dict[tuple[str, int | None, int | None], Issue] = {}
+
+    for issue in issues:
+        key = (issue.filename, issue.line_start, issue.line_end)
+        existing = location_map.get(key)
+        if existing is None or issue.confidence > existing.confidence:
+            location_map[key] = issue
+
+    return list(location_map.values())
+
+
 class ReviewResult(BaseModel):
     """Complete review results for a pull request."""
 

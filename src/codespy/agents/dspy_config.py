@@ -107,3 +107,17 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
         return False, f"Connection error: {e}"
     except Exception as e:
         return False, f"Model access error: {e}"
+
+
+class _TaskDestroyedFilter(logging.Filter):
+    """Filter to suppress 'Task was destroyed' messages from asyncio."""
+    
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if "Task was destroyed" in msg and "LoggingWorker" in msg:
+            return False
+        return True
+
+
+# Suppress LiteLLM's async logging worker warnings that occur during multi-threaded execution
+logging.getLogger("asyncio").addFilter(_TaskDestroyedFilter())
