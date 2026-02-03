@@ -16,14 +16,20 @@ from codespy.tools.parsers.treesitter.extractors import (
     PythonExtractor,
     RustExtractor,
     SwiftExtractor,
+    TerraformExtractor,
 )
-from codespy.tools.parsers.treesitter.models import CallInfo, FunctionInfo
+from codespy.tools.parsers.treesitter.models import (
+    CallInfo,
+    FunctionInfo,
+    TerraformBlockInfo,
+)
 
 logger = logging.getLogger(__name__)
 
 # Try to import tree-sitter and language grammars
 try:
     import tree_sitter_go as ts_go
+    import tree_sitter_hcl as ts_hcl
     import tree_sitter_java as ts_java
     import tree_sitter_javascript as ts_javascript
     import tree_sitter_kotlin as ts_kotlin
@@ -67,6 +73,8 @@ class TreeSitterParser:
         "m": ("objc", ["function_definition", "method_definition"]),
         "mm": ("objc", ["function_definition", "method_definition"]),
         "rs": ("rust", ["function_item"]),
+        "tf": ("hcl", ["block"]),
+        "tfvars": ("hcl", ["block"]),
     }
 
     def __init__(self, repo_path: Path) -> None:
@@ -102,6 +110,7 @@ class TreeSitterParser:
             "kotlin": KotlinExtractor(),
             "objc": ObjCExtractor(),
             "rust": RustExtractor(),
+            "hcl": TerraformExtractor(),
         }
 
     def _init_languages(self) -> None:
@@ -120,6 +129,7 @@ class TreeSitterParser:
             ("kotlin", lambda: ts_kotlin.language()),
             ("objc", lambda: ts_objc.language()),
             ("rust", lambda: ts_rust.language()),
+            ("hcl", lambda: ts_hcl.language()),
         ]
 
         for lang_name, lang_func in language_configs:
@@ -413,3 +423,56 @@ class TreeSitterParser:
             if attr:
                 return source[attr.start_byte:attr.end_byte].decode()
         return None
+
+    # =========================================================================
+    # Terraform/HCL-specific methods
+    # =========================================================================
+
+    def parse_terraform_file(
+        self,
+        file_path: Path,
+        content: str | None = None,
+    ) -> TerraformBlockInfo | None:
+        """Parse a Terraform file and extract all blocks.
+
+        Args:
+            file_path: Path to the .tf or .tfvars file
+            content: Optional file content (reads from file if not provided)
+
+        Returns:
+            TerraformBlockInfo containing all extracted blocks, or None if parsing failed
+        """
+        if not self.available:
+            return None
+
+        extension = file_path.suffix.lstrip(".")
+        if extension not in ("tf", "tfvars"):
+            logger.debug(f"Not a Terraform file: {file_path}")
+            return None
+
+        parser = self._get_parser(extension)
+        if not parser:
+            return None
+
+        extractor = self._extractors.get("hcl")
+        if not extractor or not isinstance(extractor, TerraformExtractor):
+            return None
+
+        try:
+            source = content.encode() if content else file_path.read_bytes()
+            tree = parser.parse(source)
+            return extractor.extract_terraform_blocks(tree.root_node, file_path, source)
+        except Exception as e:
+            logger.debug(f"Failed to parse Terraform file {file_path}: {e}")
+            return None
+
+    def is_terraform_file(self, file_path: Path) -> bool:
+        """Check if a file is a Terraform file.
+
+        Args:
+            file_path: Path to check
+
+        Returns:
+            True if the file has a .tf or .tfvars extension
+        """
+        return file_path.suffix.lstrip(".") in ("tf", "tfvars")
