@@ -60,31 +60,35 @@ class CodeSecuritySignature(dspy.Signature):
 
 
 class DependencySecuritySignature(dspy.Signature):
-    """Analyze package dependencies for known security vulnerabilities.
+    """Analyze package dependencies for known security vulnerabilities using OSV database.
 
-    You are a security expert reviewing package dependencies. You have access to
-    filesystem tools to read the manifest and lock files.
+    You are a security expert reviewing package dependencies. You have access to:
+    - Filesystem tools to read manifest and lock files
+    - OSV (Open Source Vulnerabilities) tools to query real vulnerability data
 
     STEPS:
     1. Use the read_file tool to read the manifest file at manifest_path
     2. If lock_file_path is provided, use read_file to read the lock file as well
-    3. Analyze the dependencies for security vulnerabilities
+    3. Extract dependency names and versions from the files
+    4. Use OSV tools to scan dependencies for REAL vulnerabilities:
+       - For Python/PyPI: use scan_pypi_package(name, version)
+       - For JavaScript/npm: use scan_npm_package(name, version)
+       - For Go: use scan_go_package(name, version)
+       - For Java/Maven: use scan_maven_package(group_id, artifact_id, version)
+       - For Ruby/RubyGems: use scan_rubygems_package(name, version)
+       - For Rust/Cargo: use scan_cargo_package(name, version)
+       - Or use scan_dependencies(list) for batch scanning multiple packages
+    5. Create issues based on the ACTUAL vulnerabilities returned by OSV
 
-    Identify potential security vulnerabilities in dependencies including but not limited to:
-    - Known CVEs in specific versions
-    - Deprecated packages with security issues
-    - Packages with known malware or supply chain attacks
-    - Outdated packages with unpatched vulnerabilities
-    - Packages with insecure default configurations
-    - Typosquatting or suspicious package names
+    The OSV tools return real CVE/GHSA IDs, severity scores, and fix recommendations.
+    Only report vulnerabilities that are actually found by OSV queries.
 
-    For each issue, provide:
+    For each issue found, provide:
     - A clear title identifying the vulnerable dependency
-    - Severity (critical, high, medium, low, info)
-    - Detailed description of the vulnerability
-    - CVE ID or advisory reference if known
-    - A suggested fix (typically version upgrade or replacement)
-    - CWE ID if applicable
+    - Severity (critical, high, medium, low, info) - use the severity from OSV if available
+    - Detailed description including the actual CVE/GHSA ID
+    - The affected version and recommended fixed version from OSV
+    - CWE ID if available from OSV data
     """
 
     manifest_path: str = dspy.InputField(
@@ -115,7 +119,7 @@ class SecurityAuditor(dspy.Module):
         super().__init__()
 
     async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
-        """Create DSPy tools from filesystem MCP server.
+        """Create DSPy tools from filesystem and OSV MCP servers.
 
         Args:
             repo_path: Path to the repository root
@@ -127,7 +131,21 @@ class SecurityAuditor(dspy.Module):
         contexts: list[Any] = []
         tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
         repo_path_str = str(repo_path)
-        tools.extend(await connect_mcp_server(tools_dir / "filesystem" / "server.py", [repo_path_str], contexts))
+        
+        # Add filesystem tools for reading manifest files
+        tools.extend(await connect_mcp_server(
+            tools_dir / "filesystem" / "server.py", 
+            [repo_path_str], 
+            contexts
+        ))
+        
+        # Add OSV tools for querying real vulnerability data
+        tools.extend(await connect_mcp_server(
+            tools_dir / "cyber" / "osv" / "server.py",
+            [],
+            contexts
+        ))
+        
         return tools, contexts
 
     async def aforward(self, scopes: Sequence[ScopeResult], repo_path: Path) -> list[Issue]:

@@ -47,10 +47,7 @@ class PackageManifest(BaseModel):
     )
 
 
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from codespy.tools.github.models import ChangedFile
+from codespy.tools.github.models import ChangedFile
 
 
 class ScopeResult(BaseModel):
@@ -71,7 +68,7 @@ class ScopeResult(BaseModel):
     package_manifest: PackageManifest | None = Field(
         default=None, description="Package manifest info if present"
     )
-    changed_files: list[Any] = Field(
+    changed_files: list[ChangedFile] = Field(
         default_factory=list, description="Changed files belonging to this scope"
     )
     reason: str = Field(description="Explanation for why this scope was identified")

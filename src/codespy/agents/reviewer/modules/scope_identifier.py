@@ -6,12 +6,42 @@ from pathlib import Path
 from typing import Any
 
 import dspy  # type: ignore[import-untyped]
+from pydantic import BaseModel, Field
 
-from codespy.agents.reviewer.models import ScopeResult, ScopeType
-from codespy.tools.github.models import PullRequest
+from codespy.agents.reviewer.models import PackageManifest, ScopeResult, ScopeType
+from codespy.tools.github.models import ChangedFile, PullRequest
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
+
+
+class ScopeAssignment(BaseModel):
+    """LLM-friendly scope assignment with string file paths.
+    
+    This intermediate model is used for LLM output since the LLM can only
+    produce string file paths, not full ChangedFile objects with patches/content.
+    It gets converted to ScopeResult with proper ChangedFile objects after LLM call.
+    """
+
+    subroot: str = Field(description="Path relative to repo root (e.g., packages/auth)")
+    scope_type: ScopeType = Field(description="Type of scope (library, service, etc.)")
+    has_changes: bool = Field(
+        default=False, description="Whether this scope has changed files from PR"
+    )
+    is_dependency: bool = Field(
+        default=False, description="Whether this scope depends on a changed scope"
+    )
+    confidence: float = Field(
+        default=0.8, ge=0.0, le=1.0, description="Confidence score for scope identification"
+    )
+    language: str | None = Field(default=None, description="Primary language detected")
+    package_manifest: PackageManifest | None = Field(
+        default=None, description="Package manifest info if present"
+    )
+    changed_files: list[str] = Field(
+        default_factory=list, description="Changed file paths belonging to this scope"
+    )
+    reason: str = Field(description="Explanation for why this scope was identified")
 
 
 class ScopeIdentifierSignature(dspy.Signature):
@@ -86,8 +116,8 @@ class ScopeIdentifierSignature(dspy.Signature):
     pr_title: str = dspy.InputField(desc="PR title for additional context")
     pr_description: str = dspy.InputField(desc="PR description for additional context")
     
-    scopes: list[ScopeResult] = dspy.OutputField(
-        desc="List of identified scopes. EVERY changed file must appear in exactly one scope's changed_files list."
+    scopes: list[ScopeAssignment] = dspy.OutputField(
+        desc="List of identified scopes. EVERY changed file path must appear in exactly one scope's changed_files list."
     )
 
 
@@ -118,6 +148,9 @@ class ScopeIdentifier(dspy.Module):
         """Identify scopes in the repository for the given PR."""
         tools, contexts = await self._create_mcp_tools(repo_path)
         changed_file_paths = [f.filename for f in pr.changed_files]
+        # Build map from filename to ChangedFile for post-processing
+        changed_files_map: dict[str, ChangedFile] = {f.filename: f for f in pr.changed_files}
+        
         try:
             agent = dspy.ReAct(
                 signature=ScopeIdentifierSignature,
@@ -134,10 +167,13 @@ class ScopeIdentifier(dspy.Module):
                 pr_title=pr.title or "No title",
                 pr_description=pr.body or "No description",
             )
-            scopes = result.scopes
+            scope_assignments: list[ScopeAssignment] = result.scopes
             # Ensure we got valid scopes
-            if not scopes:
+            if not scope_assignments:
                 raise ValueError("No scopes returned by agent")
+            
+            # Convert ScopeAssignment (with string paths) to ScopeResult (with ChangedFile objects)
+            scopes = self._convert_assignments_to_results(scope_assignments, changed_files_map)
         except Exception as e:
             logger.error(f"Agent failed: {e}")
             scopes = [ScopeResult(
@@ -148,7 +184,7 @@ class ScopeIdentifier(dspy.Module):
                 confidence=0.5,
                 language=None,
                 package_manifest=None,
-                changed_files=changed_file_paths,
+                changed_files=list(pr.changed_files),
                 reason=f"Fallback due to agent error: {e}",
             )]
         finally:
@@ -157,6 +193,43 @@ class ScopeIdentifier(dspy.Module):
         total_files = sum(len(s.changed_files) for s in scopes)
         logger.info(f"Identified {len(scopes)} scopes covering {total_files} files")
         return scopes
+
+    def _convert_assignments_to_results(
+        self, 
+        assignments: list[ScopeAssignment], 
+        changed_files_map: dict[str, ChangedFile]
+    ) -> list[ScopeResult]:
+        """Convert LLM scope assignments to ScopeResults with proper ChangedFile objects.
+        
+        Args:
+            assignments: Scope assignments from LLM with string file paths
+            changed_files_map: Map from filename to ChangedFile object
+            
+        Returns:
+            List of ScopeResult with ChangedFile objects instead of strings
+        """
+        results: list[ScopeResult] = []
+        for assignment in assignments:
+            # Map string paths to ChangedFile objects
+            changed_files: list[ChangedFile] = []
+            for filepath in assignment.changed_files:
+                if filepath in changed_files_map:
+                    changed_files.append(changed_files_map[filepath])
+                else:
+                    logger.warning(f"File '{filepath}' from scope assignment not found in PR changed files")
+            
+            results.append(ScopeResult(
+                subroot=assignment.subroot,
+                scope_type=assignment.scope_type,
+                has_changes=assignment.has_changes,
+                is_dependency=assignment.is_dependency,
+                confidence=assignment.confidence,
+                language=assignment.language,
+                package_manifest=assignment.package_manifest,
+                changed_files=changed_files,
+                reason=assignment.reason,
+            ))
+        return results
 
     def forward(self, pr: PullRequest, repo_path: Path) -> list[ScopeResult]:
         """Identify scopes (sync wrapper)."""
