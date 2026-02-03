@@ -86,7 +86,7 @@ class Issue(BaseModel):
     severity: IssueSeverity = Field(description="Issue severity")
     title: str = Field(description="Brief title of the issue")
     description: str = Field(description="Detailed description of the issue")
-    file: str = Field(description="File where the issue was found")
+    filename: str = Field(description="File where the issue was found")
     line_start: int | None = Field(default=None, description="Starting line number")
     line_end: int | None = Field(default=None, description="Ending line number")
     code_snippet: str | None = Field(default=None, description="Relevant code snippet")
@@ -103,9 +103,9 @@ class Issue(BaseModel):
         """Get a human-readable location string."""
         if self.line_start:
             if self.line_end and self.line_end != self.line_start:
-                return f"{self.file}:{self.line_start}-{self.line_end}"
-            return f"{self.file}:{self.line_start}"
-        return self.file
+                return f"{self.filename}:{self.line_start}-{self.line_end}"
+            return f"{self.filename}:{self.line_start}"
+        return self.filename
 
 
 class FileReview(BaseModel):

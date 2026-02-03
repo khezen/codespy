@@ -43,7 +43,7 @@ class BugDetectionSignature(dspy.Signature):
     full_content: str = dspy.InputField(
         desc="The full file content after changes"
     )
-    file_path: str = dspy.InputField(
+    filename: str = dspy.InputField(
         desc="Path to the file being analyzed"
     )
     language: str = dspy.InputField(
@@ -57,7 +57,7 @@ class BugDetectionSignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="VERIFIED bugs found. Use file_path for 'file' field and category for 'category' field. Empty list if none."
+        desc="VERIFIED bugs found. Empty list if none."
     )
 
 
@@ -89,7 +89,7 @@ class BugDetector(dspy.Module):
             result = agent(
                 diff=file.patch or "",
                 full_content=file.content or "",
-                file_path=file.filename,
+                filename=file.filename,
                 language=get_language(file),
                 context=context or "No additional context available.",
                 category=self.category,

@@ -41,7 +41,7 @@ class SecurityAnalysisSignature(dspy.Signature):
     full_content: str = dspy.InputField(
         desc="The full file content after changes"
     )
-    file_path: str = dspy.InputField(
+    filename: str = dspy.InputField(
         desc="Path to the file being analyzed"
     )
     language: str = dspy.InputField(
@@ -55,7 +55,7 @@ class SecurityAnalysisSignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Security issues found. Use file_path for 'file' field and category for 'category' field. Empty list if none."
+        desc="Security issues found. Empty list if none."
     )
 
 
@@ -87,7 +87,7 @@ class SecurityAuditor(dspy.Module):
             result = self.predictor(
                 diff=file.patch or "",
                 full_content=file.content or "",
-                file_path=file.filename,
+                filename=file.filename,
                 language=get_language(file),
                 context=context or "No additional context available.",
                 category=self.category,

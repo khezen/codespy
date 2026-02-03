@@ -34,7 +34,7 @@ class DocumentationReviewSignature(dspy.Signature):
     full_content: str = dspy.InputField(
         desc="The full markdown file content after changes"
     )
-    file_path: str = dspy.InputField(
+    filename: str = dspy.InputField(
         desc="Path to the markdown file being analyzed"
     )
     category: IssueCategory = dspy.InputField(
@@ -42,7 +42,7 @@ class DocumentationReviewSignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Documentation issues found. Use file_path for 'file' field and category for 'category' field. Empty list if documentation is adequate."
+        desc="Documentation issues found. Empty list if documentation is adequate."
     )
 
 
@@ -80,7 +80,7 @@ class DocumentationReviewer(dspy.Module):
             result = self.predictor(
                 diff=file.patch or "",
                 full_content=file.content or "",
-                file_path=file.filename,
+                filename=file.filename,
                 category=self.category,
             )
             return [

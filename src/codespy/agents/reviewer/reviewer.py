@@ -278,7 +278,7 @@ class ReviewPipeline(dspy.Module):
                         "category": i.category.value,
                         "severity": i.severity.value,
                         "title": i.title,
-                        "file": i.file,
+                        "file": i.filename,
                     }
                     for i in all_issues
                 ],

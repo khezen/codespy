@@ -43,7 +43,7 @@ class DomainExpertSignature(dspy.Signature):
     diff: str = dspy.InputField(
         desc="The code diff showing changes"
     )
-    file_path: str = dspy.InputField(
+    filename: str = dspy.InputField(
         desc="Path to the file being analyzed"
     )
     related_files: str = dspy.InputField(
@@ -57,7 +57,7 @@ class DomainExpertSignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="VERIFIED contextual issues. Use file_path for 'file' field and category for 'category' field. Only report issues with concrete evidence from verified callers. Empty list if none."
+        desc="VERIFIED contextual issues. Only report issues with concrete evidence from verified callers. Empty list if none."
     )
 
 
@@ -89,7 +89,7 @@ class DomainExpert(dspy.Module):
         try:
             result = self.predictor(
                 diff=file.patch or "",
-                file_path=file.filename,
+                filename=file.filename,
                 related_files=context or "No related files available.",
                 repo_structure=repo_structure or "Repository structure not available.",
                 category=self.category,
