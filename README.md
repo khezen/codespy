@@ -4,10 +4,13 @@
 
 ## Features
 
-- 🔒 **Security Analysis** - Detects common vulnerabilities (injection, auth issues, data exposure, etc.)
+- 🔒 **Security Analysis** - Detects common vulnerabilities (injection, auth issues, data exposure, etc.) with CWE references
 - 🐛 **Bug Detection** - Identifies logic errors, null references, resource leaks, edge cases
 - 📝 **Documentation Review** - Checks for missing docstrings, outdated comments, incomplete docs
-- 🔍 **Codebase Context** - Analyzes changes in context of the broader codebase (imports, dependencies)
+- 🧠 **Domain Expert Analysis** - Analyzes changes in context of the broader codebase (imports, dependencies)
+- 🔍 **Intelligent Scope Detection** - Automatically identifies code scopes (frontend, backend, infra, etc.)
+- 🔄 **Smart Deduplication** - LLM-powered issue deduplication across reviewers
+- 💰 **Cost Tracking** - Track LLM calls, tokens, and costs per review
 - 🤖 **Model Agnostic** - Works with OpenAI, AWS Bedrock, Anthropic, Ollama, and more via LiteLLM
 - 🐳 **Docker Ready** - Run locally or in the cloud with Docker
 
@@ -58,7 +61,13 @@ cp .env.example .env
 
 ### Required Settings
 
-1. **GitHub Token** - Create a token at https://github.com/settings/tokens with `repo` scope
+1. **GitHub Token** - codespy automatically discovers your GitHub token from multiple sources:
+   - `GITHUB_TOKEN` or `GH_TOKEN` environment variables
+   - GitHub CLI (`gh auth token`)
+   - Git credential helper
+   - `~/.netrc` file
+   
+   Or create a token at https://github.com/settings/tokens with `repo` scope:
    ```bash
    GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
    ```
@@ -107,6 +116,9 @@ codespy review https://github.com/owner/repo/pull/123 --model bedrock/anthropic.
 
 # Skip codebase context analysis
 codespy review https://github.com/owner/repo/pull/123 --no-with-context
+
+# Include vendor/dependency files in review
+codespy review https://github.com/owner/repo/pull/123 --include-vendor
 
 # Show current configuration
 codespy config
@@ -186,95 +198,115 @@ Use parameterized queries instead...
   "repo": "owner/repo",
   "reviewed_at": "2024-01-15T10:30:00Z",
   "model_used": "gpt-4o",
-  "file_reviews": [...],
+  "issues": [...],
   "overall_summary": "...",
-  "recommendation": "REQUEST_CHANGES: Found 1 critical issues..."
+  "quality_assessment": "...",
+  "recommendation": "REQUEST_CHANGES: Found 1 critical issues...",
+  "total_cost": 0.0234,
+  "total_tokens": 15420,
+  "llm_calls": 8
 }
 ```
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         codespy CLI                              │
-├─────────────────────────────────────────────────────────────────┤
-│  review <pr_url> [--with-context] [--output json|markdown]      │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-┌───────────────────────────▼─────────────────────────────────────┐
-│                    GitHub Integration                            │
-│  - Fetch PR diff, changed files, commit messages                │
-│  - Clone/access full repository for context                     │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-┌───────────────────────────▼─────────────────────────────────────┐
-│                    DSPy Review Pipeline                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐        │
-│  │  Security   │  │    Bug      │  │  Documentation   │        │
-│  │  Analyzer   │  │  Detector   │  │    Reviewer      │        │
-│  └──────┬──────┘  └──────┬──────┘  └────────┬─────────┘        │
-│         └────────────────┼──────────────────┘                   │
-│                          ▼                                       │
-│              ┌───────────────────────┐                          │
-│              │  Contextual Analyzer  │                          │
-│              │  (codebase awareness) │                          │
-│              └───────────┬───────────┘                          │
-│                          ▼                                       │
-│              ┌───────────────────────┐                          │
-│              │   Review Aggregator   │                          │
-│              └───────────────────────┘                          │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-┌───────────────────────────▼─────────────────────────────────────┐
-│                    LLM Backend (LiteLLM)                         │
-│  Bedrock | OpenAI | Anthropic | Ollama | Any OpenAI-compatible  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                           codespy CLI                                │
+├─────────────────────────────────────────────────────────────────────┤
+│  review <pr_url> [--with-context] [--output json|md] [--model ...]  │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────────┐
+│                      GitHub Integration                              │
+│  - Fetch PR diff, changed files, commit messages                    │
+│  - Clone/access full repository for context                         │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────────┐
+│                   DSPy Review Pipeline                               │
+│                                                                      │
+│  ┌────────────────────────────────────────────────────────────┐     │
+│  │                   Scope Identifier                          │     │
+│  │  (identifies code scopes: frontend, backend, infra, etc.)  │     │
+│  └──────────────────────────┬─────────────────────────────────┘     │
+│                             │                                        │
+│  ┌──────────────────────────▼─────────────────────────────────┐     │
+│  │              Parallel Review Modules                        │     │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐    │     │
+│  │  │  Security   │  │    Bug      │  │  Documentation   │    │     │
+│  │  │   Auditor   │  │  Detector   │  │    Reviewer      │    │     │
+│  │  └─────────────┘  └─────────────┘  └──────────────────┘    │     │
+│  │                                                             │     │
+│  │              ┌───────────────────────┐                      │     │
+│  │              │     Domain Expert     │                      │     │
+│  │              │  (codebase awareness) │                      │     │
+│  │              └───────────────────────┘                      │     │
+│  └──────────────────────────┬─────────────────────────────────┘     │
+│                             │                                        │
+│  ┌──────────────────────────▼─────────────────────────────────┐     │
+│  │                 Issue Deduplicator                          │     │
+│  │  (LLM-powered deduplication across reviewers)              │     │
+│  └──────────────────────────┬─────────────────────────────────┘     │
+│                             │                                        │
+│  ┌──────────────────────────▼─────────────────────────────────┐     │
+│  │                   PR Summarizer                             │     │
+│  │  (generates summary, quality assessment, recommendation)    │     │
+│  └────────────────────────────────────────────────────────────┘     │
+│                                                                      │
+│                     Cost Tracker (tokens, calls, $)                  │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────────┐
+│                        Tools Layer                                   │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌──────────────┐  │
+│  │ Filesystem │  │   GitHub   │  │    Web     │  │  Cyber/OSV   │  │
+│  └────────────┘  └────────────┘  └────────────┘  └──────────────┘  │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │                      Parsers                                    │ │
+│  │  ┌─────────────────┐  ┌────────────────────────────────────┐   │ │
+│  │  │     Ripgrep     │  │           Tree-sitter              │   │ │
+│  │  │  (code search)  │  │  (multi-language AST parsing)      │   │ │
+│  │  └─────────────────┘  └────────────────────────────────────┘   │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────────┐
+│                      LLM Backend (LiteLLM)                           │
+│    Bedrock | OpenAI | Anthropic | Ollama | Any OpenAI-compatible    │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-## Project Structure
+## DSPy Modules
 
-```
-codespy/
-├── src/codespy/
-│   ├── __init__.py
-│   ├── cli.py                 # CLI entry point
-│   ├── config.py              # Settings management
-│   ├── github/
-│   │   ├── client.py          # GitHub API client
-│   │   └── models.py          # PR data models
-│   └── review/
-│       ├── models.py          # Review result models
-│       ├── pipeline.py        # Main review orchestration
-│       ├── signatures.py      # DSPy signatures
-│       └── modules/
-│           ├── base.py        # Base review module
-│           ├── security.py    # Security analyzer
-│           ├── bugs.py        # Bug detector
-│           ├── docs.py        # Documentation reviewer
-│           └── context.py     # Codebase context analyzer
-├── Dockerfile
-├── docker-compose.yml
-├── pyproject.toml
-└── README.md
-```
+The review is powered by DSPy modules that structure the LLM's analysis:
 
-## DSPy Signatures
-
-The review is powered by DSPy signatures that structure the LLM's analysis:
-
-- **SecurityAnalysis** - Analyzes code for security vulnerabilities with CWE references
-- **BugDetection** - Detects logic errors, resource leaks, and edge cases
-- **DocumentationReview** - Checks documentation completeness
-- **ContextualAnalysis** - Validates changes against codebase patterns
-- **PRSummary** - Generates overall summary and recommendation
+| Module | Description |
+|--------|-------------|
+| **ScopeIdentifier** | Identifies code scopes (frontend, backend, infrastructure, etc.) |
+| **SecurityAuditor** | Analyzes code for security vulnerabilities with CWE references |
+| **BugDetector** | Detects logic errors, resource leaks, and edge cases |
+| **DocumentationReviewer** | Checks documentation completeness and accuracy |
+| **DomainExpert** | Validates changes against codebase patterns and conventions |
+| **IssueDeduplicator** | LLM-powered deduplication of issues across reviewers |
+| **PRSummary** | Generates overall summary, quality assessment, and recommendation |
 
 ## Supported Languages
 
-Context-aware analysis (import resolution) is supported for:
+Tree-sitter based parsing for context-aware analysis:
 
-- Python (`.py`)
-- JavaScript/TypeScript (`.js`, `.ts`, `.jsx`, `.tsx`)
-- Go (`.go`)
+| Language | Extensions | Features |
+|----------|-----------|----------|
+| Python | `.py` | Functions, classes, imports |
+| JavaScript | `.js`, `.jsx` | Functions, classes, imports |
+| TypeScript | `.ts`, `.tsx` | Functions, classes, interfaces |
+| Go | `.go` | Functions, structs, interfaces |
+| Java | `.java` | Methods, classes, packages |
+| Kotlin | `.kt` | Functions, classes, objects |
+| Swift | `.swift` | Functions, classes, structs |
+| Objective-C | `.m`, `.h` | Methods, interfaces, protocols |
+| Rust | `.rs` | Functions, structs, traits, impl blocks |
+| Terraform | `.tf` | Resources, data sources, modules, variables |
 
 All languages are supported for security, bug, and documentation analysis.
 
