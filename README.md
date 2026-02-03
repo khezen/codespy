@@ -173,9 +173,7 @@ This PR implements user authentication with JWT tokens...
 The user input is directly interpolated into the SQL query...
 
 **Code:**
-```python
 query = f"SELECT * FROM users WHERE username = '{username}'"
-```
 
 **Suggestion:**
 Use parameterized queries instead...
