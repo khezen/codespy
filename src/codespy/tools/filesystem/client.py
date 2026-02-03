@@ -37,15 +37,20 @@ class FileSystem:
         ".ruff_cache",
     }
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, create_if_missing: bool = True) -> None:
         """Initialize the filesystem client.
 
         Args:
             root: Root directory for all operations
+            create_if_missing: Create the root directory if it doesn't exist
         """
         self.root = Path(root).resolve()
         if not self.root.exists():
-            raise ValueError(f"Root directory does not exist: {self.root}")
+            if create_if_missing:
+                self.root.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Created root directory: {self.root}")
+            else:
+                raise ValueError(f"Root directory does not exist: {self.root}")
         if not self.root.is_dir():
             raise ValueError(f"Root is not a directory: {self.root}")
 

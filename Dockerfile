@@ -40,15 +40,19 @@ COPY --from=builder /usr/local/bin/codespy /usr/local/bin/codespy
 # Copy source code
 COPY src/ ./src/
 
-# Set up cache directory
+# Set up cache directory and DSPy local_cache directory
 RUN mkdir -p /home/codespy/.cache/codespy && \
     chown -R codespy:codespy /home/codespy/.cache
 
 # Switch to non-root user
 USER codespy
 
+# Change to writable directory for DSPy's local_cache
+WORKDIR /home/codespy
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV HOME=/home/codespy
 
-CMD ["codespy", "--help"]
+ENTRYPOINT ["codespy"]
+CMD ["--help"]

@@ -106,19 +106,19 @@ class DomainExpert(dspy.Module):
         repo_path_str = str(repo_path)
         # Filesystem tools for reading and navigating code
         tools.extend(await connect_mcp_server(
-            tools_dir / "filesystem" / "mcp.py",
+            tools_dir / "filesystem" / "server.py",
             [repo_path_str],
             contexts
         ))
         # Ripgrep tools for searching patterns and usages
         tools.extend(await connect_mcp_server(
-            tools_dir / "parsers" / "ripgrep" / "mcp.py",
+            tools_dir / "parsers" / "ripgrep" / "server.py",
             [repo_path_str],
             contexts
         ))
         # Tree-sitter tools for AST analysis
         tools.extend(await connect_mcp_server(
-            tools_dir / "parsers" / "treesitter" / "mcp.py",
+            tools_dir / "parsers" / "treesitter" / "server.py",
             [repo_path_str],
             contexts
         ))

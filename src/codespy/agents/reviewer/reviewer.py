@@ -93,35 +93,35 @@ class ReviewPipeline(dspy.Module):
         cache_dir.mkdir(parents=True, exist_ok=True)
         repo_path = cache_dir / pr.repo_owner / pr.repo_name
         logger.info("Identifying code scopes...")
-        scopes = self.scope_identifier.forward(pr, repo_path)
+        scopes = self.scope_identifier(pr, repo_path)
         for scope in scopes:
             logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
         # Run all review modules
         all_issues: list[Issue] = []
         logger.info("Running bug detection...")
         try:
-            bugs = self.bug_detector.forward(pr.code_files)
+            bugs = self.bug_detector(pr.code_files)
             all_issues.extend(bugs)
         except Exception as e:
             logger.error(f"Bug detection failed: {e}")
 
         logger.info("Running security analysis...")
         try:
-            security_issues = self.security_auditor.forward(pr.code_files)
+            security_issues = self.security_auditor(pr.code_files)
             all_issues.extend(security_issues)
         except Exception as e:
             logger.error(f"Security analysis failed: {e}")
 
         logger.info("Running documentation review...")
         try:
-            doc_issues = self.doc_reviewer.forward(scopes, repo_path)
+            doc_issues = self.doc_reviewer(scopes, repo_path)
             all_issues.extend(doc_issues)
         except Exception as e:
             logger.error(f"Documentation review failed: {e}")
 
         logger.info("Running domain expert analysis...")
         try:
-            domain_issues = self.domain_expert.forward(scopes, repo_path)
+            domain_issues = self.domain_expert(scopes, repo_path)
             all_issues.extend(domain_issues)
         except Exception as e:
             logger.error(f"Domain expert analysis failed: {e}")
