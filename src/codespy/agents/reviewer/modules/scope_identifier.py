@@ -171,7 +171,6 @@ class ScopeIdentifier(dspy.Module):
             # Ensure we got valid scopes
             if not scope_assignments:
                 raise ValueError("No scopes returned by agent")
-            
             # Convert ScopeAssignment (with string paths) to ScopeResult (with ChangedFile objects)
             scopes = self._convert_assignments_to_results(scope_assignments, changed_files_map)
         except Exception as e:
