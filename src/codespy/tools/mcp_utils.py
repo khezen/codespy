@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 import dspy  # type: ignore[import-untyped]
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from mcp import ClientSession, StdioServerParameters  # type: ignore[import-not-found]
+from mcp.client.stdio import stdio_client  # type: ignore[import-not-found]
 
 
 async def connect_mcp_server(
