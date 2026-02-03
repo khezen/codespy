@@ -1,6 +1,7 @@
 """Security vulnerability analyzer module."""
 
 import logging
+from typing import Sequence
 
 import dspy  # type: ignore[import-untyped]
 
@@ -65,32 +66,38 @@ class SecurityAuditor(dspy.Module):
         """Initialize the security auditor with chain-of-thought reasoning."""
         super().__init__()
 
-    def forward(self, file: ChangedFile) -> list[Issue]:
-        """Analyze a file for security vulnerabilities and return issues.
+    def forward(self, files: Sequence[ChangedFile]) -> list[Issue]:
+        """Analyze files for security vulnerabilities and return issues.
 
         Args:
-            file: The changed file to analyze
+            files: The changed files to analyze
 
         Returns:
-            List of security issues found
+            List of security issues found across all files
         """
-        if not file.patch:
-            logger.debug(f"Skipping {file.filename}: no patch available")
-            return []
+        all_issues: list[Issue] = []
+        
+        for file in files:
+            if not file.patch:
+                logger.debug(f"Skipping {file.filename}: no patch available")
+                continue
 
-        try:
-            agent = dspy.ChainOfThought(SecurityAnalysisSignature)
-            result = agent(
-                diff=file.patch or "",
-                full_content=file.content or "",
-                filename=file.filename,
-                language=get_language(file),
-                category=self.category,
-            )
-            return [
-                issue for issue in result.issues
-                if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-            ]
-        except Exception as e:
-            logger.error(f"Error analyzing {file.filename}: {e}")
-            return []
+            try:
+                agent = dspy.ChainOfThought(SecurityAnalysisSignature)
+                result = agent(
+                    diff=file.patch or "",
+                    full_content=file.content or "",
+                    filename=file.filename,
+                    language=get_language(file),
+                    category=self.category,
+                )
+                issues = [
+                    issue for issue in result.issues
+                    if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                ]
+                all_issues.extend(issues)
+                logger.debug(f"  Security in {file.filename}: {len(issues)} issues")
+            except Exception as e:
+                logger.error(f"Error analyzing {file.filename}: {e}")
+        
+        return all_issues

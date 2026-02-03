@@ -2,13 +2,13 @@
 
 import json
 import logging
+from collections import defaultdict
 
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 from codespy.config import Settings, get_settings
 from codespy.tools.github.client import GitHubClient
-from codespy.tools.github.models import ReviewContext
 from codespy.agents.reviewer.models import FileReview, Issue, ReviewResult
 from codespy.agents.reviewer.modules import (
     BugDetector,
@@ -17,7 +17,6 @@ from codespy.agents.reviewer.modules import (
     ScopeIdentifier,
     SecurityAuditor,
 )
-from codespy.agents.reviewer.modules.helpers import build_context_string
 
 logger = logging.getLogger(__name__)
 
@@ -128,28 +127,53 @@ class ReviewPipeline(dspy.Module):
                 f"{len(scope.changed_files)} files"
             )
 
-        # Create review context
-        review_context = ReviewContext(
-            pull_request=pr,
-            related_files={},
-            repository_structure=None,
-            callers={},
-        )
+        # Run review modules on file lists
+        all_issues: list[Issue] = []
 
-        # Review each code file
-        file_reviews: list[FileReview] = []
-        for i, changed_file in enumerate(pr.code_files, 1):
-            logger.info(f"[{i}/{len(pr.code_files)}] Reviewing {changed_file.filename}...")
-            file_review = self._review_file(changed_file, review_context)
-            file_reviews.append(file_review)
-            cost_info = f"(${self.cost_tracker.total_cost:.4f} total)" if self.cost_tracker.total_cost > 0 else ""
-            logger.info(f"  Found {file_review.issue_count} issues {cost_info}")
+        # Security analysis on code files
+        logger.info("Running security analysis...")
+        try:
+            security_issues = self.security_analyzer.forward(pr.code_files)
+            all_issues.extend(security_issues)
+            logger.info(f"  Security: {len(security_issues)} issues")
+        except Exception as e:
+            logger.error(f"  Security analysis failed: {e}")
+
+        # Bug detection on code files
+        logger.info("Running bug detection...")
+        try:
+            bug_issues = self.bug_detector.forward(pr.code_files)
+            all_issues.extend(bug_issues)
+            logger.info(f"  Bugs: {len(bug_issues)} issues")
+        except Exception as e:
+            logger.error(f"  Bug detection failed: {e}")
+
+        # Documentation review on all changed files (module filters to markdown)
+        logger.info("Running documentation review...")
+        try:
+            doc_issues = self.docs_reviewer.forward(pr.changed_files)
+            all_issues.extend(doc_issues)
+            logger.info(f"  Documentation: {len(doc_issues)} issues")
+        except Exception as e:
+            logger.error(f"  Documentation review failed: {e}")
+
+        # Cross-file contextual analysis
+        logger.info("Running domain expert analysis...")
+        try:
+            context_issues = self.domain_expert.forward(pr.code_files)
+            all_issues.extend(context_issues)
+            logger.info(f"  Context: {len(context_issues)} issues")
+        except Exception as e:
+            logger.error(f"  Contextual analysis failed: {e}")
+
+        cost_info = f"(${self.cost_tracker.total_cost:.4f} total)" if self.cost_tracker.total_cost > 0 else ""
+        logger.info(f"Found {len(all_issues)} total issues {cost_info}")
+
+        # Group issues by filename into FileReview objects
+        file_reviews = self._group_issues_by_file(pr, all_issues)
 
         # Generate overall summary
         logger.info("Generating PR summary...")
-        all_issues = []
-        for fr in file_reviews:
-            all_issues.extend(fr.issues)
 
         summary, recommendation = self._generate_summary(pr, all_issues)
 
@@ -171,76 +195,39 @@ class ReviewPipeline(dspy.Module):
         logger.info(f"Review complete. Total issues: {result.total_issues}, LLM calls: {result.llm_calls}{cost_str}")
         return result
 
-    def _review_file(
-        self,
-        changed_file,
-        review_context: ReviewContext,
-    ) -> FileReview:
-        """Review a single file with all modules.
+    def _group_issues_by_file(self, pr, all_issues: list[Issue]) -> list[FileReview]:
+        """Group issues by filename into FileReview objects.
 
         Args:
-            changed_file: The file to review
-            review_context: Full review context
+            pr: The pull request
+            all_issues: All issues from all modules
 
         Returns:
-            FileReview with all issues found
+            List of FileReview objects, one per changed file
         """
-        issues: list[Issue] = []
+        # Group issues by filename
+        issues_by_file: dict[str, list[Issue]] = defaultdict(list)
+        for issue in all_issues:
+            issues_by_file[issue.filename].append(issue)
 
-        # Skip files without patches (binary, too large, etc.)
-        if not changed_file.patch:
-            return FileReview(
-                filename=changed_file.filename,
-                reviewed=False,
-                skip_reason="No diff available (binary or too large)",
-            )
+        # Create FileReview for each changed file
+        file_reviews: list[FileReview] = []
+        for changed_file in pr.changed_files:
+            filename = changed_file.filename
+            if not changed_file.patch:
+                file_reviews.append(FileReview(
+                    filename=filename,
+                    reviewed=False,
+                    skip_reason="No diff available (binary or too large)",
+                ))
+            else:
+                file_reviews.append(FileReview(
+                    filename=filename,
+                    issues=issues_by_file.get(filename, []),
+                    summary=self._summarize_file_changes(changed_file),
+                ))
 
-        # Get context for this specific file
-        file_context = review_context.get_context_for_file(changed_file.filename)
-
-        # Run security analysis
-        try:
-            security_issues = self.security_analyzer.forward(changed_file, file_context)
-            issues.extend(security_issues)
-            logger.debug(f"  Security: {len(security_issues)} issues")
-        except Exception as e:
-            logger.error(f"  Security analysis failed: {e}")
-
-        # Run bug detection
-        try:
-            bug_issues = self.bug_detector.forward(changed_file, file_context)
-            issues.extend(bug_issues)
-            logger.debug(f"  Bugs: {len(bug_issues)} issues")
-        except Exception as e:
-            logger.error(f"  Bug detection failed: {e}")
-
-        # Run documentation review
-        try:
-            doc_issues = self.docs_reviewer.forward(changed_file)
-            issues.extend(doc_issues)
-            logger.debug(f"  Documentation: {len(doc_issues)} issues")
-        except Exception as e:
-            logger.error(f"  Documentation review failed: {e}")
-
-        # Run contextual analysis (if we have context)
-        if review_context.related_files or review_context.repository_structure:
-            try:
-                related_files_str, repo_structure = build_context_string(
-                    changed_file, review_context
-                )
-                context_issues = self.domain_expert.forward(
-                    changed_file, related_files_str, repo_structure
-                )
-                issues.extend(context_issues)
-                logger.debug(f"  Context: {len(context_issues)} issues")
-            except Exception as e:
-                logger.error(f"  Contextual analysis failed: {e}")
-
-        return FileReview(
-            filename=changed_file.filename,
-            issues=issues,
-            summary=self._summarize_file_changes(changed_file),
-        )
+        return file_reviews
 
     def _summarize_file_changes(self, changed_file) -> str:
         """Generate a brief summary of file changes."""

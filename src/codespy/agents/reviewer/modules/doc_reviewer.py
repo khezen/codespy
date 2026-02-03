@@ -1,6 +1,7 @@
 """Documentation review module."""
 
 import logging
+from typing import Sequence
 
 import dspy  # type: ignore[import-untyped]
 
@@ -56,37 +57,42 @@ class DocumentationReviewer(dspy.Module):
         super().__init__()
         self.predictor = dspy.ChainOfThought(DocumentationReviewSignature)
 
-    def forward(self, file: ChangedFile, context: str = "") -> list[Issue]:
-        """Analyze a markdown file for documentation issues.
+    def forward(self, files: Sequence[ChangedFile]) -> list[Issue]:
+        """Analyze markdown files for documentation issues.
 
-        Only analyzes markdown files. Returns empty list for non-markdown files.
+        Only analyzes markdown files. Skips non-markdown files automatically.
 
         Args:
-            file: The changed file to analyze
-            context: Not used for documentation review
+            files: The changed files to analyze
 
         Returns:
-            List of documentation issues found
+            List of documentation issues found across all markdown files
         """
-        # Skip non-markdown files
-        if not is_markdown_file(file.filename):
-            return []
+        all_issues: list[Issue] = []
+        
+        for file in files:
+            # Skip non-markdown files
+            if not is_markdown_file(file.filename):
+                continue
 
-        if not file.patch:
-            logger.debug(f"Skipping {file.filename}: no patch available")
-            return []
+            if not file.patch:
+                logger.debug(f"Skipping {file.filename}: no patch available")
+                continue
 
-        try:
-            result = self.predictor(
-                diff=file.patch or "",
-                full_content=file.content or "",
-                filename=file.filename,
-                category=self.category,
-            )
-            return [
-                issue for issue in result.issues
-                if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-            ]
-        except Exception as e:
-            logger.error(f"Error analyzing {file.filename}: {e}")
-            return []
+            try:
+                result = self.predictor(
+                    diff=file.patch or "",
+                    full_content=file.content or "",
+                    filename=file.filename,
+                    category=self.category,
+                )
+                issues = [
+                    issue for issue in result.issues
+                    if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                ]
+                all_issues.extend(issues)
+                logger.debug(f"  Documentation in {file.filename}: {len(issues)} issues")
+            except Exception as e:
+                logger.error(f"Error analyzing {file.filename}: {e}")
+        
+        return all_issues

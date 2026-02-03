@@ -1,6 +1,7 @@
 """Domain expert module for codebase-aware review."""
 
 import logging
+from typing import Sequence
 
 import dspy  # type: ignore[import-untyped]
 
@@ -12,57 +13,47 @@ logger = logging.getLogger(__name__)
 
 
 class DomainExpertSignature(dspy.Signature):
-    """Analyze code changes using VERIFIED caller information and related files.
+    """Analyze code changes for cross-file consistency and architectural issues.
 
-    CRITICAL RULES - READ CAREFULLY:
-    - The related_files input includes VERIFIED caller information from codebase search
-    - If "Verified Callers of Changed Functions" section exists, USE IT to report concrete issues
-    - ONLY report issues where you can cite SPECIFIC file:line references
-    - NEVER say "cannot be verified" - if you can't verify, don't report
-    - NEVER speculate about callers that might exist - only report about callers you can see
+    You are a domain expert reviewing code changes for consistency and architecture.
 
-    USING VERIFIED CALLER INFORMATION:
-    - Look for "=== Verified Callers of Changed Functions ===" section in related_files
-    - This shows REAL callers found via code search - use these for your analysis
-    - Report issues like: "Caller at api/handler.go:45 needs to be updated..."
-    - Include the actual caller file and line in your issue description
+    CRITICAL RULES:
+    - ONLY report issues you can DIRECTLY SEE in the provided diffs
+    - DO NOT speculate about code you cannot see
+    - Focus on cross-file consistency within the provided changes
+    - Quality over quantity: prefer 0 reports over 1 speculative report
 
     What to check:
-    - Breaking changes where verified callers need updating (cite the file:line)
-    - Signature changes that affect callers shown in the verified list
-    - Renamed/removed functions that have callers in the verified list
-    - Pattern inconsistencies you can SHOW in related_files content
+    - Inconsistent patterns across the changed files
+    - API contract changes that affect other changed files
+    - Naming conventions that differ from other files in the PR
+    - Architecture decisions that conflict with patterns in other changes
+    - Missing updates in related files that are part of this PR
 
     DO NOT REPORT:
-    - "Callers may need updating" without citing specific callers from verified list
-    - "Unknown callers might be affected" - only report what you can see
-    - "This could break X" without showing X in the context
-    - Any issue where your evidence is speculative
+    - Issues about files not included in the changes
+    - "Callers may need updating" without seeing those callers
+    - Speculative breaking changes
+    - Any issue where your evidence is not in the provided diffs
     """
 
-    diff: str = dspy.InputField(
-        desc="The code diff showing changes"
+    all_diffs: str = dspy.InputField(
+        desc="Combined diffs of all changed files in the PR"
     )
-    filename: str = dspy.InputField(
-        desc="Path to the file being analyzed"
-    )
-    related_files: str = dspy.InputField(
-        desc="Content of related files AND verified callers - includes 'Verified Callers of Changed Functions' section with file:line references when available"
-    )
-    repo_structure: str = dspy.InputField(
-        desc="Overview of the repository structure"
+    file_list: str = dspy.InputField(
+        desc="List of all changed files with their status"
     )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field)"
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="VERIFIED contextual issues. Only report issues with concrete evidence from verified callers. Empty list if none."
+        desc="VERIFIED contextual issues based on cross-file analysis. Empty list if none."
     )
 
 
 class DomainExpert(dspy.Module):
-    """Analyzes code changes in the context of the broader codebase using DSPy."""
+    """Analyzes code changes for cross-file consistency using DSPy."""
 
     category = IssueCategory.CONTEXT
 
@@ -71,33 +62,45 @@ class DomainExpert(dspy.Module):
         super().__init__()
         self.predictor = dspy.ChainOfThought(DomainExpertSignature)
 
-    def forward(self, file: ChangedFile, context: str = "", repo_structure: str = "") -> list[Issue]:
-        """Analyze a file with codebase context and return issues.
+    def forward(self, files: Sequence[ChangedFile]) -> list[Issue]:
+        """Analyze files for cross-file consistency and architectural issues.
 
         Args:
-            file: The changed file to analyze
-            context: Related files content as formatted string
-            repo_structure: Repository structure overview
+            files: The changed files to analyze
 
         Returns:
-            List of contextual issues found
+            List of contextual issues found across all files
         """
-        if not file.patch:
-            logger.debug(f"Skipping {file.filename}: no patch available")
+        # Filter to files with patches
+        files_with_patches = [f for f in files if f.patch]
+        
+        if not files_with_patches:
+            logger.debug("No files with patches to analyze for context")
             return []
+
+        # Build combined diff and file list
+        all_diffs_parts = []
+        file_list_parts = []
+        
+        for file in files_with_patches:
+            all_diffs_parts.append(f"=== {file.filename} ===\n{file.patch}")
+            file_list_parts.append(f"- {file.filename} ({file.status.value}): +{file.additions}/-{file.deletions}")
+        
+        all_diffs = "\n\n".join(all_diffs_parts)
+        file_list = "\n".join(file_list_parts)
 
         try:
             result = self.predictor(
-                diff=file.patch or "",
-                filename=file.filename,
-                related_files=context or "No related files available.",
-                repo_structure=repo_structure or "Repository structure not available.",
+                all_diffs=all_diffs,
+                file_list=file_list,
                 category=self.category,
             )
-            return [
+            issues = [
                 issue for issue in result.issues
                 if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
             ]
+            logger.debug(f"  Domain expert: {len(issues)} cross-file issues")
+            return issues
         except Exception as e:
-            logger.error(f"Error in contextual analysis of {file.filename}: {e}")
+            logger.error(f"Error in contextual analysis: {e}")
             return []
