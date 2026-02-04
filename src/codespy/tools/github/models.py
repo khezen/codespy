@@ -26,10 +26,6 @@ class ChangedFile(BaseModel):
     previous_filename: str | None = Field(
         default=None, description="Previous filename if renamed"
     )
-    content: str | None = Field(default=None, description="Full file content after changes")
-    previous_content: str | None = Field(
-        default=None, description="Full file content before changes"
-    )
 
     @property
     def extension(self) -> str:
@@ -142,15 +138,6 @@ class ReviewContext(BaseModel):
     def get_context_for_file(self, filename: str) -> str:
         """Get context string for a specific file."""
         context_parts = []
-
-        # Find the changed file
-        changed_file = next(
-            (f for f in self.pull_request.changed_files if f.filename == filename),
-            None,
-        )
-
-        if changed_file and changed_file.content:
-            context_parts.append(f"=== Full file content: {filename} ===\n{changed_file.content}")
 
         # Add related files
         for related_name, content in self.related_files.items():

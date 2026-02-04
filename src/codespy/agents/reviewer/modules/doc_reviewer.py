@@ -20,41 +20,44 @@ class DocumentationReviewSignature(dspy.Signature):
     You have tools to explore the repository filesystem, search for text, and analyze code.
     All file paths are relative to the repository root.
 
+    TOKEN EFFICIENCY:
+    - The patch in each changed_file shows exactly what changed - analyze it FIRST
+    - Use search_literal to find references in docs BEFORE reading entire doc files
+    - Use read_file only when you've confirmed a doc mentions the changed code
+    - Stop exploring once you have enough evidence to confirm or dismiss an issue
+
     Follow this process:
 
-    1. EXPLORE DOCUMENTATION:
-       - Use get_tree to explore the scope's subroot directory
-       - Look for: README.md, docs/, *.md files, CHANGELOG, API docs
-       - Also check project root (".") for top-level documentation
+    1. ANALYZE CODE CHANGES FIRST (from patches):
+       - Review each changed_file's patch to understand what changed
+       - Identify changed functions, types, APIs from the diff
+       - Note any new public APIs or significant changes
 
-    2. ANALYZE CODE CHANGES:
-       - Review the changed_files list for the scope
-       - Use find_function_definitions to understand what code entities changed
-       - Identify changed functions, types, APIs, configuration options
+    2. SEARCH FOR DOC REFERENCES:
+       - Use search_literal to find if any docs reference the changed entities
+       - This is more efficient than reading all doc files
 
-    3. CHECK DOCUMENTATION COVERAGE:
-       - Use read_file to read documentation content
-       - Use search_literal to find references to changed code in docs
-       - Determine if documentation mentions the changed entities
+    3. VERIFY ISSUES:
+       - Use read_file ONLY on docs that reference changed code
+       - Check if documentation accurately reflects the changes
 
-    4. CHECK DOCSTRING/COMMENT CONVENTIONS:
-       - Before reporting missing docstrings/comments, check scope's conventions
-       - Use read_file on a few existing files in the scope
+    4. CHECK DOCSTRING CONVENTIONS (if needed):
+       - Only if adding public APIs, check scope's docstring conventions
+       - Use find_function_definitions on one or two existing files
        - Only flag missing docstrings if the scope consistently uses them
 
-    5. REPORT ISSUES:
-       - Documentation that references changed code but may be outdated
-       - Missing documentation for new public APIs/functions
-       - Missing docstrings ONLY if scope has docstring convention
-       - Broken or potentially stale references
+    REPORT only:
+    - Documentation that references changed code but is now outdated
+    - Missing documentation for new public APIs (if scope has doc convention)
+    - Broken or stale references you've verified
 
     IMPORTANT: Only report concrete issues with high confidence.
     Do NOT report speculative issues or issues about code you haven't verified.
     """
 
     scope: ScopeResult = dspy.InputField(
-        desc="Scope with changed files. Has: subroot (relative path), scope_type, "
-        "changed_files list, language, package_manifest."
+        desc="Scope with changed files. Has: subroot, scope_type, "
+        "changed_files (filename + patch - analyze patch first), language, package_manifest."
     )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field in Issue objects)"

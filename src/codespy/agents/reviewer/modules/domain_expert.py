@@ -22,6 +22,12 @@ class DomainExpertSignature(dspy.Signature):
     Your goal is to deeply understand the scope's business purpose and then review changes
     for both business fit and technical consistency.
 
+    TOKEN EFFICIENCY:
+    - The patch in each changed_file shows exactly what changed - analyze it FIRST
+    - Use targeted searches (find_function_usages, search_literal) before reading entire files
+    - Use read_file ONLY when you need broader context not visible in patch or search results
+    - Stop exploring once you have enough evidence to confirm or dismiss an issue
+
     AVAILABLE TOOLS:
     - Filesystem: read_file, list_directory, get_tree, file_exists, get_file_info
     - Search: find_function_usages, find_type_usages, find_imports_of, find_callers, search_literal
@@ -88,7 +94,7 @@ class DomainExpertSignature(dspy.Signature):
 
     scope: ScopeResult = dspy.InputField(
         desc="The scope to analyze with its changed files. Contains: "
-        "subroot (relative path), scope_type, changed_files list (with patch diffs), language, package_manifest."
+        "subroot (relative path), scope_type, changed_files list (filename + patch only - use read_file for content), language, package_manifest."
     )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field)"

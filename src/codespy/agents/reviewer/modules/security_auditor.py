@@ -28,10 +28,15 @@ class CodeSecuritySignature(dspy.Signature):
       * language: Primary programming language
       * changed_files: List of ChangedFile objects, each with:
         - filename: Path to the file
-        - patch: The diff showing changes (additions/deletions)
-        - content: The full file content after changes
+        - patch: The diff showing exactly what changed (additions/deletions)
       * package_manifest: Package manifest info if present
       * artifacts: Security-relevant artifacts (Dockerfiles, etc.)
+
+    TOKEN EFFICIENCY:
+    - The patch shows exactly what changed - analyze it FIRST before using tools
+    - Use read_file ONLY when you need context outside the diff (e.g., checking if validation exists elsewhere)
+    - Prefer targeted searches (find_function_calls, search_literal) over reading entire files
+    - Stop exploring once you have enough evidence to confirm or dismiss an issue
 
     CRITICAL RULES:
     - Analyze ALL changed files in the scope
@@ -42,13 +47,12 @@ class CodeSecuritySignature(dspy.Signature):
     - Quality over quantity: prefer 0 reports over 1 speculative report
 
     VERIFICATION WORKFLOW:
-    1. Review each changed file's patch and content in scope.changed_files
-    2. For each suspected vulnerability, VERIFY using tools:
-       - Use read_file to examine input validation, sanitization, or auth code
+    1. Review each changed file's patch in scope.changed_files - the diff shows what changed
+    2. For suspected vulnerabilities that need verification beyond the patch:
        - Use find_function_calls to trace data flow from user input to sinks
        - Use find_function_usages to see how sensitive data is handled
-       - Use find_callers to trace where dangerous operations are invoked
        - Use search_literal to find related security patterns (escaping, encoding)
+       - Use read_file ONLY if you need broader context not visible in the patch
     3. Only report issues that are CONFIRMED by your verification
 
     VULNERABILITIES to look for (with verification) but not limited to:

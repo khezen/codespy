@@ -113,27 +113,6 @@ class GitHubClient:
 
             status = FileStatus(file.status)
 
-            # Get file content if available
-            content = None
-            previous_content = None
-
-            if status != FileStatus.REMOVED:
-                try:
-                    content_file = repo.get_contents(file.filename, ref=gh_pr.head.sha)
-                    if not isinstance(content_file, list):
-                        content = content_file.decoded_content.decode("utf-8")
-                except Exception:
-                    pass  # File might be binary or too large
-
-            if status in (FileStatus.MODIFIED, FileStatus.RENAMED):
-                try:
-                    prev_filename = file.previous_filename or file.filename
-                    prev_content_file = repo.get_contents(prev_filename, ref=gh_pr.base.sha)
-                    if not isinstance(prev_content_file, list):
-                        previous_content = prev_content_file.decoded_content.decode("utf-8")
-                except Exception:
-                    pass
-
             changed_files.append(
                 ChangedFile(
                     filename=file.filename,
@@ -142,8 +121,6 @@ class GitHubClient:
                     deletions=file.deletions,
                     patch=file.patch,
                     previous_filename=file.previous_filename,
-                    content=content,
-                    previous_content=previous_content,
                 )
             )
 

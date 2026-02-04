@@ -28,10 +28,15 @@ class BugDetectionSignature(dspy.Signature):
       * language: Primary programming language
       * changed_files: List of ChangedFile objects, each with:
         - filename: Path to the file
-        - patch: The diff showing changes (additions/deletions)
-        - content: The full file content after changes
+        - patch: The diff showing exactly what changed (additions/deletions)
       * package_manifest: Package manifest info if present
       * artifacts: Security-relevant artifacts (Dockerfiles, etc.)
+
+    TOKEN EFFICIENCY:
+    - The patch shows exactly what changed - analyze it FIRST before using tools
+    - Use read_file ONLY when you need context outside the diff (e.g., checking base class, error handling)
+    - Prefer targeted searches (find_function_definitions, find_callers) over reading entire files
+    - Stop exploring once you have enough evidence to confirm or dismiss an issue
 
     CRITICAL RULES:
     - Analyze ALL changed files in the scope
@@ -43,13 +48,12 @@ class BugDetectionSignature(dspy.Signature):
     - Quality over quantity: prefer 0 reports over 1 speculative report
 
     VERIFICATION WORKFLOW:
-    1. Review each changed file's patch and content in scope.changed_files
-    2. For each suspected issue, VERIFY using tools:
-       - Use read_file to examine related files (imports, dependencies, base classes)
+    1. Review each changed file's patch in scope.changed_files - the diff shows what changed
+    2. For suspected bugs that need verification beyond the patch:
        - Use find_function_definitions to check function signatures and implementations
        - Use find_function_calls to understand how functions are called
        - Use find_function_usages/find_callers to trace usage patterns
-       - Use search_literal to find related code patterns
+       - Use read_file ONLY if you need broader context not visible in the patch
     3. Only report issues that are CONFIRMED by your verification
 
     CONCRETE bugs to look for (with verification):
