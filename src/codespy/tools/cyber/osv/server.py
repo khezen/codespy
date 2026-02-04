@@ -2,6 +2,7 @@
 
 import logging
 import os
+from functools import lru_cache
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -85,6 +86,13 @@ def get_vulnerability(osv_id: str) -> dict[str, Any]:
     return vuln.model_dump()
 
 
+@lru_cache(maxsize=512)
+def _scan_package_cached(name: str, ecosystem: str, version: str) -> tuple:
+    """Cached version of scan_package."""
+    result = _get_client().scan_package(name, ecosystem, version)
+    return tuple(sorted(result.model_dump().items()))
+
+
 @mcp.tool()
 def scan_package(name: str, ecosystem: str, version: str) -> dict[str, Any]:
     """Scan a single package for vulnerabilities.
@@ -98,8 +106,7 @@ def scan_package(name: str, ecosystem: str, version: str) -> dict[str, Any]:
         Dict with package_name, ecosystem, version, vulnerabilities, is_vulnerable, count
     """
     logger.info(f"[OSV] {_caller_module} -> scan_package: {ecosystem}/{name}@{version}")
-    result = _get_client().scan_package(name, ecosystem, version)
-    return result.model_dump()
+    return dict(_scan_package_cached(name, ecosystem, version))
 
 
 @mcp.tool()
@@ -131,8 +138,7 @@ def scan_pypi_package(name: str, version: str) -> dict[str, Any]:
         Dict with scan result including vulnerabilities found
     """
     logger.info(f"[OSV] {_caller_module} -> scan_pypi_package: {name}@{version}")
-    result = _get_client().scan_pypi_package(name, version)
-    return result.model_dump()
+    return dict(_scan_package_cached(name, "PyPI", version))
 
 
 @mcp.tool()
@@ -147,8 +153,7 @@ def scan_npm_package(name: str, version: str) -> dict[str, Any]:
         Dict with scan result including vulnerabilities found
     """
     logger.info(f"[OSV] {_caller_module} -> scan_npm_package: {name}@{version}")
-    result = _get_client().scan_npm_package(name, version)
-    return result.model_dump()
+    return dict(_scan_package_cached(name, "npm", version))
 
 
 @mcp.tool()
@@ -163,8 +168,14 @@ def scan_go_package(name: str, version: str) -> dict[str, Any]:
         Dict with scan result including vulnerabilities found
     """
     logger.info(f"[OSV] {_caller_module} -> scan_go_package: {name}@{version}")
-    result = _get_client().scan_go_package(name, version)
-    return result.model_dump()
+    return dict(_scan_package_cached(name, "Go", version))
+
+
+@lru_cache(maxsize=256)
+def _scan_maven_cached(group_id: str, artifact_id: str, version: str) -> tuple:
+    """Cached version of scan_maven_package."""
+    result = _get_client().scan_maven_package(group_id, artifact_id, version)
+    return tuple(sorted(result.model_dump().items()))
 
 
 @mcp.tool()
@@ -180,8 +191,7 @@ def scan_maven_package(group_id: str, artifact_id: str, version: str) -> dict[st
         Dict with scan result including vulnerabilities found
     """
     logger.info(f"[OSV] {_caller_module} -> scan_maven_package: {group_id}:{artifact_id}@{version}")
-    result = _get_client().scan_maven_package(group_id, artifact_id, version)
-    return result.model_dump()
+    return dict(_scan_maven_cached(group_id, artifact_id, version))
 
 
 @mcp.tool()
@@ -196,8 +206,7 @@ def scan_rubygems_package(name: str, version: str) -> dict[str, Any]:
         Dict with scan result including vulnerabilities found
     """
     logger.info(f"[OSV] {_caller_module} -> scan_rubygems_package: {name}@{version}")
-    result = _get_client().scan_rubygems_package(name, version)
-    return result.model_dump()
+    return dict(_scan_package_cached(name, "RubyGems", version))
 
 
 @mcp.tool()
@@ -212,8 +221,7 @@ def scan_cargo_package(name: str, version: str) -> dict[str, Any]:
         Dict with scan result including vulnerabilities found
     """
     logger.info(f"[OSV] {_caller_module} -> scan_cargo_package: {name}@{version}")
-    result = _get_client().scan_cargo_package(name, version)
-    return result.model_dump()
+    return dict(_scan_package_cached(name, "crates.io", version))
 
 
 if __name__ == "__main__":

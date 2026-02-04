@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 from dataclasses import asdict
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,54 @@ def _get_parser() -> TreeSitterParser:
     return _parser
 
 
+# =============================================================================
+# Cached internal functions
+# =============================================================================
+
+
+@lru_cache(maxsize=256)
+def _find_function_definitions_cached(file_path: str, content: str | None = None) -> tuple:
+    """Cached version of find_function_definitions."""
+    parser = _get_parser()
+    path = parser.repo_path / file_path
+    functions = parser.find_function_definitions(path, content)
+    return tuple(tuple(sorted(asdict(f).items())) for f in functions)
+
+
+@lru_cache(maxsize=512)
+def _find_function_calls_cached(file_path: str, function_name: str, content: str | None = None) -> tuple:
+    """Cached version of find_function_calls."""
+    parser = _get_parser()
+    path = parser.repo_path / file_path
+    calls = parser.find_function_calls(path, function_name, content)
+    return tuple(tuple(sorted(asdict(c).items())) for c in calls)
+
+
+@lru_cache(maxsize=256)
+def _find_all_calls_in_file_cached(file_path: str, content: str | None = None) -> tuple:
+    """Cached version of find_all_calls_in_file."""
+    parser = _get_parser()
+    path = parser.repo_path / file_path
+    calls = parser.find_all_calls_in_file(path, content)
+    return tuple(tuple(sorted(asdict(c).items())) for c in calls)
+
+
+@lru_cache(maxsize=128)
+def _parse_terraform_file_cached(file_path: str, content: str | None = None) -> tuple | None:
+    """Cached version of parse_terraform_file."""
+    parser = _get_parser()
+    path = parser.repo_path / file_path
+    result = parser.parse_terraform_file(path, content)
+    if result is None:
+        return None
+    return tuple(sorted(asdict(result).items()))
+
+
+# =============================================================================
+# MCP Tool endpoints
+# =============================================================================
+
+
 @mcp.tool()
 def find_function_definitions(file_path: str, content: str | None = None) -> list[dict]:
     """Find all function/method definitions in a file.
@@ -38,10 +87,8 @@ def find_function_definitions(file_path: str, content: str | None = None) -> lis
         signature, parameters, return_type, docstring
     """
     logger.info(f"[TS] {_caller_module} -> find_function_definitions: {file_path}")
-    parser = _get_parser()
-    path = parser.repo_path / file_path
-    functions = parser.find_function_definitions(path, content)
-    return [asdict(f) for f in functions]
+    cached = _find_function_definitions_cached(file_path, content)
+    return [dict(f) for f in cached]
 
 
 @mcp.tool()
@@ -62,10 +109,8 @@ def find_function_calls(
         line_content, arguments_count, caller_function
     """
     logger.info(f"[TS] {_caller_module} -> find_function_calls: {function_name} in {file_path}")
-    parser = _get_parser()
-    path = parser.repo_path / file_path
-    calls = parser.find_function_calls(path, function_name, content)
-    return [asdict(c) for c in calls]
+    cached = _find_function_calls_cached(file_path, function_name, content)
+    return [dict(c) for c in cached]
 
 
 @mcp.tool()
@@ -81,10 +126,8 @@ def find_all_calls_in_file(file_path: str, content: str | None = None) -> list[d
         line_content, arguments_count, caller_function
     """
     logger.info(f"[TS] {_caller_module} -> find_all_calls_in_file: {file_path}")
-    parser = _get_parser()
-    path = parser.repo_path / file_path
-    calls = parser.find_all_calls_in_file(path, content)
-    return [asdict(c) for c in calls]
+    cached = _find_all_calls_in_file_cached(file_path, content)
+    return [dict(c) for c in cached]
 
 
 # =============================================================================
@@ -111,12 +154,10 @@ def parse_terraform_file(file_path: str, content: str | None = None) -> dict[str
         - locals: List of local value definitions
     """
     logger.info(f"[TS] {_caller_module} -> parse_terraform_file: {file_path}")
-    parser = _get_parser()
-    path = parser.repo_path / file_path
-    result = parser.parse_terraform_file(path, content)
-    if result is None:
+    cached = _parse_terraform_file_cached(file_path, content)
+    if cached is None:
         return None
-    return asdict(result)
+    return dict(cached)
 
 
 @mcp.tool()
@@ -132,12 +173,11 @@ def list_terraform_resources(file_path: str, content: str | None = None) -> list
         file, line_start, line_end, attributes, depends_on
     """
     logger.info(f"[TS] {_caller_module} -> list_terraform_resources: {file_path}")
-    parser = _get_parser()
-    path = parser.repo_path / file_path
-    result = parser.parse_terraform_file(path, content)
-    if result is None:
+    cached = _parse_terraform_file_cached(file_path, content)
+    if cached is None:
         return []
-    return [asdict(r) for r in result.resources]
+    result_dict = dict(cached)
+    return result_dict.get("resources", [])
 
 
 @mcp.tool()
@@ -153,12 +193,11 @@ def list_terraform_variables(file_path: str, content: str | None = None) -> list
         sensitive, file, line_start, line_end
     """
     logger.info(f"[TS] {_caller_module} -> list_terraform_variables: {file_path}")
-    parser = _get_parser()
-    path = parser.repo_path / file_path
-    result = parser.parse_terraform_file(path, content)
-    if result is None:
+    cached = _parse_terraform_file_cached(file_path, content)
+    if cached is None:
         return []
-    return [asdict(v) for v in result.variables]
+    result_dict = dict(cached)
+    return result_dict.get("variables", [])
 
 
 @mcp.tool()
@@ -174,12 +213,11 @@ def list_terraform_outputs(file_path: str, content: str | None = None) -> list[d
         sensitive, file, line_start, line_end
     """
     logger.info(f"[TS] {_caller_module} -> list_terraform_outputs: {file_path}")
-    parser = _get_parser()
-    path = parser.repo_path / file_path
-    result = parser.parse_terraform_file(path, content)
-    if result is None:
+    cached = _parse_terraform_file_cached(file_path, content)
+    if cached is None:
         return []
-    return [asdict(o) for o in result.outputs]
+    result_dict = dict(cached)
+    return result_dict.get("outputs", [])
 
 
 @mcp.tool()
@@ -195,12 +233,11 @@ def list_terraform_modules(file_path: str, content: str | None = None) -> list[d
         file, line_start, line_end
     """
     logger.info(f"[TS] {_caller_module} -> list_terraform_modules: {file_path}")
-    parser = _get_parser()
-    path = parser.repo_path / file_path
-    result = parser.parse_terraform_file(path, content)
-    if result is None:
+    cached = _parse_terraform_file_cached(file_path, content)
+    if cached is None:
         return []
-    return [asdict(m) for m in result.modules]
+    result_dict = dict(cached)
+    return result_dict.get("modules", [])
 
 
 @mcp.tool()
@@ -216,12 +253,11 @@ def list_terraform_data_sources(file_path: str, content: str | None = None) -> l
         file, line_start, line_end, attributes
     """
     logger.info(f"[TS] {_caller_module} -> list_terraform_data_sources: {file_path}")
-    parser = _get_parser()
-    path = parser.repo_path / file_path
-    result = parser.parse_terraform_file(path, content)
-    if result is None:
+    cached = _parse_terraform_file_cached(file_path, content)
+    if cached is None:
         return []
-    return [asdict(d) for d in result.data_sources]
+    result_dict = dict(cached)
+    return result_dict.get("data_sources", [])
 
 
 @mcp.tool()
@@ -237,12 +273,11 @@ def list_terraform_providers(file_path: str, content: str | None = None) -> list
         file, line_start, line_end
     """
     logger.info(f"[TS] {_caller_module} -> list_terraform_providers: {file_path}")
-    parser = _get_parser()
-    path = parser.repo_path / file_path
-    result = parser.parse_terraform_file(path, content)
-    if result is None:
+    cached = _parse_terraform_file_cached(file_path, content)
+    if cached is None:
         return []
-    return [asdict(p) for p in result.providers]
+    result_dict = dict(cached)
+    return result_dict.get("providers", [])
 
 
 @mcp.tool()
@@ -264,34 +299,41 @@ def get_terraform_summary(file_path: str, content: str | None = None) -> dict[st
         - local_count, local_names
     """
     logger.info(f"[TS] {_caller_module} -> get_terraform_summary: {file_path}")
-    parser = _get_parser()
-    path = parser.repo_path / file_path
-    result = parser.parse_terraform_file(path, content)
+    cached = _parse_terraform_file_cached(file_path, content)
 
-    if result is None:
+    if cached is None:
         return {
             "error": "Failed to parse Terraform file",
             "file": file_path,
         }
 
+    result_dict = dict(cached)
+    resources = result_dict.get("resources", [])
+    variables = result_dict.get("variables", [])
+    outputs = result_dict.get("outputs", [])
+    modules = result_dict.get("modules", [])
+    data_sources = result_dict.get("data_sources", [])
+    providers = result_dict.get("providers", [])
+    locals_list = result_dict.get("locals", [])
+
     return {
         "file": file_path,
-        "resource_count": len(result.resources),
-        "resource_types": list({r.resource_type for r in result.resources}),
-        "resources": [f"{r.resource_type}.{r.resource_name}" for r in result.resources],
-        "variable_count": len(result.variables),
-        "variable_names": [v.name for v in result.variables],
-        "output_count": len(result.outputs),
-        "output_names": [o.name for o in result.outputs],
-        "module_count": len(result.modules),
-        "module_names": [m.name for m in result.modules],
-        "module_sources": [m.source for m in result.modules],
-        "data_source_count": len(result.data_sources),
-        "data_source_types": list({d.data_type for d in result.data_sources}),
-        "provider_count": len(result.providers),
-        "provider_names": list({p.name for p in result.providers}),
-        "local_count": len(result.locals),
-        "local_names": [loc.name for loc in result.locals],
+        "resource_count": len(resources),
+        "resource_types": list({r.get("resource_type", "") for r in resources}),
+        "resources": [f"{r.get('resource_type', '')}.{r.get('resource_name', '')}" for r in resources],
+        "variable_count": len(variables),
+        "variable_names": [v.get("name", "") for v in variables],
+        "output_count": len(outputs),
+        "output_names": [o.get("name", "") for o in outputs],
+        "module_count": len(modules),
+        "module_names": [m.get("name", "") for m in modules],
+        "module_sources": [m.get("source", "") for m in modules],
+        "data_source_count": len(data_sources),
+        "data_source_types": list({d.get("data_type", "") for d in data_sources}),
+        "provider_count": len(providers),
+        "provider_names": list({p.get("name", "") for p in providers}),
+        "local_count": len(locals_list),
+        "local_names": [loc.get("name", "") for loc in locals_list],
     }
 
 

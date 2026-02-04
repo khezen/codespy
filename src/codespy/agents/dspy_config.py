@@ -78,7 +78,9 @@ def configure_dspy(settings: Settings) -> None:
     # Configure DSPy with LiteLLM
     lm = dspy.LM(model=model)
     dspy.configure(lm=lm)
-    logger.info(f"Configured DSPy with model: {model}")
+    # Enable memory-only caching for LLM calls (no disk caching)
+    dspy.configure_cache(enable_memory_cache=True, enable_disk_cache=False, memory_max_entries=1000)
+    logger.info(f"Configured DSPy with model: {model} (memory cache enabled)")
 
 
 def verify_model_access(settings: Settings) -> tuple[bool, str]:
