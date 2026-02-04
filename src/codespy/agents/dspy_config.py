@@ -31,12 +31,23 @@ def configure_dspy(settings: Settings) -> None:
             os.environ["AWS_ACCESS_KEY_ID"] = settings.aws_access_key_id
         if settings.aws_secret_access_key:
             os.environ["AWS_SECRET_ACCESS_KEY"] = settings.aws_secret_access_key
+    # Build LM kwargs
+    lm_kwargs: dict = {"model": model}
+
+    # Enable provider-side prompt caching if configured
+    # This caches system prompts on the LLM provider's servers (Anthropic, OpenAI, Bedrock, etc.)
+    if settings.enable_prompt_caching:
+        lm_kwargs["cache_control_injection_points"] = [
+            {"location": "message", "role": "system"}
+        ]
+
     # Configure DSPy with LiteLLM
-    lm = dspy.LM(model=model)
+    lm = dspy.LM(**lm_kwargs)
     dspy.configure(lm=lm)
     # Enable memory-only caching for LLM calls (no disk caching)
     dspy.configure_cache(enable_memory_cache=True, enable_disk_cache=False, memory_max_entries=1000)
-    logger.info(f"Configured DSPy with model: {model} (memory cache enabled)")
+    prompt_cache_status = "enabled" if settings.enable_prompt_caching else "disabled"
+    logger.info(f"Configured DSPy with model: {model} (memory cache enabled, provider prompt caching {prompt_cache_status})")
 
 
 def verify_model_access(settings: Settings) -> tuple[bool, str]:

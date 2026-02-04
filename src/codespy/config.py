@@ -113,6 +113,9 @@ class LLMConfig(BaseModel):
     azure_api_base: str | None = None
     azure_api_version: str | None = None
 
+    # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
+    enable_prompt_caching: bool = True
+
 
 class GitHubConfig(BaseModel):
     """GitHub configuration."""
@@ -250,6 +253,10 @@ class Settings(BaseSettings):
     default_model: str = "gpt-4o"
     default_max_iters: int = 10
     default_max_context_size: int = 50000
+
+    # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
+    # This caches system prompts on the LLM provider's servers to reduce latency and costs
+    enable_prompt_caching: bool = True
 
     # Top-level settings
     output_format: Literal["markdown", "json"] = "markdown"
@@ -411,6 +418,10 @@ class Settings(BaseSettings):
             self.llm.anthropic_api_key = self.anthropic_api_key
         if self.gemini_api_key and not self.llm.gemini_api_key:
             self.llm.gemini_api_key = self.gemini_api_key
+
+        # Sync prompt caching setting (nested takes precedence if explicitly set in YAML)
+        # Note: llm.enable_prompt_caching defaults to True, so we sync it to flat field
+        self.enable_prompt_caching = self.llm.enable_prompt_caching
 
         return self
 

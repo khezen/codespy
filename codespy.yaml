@@ -37,6 +37,11 @@ llm:
   azure_api_base: null                   # AZURE_API_BASE
   azure_api_version: null                # AZURE_API_VERSION
 
+  # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
+  # Caches system prompts on the LLM provider's servers to reduce latency and costs
+  enable_prompt_caching: true              # ENABLE_PROMPT_CACHING
+
+
 # ============================================================================
 # GITHUB
 # ============================================================================
