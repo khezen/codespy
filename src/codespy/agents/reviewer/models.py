@@ -81,6 +81,10 @@ class ScopeResult(BaseModel):
     artifacts: list[Artifact] = Field(
         default_factory=list, description="Security-relevant artifacts found in this scope (e.g., Dockerfile)"
     )
+    doc_paths: list[str] = Field(
+        default_factory=list,
+        description="Documentation file/directory paths in this scope (e.g., README.md, docs/)"
+    )
     changed_files: list[ChangedFile] = Field(
         default_factory=list, description="Changed files belonging to this scope"
     )

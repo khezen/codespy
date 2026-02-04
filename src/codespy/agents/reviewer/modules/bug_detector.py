@@ -35,6 +35,7 @@ class BugDetectionSignature(dspy.Signature):
 
     TOKEN EFFICIENCY:
     - The patch shows exactly what changed - analyze it FIRST before using tools
+    - The scope.doc_paths may contain documentation (README, API docs) - use if helpful for understanding expected behavior
     - Use read_file ONLY when you need context outside the diff (e.g., checking base class, error handling)
     - Prefer targeted searches (find_function_definitions, find_callers) over reading entire files
     - Stop exploring once you have enough evidence to confirm or dismiss an issue
@@ -72,7 +73,7 @@ class BugDetectionSignature(dspy.Signature):
     """
 
     scope: ScopeResult = dspy.InputField(
-        desc="Full scope context including all changed files, scope type, subroot, and language"
+        desc="Full scope context including all changed files, scope type, subroot, language, and doc_paths (pre-identified documentation that may help understand expected behavior)"
     )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field)"

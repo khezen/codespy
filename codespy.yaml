@@ -64,7 +64,7 @@ signatures:
 
   supply_chain:
     enabled: true                        # SUPPLY_CHAIN_ENABLED
-    max_iters: null                      # SUPPLY_CHAIN_MAX_ITERS
+    max_iters: 5                         # SUPPLY_CHAIN_MAX_ITERS
     model: null                          # SUPPLY_CHAIN_MODEL
     max_context_size: null               # SUPPLY_CHAIN_MAX_CONTEXT_SIZE
 
@@ -84,8 +84,8 @@ signatures:
 
   # Domain Expert signature
   domain_analysis:
-    enabled: false                       # DOMAIN_ANALYSIS_ENABLED
-    max_iters: null                      # DOMAIN_ANALYSIS_MAX_ITERS
+    enabled: true                       # DOMAIN_ANALYSIS_ENABLED
+    max_iters: 6                      # DOMAIN_ANALYSIS_MAX_ITERS
     model: null                          # DOMAIN_ANALYSIS_MODEL
     max_context_size: null               # DOMAIN_ANALYSIS_MAX_CONTEXT_SIZE
 

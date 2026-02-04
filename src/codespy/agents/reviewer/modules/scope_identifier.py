@@ -43,6 +43,10 @@ class ScopeAssignment(BaseModel):
     artifacts: list[Artifact] = Field(
         default_factory=list, description="Security-relevant artifacts found in this scope (e.g., Dockerfile)"
     )
+    doc_paths: list[str] = Field(
+        default_factory=list,
+        description="Documentation file/directory paths in this scope (e.g., README.md, docs/)"
+    )
     changed_files: list[str] = Field(
         default_factory=list, description="Changed file paths belonging to this scope"
     )
@@ -107,6 +111,17 @@ class ScopeIdentifierSignature(dspy.Signature):
       * Files named: Dockerfile, Dockerfile.*, *.Dockerfile, Containerfile
       * Often found at scope root or in docker/, build/ directories
     For each artifact found, set has_changes=true if the file is in the PR changed files list.
+
+    DOCUMENTATION PATHS TO DETECT:
+    Look for these documentation files/directories in each scope and add them to doc_paths:
+    - README files: README.md, README.rst, README.txt, README (any case)
+    - Documentation directories: docs/, documentation/, doc/
+    - API documentation: api.md, API.md, api-docs/, openapi.yaml, swagger.yaml
+    - Changelog files: CHANGELOG.md, HISTORY.md, CHANGES.md, RELEASE_NOTES.md
+    - Contributing guides: CONTRIBUTING.md, CONTRIBUTORS.md
+    - Other common docs: ARCHITECTURE.md, DESIGN.md, USAGE.md, EXAMPLES.md
+    - Wiki-style docs: *.wiki, wiki/
+    Use file_exists or get_tree to verify these paths exist before adding them.
 
     CRITICAL RULES:
     1. EVERY changed file must be assigned to exactly ONE scope
@@ -175,16 +190,13 @@ class ScopeIdentifier(dspy.Module):
                 changed_files=list(pr.changed_files),
                 reason="Scope identification disabled - fallback to single scope",
             )]
-
         tools, contexts = await self._create_mcp_tools(repo_path)
         changed_file_paths = [f.filename for f in pr.changed_files]
         # Build map from filename to ChangedFile for post-processing
         changed_files_map: dict[str, ChangedFile] = {f.filename: f for f in pr.changed_files}
-        
         try:
             # Get max_iters from signature config
             max_iters = self._settings.get_max_iters("scope_identification")
-
             agent = dspy.ReAct(
                 signature=ScopeIdentifierSignature,
                 tools=tools,
@@ -251,7 +263,6 @@ class ScopeIdentifier(dspy.Module):
                     changed_files.append(changed_files_map[filepath])
                 else:
                     logger.warning(f"File '{filepath}' from scope assignment not found in PR changed files")
-            
             results.append(ScopeResult(
                 subroot=assignment.subroot,
                 scope_type=assignment.scope_type,
@@ -261,6 +272,7 @@ class ScopeIdentifier(dspy.Module):
                 language=assignment.language,
                 package_manifest=assignment.package_manifest,
                 artifacts=assignment.artifacts,
+                doc_paths=assignment.doc_paths,
                 changed_files=changed_files,
                 reason=assignment.reason,
             ))

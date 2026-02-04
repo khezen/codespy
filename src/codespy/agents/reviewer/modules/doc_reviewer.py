@@ -23,8 +23,9 @@ class DocumentationReviewSignature(dspy.Signature):
 
     TOKEN EFFICIENCY:
     - The patch in each changed_file shows exactly what changed - analyze it FIRST
-    - Use search_literal to find references in docs BEFORE reading entire doc files
-    - Use read_file only when you've confirmed a doc mentions the changed code
+    - The scope.doc_paths contains pre-identified documentation locations - USE THEM
+    - Use read_file on doc_paths to check documentation content directly
+    - Use search_literal to find additional doc references only if needed
     - Stop exploring once you have enough evidence to confirm or dismiss an issue
 
     Follow this process:
@@ -34,15 +35,21 @@ class DocumentationReviewSignature(dspy.Signature):
        - Identify changed functions, types, APIs from the diff
        - Note any new public APIs or significant changes
 
-    2. SEARCH FOR DOC REFERENCES:
+    2. CHECK PRE-IDENTIFIED DOC PATHS:
+       - The scope.doc_paths field contains documentation files/directories found by scope identifier
+       - Prioritize reading these paths first as they are confirmed to exist
+       - Check README.md, docs/ directories, API docs listed in doc_paths
+       - If doc_paths is empty, the scope may not have significant documentation
+
+    3. SEARCH FOR ADDITIONAL DOC REFERENCES (if needed):
        - Use search_literal to find if any docs reference the changed entities
-       - This is more efficient than reading all doc files
+       - This is useful if doc_paths doesn't cover all potential documentation
 
-    3. VERIFY ISSUES:
-       - Use read_file ONLY on docs that reference changed code
-       - Check if documentation accurately reflects the changes
+    4. VERIFY ISSUES:
+       - Use read_file to check if documentation accurately reflects the changes
+       - Check if documentation is now outdated due to code changes
 
-    4. CHECK DOCSTRING CONVENTIONS (if needed):
+    5. CHECK DOCSTRING CONVENTIONS (if needed):
        - Only if adding public APIs, check scope's docstring conventions
        - Use find_function_definitions on one or two existing files
        - Only flag missing docstrings if the scope consistently uses them
@@ -58,7 +65,8 @@ class DocumentationReviewSignature(dspy.Signature):
 
     scope: ScopeResult = dspy.InputField(
         desc="Scope with changed files. Has: subroot, scope_type, "
-        "changed_files (filename + patch - analyze patch first), language, package_manifest."
+        "changed_files (filename + patch - analyze patch first), language, package_manifest, "
+        "doc_paths (pre-identified documentation files/directories - check these first)."
     )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field in Issue objects)"
@@ -146,7 +154,6 @@ class DocumentationReviewer(dspy.Module):
         try:
             # Get max_iters from signature config
             max_iters = self._settings.get_max_iters("doc_review")
-
             agent = dspy.ReAct(
                 signature=DocumentationReviewSignature,
                 tools=tools,
