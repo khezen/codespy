@@ -250,8 +250,8 @@ class Settings(BaseSettings):
     signatures: dict[str, SignatureConfig] = Field(default_factory=dict)
 
     # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
-    default_model: str = "gpt-5"
-    default_max_iters: int = 10
+    default_model: str = "claude-sonnet-4-5-20250929"
+    default_max_iters: int = 3
     default_max_context_size: int = 50000
 
     # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
