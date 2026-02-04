@@ -7,6 +7,7 @@ from typing import Any, Sequence
 
 import dspy  # type: ignore[import-untyped]
 
+from codespy.agents import ModuleContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import is_speculative, MIN_CONFIDENCE
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -108,10 +109,12 @@ class DomainExpert(dspy.Module):
     """
 
     category = IssueCategory.CONTEXT
+    MODULE_NAME = "domain_expert"
 
     def __init__(self) -> None:
         """Initialize the domain expert."""
         super().__init__()
+        self._cost_tracker = get_cost_tracker()
 
     async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
         """Create DSPy tools from MCP servers for codebase exploration."""
@@ -173,31 +176,33 @@ class DomainExpert(dspy.Module):
                 max_iters=30,  # Allow more iterations for deep exploration
             )
 
-            for scope in changed_scopes:
-                file_count = len(scope.changed_files)
-                logger.info(
-                    f"Domain expert analyzing scope '{scope.subroot}' "
-                    f"({file_count} changed files)..."
-                )
-
-                try:
-                    result = await agent.acall(
-                        scope=scope,
-                        category=self.category,
-                    )
-                    issues = result.issues if result.issues else []
-                    # Filter issues by confidence and speculation
-                    filtered_issues = [
-                        issue for issue in issues
-                        if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-                    ]
-                    all_issues.extend(filtered_issues)
+            # Use ModuleContext to track costs and timing for this module
+            async with ModuleContext(self.MODULE_NAME, self._cost_tracker):
+                for scope in changed_scopes:
+                    file_count = len(scope.changed_files)
                     logger.info(
-                        f"  Found {len(filtered_issues)} issues in scope '{scope.subroot}' "
-                        f"(filtered from {len(issues)} raw issues)"
+                        f"Domain expert analyzing scope '{scope.subroot}' "
+                        f"({file_count} changed files)..."
                     )
-                except Exception as e:
-                    logger.error(f"Error analyzing scope '{scope.subroot}': {e}")
+
+                    try:
+                        result = await agent.acall(
+                            scope=scope,
+                            category=self.category,
+                        )
+                        issues = result.issues if result.issues else []
+                        # Filter issues by confidence and speculation
+                        filtered_issues = [
+                            issue for issue in issues
+                            if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                        ]
+                        all_issues.extend(filtered_issues)
+                        logger.info(
+                            f"  Found {len(filtered_issues)} issues in scope '{scope.subroot}' "
+                            f"(filtered from {len(issues)} raw issues)"
+                        )
+                    except Exception as e:
+                        logger.error(f"Error analyzing scope '{scope.subroot}': {e}")
 
             logger.info(f"Domain expert found {len(all_issues)} total issues")
             return all_issues

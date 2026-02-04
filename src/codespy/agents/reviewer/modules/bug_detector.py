@@ -7,6 +7,7 @@ from typing import Any, Sequence
 
 import dspy  # type: ignore[import-untyped]
 
+from codespy.agents import ModuleContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import get_language, is_speculative, MIN_CONFIDENCE
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -77,10 +78,12 @@ class BugDetector(dspy.Module):
     """Detects bugs and logic errors using DSPy with code exploration tools."""
 
     category = IssueCategory.BUG
+    MODULE_NAME = "bug_detector"
 
     def __init__(self) -> None:
         """Initialize the bug detector."""
         super().__init__()
+        self._cost_tracker = get_cost_tracker()
 
     async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
         """Create DSPy tools from filesystem and parser MCP servers.
@@ -138,27 +141,29 @@ class BugDetector(dspy.Module):
             max_iters=10,
         )
         try:
-            for scope in scopes:
-                for file in scope.changed_files:
-                    if not file.patch:
-                        logger.debug(f"Skipping {file.filename}: no patch available")
-                        continue
-                    try:
-                        result = await bug_detection_agent.acall(
-                            diff=file.patch or "",
-                            full_content=file.content or "",
-                            filename=file.filename,
-                            language=get_language(file),
-                            category=self.category,
-                        )
-                        issues = [
-                            issue for issue in result.issues
-                            if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-                        ]
-                        all_issues.extend(issues)
-                        logger.debug(f"  Bugs in {file.filename}: {len(issues)} issues")
-                    except Exception as e:
-                        logger.error(f"Error analyzing {file.filename}: {e}")
+            # Use ModuleContext to track costs and timing for this module
+            async with ModuleContext(self.MODULE_NAME, self._cost_tracker):
+                for scope in scopes:
+                    for file in scope.changed_files:
+                        if not file.patch:
+                            logger.debug(f"Skipping {file.filename}: no patch available")
+                            continue
+                        try:
+                            result = await bug_detection_agent.acall(
+                                diff=file.patch or "",
+                                full_content=file.content or "",
+                                filename=file.filename,
+                                language=get_language(file),
+                                category=self.category,
+                            )
+                            issues = [
+                                issue for issue in result.issues
+                                if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                            ]
+                            all_issues.extend(issues)
+                            logger.debug(f"  Bugs in {file.filename}: {len(issues)} issues")
+                        except Exception as e:
+                            logger.error(f"Error analyzing {file.filename}: {e}")
         finally:
             await cleanup_mcp_contexts(contexts)
         return all_issues

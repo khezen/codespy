@@ -8,6 +8,7 @@ from typing import Any
 import dspy  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
+from codespy.agents import ModuleContext, get_cost_tracker
 from codespy.agents.reviewer.models import Artifact, PackageManifest, ScopeResult, ScopeType
 from codespy.tools.github.models import ChangedFile, PullRequest
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -138,9 +139,12 @@ class ScopeIdentifier(dspy.Module):
     and identify logical code scopes for focused code review.
     """
 
+    MODULE_NAME = "scope_identifier"
+
     def __init__(self) -> None:
         """Initialize the scope identifier."""
         super().__init__()
+        self._cost_tracker = get_cost_tracker()
 
     async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
         """Create DSPy tools from MCP servers."""
@@ -169,21 +173,23 @@ class ScopeIdentifier(dspy.Module):
                 max_iters=20,
             )
             logger.info(f"Identifying scopes for {len(changed_file_paths)} changed files...")
-            result = await agent.acall(
-                changed_files=changed_file_paths,
-                repo_owner=pr.repo_owner,
-                repo_name=pr.repo_name,
-                head_sha=pr.head_sha,
-                target_repo_path=str(repo_path),
-                pr_title=pr.title or "No title",
-                pr_description=pr.body or "No description",
-            )
-            scope_assignments: list[ScopeAssignment] = result.scopes
-            # Ensure we got valid scopes
-            if not scope_assignments:
-                raise ValueError("No scopes returned by agent")
-            # Convert ScopeAssignment (with string paths) to ScopeResult (with ChangedFile objects)
-            scopes = self._convert_assignments_to_results(scope_assignments, changed_files_map)
+            # Use ModuleContext to track costs and timing for this module
+            async with ModuleContext(self.MODULE_NAME, self._cost_tracker):
+                result = await agent.acall(
+                    changed_files=changed_file_paths,
+                    repo_owner=pr.repo_owner,
+                    repo_name=pr.repo_name,
+                    head_sha=pr.head_sha,
+                    target_repo_path=str(repo_path),
+                    pr_title=pr.title or "No title",
+                    pr_description=pr.body or "No description",
+                )
+                scope_assignments: list[ScopeAssignment] = result.scopes
+                # Ensure we got valid scopes
+                if not scope_assignments:
+                    raise ValueError("No scopes returned by agent")
+                # Convert ScopeAssignment (with string paths) to ScopeResult (with ChangedFile objects)
+                scopes = self._convert_assignments_to_results(scope_assignments, changed_files_map)
         except Exception as e:
             logger.error(f"Agent failed: {e}")
             scopes = [ScopeResult(

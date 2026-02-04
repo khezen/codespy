@@ -7,6 +7,7 @@ from typing import Any, Sequence
 
 import dspy  # type: ignore[import-untyped]
 
+from codespy.agents import ModuleContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import get_language, is_speculative, MIN_CONFIDENCE
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -186,10 +187,12 @@ class SecurityAuditor(dspy.Module):
     """Analyzes code for security vulnerabilities using DSPy."""
 
     category = IssueCategory.SECURITY
+    MODULE_NAME = "security_auditor"
 
     def __init__(self) -> None:
         """Initialize the security auditor."""
         super().__init__()
+        self._cost_tracker = get_cost_tracker()
 
     async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
         """Create DSPy tools from filesystem, parser, and OSV MCP servers.
@@ -266,54 +269,77 @@ class SecurityAuditor(dspy.Module):
         )
 
         try:
-            # 1. Run code security analysis for each changed file
-            for scope in scopes:
-                for file in scope.changed_files:
-                    if not file.patch:
-                        logger.debug(f"Skipping {file.filename}: no patch available")
-                        continue
-
-                    try:
-                        result = await code_security_agent.acall(
-                            diff=file.patch or "",
-                            full_content=file.content or "",
-                            filename=file.filename,
-                            language=get_language(file),
-                            category=self.category,
-                        )
-                        issues = [
-                            issue for issue in result.issues
-                            if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-                        ]
-                        all_issues.extend(issues)
-                        logger.debug(f"  Code security in {file.filename}: {len(issues)} issues")
-                    except Exception as e:
-                        logger.error(f"Error analyzing {file.filename}: {e}")
-
-            # 2. Run artifact security analysis (Dockerfiles, etc.)
-            artifact_security_agent = dspy.ReAct(
-                signature=ArtifactSecuritySignature,
-                tools=tools,
-                max_iters=5,
-            )
-            for scope in scopes:
-                for artifact in scope.artifacts:
-                    if not artifact.has_changes:
-                        logger.debug(f"Skipping unchanged artifact {artifact.path}")
-                        continue
-                    try:
-                        # Read artifact content
-                        artifact_full_path = repo_path / artifact.path
-                        if artifact_full_path.exists():
-                            artifact_content = artifact_full_path.read_text()
-                        else:
-                            logger.warning(f"Artifact file not found: {artifact.path}")
+            # Use ModuleContext to track costs and timing for this module
+            async with ModuleContext(self.MODULE_NAME, self._cost_tracker):
+                # 1. Run code security analysis for each changed file
+                for scope in scopes:
+                    for file in scope.changed_files:
+                        if not file.patch:
+                            logger.debug(f"Skipping {file.filename}: no patch available")
                             continue
 
-                        result = await artifact_security_agent.acall(
-                            artifact_path=artifact.path,
-                            artifact_type=artifact.artifact_type,
-                            artifact_content=artifact_content,
+                        try:
+                            result = await code_security_agent.acall(
+                                diff=file.patch or "",
+                                full_content=file.content or "",
+                                filename=file.filename,
+                                language=get_language(file),
+                                category=self.category,
+                            )
+                            issues = [
+                                issue for issue in result.issues
+                                if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                            ]
+                            all_issues.extend(issues)
+                            logger.debug(f"  Code security in {file.filename}: {len(issues)} issues")
+                        except Exception as e:
+                            logger.error(f"Error analyzing {file.filename}: {e}")
+
+                # 2. Run artifact security analysis (Dockerfiles, etc.)
+                artifact_security_agent = dspy.ReAct(
+                    signature=ArtifactSecuritySignature,
+                    tools=tools,
+                    max_iters=5,
+                )
+                for scope in scopes:
+                    for artifact in scope.artifacts:
+                        if not artifact.has_changes:
+                            logger.debug(f"Skipping unchanged artifact {artifact.path}")
+                            continue
+                        try:
+                            # Read artifact content
+                            artifact_full_path = repo_path / artifact.path
+                            if artifact_full_path.exists():
+                                artifact_content = artifact_full_path.read_text()
+                            else:
+                                logger.warning(f"Artifact file not found: {artifact.path}")
+                                continue
+
+                            result = await artifact_security_agent.acall(
+                                artifact_path=artifact.path,
+                                artifact_type=artifact.artifact_type,
+                                artifact_content=artifact_content,
+                                category=self.category,
+                            )
+                            issues = [
+                                issue for issue in result.issues
+                                if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                            ]
+                            all_issues.extend(issues)
+                            logger.debug(f"  Artifact security in {artifact.path}: {len(issues)} issues")
+                        except Exception as e:
+                            logger.error(f"Error analyzing artifact {artifact.path}: {e}")
+
+                # 3. Run dependency security analysis for each scope with package manifest
+                for scope in scopes:
+                    if not scope.package_manifest:
+                        continue
+                    manifest = scope.package_manifest
+                    try:
+                        result = await dependency_security_agent.acall(
+                            manifest_path=manifest.manifest_path,
+                            lock_file_path=manifest.lock_file_path or "",
+                            package_manager=manifest.package_manager,
                             category=self.category,
                         )
                         issues = [
@@ -321,30 +347,9 @@ class SecurityAuditor(dspy.Module):
                             if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
                         ]
                         all_issues.extend(issues)
-                        logger.debug(f"  Artifact security in {artifact.path}: {len(issues)} issues")
+                        logger.debug(f"  Dependency security in {manifest.manifest_path}: {len(issues)} issues")
                     except Exception as e:
-                        logger.error(f"Error analyzing artifact {artifact.path}: {e}")
-
-            # 3. Run dependency security analysis for each scope with package manifest
-            for scope in scopes:
-                if not scope.package_manifest:
-                    continue
-                manifest = scope.package_manifest
-                try:
-                    result = await dependency_security_agent.acall(
-                        manifest_path=manifest.manifest_path,
-                        lock_file_path=manifest.lock_file_path or "",
-                        package_manager=manifest.package_manager,
-                        category=self.category,
-                    )
-                    issues = [
-                        issue for issue in result.issues
-                        if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-                    ]
-                    all_issues.extend(issues)
-                    logger.debug(f"  Dependency security in {manifest.manifest_path}: {len(issues)} issues")
-                except Exception as e:
-                    logger.error(f"Error analyzing dependencies in {manifest.manifest_path}: {e}")
+                        logger.error(f"Error analyzing dependencies in {manifest.manifest_path}: {e}")
         finally:
             await cleanup_mcp_contexts(contexts)
         return all_issues

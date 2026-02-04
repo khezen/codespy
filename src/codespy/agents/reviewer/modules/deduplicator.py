@@ -5,6 +5,7 @@ from typing import Sequence
 
 import dspy  # type: ignore[import-untyped]
 
+from codespy.agents import ModuleContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueSeverity
 
 logger = logging.getLogger(__name__)
@@ -58,9 +59,12 @@ class IssueDeduplicator(dspy.Module):
     Prioritizes keeping issues with higher severity, then higher confidence.
     """
 
+    MODULE_NAME = "deduplicator"
+
     def __init__(self) -> None:
         """Initialize the issue deduplicator with chain-of-thought reasoning."""
         super().__init__()
+        self._cost_tracker = get_cost_tracker()
 
     def forward(self, issues: Sequence[Issue]) -> list[Issue]:
         """Deduplicate issues and return the unique list.
@@ -81,8 +85,10 @@ class IssueDeduplicator(dspy.Module):
 
         try:
             deduplicator_agent = dspy.ChainOfThought(IssueDeduplicationSignature)
-            result = deduplicator_agent(issues=list(issues))
-            deduplicated = result.deduplicated_issues
+            # Use ModuleContext to track costs and timing for this module
+            with ModuleContext(self.MODULE_NAME, self._cost_tracker):
+                result = deduplicator_agent(issues=list(issues))
+                deduplicated = result.deduplicated_issues
             removed_count = len(issues) - len(deduplicated)
             if removed_count > 0:
                 logger.info(f"Removed {removed_count} duplicate issues")

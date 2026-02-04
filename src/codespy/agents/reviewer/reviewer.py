@@ -5,11 +5,11 @@ from pathlib import Path
 
 import dspy  # type: ignore[import-untyped]
 
-from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
+from codespy.agents import ModuleContext, configure_dspy, get_cost_tracker, verify_model_access
 from codespy.config import Settings, get_settings
 from codespy.tools.github.client import GitHubClient
 from codespy.tools.github.models import ChangedFile, PullRequest
-from codespy.agents.reviewer.models import Issue, ReviewResult
+from codespy.agents.reviewer.models import Issue, ModuleStatsResult, ReviewResult
 from codespy.agents.reviewer.modules import (
     BugDetector,
     DomainExpert,
@@ -136,12 +136,14 @@ class ReviewPipeline(dspy.Module):
         logger.info("Generating PR summary...")
         try:
             summarizer = dspy.ChainOfThought(PRSummarySignature)
-            result = summarizer(
-                pr_title=pr.title,
-                pr_description=pr.body or "No description provided.",
-                changed_files=pr.changed_files,
-                all_issues=all_issues,
-            )
+            # Track the summarizer module's costs
+            with ModuleContext("summarizer", self.cost_tracker):
+                result = summarizer(
+                    pr_title=pr.title,
+                    pr_description=pr.body or "No description provided.",
+                    changed_files=pr.changed_files,
+                    all_issues=all_issues,
+                )
             summary = result.summary
             quality_assessment = result.quality_assessment
             recommendation = result.recommendation
@@ -150,6 +152,9 @@ class ReviewPipeline(dspy.Module):
             summary = f"Reviewed {len(pr.changed_files)} files with {len(all_issues)} issues."
             quality_assessment = "Unable to assess due to error."
             recommendation = "NEEDS_DISCUSSION: Summary generation failed."
+        # Collect per-module statistics
+        module_stats_list = self._collect_module_stats()
+        
         return ReviewResult(
             pr_number=pr.number,
             pr_title=pr.title,
@@ -163,4 +168,25 @@ class ReviewPipeline(dspy.Module):
             total_cost=self.cost_tracker.total_cost,
             total_tokens=self.cost_tracker.total_tokens,
             llm_calls=self.cost_tracker.call_count,
+            module_stats=module_stats_list,
         )
+
+    def _collect_module_stats(self) -> list[ModuleStatsResult]:
+        """Collect statistics from all modules that executed.
+        
+        Returns:
+            List of ModuleStatsResult for each module that ran
+        """
+        stats_list: list[ModuleStatsResult] = []
+        all_module_stats = self.cost_tracker.get_all_module_stats()
+        
+        for module_name, stats in all_module_stats.items():
+            stats_list.append(ModuleStatsResult(
+                name=module_name,
+                cost=stats.cost,
+                tokens=stats.tokens,
+                call_count=stats.call_count,
+                duration_seconds=stats.duration_seconds,
+            ))
+        
+        return stats_list

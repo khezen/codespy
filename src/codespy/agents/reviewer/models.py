@@ -117,6 +117,30 @@ class Issue(BaseModel):
             return f"{self.filename}:{self.line_start}"
         return self.filename
 
+class ModuleStatsResult(BaseModel):
+    """Statistics for a single module's execution during review."""
+
+    name: str = Field(description="Module name (e.g., bug_detector, security_auditor)")
+    cost: float = Field(default=0.0, description="Cost in USD for this module")
+    tokens: int = Field(default=0, description="Tokens used by this module")
+    call_count: int = Field(default=0, description="Number of LLM calls made by this module")
+    duration_seconds: float = Field(default=0.0, description="Execution time in seconds")
+
+    @property
+    def cost_per_call(self) -> float:
+        """Get average cost per LLM call."""
+        if self.call_count == 0:
+            return 0.0
+        return self.cost / self.call_count
+
+    @property
+    def tokens_per_call(self) -> float:
+        """Get average tokens per LLM call."""
+        if self.call_count == 0:
+            return 0.0
+        return self.tokens / self.call_count
+
+
 class ReviewResult(BaseModel):
     """Complete review results for a pull request."""
 
@@ -143,6 +167,9 @@ class ReviewResult(BaseModel):
     total_cost: float = Field(default=0.0, description="Total cost in USD")
     total_tokens: int = Field(default=0, description="Total tokens used")
     llm_calls: int = Field(default=0, description="Number of LLM calls made")
+    module_stats: list[ModuleStatsResult] = Field(
+        default_factory=list, description="Per-module statistics (cost, tokens, time)"
+    )
 
     @property
     def total_issues(self) -> int:
@@ -223,6 +250,21 @@ class ReviewResult(BaseModel):
                 f"- **Total Cost:** ${self.total_cost:.4f}",
                 "",
             ])
+
+            # Per-module breakdown
+            if self.module_stats:
+                lines.extend([
+                    "### Per-Module Breakdown",
+                    "",
+                    "| Module | Cost | Tokens | Calls | Duration |",
+                    "|--------|------|--------|-------|----------|",
+                ])
+                for stats in sorted(self.module_stats, key=lambda x: x.cost, reverse=True):
+                    duration_str = f"{stats.duration_seconds:.1f}s"
+                    lines.append(
+                        f"| {stats.name} | ${stats.cost:.4f} | {stats.tokens:,} | {stats.call_count} | {duration_str} |"
+                    )
+                lines.append("")
 
         # Issues by severity
         if self.issues:
