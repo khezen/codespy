@@ -120,15 +120,28 @@ class SupplyChainSecuritySignature(dspy.Signature):
     If manifest info is provided:
     1. Use read_file to read the manifest file at manifest_path
     2. If lock_file_path is provided, read it as well
-    3. Extract dependency names and versions
-    4. Use OSV tools to scan for REAL vulnerabilities:
-       - For Python/PyPI: use scan_pypi_package(name, version)
-       - For JavaScript/npm: use scan_npm_package(name, version)
-       - For Go: use scan_go_package(name, version)
-       - For Java/Maven: use scan_maven_package(group_id, artifact_id, version)
-       - For Ruby/RubyGems: use scan_rubygems_package(name, version)
-       - For Rust/Cargo: use scan_cargo_package(name, version)
-       - Or use scan_dependencies(list) for batch scanning
+    3. Extract ALL dependencies with their names and versions
+
+    4. **CRITICAL: Use BATCH scanning to scan ALL dependencies in a SINGLE call**
+       ALWAYS use scan_dependencies() instead of individual scan calls:
+
+       scan_dependencies([
+           {"name": "requests", "ecosystem": "PyPI", "version": "2.25.0"},
+           {"name": "django", "ecosystem": "PyPI", "version": "3.1.0"},
+           ...all other dependencies...
+       ])
+
+       Ecosystem values by package manager:
+       - Python (pip/poetry/pipenv) → "PyPI"
+       - JavaScript/Node.js (npm/yarn/pnpm) → "npm"
+       - Go (go mod) → "Go"
+       - Java/Maven → "Maven" (name format: "groupId:artifactId")
+       - Ruby (bundler) → "RubyGems"
+       - Rust (cargo) → "crates.io"
+
+       DO NOT call individual scan tools (scan_pypi_package, scan_npm_package, etc.)
+       for multiple packages - this wastes iterations. Use scan_dependencies() for ALL.
+
     5. Only report vulnerabilities actually found by OSV queries
 
     ## VERIFICATION RULES

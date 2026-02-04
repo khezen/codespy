@@ -126,102 +126,105 @@ def scan_dependencies(dependencies: list[dict[str, str]]) -> dict[str, Any]:
     return summary.model_dump()
 
 
-@mcp.tool()
-def scan_pypi_package(name: str, version: str) -> dict[str, Any]:
-    """Scan a PyPI (Python) package for vulnerabilities.
+# Individual scan tools are commented out to encourage batch scanning via scan_dependencies()
+# which uses the OSV batch API and is more efficient for multiple packages.
 
-    Args:
-        name: PyPI package name (e.g., 'requests', 'django', 'flask')
-        version: Package version
+# @mcp.tool()
+# def scan_pypi_package(name: str, version: str) -> dict[str, Any]:
+#     """Scan a PyPI (Python) package for vulnerabilities.
 
-    Returns:
-        Dict with scan result including vulnerabilities found
-    """
-    logger.info(f"[OSV] {_caller_module} -> scan_pypi_package: {name}@{version}")
-    return dict(_scan_package_cached(name, "PyPI", version))
+#     Args:
+#         name: PyPI package name (e.g., 'requests', 'django', 'flask')
+#         version: Package version
 
-
-@mcp.tool()
-def scan_npm_package(name: str, version: str) -> dict[str, Any]:
-    """Scan an npm (JavaScript/Node.js) package for vulnerabilities.
-
-    Args:
-        name: npm package name (e.g., 'lodash', 'express', 'react')
-        version: Package version
-
-    Returns:
-        Dict with scan result including vulnerabilities found
-    """
-    logger.info(f"[OSV] {_caller_module} -> scan_npm_package: {name}@{version}")
-    return dict(_scan_package_cached(name, "npm", version))
+#     Returns:
+#         Dict with scan result including vulnerabilities found
+#     """
+#     logger.info(f"[OSV] {_caller_module} -> scan_pypi_package: {name}@{version}")
+#     return dict(_scan_package_cached(name, "PyPI", version))
 
 
-@mcp.tool()
-def scan_go_package(name: str, version: str) -> dict[str, Any]:
-    """Scan a Go module for vulnerabilities.
+# @mcp.tool()
+# def scan_npm_package(name: str, version: str) -> dict[str, Any]:
+#     """Scan an npm (JavaScript/Node.js) package for vulnerabilities.
 
-    Args:
-        name: Go module name (e.g., 'github.com/gin-gonic/gin')
-        version: Module version
+#     Args:
+#         name: npm package name (e.g., 'lodash', 'express', 'react')
+#         version: Package version
 
-    Returns:
-        Dict with scan result including vulnerabilities found
-    """
-    logger.info(f"[OSV] {_caller_module} -> scan_go_package: {name}@{version}")
-    return dict(_scan_package_cached(name, "Go", version))
-
-
-@lru_cache(maxsize=256)
-def _scan_maven_cached(group_id: str, artifact_id: str, version: str) -> tuple:
-    """Cached version of scan_maven_package."""
-    result = _get_client().scan_maven_package(group_id, artifact_id, version)
-    return tuple(sorted(result.model_dump().items()))
+#     Returns:
+#         Dict with scan result including vulnerabilities found
+#     """
+#     logger.info(f"[OSV] {_caller_module} -> scan_npm_package: {name}@{version}")
+#     return dict(_scan_package_cached(name, "npm", version))
 
 
-@mcp.tool()
-def scan_maven_package(group_id: str, artifact_id: str, version: str) -> dict[str, Any]:
-    """Scan a Maven (Java) package for vulnerabilities.
+# @mcp.tool()
+# def scan_go_package(name: str, version: str) -> dict[str, Any]:
+#     """Scan a Go module for vulnerabilities.
 
-    Args:
-        group_id: Maven group ID (e.g., 'org.apache.logging.log4j')
-        artifact_id: Maven artifact ID (e.g., 'log4j-core')
-        version: Package version
+#     Args:
+#         name: Go module name (e.g., 'github.com/gin-gonic/gin')
+#         version: Module version
 
-    Returns:
-        Dict with scan result including vulnerabilities found
-    """
-    logger.info(f"[OSV] {_caller_module} -> scan_maven_package: {group_id}:{artifact_id}@{version}")
-    return dict(_scan_maven_cached(group_id, artifact_id, version))
-
-
-@mcp.tool()
-def scan_rubygems_package(name: str, version: str) -> dict[str, Any]:
-    """Scan a RubyGems package for vulnerabilities.
-
-    Args:
-        name: Gem name (e.g., 'rails', 'nokogiri')
-        version: Gem version
-
-    Returns:
-        Dict with scan result including vulnerabilities found
-    """
-    logger.info(f"[OSV] {_caller_module} -> scan_rubygems_package: {name}@{version}")
-    return dict(_scan_package_cached(name, "RubyGems", version))
+#     Returns:
+#         Dict with scan result including vulnerabilities found
+#     """
+#     logger.info(f"[OSV] {_caller_module} -> scan_go_package: {name}@{version}")
+#     return dict(_scan_package_cached(name, "Go", version))
 
 
-@mcp.tool()
-def scan_cargo_package(name: str, version: str) -> dict[str, Any]:
-    """Scan a Cargo (Rust) crate for vulnerabilities.
+# @lru_cache(maxsize=256)
+# def _scan_maven_cached(group_id: str, artifact_id: str, version: str) -> tuple:
+#     """Cached version of scan_maven_package."""
+#     result = _get_client().scan_maven_package(group_id, artifact_id, version)
+#     return tuple(sorted(result.model_dump().items()))
 
-    Args:
-        name: Crate name (e.g., 'serde', 'tokio')
-        version: Crate version
 
-    Returns:
-        Dict with scan result including vulnerabilities found
-    """
-    logger.info(f"[OSV] {_caller_module} -> scan_cargo_package: {name}@{version}")
-    return dict(_scan_package_cached(name, "crates.io", version))
+# @mcp.tool()
+# def scan_maven_package(group_id: str, artifact_id: str, version: str) -> dict[str, Any]:
+#     """Scan a Maven (Java) package for vulnerabilities.
+
+#     Args:
+#         group_id: Maven group ID (e.g., 'org.apache.logging.log4j')
+#         artifact_id: Maven artifact ID (e.g., 'log4j-core')
+#         version: Package version
+
+#     Returns:
+#         Dict with scan result including vulnerabilities found
+#     """
+#     logger.info(f"[OSV] {_caller_module} -> scan_maven_package: {group_id}:{artifact_id}@{version}")
+#     return dict(_scan_maven_cached(group_id, artifact_id, version))
+
+
+# @mcp.tool()
+# def scan_rubygems_package(name: str, version: str) -> dict[str, Any]:
+#     """Scan a RubyGems package for vulnerabilities.
+
+#     Args:
+#         name: Gem name (e.g., 'rails', 'nokogiri')
+#         version: Gem version
+
+#     Returns:
+#         Dict with scan result including vulnerabilities found
+#     """
+#     logger.info(f"[OSV] {_caller_module} -> scan_rubygems_package: {name}@{version}")
+#     return dict(_scan_package_cached(name, "RubyGems", version))
+
+
+# @mcp.tool()
+# def scan_cargo_package(name: str, version: str) -> dict[str, Any]:
+#     """Scan a Cargo (Rust) crate for vulnerabilities.
+
+#     Args:
+#         name: Crate name (e.g., 'serde', 'tokio')
+#         version: Crate version
+
+#     Returns:
+#         Dict with scan result including vulnerabilities found
+#     """
+#     logger.info(f"[OSV] {_caller_module} -> scan_cargo_package: {name}@{version}")
+#     return dict(_scan_package_cached(name, "crates.io", version))
 
 
 if __name__ == "__main__":
