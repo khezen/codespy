@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import ModuleContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
-from codespy.agents.reviewer.modules.helpers import get_language, is_speculative, MIN_CONFIDENCE
+from codespy.agents.reviewer.modules.helpers import is_speculative, MIN_CONFIDENCE
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,20 @@ class CodeSecuritySignature(dspy.Signature):
     You are a security expert reviewing code changes.
     You have access to tools that let you explore the codebase to VERIFY your findings.
 
+    INPUT:
+    - scope: A ScopeResult containing:
+      * subroot: Path relative to repo root (e.g., "packages/auth")
+      * scope_type: Type of scope (library, service, application, script)
+      * language: Primary programming language
+      * changed_files: List of ChangedFile objects, each with:
+        - filename: Path to the file
+        - patch: The diff showing changes (additions/deletions)
+        - content: The full file content after changes
+      * package_manifest: Package manifest info if present
+      * artifacts: Security-relevant artifacts (Dockerfiles, etc.)
+
     CRITICAL RULES:
+    - Analyze ALL changed files in the scope
     - ONLY report vulnerabilities you can VERIFY using the available tools
     - Before reporting any vulnerability, USE the tools to verify your assumptions
     - DO NOT speculate about potential issues you cannot verify
@@ -29,7 +42,7 @@ class CodeSecuritySignature(dspy.Signature):
     - Quality over quantity: prefer 0 reports over 1 speculative report
 
     VERIFICATION WORKFLOW:
-    1. Analyze the diff and full content for potential security issues
+    1. Review each changed file's patch and content in scope.changed_files
     2. For each suspected vulnerability, VERIFY using tools:
        - Use read_file to examine input validation, sanitization, or auth code
        - Use find_function_calls to trace data flow from user input to sinks
@@ -63,24 +76,15 @@ class CodeSecuritySignature(dspy.Signature):
     - CWE ID if applicable
     """
 
-    diff: str = dspy.InputField(
-        desc="The code diff showing changes (unified diff format)"
-    )
-    full_content: str = dspy.InputField(
-        desc="The full file content after changes"
-    )
-    filename: str = dspy.InputField(
-        desc="Path to the file being analyzed"
-    )
-    language: str = dspy.InputField(
-        desc="Programming language of the file"
+    scope: ScopeResult = dspy.InputField(
+        desc="Full scope context including all changed files, scope type, subroot, and language"
     )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field)"
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="VERIFIED security issues found. Empty list if none confirmed."
+        desc="VERIFIED security issues found across all changed files in scope. Empty list if none confirmed."
     )
 
 
@@ -271,29 +275,25 @@ class SecurityAuditor(dspy.Module):
         try:
             # Use ModuleContext to track costs and timing for this module
             async with ModuleContext(self.MODULE_NAME, self._cost_tracker):
-                # 1. Run code security analysis for each changed file
+                # 1. Run code security analysis for each scope
                 for scope in scopes:
-                    for file in scope.changed_files:
-                        if not file.patch:
-                            logger.debug(f"Skipping {file.filename}: no patch available")
-                            continue
-
-                        try:
-                            result = await code_security_agent.acall(
-                                diff=file.patch or "",
-                                full_content=file.content or "",
-                                filename=file.filename,
-                                language=get_language(file),
-                                category=self.category,
-                            )
-                            issues = [
-                                issue for issue in result.issues
-                                if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-                            ]
-                            all_issues.extend(issues)
-                            logger.debug(f"  Code security in {file.filename}: {len(issues)} issues")
-                        except Exception as e:
-                            logger.error(f"Error analyzing {file.filename}: {e}")
+                    if not scope.changed_files:
+                        logger.debug(f"Skipping scope {scope.subroot}: no changed files")
+                        continue
+                    try:
+                        logger.debug(f"Analyzing scope {scope.subroot} with {len(scope.changed_files)} files")
+                        result = await code_security_agent.acall(
+                            scope=scope,
+                            category=self.category,
+                        )
+                        issues = [
+                            issue for issue in result.issues
+                            if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                        ]
+                        all_issues.extend(issues)
+                        logger.debug(f"  Code security in scope {scope.subroot}: {len(issues)} issues")
+                    except Exception as e:
+                        logger.error(f"Error analyzing scope {scope.subroot}: {e}")
 
                 # 2. Run artifact security analysis (Dockerfiles, etc.)
                 artifact_security_agent = dspy.ReAct(
