@@ -14,12 +14,12 @@ logger = logging.getLogger(__name__)
 
 
 class DocumentationReviewSignature(dspy.Signature):
-    """Review documentation for accuracy based on code changes in each scope.
+    """Review documentation for accuracy based on code changes in a scope.
 
     You have tools to explore the repository filesystem, search for text, and analyze code.
     All file paths are relative to the repository root.
 
-    FOR EACH SCOPE, follow this process:
+    Follow this process:
 
     1. EXPLORE DOCUMENTATION:
        - Use get_tree to explore the scope's subroot directory
@@ -27,7 +27,7 @@ class DocumentationReviewSignature(dspy.Signature):
        - Also check project root (".") for top-level documentation
 
     2. ANALYZE CODE CHANGES:
-       - Review changed_files list for each scope
+       - Review the changed_files list for the scope
        - Use find_function_definitions to understand what code entities changed
        - Identify changed functions, types, APIs, configuration options
 
@@ -51,9 +51,9 @@ class DocumentationReviewSignature(dspy.Signature):
     Do NOT report speculative issues or issues about code you haven't verified.
     """
 
-    scopes: list[ScopeResult] = dspy.InputField(
-        desc="List of identified scopes with their changed files. Each scope has: "
-        "subroot (relative path), scope_type, changed_files list, language, package_manifest."
+    scope: ScopeResult = dspy.InputField(
+        desc="Scope with changed files. Has: subroot (relative path), scope_type, "
+        "changed_files list, language, package_manifest."
     )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field in Issue objects)"
@@ -128,35 +128,38 @@ class DocumentationReviewer(dspy.Module):
         if not changed_scopes:
             logger.info("No scopes with changes to review for documentation")
             return []
+        all_issues: list[Issue] = []
         tools, contexts = await self._create_mcp_tools(repo_path)
         try:
             agent = dspy.ReAct(
                 signature=DocumentationReviewSignature,
                 tools=tools,
-                max_iters=30,
+                max_iters=15,
             )
             total_files = sum(len(s.changed_files) for s in changed_scopes)
             logger.info(
                 f"Reviewing documentation for {len(changed_scopes)} scopes "
                 f"({total_files} changed files)..."
             )
-            result = await agent.acall(
-                scopes=changed_scopes,
-                category=self.category,
-            )
-            issues = result.issues if result.issues else []
-            # Filter to high-confidence issues
-            filtered_issues = [
-                issue for issue in issues if issue.confidence >= 0.7
-            ]
-            logger.info(
-                f"Documentation review found {len(filtered_issues)} issues "
-                f"(filtered from {len(issues)} raw issues)"
-            )
-            return filtered_issues
-        except Exception as e:
-            logger.error(f"Documentation review agent failed: {e}")
-            return []
+            for scope in changed_scopes:
+                try:
+                    result = await agent.acall(
+                        scope=scope,
+                        category=self.category,
+                    )
+                    issues = result.issues if result.issues else []
+                    # Filter to high-confidence issues
+                    filtered_issues = [
+                        issue for issue in issues if issue.confidence >= 0.7
+                    ]
+                    all_issues.extend(filtered_issues)
+                    logger.debug(
+                        f"  Documentation in {scope.subroot}: {len(filtered_issues)} issues"
+                    )
+                except Exception as e:
+                    logger.error(f"Documentation review failed for scope {scope.subroot}: {e}")
+            logger.info(f"Documentation review found {len(all_issues)} issues")
+            return all_issues
         finally:
             await cleanup_mcp_contexts(contexts)
 
