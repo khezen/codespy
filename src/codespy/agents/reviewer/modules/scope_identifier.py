@@ -176,6 +176,17 @@ class ScopeIdentifier(dspy.Module):
 
     async def aforward(self, pr: PullRequest, repo_path: Path) -> list[ScopeResult]:
         """Identify scopes in the repository for the given PR."""
+        # Filter out binary, lock files, minified files, etc. before processing
+        reviewable_files = [f for f in pr.changed_files if f.should_review]
+        excluded_count = len(pr.changed_files) - len(reviewable_files)
+        if excluded_count > 0:
+            excluded_files = [f.filename for f in pr.changed_files if not f.should_review]
+            logger.info(f"Excluded {excluded_count} non-reviewable files: {excluded_files[:10]}{'...' if len(excluded_files) > 10 else ''}")
+        
+        if not reviewable_files:
+            logger.warning("No reviewable files in PR - all files are binary, lock files, or in excluded directories")
+            return []
+        
         # Check if signature is enabled
         if not self._settings.is_signature_enabled("scope_identification"):
             logger.warning("scope_identification is disabled - using fallback single scope")
@@ -187,13 +198,13 @@ class ScopeIdentifier(dspy.Module):
                 confidence=0.5,
                 language=None,
                 package_manifest=None,
-                changed_files=list(pr.changed_files),
+                changed_files=reviewable_files,
                 reason="Scope identification disabled - fallback to single scope",
             )]
         tools, contexts = await self._create_mcp_tools(repo_path)
-        changed_file_paths = [f.filename for f in pr.changed_files]
+        changed_file_paths = [f.filename for f in reviewable_files]
         # Build map from filename to ChangedFile for post-processing
-        changed_files_map: dict[str, ChangedFile] = {f.filename: f for f in pr.changed_files}
+        changed_files_map: dict[str, ChangedFile] = {f.filename: f for f in reviewable_files}
         try:
             # Get max_iters from signature config
             max_iters = self._settings.get_max_iters("scope_identification")

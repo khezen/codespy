@@ -77,13 +77,6 @@ def review(
             help="LLM model to use (overrides DEFAULT_MODEL env var)",
         ),
     ] = None,
-    include_vendor: Annotated[
-        bool,
-        typer.Option(
-            "--include-vendor",
-            help="Include vendor/dependency files in review (node_modules, vendor/, etc.)",
-        ),
-    ] = False,
 ) -> None:
     """Review a GitHub pull request for security, bugs, and documentation.
 
@@ -112,7 +105,6 @@ def review(
         settings.default_model = model
     if output:
         settings.output_format = output  # type: ignore
-    settings.include_vendor = include_vendor
 
     # Validate GitHub token
     token_source = get_token_source()
@@ -127,13 +119,11 @@ def review(
         )
         raise typer.Exit(1)
 
-    vendor_status = "[yellow]included[/yellow]" if include_vendor else "[green]excluded[/green]"
     console.print(
         Panel(
             f"[bold blue]Reviewing PR:[/bold blue] {pr_url}\n"
             f"[bold]Model:[/bold] {settings.default_model}\n"
             f"[bold]Output:[/bold] {settings.output_format}\n"
-            f"[bold]Vendor files:[/bold] {vendor_status}\n"
             f"[bold]GitHub Token:[/bold] [green]found[/green] [dim]({token_source})[/dim]",
             title="codespy",
         )

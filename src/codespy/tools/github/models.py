@@ -15,6 +15,53 @@ class FileStatus(str, Enum):
     RENAMED = "renamed"
 
 
+# Binary file extensions that should be excluded from review
+BINARY_EXTENSIONS = {
+    # Images
+    "png", "jpg", "jpeg", "gif", "ico", "svg", "webp", "bmp", "tiff", "tif",
+    # Fonts
+    "ttf", "woff", "woff2", "eot", "otf",
+    # Compiled binaries
+    "exe", "dll", "so", "dylib", "class", "pyc", "pyo", "o", "obj", "a", "lib",
+    # Archives
+    "zip", "tar", "gz", "tgz", "rar", "7z", "jar", "war", "ear", "bz2", "xz",
+    # Media
+    "mp3", "mp4", "wav", "avi", "mov", "webm", "ogg", "flac", "mkv",
+    # Documents
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+    # Other binary
+    "bin", "dat", "db", "sqlite", "sqlite3",
+}
+
+# Lock files that are auto-generated and should be excluded from review
+LOCK_FILE_NAMES = {
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "cargo.lock",
+    "go.sum",
+    "gemfile.lock",
+    "composer.lock",
+    "uv.lock",
+    "pipfile.lock",
+    "shrinkwrap.json",
+    "npm-shrinkwrap.json",
+}
+
+# Directories containing vendored/generated code
+EXCLUDED_DIRECTORIES = {
+    "vendor",
+    "node_modules",
+    "dist",
+    "build",
+    "__pycache__",
+    ".git",
+    ".svn",
+    ".hg",
+}
+
+
 class ChangedFile(BaseModel):
     """Represents a file changed in a pull request."""
 
@@ -33,6 +80,11 @@ class ChangedFile(BaseModel):
         if "." in self.filename:
             return self.filename.rsplit(".", 1)[-1].lower()
         return ""
+
+    @property
+    def basename(self) -> str:
+        """Get the file basename (filename without path)."""
+        return self.filename.rsplit("/", 1)[-1].lower()
 
     @property
     def is_code_file(self) -> bool:
@@ -64,6 +116,52 @@ class ChangedFile(BaseModel):
         }
         return self.extension in code_extensions
 
+    @property
+    def is_binary(self) -> bool:
+        """Check if this is a binary file based on extension."""
+        return self.extension in BINARY_EXTENSIONS
+
+    @property
+    def is_lock_file(self) -> bool:
+        """Check if this is a lock file (auto-generated dependency file)."""
+        return self.basename in LOCK_FILE_NAMES
+
+    @property
+    def is_minified(self) -> bool:
+        """Check if this is a minified file."""
+        basename = self.basename
+        return basename.endswith(".min.js") or basename.endswith(".min.css")
+
+    @property
+    def is_source_map(self) -> bool:
+        """Check if this is a source map file."""
+        return self.extension == "map" or self.basename.endswith((".js.map", ".css.map"))
+
+    @property
+    def is_in_excluded_directory(self) -> bool:
+        """Check if this file is in an excluded directory (vendor, node_modules, etc.)."""
+        path_parts = self.filename.lower().split("/")
+        return any(part in EXCLUDED_DIRECTORIES for part in path_parts)
+
+    @property
+    def should_review(self) -> bool:
+        """Check if this file should be included in code review.
+        
+        Returns False for binary files, lock files, minified files,
+        source maps, and files in excluded directories.
+        """
+        if self.is_binary:
+            return False
+        if self.is_lock_file:
+            return False
+        if self.is_minified:
+            return False
+        if self.is_source_map:
+            return False
+        if self.is_in_excluded_directory:
+            return False
+        return True
+
 
 class PullRequest(BaseModel):
     """Represents a GitHub pull request."""
@@ -85,9 +183,6 @@ class PullRequest(BaseModel):
         default_factory=list, description="List of changed files"
     )
     labels: list[str] = Field(default_factory=list, description="PR labels")
-    excluded_files_count: int = Field(
-        default=0, description="Number of files excluded (vendor, etc.)"
-    )
 
     @property
     def repo_full_name(self) -> str:

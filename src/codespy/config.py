@@ -261,23 +261,6 @@ class Settings(BaseSettings):
     # Top-level settings
     output_format: Literal["markdown", "json"] = "markdown"
     cache_dir: Path = Path.home() / ".cache" / "codespy"
-    exclude_patterns: list[str] = Field(
-        default=[
-            "vendor/",
-            "node_modules/",
-            "third_party/",
-            "external/",
-            "deps/",
-            ".bundle/",
-            "Pods/",
-            "Carthage/",
-            "bower_components/",
-            "jspm_packages/",
-            "_vendor/",
-            "vendored/",
-        ]
-    )
-    include_vendor: bool = False
 
     # GitHub token (can also use GITHUB_TOKEN or GH_TOKEN env var)
     github_token: str = Field(default="", repr=False)

@@ -69,7 +69,7 @@ signatures:
 
   supply_chain:
     enabled: true                        # SUPPLY_CHAIN_ENABLED
-    max_iters: 5                         # SUPPLY_CHAIN_MAX_ITERS
+    max_iters: null                      # SUPPLY_CHAIN_MAX_ITERS
     model: claude-sonnet-4-5-20250929    # SUPPLY_CHAIN_MODEL (Haiku 4.5)
     max_context_size: null               # SUPPLY_CHAIN_MAX_CONTEXT_SIZE
 

@@ -61,28 +61,6 @@ class GitHubClient:
             )
         return match.group("owner"), match.group("repo"), int(match.group("number"))
 
-    def _is_excluded_path(self, filepath: str) -> tuple[bool, str]:
-        """Check if a file path matches any exclusion pattern.
-
-        Args:
-            filepath: The file path to check
-
-        Returns:
-            Tuple of (is_excluded, matched_pattern)
-        """
-        if self.settings.include_vendor:
-            return False, ""
-
-        for pattern in self.settings.exclude_patterns:
-            # Check if pattern appears anywhere in the path
-            if pattern in filepath:
-                return True, pattern
-            # Also check if path starts with pattern (for patterns without trailing slash)
-            if filepath.startswith(pattern.rstrip("/")):
-                return True, pattern
-
-        return False, ""
-
     def fetch_pull_request(self, pr_url: str) -> PullRequest:
         """Fetch pull request data from GitHub.
 
@@ -98,21 +76,10 @@ class GitHubClient:
         repo = self.github.get_repo(f"{owner}/{repo_name}")
         gh_pr: GHPullRequest = repo.get_pull(pr_number)
 
-        # Build changed files list, filtering excluded paths
+        # Build changed files list
         changed_files: list[ChangedFile] = []
-        excluded_count = 0
-        excluded_patterns_matched: set[str] = set()
-
         for file in gh_pr.get_files():
-            # Check if file should be excluded
-            is_excluded, matched_pattern = self._is_excluded_path(file.filename)
-            if is_excluded:
-                excluded_count += 1
-                excluded_patterns_matched.add(matched_pattern)
-                continue
-
             status = FileStatus(file.status)
-
             changed_files.append(
                 ChangedFile(
                     filename=file.filename,
@@ -122,14 +89,6 @@ class GitHubClient:
                     patch=file.patch,
                     previous_filename=file.previous_filename,
                 )
-            )
-
-        # Log exclusion summary
-        if excluded_count > 0:
-            patterns_str = ", ".join(sorted(excluded_patterns_matched))
-            logger.info(
-                f"Excluded {excluded_count} files matching: {patterns_str} "
-                "(use --include-vendor to include)"
             )
 
         return PullRequest(
@@ -148,7 +107,6 @@ class GitHubClient:
             repo_name=repo_name,
             changed_files=changed_files,
             labels=[label.name for label in gh_pr.labels],
-            excluded_files_count=excluded_count,
         )
 
     def clone_repository(
