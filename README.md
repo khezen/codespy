@@ -113,34 +113,64 @@ cp codespy.example.yaml codespy.yaml  # Optional, for advanced config
 
 ### Advanced Configuration (YAML)
 
-For per-module settings, use `codespy.yaml`:
+For per-signature settings, use `codespy.yaml`:
 
 ```yaml
 # codespy.yaml
 
-# Default settings for all modules
+# Default settings for all signatures
 default_model: claude-sonnet-4-5-20250929  # Also settable via DEFAULT_MODEL env var
-default_max_iters: 10
+default_max_iters: 3
 default_max_context_size: 50000
 
-# Per-module overrides
-modules:
-  security_auditor:
+# Enable provider-side prompt caching (reduces latency and costs)
+enable_prompt_caching: true
+
+# Per-signature overrides (see signatures table below for all available)
+signatures:
+  code_security:
+    enabled: true
+    max_iters: 10
+    model: claude-sonnet-4-5-20250929
+
+  supply_chain:
+    enabled: true
+
+  bug_detection:
+    enabled: true
+
+  doc_review:
+    enabled: true
+    model: claude-haiku-4-5-20251001  # Smaller model for simpler task
+
+  domain_analysis:
+    enabled: false                    # Disabled by default (expensive)
+    max_iters: 6
+
+  scope_identification:
     enabled: true
     max_iters: 10
 
-  doc_reviewer:
+  deduplication:
     enabled: true
-    max_iters: 15
-
-  domain_expert:
-    enabled: true
-    max_iters: 30               # More iterations for deep exploration
-
-  deduplicator:
     model: claude-haiku-4-5-20251001  # Smaller model for simple task
 
-output_format: markdown
+  summarization:
+    enabled: true
+    model: claude-haiku-4-5-20251001
+
+# Output destinations
+output_format: markdown              # markdown or json
+output_stdout: true                  # Print to stdout
+output_github_pr: false              # Post as GitHub PR review comment
+
+# Directories to skip during review
+excluded_directories:
+  - vendor
+  - node_modules
+  - dist
+  - build
+  - __pycache__
 ```
 
 Override YAML settings via environment variables using `_` separator:
@@ -150,12 +180,17 @@ Override YAML settings via environment variables using `_` separator:
 export DEFAULT_MODEL=claude-sonnet-4-5-20250929
 export DEFAULT_MAX_ITERS=20
 
-# Per-module settings
-export DOMAIN_EXPERT_MAX_ITERS=20
-export DOC_REVIEWER_ENABLED=false
+# Per-signature settings (use signature name, not module name)
+export DOMAIN_ANALYSIS_MAX_ITERS=20
+export DOC_REVIEW_ENABLED=false
+export CODE_SECURITY_MODEL=gpt-5
+
+# Output settings
+export OUTPUT_STDOUT=false
+export OUTPUT_GITHUB_PR=true
 ```
 
-See `codespy.example.yaml` for full configuration options.
+See `codespy.yaml` for full configuration options.
 
 ## Usage
 
@@ -174,8 +209,14 @@ codespy review https://github.com/owner/repo/pull/123 --model claude-opus-4-5-20
 # Skip codebase context analysis
 codespy review https://github.com/owner/repo/pull/123 --no-with-context
 
-# Include vendor/dependency files in review
-codespy review https://github.com/owner/repo/pull/123 --include-vendor
+# Disable stdout output (useful with --github-comment)
+codespy review https://github.com/owner/repo/pull/123 --no-stdout
+
+# Post review as GitHub PR comment
+codespy review https://github.com/owner/repo/pull/123 --github-comment
+
+# Combine: only post to GitHub, no stdout
+codespy review https://github.com/owner/repo/pull/123 --no-stdout --github-comment
 
 # Show current configuration
 codespy config
@@ -324,6 +365,7 @@ The review is powered by DSPy signatures that structure the LLM's analysis:
 | **DocumentationReviewSignature** | `doc_review` | Reviews documentation for accuracy based on code changes |
 | **DomainExpertSignature** | `domain_analysis` | Analyzes business logic, architecture, patterns, and style consistency |
 | **IssueDeduplicationSignature** | `deduplication` | LLM-powered deduplication of issues across reviewers |
+| **PRSummarySignature** | `summarization` | Generates summary, quality assessment, and recommendation |
 
 ## Supported Languages
 
