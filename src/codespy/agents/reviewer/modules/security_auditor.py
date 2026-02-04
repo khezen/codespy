@@ -15,19 +15,43 @@ logger = logging.getLogger(__name__)
 
 
 class CodeSecuritySignature(dspy.Signature):
-    """Analyze code changes for security vulnerabilities.
+    """Analyze code changes for VERIFIED security vulnerabilities.
 
-    You are a security expert reviewing code changes. Identify potential security
-    vulnerabilities including but not limited to:
-    - Injection attacks (SQL, command, XSS, etc.)
-    - Authentication and authorization issues
-    - Sensitive data exposure
-    - Insecure cryptographic practices
-    - Security misconfigurations
-    - Input validation issues
-    - Path traversal vulnerabilities
-    - Race conditions
-    - Memory safety issues
+    You are a security expert reviewing code changes.
+    You have access to tools that let you explore the codebase to VERIFY your findings.
+
+    CRITICAL RULES:
+    - ONLY report vulnerabilities you can VERIFY using the available tools
+    - Before reporting any vulnerability, USE the tools to verify your assumptions
+    - DO NOT speculate about potential issues you cannot verify
+    - If you cannot trace the vulnerability with evidence, do NOT report it
+    - Quality over quantity: prefer 0 reports over 1 speculative report
+
+    VERIFICATION WORKFLOW:
+    1. Analyze the diff and full content for potential security issues
+    2. For each suspected vulnerability, VERIFY using tools:
+       - Use read_file to examine input validation, sanitization, or auth code
+       - Use find_function_calls to trace data flow from user input to sinks
+       - Use find_function_usages to see how sensitive data is handled
+       - Use find_callers to trace where dangerous operations are invoked
+       - Use search_literal to find related security patterns (escaping, encoding)
+    3. Only report issues that are CONFIRMED by your verification
+
+    VULNERABILITIES to look for (with verification) but not limited to:
+    - Injection attacks (SQL, command, XSS, etc.): verify input reaches dangerous sink without sanitization
+    - Authentication and authorization issues: verify auth check is actually missing by reading the code
+    - Sensitive data exposure: verify sensitive data is actually exposed, not just accessed
+    - Insecure cryptographic practices: verify weak crypto by checking the actual algorithm used
+    - Security misconfigurations: verify misconfiguration by checking actual config values
+    - Input validation issues: verify input is not validated by checking validation code
+    - Path traversal vulnerabilities: verify path input is not validated/sanitized
+    - Race conditions: verify shared state access without synchronization
+    - Memory safety issues: verify unsafe memory operations (buffer overflows, use-after-free, etc.)
+
+    DO NOT report:
+    - Hypothetical vulnerabilities without evidence
+    - Issues that might exist in code you haven't verified
+    - "Could be vulnerable if..." scenarios
 
     For each issue, provide:
     - A clear title
@@ -55,7 +79,7 @@ class CodeSecuritySignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Security issues found. Empty list if none."
+        desc="VERIFIED security issues found. Empty list if none confirmed."
     )
 
 
@@ -115,11 +139,11 @@ class SecurityAuditor(dspy.Module):
     category = IssueCategory.SECURITY
 
     def __init__(self) -> None:
-        """Initialize the security auditor with chain-of-thought reasoning."""
+        """Initialize the security auditor."""
         super().__init__()
 
     async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
-        """Create DSPy tools from filesystem and OSV MCP servers.
+        """Create DSPy tools from filesystem, parser, and OSV MCP servers.
 
         Args:
             repo_path: Path to the repository root
@@ -131,21 +155,35 @@ class SecurityAuditor(dspy.Module):
         contexts: list[Any] = []
         tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
         repo_path_str = str(repo_path)
-        
-        # Add filesystem tools for reading manifest files
+
+        # Add filesystem tools for reading files and exploring structure
         tools.extend(await connect_mcp_server(
-            tools_dir / "filesystem" / "server.py", 
-            [repo_path_str], 
+            tools_dir / "filesystem" / "server.py",
+            [repo_path_str],
             contexts
         ))
-        
+
+        # Add tree-sitter tools for parsing code structure
+        tools.extend(await connect_mcp_server(
+            tools_dir / "parsers" / "treesitter" / "server.py",
+            [repo_path_str],
+            contexts
+        ))
+
+        # Add ripgrep tools for searching code patterns
+        tools.extend(await connect_mcp_server(
+            tools_dir / "parsers" / "ripgrep" / "server.py",
+            [repo_path_str],
+            contexts
+        ))
+
         # Add OSV tools for querying real vulnerability data
         tools.extend(await connect_mcp_server(
             tools_dir / "cyber" / "osv" / "server.py",
             [],
             contexts
         ))
-        
+
         return tools, contexts
 
     async def aforward(self, scopes: Sequence[ScopeResult], repo_path: Path) -> list[Issue]:
@@ -160,13 +198,19 @@ class SecurityAuditor(dspy.Module):
         """
         all_issues: list[Issue] = []
         tools, contexts = await self._create_mcp_tools(repo_path)
-        # Create agents once outside loops for better performance
-        code_security_agent = dspy.ChainOfThought(CodeSecuritySignature)
+
+        # Create ReAct agents with code exploration tools
+        code_security_agent = dspy.ReAct(
+            signature=CodeSecuritySignature,
+            tools=tools,
+            max_iters=10,
+        )
         dependency_security_agent = dspy.ReAct(
             signature=DependencySecuritySignature,
             tools=tools,
             max_iters=5,
         )
+
         try:
             # 1. Run code security analysis for each changed file
             for scope in scopes:
@@ -176,7 +220,7 @@ class SecurityAuditor(dspy.Module):
                         continue
 
                     try:
-                        result = code_security_agent(
+                        result = await code_security_agent.acall(
                             diff=file.patch or "",
                             full_content=file.content or "",
                             filename=file.filename,
@@ -191,7 +235,7 @@ class SecurityAuditor(dspy.Module):
                         logger.debug(f"  Code security in {file.filename}: {len(issues)} issues")
                     except Exception as e:
                         logger.error(f"Error analyzing {file.filename}: {e}")
-            
+
             # 2. Run dependency security analysis for each scope with package manifest
             for scope in scopes:
                 if not scope.package_manifest:
