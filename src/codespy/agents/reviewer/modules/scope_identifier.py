@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Artifact, PackageManifest, ScopeResult, ScopeType
 from codespy.config import get_settings
-from codespy.tools.github.models import ChangedFile, PullRequest
+from codespy.tools.github.models import ChangedFile, PullRequest, should_review_file
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -176,11 +176,14 @@ class ScopeIdentifier(dspy.Module):
 
     async def aforward(self, pr: PullRequest, repo_path: Path) -> list[ScopeResult]:
         """Identify scopes in the repository for the given PR."""
-        # Filter out binary, lock files, minified files, etc. before processing
-        reviewable_files = [f for f in pr.changed_files if f.should_review]
+        # Get excluded directories from settings
+        excluded_dirs = self._settings.excluded_directories
+        
+        # Filter out binary, lock files, minified files, excluded directories, etc.
+        reviewable_files = [f for f in pr.changed_files if should_review_file(f, excluded_dirs)]
         excluded_count = len(pr.changed_files) - len(reviewable_files)
         if excluded_count > 0:
-            excluded_files = [f.filename for f in pr.changed_files if not f.should_review]
+            excluded_files = [f.filename for f in pr.changed_files if not should_review_file(f, excluded_dirs)]
             logger.info(f"Excluded {excluded_count} non-reviewable files: {excluded_files[:10]}{'...' if len(excluded_files) > 10 else ''}")
         
         if not reviewable_files:

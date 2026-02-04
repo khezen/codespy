@@ -49,19 +49,6 @@ LOCK_FILE_NAMES = {
     "npm-shrinkwrap.json",
 }
 
-# Directories containing vendored/generated code
-EXCLUDED_DIRECTORIES = {
-    "vendor",
-    "node_modules",
-    "dist",
-    "build",
-    "__pycache__",
-    ".git",
-    ".svn",
-    ".hg",
-}
-
-
 class ChangedFile(BaseModel):
     """Represents a file changed in a pull request."""
 
@@ -137,30 +124,38 @@ class ChangedFile(BaseModel):
         """Check if this is a source map file."""
         return self.extension == "map" or self.basename.endswith((".js.map", ".css.map"))
 
-    @property
-    def is_in_excluded_directory(self) -> bool:
-        """Check if this file is in an excluded directory (vendor, node_modules, etc.)."""
-        path_parts = self.filename.lower().split("/")
-        return any(part in EXCLUDED_DIRECTORIES for part in path_parts)
-
-    @property
-    def should_review(self) -> bool:
-        """Check if this file should be included in code review.
+    def is_in_excluded_directory(self, excluded_directories: list[str]) -> bool:
+        """Check if this file is in an excluded directory.
         
-        Returns False for binary files, lock files, minified files,
-        source maps, and files in excluded directories.
+        Args:
+            excluded_directories: List of directory names to exclude (from settings)
         """
-        if self.is_binary:
-            return False
-        if self.is_lock_file:
-            return False
-        if self.is_minified:
-            return False
-        if self.is_source_map:
-            return False
-        if self.is_in_excluded_directory:
-            return False
-        return True
+        path_parts = self.filename.lower().split("/")
+        excluded_set = {d.lower() for d in excluded_directories}
+        return any(part in excluded_set for part in path_parts)
+
+
+def should_review_file(file: "ChangedFile", excluded_directories: list[str]) -> bool:
+    """Check if a file should be included in code review.
+    
+    Args:
+        file: The ChangedFile to check
+        excluded_directories: List of directory names to exclude (from settings)
+        
+    Returns:
+        True if file should be reviewed, False if it should be skipped
+    """
+    if file.is_binary:
+        return False
+    if file.is_lock_file:
+        return False
+    if file.is_minified:
+        return False
+    if file.is_source_map:
+        return False
+    if file.is_in_excluded_directory(excluded_directories):
+        return False
+    return True
 
 
 class PullRequest(BaseModel):

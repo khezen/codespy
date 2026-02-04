@@ -266,6 +266,41 @@ class Settings(BaseSettings):
     output_stdout: bool = True  # Enable stdout output (markdown or json)
     output_github_pr: bool = False  # Enable GitHub PR review comments
 
+    # File exclusion settings - directories to skip during review
+    excluded_directories: list[str] = Field(
+        default=[
+            # Vendor/dependency directories
+            "vendor",
+            "node_modules",
+            "third_party",
+            "external",
+            "deps",
+            "_vendor",
+            "vendored",
+            # Build output directories
+            "dist",
+            "build",
+            "out",
+            "target",
+            # Package manager directories
+            ".bundle",
+            "Pods",
+            "Carthage",
+            "bower_components",
+            "jspm_packages",
+            # Version control
+            ".git",
+            ".svn",
+            ".hg",
+            # Cache directories
+            "__pycache__",
+            ".cache",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+        ]
+    )
+
     # GitHub token (can also use GITHUB_TOKEN or GH_TOKEN env var)
     github_token: str = Field(default="", repr=False)
     gh_token: str = Field(default="", repr=False)

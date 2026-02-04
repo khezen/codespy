@@ -124,18 +124,35 @@ cache_dir: ~/.cache/codespy              # CACHE_DIR
 # ============================================================================
 # FILE EXCLUSIONS
 # ============================================================================
-exclude_patterns:                        # EXCLUDE_PATTERNS (JSON array in env)
-  - vendor/
-  - node_modules/
-  - third_party/
-  - external/
-  - deps/
-  - .bundle/
-  - Pods/
-  - Carthage/
-  - bower_components/
-  - jspm_packages/
-  - _vendor/
-  - vendored/
-
-include_vendor: false                    # INCLUDE_VENDOR
+# Directories to skip during code review (binary files, lock files, and
+# minified files are always excluded automatically)
+excluded_directories:                    # EXCLUDED_DIRECTORIES (JSON array in env)
+  # Vendor/dependency directories
+  - vendor
+  - node_modules
+  - third_party
+  - external
+  - deps
+  - _vendor
+  - vendored
+  # Build output directories
+  - dist
+  - build
+  - out
+  - target
+  # Package manager directories
+  - .bundle
+  - Pods
+  - Carthage
+  - bower_components
+  - jspm_packages
+  # Version control
+  - .git
+  - .svn
+  - .hg
+  # Cache directories
+  - __pycache__
+  - .cache
+  - .pytest_cache
+  - .mypy_cache
+  - .ruff_cache
