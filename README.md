@@ -311,19 +311,19 @@ Use parameterized queries instead...
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-## DSPy Modules
+## DSPy Signatures
 
-The review is powered by DSPy modules that structure the LLM's analysis:
+The review is powered by DSPy signatures that structure the LLM's analysis:
 
-| Module | Description |
-|--------|-------------|
-| **ScopeIdentifier** | Identifies code scopes (frontend, backend, infrastructure, etc.) |
-| **SecurityAuditor** | Analyzes code for security vulnerabilities with CWE references |
-| **BugDetector** | Detects logic errors, resource leaks, and edge cases |
-| **DocumentationReviewer** | Checks documentation completeness and accuracy |
-| **DomainExpert** | Validates changes against codebase patterns and conventions |
-| **IssueDeduplicator** | LLM-powered deduplication of issues across reviewers |
-| **PRSummary** | Generates overall summary, quality assessment, and recommendation |
+| Signature | Config Key | Description |
+|-----------|------------|-------------|
+| **ScopeIdentifierSignature** | `scope_identification` | Identifies code scopes (frontend, backend, infrastructure, etc.) |
+| **CodeSecuritySignature** | `code_security` | Analyzes code changes for verified security vulnerabilities with CWE references |
+| **SupplyChainSecuritySignature** | `supply_chain` | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
+| **BugDetectionSignature** | `bug_detection` | Detects verified bugs, logic errors, and resource leaks |
+| **DocumentationReviewSignature** | `doc_review` | Reviews documentation for accuracy based on code changes |
+| **DomainExpertSignature** | `domain_analysis` | Analyzes business logic, architecture, patterns, and style consistency |
+| **IssueDeduplicationSignature** | `deduplication` | LLM-powered deduplication of issues across reviewers |
 
 ## Supported Languages
 
