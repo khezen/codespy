@@ -93,14 +93,19 @@ class CodeSecuritySignature(dspy.Signature):
     )
 
 
-class ArtifactSecuritySignature(dspy.Signature):
-    """Analyze security-relevant artifacts like Dockerfiles for security issues.
+class SupplyChainSecuritySignature(dspy.Signature):
+    """Analyze supply chain security: artifacts (Dockerfiles, etc.) and dependencies.
 
-    You are a security expert reviewing container configuration files.
-    You have access to tools to read files and explore the codebase.
+    You are a security expert reviewing supply chain security aspects of a project.
+    You have access to:
+    - Filesystem tools to read files and explore the codebase
+    - OSV (Open Source Vulnerabilities) tools to query real vulnerability data
 
-    DOCKERFILE SECURITY CHECKS:
-    For Dockerfiles, look for these verified security issues:
+    You will analyze TWO types of supply chain security concerns:
+
+    ## 1. ARTIFACT SECURITY (Dockerfiles, CI configs, etc.)
+
+    For each artifact provided, check for:
     - Running as root: Missing USER instruction or explicit USER root
     - Secrets in build: Hardcoded passwords, API keys, tokens in ENV or ARG
     - Insecure base images: Using :latest tag, unverified base images
@@ -110,85 +115,54 @@ class ArtifactSecuritySignature(dspy.Signature):
     - Shell injection: Unquoted variables in RUN commands
     - Privilege escalation: Unnecessary --privileged or capabilities
 
-    VERIFICATION:
-    - Use read_file to examine the artifact content
-    - Check for actual security issues, not hypotheticals
-    - Verify base images and their security status if needed
+    ## 2. DEPENDENCY SECURITY (package manifests)
 
-    For each issue, provide:
-    - A clear title
-    - Severity (critical, high, medium, low, info)
-    - Detailed description
-    - The affected line/section
-    - A suggested fix
-    - CWE ID if applicable (e.g., CWE-250 for privilege issues)
-    """
-
-    artifact_path: str = dspy.InputField(
-        desc="Path to the artifact file (e.g., Dockerfile)"
-    )
-    artifact_type: str = dspy.InputField(
-        desc="Type of artifact (e.g., 'dockerfile')"
-    )
-    artifact_content: str = dspy.InputField(
-        desc="Full content of the artifact file"
-    )
-    category: IssueCategory = dspy.InputField(
-        desc="Category for all issues (use this value for the 'category' field)"
-    )
-
-    issues: list[Issue] = dspy.OutputField(
-        desc="VERIFIED security issues found. Empty list if none confirmed."
-    )
-
-
-class DependencySecuritySignature(dspy.Signature):
-    """Analyze package dependencies for known security vulnerabilities using OSV database.
-
-    You are a security expert reviewing package dependencies. You have access to:
-    - Filesystem tools to read manifest and lock files
-    - OSV (Open Source Vulnerabilities) tools to query real vulnerability data
-
-    STEPS:
-    1. Use the read_file tool to read the manifest file at manifest_path
-    2. If lock_file_path is provided, use read_file to read the lock file as well
-    3. Extract dependency names and versions from the files
-    4. Use OSV tools to scan dependencies for REAL vulnerabilities:
+    If manifest info is provided:
+    1. Use read_file to read the manifest file at manifest_path
+    2. If lock_file_path is provided, read it as well
+    3. Extract dependency names and versions
+    4. Use OSV tools to scan for REAL vulnerabilities:
        - For Python/PyPI: use scan_pypi_package(name, version)
        - For JavaScript/npm: use scan_npm_package(name, version)
        - For Go: use scan_go_package(name, version)
        - For Java/Maven: use scan_maven_package(group_id, artifact_id, version)
        - For Ruby/RubyGems: use scan_rubygems_package(name, version)
        - For Rust/Cargo: use scan_cargo_package(name, version)
-       - Or use scan_dependencies(list) for batch scanning multiple packages
-    5. Create issues based on the ACTUAL vulnerabilities returned by OSV
+       - Or use scan_dependencies(list) for batch scanning
+    5. Only report vulnerabilities actually found by OSV queries
 
-    The OSV tools return real CVE/GHSA IDs, severity scores, and fix recommendations.
-    Only report vulnerabilities that are actually found by OSV queries.
+    ## VERIFICATION RULES
+    - Check for actual security issues, not hypotheticals
+    - For dependencies, only report CVE/GHSA IDs returned by OSV
+    - For artifacts, verify the issue exists in the content provided
 
-    For each issue found, provide:
-    - A clear title identifying the vulnerable dependency
-    - Severity (critical, high, medium, low, info) - use the severity from OSV if available
-    - Detailed description including the actual CVE/GHSA ID
-    - The affected version and recommended fixed version from OSV
-    - CWE ID if available from OSV data
+    For each issue, provide:
+    - A clear title
+    - Severity (critical, high, medium, low, info)
+    - Detailed description (include CVE/GHSA IDs for dependencies)
+    - The affected location or dependency version
+    - A suggested fix (include fixed version for dependencies)
+    - CWE ID if applicable
     """
 
+    artifacts: list[dict] = dspy.InputField(
+        desc="List of artifact dicts with keys: path, artifact_type, content. Empty list if no artifacts."
+    )
     manifest_path: str = dspy.InputField(
-        desc="Path to the manifest file (e.g., package.json, go.mod, pyproject.toml). Use read_file tool to read it."
+        desc="Path to manifest file (e.g., package.json, go.mod). Empty string if none."
     )
     lock_file_path: str = dspy.InputField(
-        desc="Path to the lock file if available (e.g., package-lock.json, go.sum). Empty string if none. Use read_file tool to read it."
+        desc="Path to lock file (e.g., package-lock.json, go.sum). Empty string if none."
     )
     package_manager: str = dspy.InputField(
-        desc="Package manager name (e.g., npm, pip, go, cargo)"
+        desc="Package manager name (e.g., npm, pip, go). Empty string if no manifest."
     )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field)"
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Dependency vulnerability issues found. Empty list if none."
+        desc="VERIFIED supply chain security issues. Empty list if none confirmed."
     )
 
 
@@ -275,58 +249,22 @@ class SecurityAuditor(dspy.Module):
             tools=tools,
             max_iters=max_iters,
         )
-        dependency_security_agent = dspy.ReAct(
-            signature=DependencySecuritySignature,
+        supply_chain_agent = dspy.ReAct(
+            signature=SupplyChainSecuritySignature,
             tools=tools,
-            max_iters=max_iters
-        )
-        artifact_security_agent = dspy.ReAct(
-            signature=ArtifactSecuritySignature,
-            tools=tools,
-            max_iters=max_iters
+            max_iters=max_iters,
         )
 
         try:
             # Use ModuleContext to track costs and timing for this module
             async with ModuleContext(self.MODULE_NAME, self._cost_tracker):
-                # 1. Run code security analysis for each scope
                 for scope in scopes:
-                    if not scope.changed_files:
-                        logger.debug(f"Skipping scope {scope.subroot}: no changed files")
-                        continue
-                    try:
-                        logger.debug(f"Analyzing scope {scope.subroot} with {len(scope.changed_files)} files")
-                        result = await code_security_agent.acall(
-                            scope=scope,
-                            category=self.category,
-                        )
-                        issues = [
-                            issue for issue in result.issues
-                            if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-                        ]
-                        all_issues.extend(issues)
-                        logger.debug(f"  Code security in scope {scope.subroot}: {len(issues)} issues")
-                    except Exception as e:
-                        logger.error(f"Error analyzing scope {scope.subroot}: {e}")
-                # 2. Run artifact security analysis (Dockerfiles, etc.)
-                for scope in scopes:
-                    for artifact in scope.artifacts:
-                        if not artifact.has_changes:
-                            logger.debug(f"Skipping unchanged artifact {artifact.path}")
-                            continue
+                    # 1. Run code security analysis if there are changed files
+                    if scope.changed_files:
                         try:
-                            # Read artifact content
-                            artifact_full_path = repo_path / artifact.path
-                            if artifact_full_path.exists():
-                                artifact_content = artifact_full_path.read_text()
-                            else:
-                                logger.warning(f"Artifact file not found: {artifact.path}")
-                                continue
-
-                            result = await artifact_security_agent.acall(
-                                artifact_path=artifact.path,
-                                artifact_type=artifact.artifact_type,
-                                artifact_content=artifact_content,
+                            logger.debug(f"Analyzing scope {scope.subroot} with {len(scope.changed_files)} files")
+                            result = await code_security_agent.acall(
+                                scope=scope,
                                 category=self.category,
                             )
                             issues = [
@@ -334,30 +272,47 @@ class SecurityAuditor(dspy.Module):
                                 if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
                             ]
                             all_issues.extend(issues)
-                            logger.debug(f"  Artifact security in {artifact.path}: {len(issues)} issues")
+                            logger.debug(f"  Code security in scope {scope.subroot}: {len(issues)} issues")
                         except Exception as e:
-                            logger.error(f"Error analyzing artifact {artifact.path}: {e}")
+                            logger.error(f"Error analyzing scope {scope.subroot}: {e}")
 
-                # 3. Run dependency security analysis for each scope with package manifest
-                for scope in scopes:
-                    if not scope.package_manifest:
-                        continue
+                    # 2. Run supply chain security analysis (artifacts + dependencies)
+                    # Collect changed artifacts with their content
+                    artifacts_data: list[dict] = []
+                    for artifact in scope.artifacts:
+                        artifact_full_path = repo_path / artifact.path
+                        artifacts_data.append({
+                            "path": artifact.path,
+                            "artifact_type": artifact.artifact_type,
+                            "content": artifact_full_path.read_text(),
+                        })
+                    # Get manifest info
                     manifest = scope.package_manifest
-                    try:
-                        result = await dependency_security_agent.acall(
-                            manifest_path=manifest.manifest_path,
-                            lock_file_path=manifest.lock_file_path or "",
-                            package_manager=manifest.package_manager,
-                            category=self.category,
-                        )
-                        issues = [
-                            issue for issue in result.issues
-                            if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-                        ]
-                        all_issues.extend(issues)
-                        logger.debug(f"  Dependency security in {manifest.manifest_path}: {len(issues)} issues")
-                    except Exception as e:
-                        logger.error(f"Error analyzing dependencies in {manifest.manifest_path}: {e}")
+                    manifest_path = manifest.manifest_path if manifest else ""
+                    lock_file_path = (manifest.lock_file_path or "") if manifest else ""
+                    package_manager = manifest.package_manager if manifest else ""
+                    # Run supply chain analysis if there's anything to analyze
+                    if artifacts_data or manifest_path:
+                        try:
+                            logger.debug(
+                                f"Analyzing supply chain in scope {scope.subroot}: "
+                                f"{len(artifacts_data)} artifacts, manifest={bool(manifest_path)}"
+                            )
+                            result = await supply_chain_agent.acall(
+                                artifacts=artifacts_data,
+                                manifest_path=manifest_path,
+                                lock_file_path=lock_file_path,
+                                package_manager=package_manager,
+                                category=self.category,
+                            )
+                            issues = [
+                                issue for issue in result.issues
+                                if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                            ]
+                            all_issues.extend(issues)
+                            logger.debug(f"  Supply chain security in scope {scope.subroot}: {len(issues)} issues")
+                        except Exception as e:
+                            logger.error(f"Error analyzing supply chain in scope {scope.subroot}: {e}")
         finally:
             await cleanup_mcp_contexts(contexts)
         return all_issues

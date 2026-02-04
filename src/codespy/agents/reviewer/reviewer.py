@@ -64,6 +64,7 @@ class ReviewPipeline(dspy.Module):
 
         # Initialize modules based on config
         modules_config = self.settings.modules
+
         self.scope_identifier = ScopeIdentifier() if modules_config.is_enabled("scope_identifier") else None
         self.security_auditor = SecurityAuditor() if modules_config.is_enabled("security_auditor") else None
         self.bug_detector = BugDetector() if modules_config.is_enabled("bug_detector") else None

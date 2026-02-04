@@ -169,7 +169,7 @@ def _load_yaml_config() -> dict[str, Any]:
     return {}
 
 
-# Known module names for env var routing
+# Known module names for env var routing (with their uppercase prefixes for matching)
 _MODULE_NAMES = {
     "security_auditor",
     "bug_detector",
@@ -180,50 +180,59 @@ _MODULE_NAMES = {
     "summarizer",
 }
 
+# Create uppercase prefixes for matching (e.g., "SECURITY_AUDITOR_")
+_MODULE_PREFIXES = {name.upper() + "_": name for name in _MODULE_NAMES}
+
 
 def _apply_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
-    """Apply environment variable overrides to config.
+    """Apply environment variable overrides to config for module settings only.
 
-    Supports nested keys with __ separator:
-    - DEFAULT_MODEL -> config['default_model']
-    - SECURITY_AUDITOR__MAX_ITERS -> config['modules']['security_auditor']['max_iters']
-    - LLM__AWS_REGION -> config['llm']['aws_region']
+    Only handles module-specific settings with known prefixes:
+    - SECURITY_AUDITOR_MAX_ITERS -> config['modules']['security_auditor']['max_iters']
+    - BUG_DETECTOR_MODEL -> config['modules']['bug_detector']['model']
+
+    Top-level settings (DEFAULT_MODEL, AWS_REGION, etc.) are handled directly
+    by pydantic-settings and should NOT be processed here.
     """
     import json
 
     for key, value in os.environ.items():
-        # Skip non-config env vars
-        if key.startswith("_") or key in ("PATH", "HOME", "USER", "SHELL", "PWD", "TERM"):
+        key_upper = key.upper()
+
+        # Only process module-specific settings
+        module_name = None
+        setting = None
+
+        for prefix, mod_name in _MODULE_PREFIXES.items():
+            if key_upper.startswith(prefix):
+                module_name = mod_name
+                setting = key[len(prefix):].lower()
+                break
+
+        # Skip if not a module setting
+        if not module_name or not setting:
             continue
 
-        parts = key.lower().split("__")
-
-        # Check if first part is a module name - auto-nest under 'modules'
-        if parts[0] in _MODULE_NAMES:
-            parts = ["modules"] + parts
-
-        # Navigate to the right level in config
-        target = config
-        for part in parts[:-1]:
-            if part not in target:
-                target[part] = {}
-            target = target[part]
+        # Ensure modules dict exists
+        if "modules" not in config:
+            config["modules"] = {}
+        if module_name not in config["modules"]:
+            config["modules"][module_name] = {}
 
         # Set the value (with type conversion)
-        final_key = parts[-1]
         if value.lower() in ("true", "false"):
-            target[final_key] = value.lower() == "true"
+            config["modules"][module_name][setting] = value.lower() == "true"
         elif value.isdigit():
-            target[final_key] = int(value)
+            config["modules"][module_name][setting] = int(value)
         elif value.startswith("[") or value.startswith("{"):
             try:
-                target[final_key] = json.loads(value)
+                config["modules"][module_name][setting] = json.loads(value)
             except json.JSONDecodeError:
-                target[final_key] = value
+                config["modules"][module_name][setting] = value
         elif value.lower() == "null" or value == "":
-            target[final_key] = None
+            config["modules"][module_name][setting] = None
         else:
-            target[final_key] = value
+            config["modules"][module_name][setting] = value
 
     return config
 
@@ -296,16 +305,38 @@ class Settings(BaseSettings):
         config = self.modules.get_module_config(module_name)
         return config.max_context_size or self.default_max_context_size
 
+    def log_module_configs(self) -> None:
+        """Log the configuration for all modules."""
+        module_names = [
+            "scope_identifier",
+            "security_auditor",
+            "bug_detector",
+            "doc_reviewer",
+            "domain_expert",
+            "deduplicator",
+            "summarizer",
+        ]
+        logger.info("Module configurations:")
+        for module_name in module_names:
+            enabled = self.modules.is_enabled(module_name)
+            model = self.get_effective_model(module_name)
+            max_iters = self.get_effective_max_iters(module_name)
+            status = "enabled" if enabled else "disabled"
+            logger.info(f"  {module_name}: {status}, model={model}, max_iters={max_iters}")
+
     @model_validator(mode="before")
     @classmethod
     def load_yaml_config(cls, values: dict[str, Any]) -> dict[str, Any]:
-        """Load YAML config and merge with env vars."""
+        """Load YAML config and merge with env vars.
+
+        Priority: Environment Variables > YAML Config > Defaults
+        """
         yaml_config = _load_yaml_config()
         yaml_config = _apply_env_overrides(yaml_config)
 
-        # Merge YAML config into values (YAML takes precedence over defaults)
+        # Merge YAML config into values only if not already set (env vars take precedence)
         for key, val in yaml_config.items():
-            if val is not None:
+            if val is not None and key not in values:
                 values[key] = val
 
         return values
@@ -355,6 +386,12 @@ class Settings(BaseSettings):
         else:
             _token_source = "not found"
 
+        return self
+
+    @model_validator(mode="after")
+    def expand_paths(self) -> "Settings":
+        """Expand ~ in paths to the user's home directory."""
+        self.cache_dir = Path(self.cache_dir).expanduser().resolve()
         return self
 
     @model_validator(mode="after")

@@ -143,7 +143,7 @@ modules:
 output_format: markdown
 ```
 
-Override YAML settings via environment variables using `__` separator:
+Override YAML settings via environment variables using `_` separator:
 
 ```bash
 # Default settings
@@ -151,8 +151,8 @@ export DEFAULT_MODEL=gpt-4o
 export DEFAULT_MAX_ITERS=20
 
 # Per-module settings
-export DOMAIN_EXPERT__MAX_ITERS=20
-export DOC_REVIEWER__ENABLED=false
+export DOMAIN_EXPERT_MAX_ITERS=20
+export DOC_REVIEWER_ENABLED=false
 ```
 
 See `codespy.example.yaml` for full configuration options.

@@ -104,10 +104,8 @@ def review(
     # Print config at startup (secrets are hidden via repr=False)
     logging.info(f"Loaded config: {settings}")
     
-    # Log effective max_iters for each module
-    for module_name in ["security_auditor", "bug_detector", "doc_reviewer", "domain_expert", "scope_identifier"]:
-        max_iters = settings.get_effective_max_iters(module_name)
-        logging.info(f"  {module_name}: max_iters={max_iters}")
+    # Log module configurations
+    settings.log_module_configs()
 
     # Override settings if provided via CLI
     if model:
