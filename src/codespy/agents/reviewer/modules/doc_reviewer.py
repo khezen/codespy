@@ -9,6 +9,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import ModuleContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
+from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,7 @@ class DocumentationReviewer(dspy.Module):
         """Initialize the documentation reviewer."""
         super().__init__()
         self._cost_tracker = get_cost_tracker()
+        self._settings = get_settings()
 
     async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
         """Create DSPy tools from MCP servers.
@@ -138,10 +140,13 @@ class DocumentationReviewer(dspy.Module):
         all_issues: list[Issue] = []
         tools, contexts = await self._create_mcp_tools(repo_path)
         try:
+            # Get max_iters from config
+            max_iters = self._settings.get_effective_max_iters(self.MODULE_NAME)
+
             agent = dspy.ReAct(
                 signature=DocumentationReviewSignature,
                 tools=tools,
-                max_iters=15,
+                max_iters=max_iters,
             )
             total_files = sum(len(s.changed_files) for s in changed_scopes)
             logger.info(

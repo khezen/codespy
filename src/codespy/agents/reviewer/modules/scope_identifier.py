@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from codespy.agents import ModuleContext, get_cost_tracker
 from codespy.agents.reviewer.models import Artifact, PackageManifest, ScopeResult, ScopeType
+from codespy.config import get_settings
 from codespy.tools.github.models import ChangedFile, PullRequest
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
@@ -145,6 +146,7 @@ class ScopeIdentifier(dspy.Module):
         """Initialize the scope identifier."""
         super().__init__()
         self._cost_tracker = get_cost_tracker()
+        self._settings = get_settings()
 
     async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
         """Create DSPy tools from MCP servers."""
@@ -167,10 +169,13 @@ class ScopeIdentifier(dspy.Module):
         changed_files_map: dict[str, ChangedFile] = {f.filename: f for f in pr.changed_files}
         
         try:
+            # Get max_iters from config
+            max_iters = self._settings.get_effective_max_iters(self.MODULE_NAME)
+
             agent = dspy.ReAct(
                 signature=ScopeIdentifierSignature,
                 tools=tools,
-                max_iters=20,
+                max_iters=max_iters,
             )
             logger.info(f"Identifying scopes for {len(changed_file_paths)} changed files...")
             # Use ModuleContext to track costs and timing for this module

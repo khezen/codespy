@@ -1,0 +1,123 @@
+# codespy.yaml - Configuration file for codespy
+#
+# ENVIRONMENT VARIABLE OVERRIDES:
+# All settings can be overridden via environment variables.
+# - Flat values: <KEY> (e.g., OUTPUT_FORMAT=json, DEFAULT_MODEL=gpt-4o)
+# - Nested module values: <MODULE>__<KEY> (use double underscore)
+#   Examples:
+#     DEFAULT_MODEL=gpt-4-turbo
+#     DEFAULT_MAX_ITERS=15
+#     DOMAIN_EXPERT__MAX_ITERS=15
+#     DOC_REVIEWER__ENABLED=false
+#     LLM__AWS_REGION=us-west-2
+#
+# Priority: Environment Variables > YAML Config > Defaults
+
+# ============================================================================
+# LLM ACCESS
+# ============================================================================
+llm:
+  # OpenAI
+  openai_api_key: null                   # OPENAI_API_KEY
+  openai_api_base: null                  # OPENAI_API_BASE
+
+  # Anthropic
+  anthropic_api_key: null                # ANTHROPIC_API_KEY
+
+  # Google Gemini
+  gemini_api_key: null                   # GEMINI_API_KEY
+
+  # AWS Bedrock
+  aws_region: us-east-1                  # AWS_REGION
+  aws_access_key_id: null                # AWS_ACCESS_KEY_ID
+  aws_secret_access_key: null            # AWS_SECRET_ACCESS_KEY
+  aws_profile: null                      # AWS_PROFILE
+
+  # Azure OpenAI
+  azure_api_key: null                    # AZURE_API_KEY
+  azure_api_base: null                   # AZURE_API_BASE
+  azure_api_version: null                # AZURE_API_VERSION
+
+# ============================================================================
+# GITHUB
+# ============================================================================
+github:
+  token: null                            # GITHUB_TOKEN (auto-discovered if not set)
+
+# ============================================================================
+# MODULES
+# ============================================================================
+# Each module supports: enabled, max_iters, model, max_context_size
+# Set to null to use defaults
+
+# These apply to all modules unless overridden per-module
+
+default_model: gpt-4o                    # DEFAULT_MODEL
+default_max_iters: 10                     # DEFAULT_MAX_ITERS
+default_max_context_size: 50000          # DEFAULT_MAX_CONTEXT_SIZE
+
+modules:
+  security_auditor:
+    enabled: true                        # SECURITY_AUDITOR__ENABLED
+    max_iters: null                      # SECURITY_AUDITOR__MAX_ITERS (default: 10)
+    model: null                          # SECURITY_AUDITOR__MODEL (default: default_model)
+    max_context_size: null               # SECURITY_AUDITOR__MAX_CONTEXT_SIZE
+
+  bug_detector:
+    enabled: true                        # BUG_DETECTOR__ENABLED
+    max_iters: null                      # BUG_DETECTOR__MAX_ITERS
+    model: null                          # BUG_DETECTOR__MODEL
+    max_context_size: null               # BUG_DETECTOR__MAX_CONTEXT_SIZE
+
+  doc_reviewer:
+    enabled: true                        # DOC_REVIEWER__ENABLED
+    max_iters: null                        # DOC_REVIEWER__MAX_ITERS (higher for thorough docs check)
+    model: null                          # DOC_REVIEWER__MODEL
+    max_context_size: null               # DOC_REVIEWER__MAX_CONTEXT_SIZE
+
+  domain_expert:
+    enabled: true                        # DOMAIN_EXPERT__ENABLED
+    max_iters: null                      # DOMAIN_EXPERT__MAX_ITERS (higher for deep codebase exploration)
+    model: null                          # DOMAIN_EXPERT__MODEL
+    max_context_size: null               # DOMAIN_EXPERT__MAX_CONTEXT_SIZE
+
+  scope_identifier:
+    enabled: true                        # SCOPE_IDENTIFIER__ENABLED
+    max_iters: null                        # SCOPE_IDENTIFIER__MAX_ITERS
+    model: null                          # SCOPE_IDENTIFIER__MODEL
+    max_context_size: null               # SCOPE_IDENTIFIER__MAX_CONTEXT_SIZE
+
+  deduplicator:
+    enabled: true                        # DEDUPLICATOR__ENABLED
+    model: gpt-3.5-turbo                 # DEDUPLICATOR__MODEL (cheaper model for simple deduplication)
+    max_context_size: null               # DEDUPLICATOR__MAX_CONTEXT_SIZE
+
+  summarizer:
+    enabled: true                        # SUMMARIZER__ENABLED
+    model: gpt-3.5-turbo                 # SUMMARIZER__MODEL (cheaper model for summarization)
+    max_context_size: null               # SUMMARIZER__MAX_CONTEXT_SIZE
+
+# ============================================================================
+# OUTPUT
+# ============================================================================
+output_format: markdown                  # OUTPUT_FORMAT (markdown | json)
+cache_dir: ~/.cache/codespy              # CACHE_DIR
+
+# ============================================================================
+# FILE EXCLUSIONS
+# ============================================================================
+exclude_patterns:                        # EXCLUDE_PATTERNS (JSON array in env)
+  - vendor/
+  - node_modules/
+  - third_party/
+  - external/
+  - deps/
+  - .bundle/
+  - Pods/
+  - Carthage/
+  - bower_components/
+  - jspm_packages/
+  - _vendor/
+  - vendored/
+
+include_vendor: false                    # INCLUDE_VENDOR

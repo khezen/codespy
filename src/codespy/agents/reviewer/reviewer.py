@@ -61,12 +61,15 @@ class ReviewPipeline(dspy.Module):
         self.github_client = GitHubClient(self.settings)
         self.cost_tracker = get_cost_tracker()
         configure_dspy(self.settings)
-        self.scope_identifier = ScopeIdentifier()
-        self.security_auditor = SecurityAuditor()
-        self.bug_detector = BugDetector()
-        self.doc_reviewer = DocumentationReviewer()
-        self.domain_expert = DomainExpert()
-        self.deduplicator = IssueDeduplicator()
+
+        # Initialize modules based on config
+        modules_config = self.settings.modules
+        self.scope_identifier = ScopeIdentifier() if modules_config.is_enabled("scope_identifier") else None
+        self.security_auditor = SecurityAuditor() if modules_config.is_enabled("security_auditor") else None
+        self.bug_detector = BugDetector() if modules_config.is_enabled("bug_detector") else None
+        self.doc_reviewer = DocumentationReviewer() if modules_config.is_enabled("doc_reviewer") else None
+        self.domain_expert = DomainExpert() if modules_config.is_enabled("domain_expert") else None
+        self.deduplicator = IssueDeduplicator() if modules_config.is_enabled("deduplicator") else None
 
     def _verify_model_access(self) -> None:
         """Verify LLM model access."""
@@ -97,41 +100,74 @@ class ReviewPipeline(dspy.Module):
             self._verify_model_access()
         pr = self._fetch_pr(pr_url)
         repo_path = self._get_repo_path(pr)
-        logger.info("Identifying code scopes...")
-        scopes = self.scope_identifier(pr, repo_path)
-        for scope in scopes:
-            logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
-        # Run all review modules in parallel
+
+        # Identify scopes (required for other modules)
+        if self.scope_identifier:
+            logger.info("Identifying code scopes...")
+            scopes = self.scope_identifier(pr, repo_path)
+            for scope in scopes:
+                logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
+        else:
+            # Fallback: single scope with all files
+            from codespy.agents.reviewer.models import ScopeResult, ScopeType
+            scopes = [ScopeResult(
+                subroot=".",
+                scope_type=ScopeType.APPLICATION,
+                has_changes=True,
+                is_dependency=False,
+                confidence=0.5,
+                language=None,
+                package_manifest=None,
+                changed_files=list(pr.changed_files),
+                reason="Scope identifier disabled",
+            )]
+            logger.info("Scope identifier disabled, using single scope for all files")
+
+        # Build list of enabled review modules
         all_issues: list[Issue] = []
-        logger.info("Running review modules in parallel (bug detection, security analysis, documentation review, domain expert)...")
-        # Define execution pairs: (module, inputs_as_dict)
-        # All modules take 'scopes' and 'repo_path'
-        exec_pairs = [
-            (self.bug_detector, {"scopes": scopes, "repo_path": repo_path}),
-            (self.security_auditor, {"scopes": scopes, "repo_path": repo_path}),
-            (self.doc_reviewer, {"scopes": scopes, "repo_path": repo_path}),
-            (self.domain_expert, {"scopes": scopes, "repo_path": repo_path}),
-        ]
+        exec_pairs = []
+        enabled_modules = []
+
+        if self.bug_detector:
+            exec_pairs.append((self.bug_detector, {"scopes": scopes, "repo_path": repo_path}))
+            enabled_modules.append("bug_detector")
+        if self.security_auditor:
+            exec_pairs.append((self.security_auditor, {"scopes": scopes, "repo_path": repo_path}))
+            enabled_modules.append("security_auditor")
+        if self.doc_reviewer:
+            exec_pairs.append((self.doc_reviewer, {"scopes": scopes, "repo_path": repo_path}))
+            enabled_modules.append("doc_reviewer")
+        if self.domain_expert:
+            exec_pairs.append((self.domain_expert, {"scopes": scopes, "repo_path": repo_path}))
+            enabled_modules.append("domain_expert")
+
+        if not exec_pairs:
+            logger.warning("No review modules enabled!")
+        else:
+            logger.info(f"Running review modules in parallel: {', '.join(enabled_modules)}...")
         # Execute in parallel with error handling
-        parallel = dspy.Parallel(num_threads=4, return_failed_examples=True, provide_traceback=True)
-        results, failed_examples, exceptions = parallel(exec_pairs)
-        # Log any failures
-        for i, (failed, exc) in enumerate(zip(failed_examples, exceptions)):
-            if failed is not None:
-                # Find which module failed by checking the failed example
-                for j, (module, inputs) in enumerate(exec_pairs):
-                    if inputs == failed:
-                        logger.error(f"{module} failed: {exc}")
-                        break
-        # Aggregate successful results
-        for result in results:
-            if result is not None:
-                all_issues.extend(result)
-        logger.info(f"Found {len(all_issues)} issues before deduplication")
+        if exec_pairs:
+            parallel = dspy.Parallel(num_threads=len(exec_pairs), return_failed_examples=True, provide_traceback=True)
+            results, failed_examples, exceptions = parallel(exec_pairs)
+            # Log any failures
+            for i, (failed, exc) in enumerate(zip(failed_examples, exceptions)):
+                if failed is not None:
+                    # Find which module failed by checking the failed example
+                    for j, (module, inputs) in enumerate(exec_pairs):
+                        if inputs == failed:
+                            logger.error(f"{module} failed: {exc}")
+                            break
+            # Aggregate successful results
+            for result in results:
+                if result is not None:
+                    all_issues.extend(result)
+            logger.info(f"Found {len(all_issues)} issues before deduplication")
+
         # Deduplicate issues across reviewers
-        logger.info("Deduplicating issues...")
-        all_issues = self.deduplicator(all_issues)
-        logger.info(f"After deduplication: {len(all_issues)} unique issues")
+        if self.deduplicator and all_issues:
+            logger.info("Deduplicating issues...")
+            all_issues = self.deduplicator(all_issues)
+            logger.info(f"After deduplication: {len(all_issues)} unique issues")
         # Generate summary, quality assessment, and recommendation
         logger.info("Generating PR summary...")
         try:
@@ -160,7 +196,7 @@ class ReviewPipeline(dspy.Module):
             pr_title=pr.title,
             pr_url=pr.url,
             repo=pr.repo_full_name,
-            model_used=self.settings.litellm_model,
+            model_used=self.settings.default_model,
             issues=all_issues,
             overall_summary=summary,
             quality_assessment=quality_assessment,

@@ -74,7 +74,7 @@ def review(
         typer.Option(
             "--model",
             "-m",
-            help="LLM model to use (overrides LITELLM_MODEL env var)",
+            help="LLM model to use (overrides DEFAULT_MODEL env var)",
         ),
     ] = None,
     include_vendor: Annotated[
@@ -92,22 +92,29 @@ def review(
         codespy review https://github.com/owner/repo/pull/123 --output json
         codespy review https://github.com/owner/repo/pull/123 --model bedrock/anthropic.claude-3-sonnet
     """
-    settings = get_settings()
-
-    # Override settings if provided via CLI
-    if model:
-        settings.litellm_model = model
-    if output:
-        settings.output_format = output  # type: ignore
-    settings.include_repo_context = with_context
-    settings.include_vendor = include_vendor
-
     # Set up logging with timestamps
     logging.basicConfig(
         level=logging.INFO,
         format="%(message)s",
         handlers=[RichHandler(console=console, show_time=True, show_path=False)],
     )
+
+    settings = get_settings()
+
+    # Print config at startup (secrets are hidden via repr=False)
+    logging.info(f"Loaded config: {settings}")
+    
+    # Log effective max_iters for each module
+    for module_name in ["security_auditor", "bug_detector", "doc_reviewer", "domain_expert", "scope_identifier"]:
+        max_iters = settings.get_effective_max_iters(module_name)
+        logging.info(f"  {module_name}: max_iters={max_iters}")
+
+    # Override settings if provided via CLI
+    if model:
+        settings.default_model = model
+    if output:
+        settings.output_format = output  # type: ignore
+    settings.include_vendor = include_vendor
 
     # Validate GitHub token
     token_source = get_token_source()
@@ -126,9 +133,8 @@ def review(
     console.print(
         Panel(
             f"[bold blue]Reviewing PR:[/bold blue] {pr_url}\n"
-            f"[bold]Model:[/bold] {settings.litellm_model}\n"
+            f"[bold]Model:[/bold] {settings.default_model}\n"
             f"[bold]Output:[/bold] {settings.output_format}\n"
-            f"[bold]Context:[/bold] {'enabled' if with_context else 'disabled'}\n"
             f"[bold]Vendor files:[/bold] {vendor_status}\n"
             f"[bold]GitHub Token:[/bold] [green]found[/green] [dim]({token_source})[/dim]",
             title="codespy",
@@ -145,7 +151,7 @@ def review(
         console.print("[dim]Verifying model access...[/dim]")
         success, message = verify_model_access(settings)
         if success:
-            console.print(f"[bold]Model:[/bold] [green]verified[/green] [dim]({settings.litellm_model})[/dim]")
+            console.print(f"[bold]Model:[/bold] [green]verified[/green] [dim]({settings.default_model})[/dim]")
         else:
             console.print(f"[red]Error:[/red] {message}")
             raise typer.Exit(1)
@@ -187,9 +193,9 @@ def config() -> None:
     console.print(Panel("[bold]Current Configuration[/bold]", title="codespy"))
 
     # Show non-sensitive settings
-    console.print(f"[bold]Model:[/bold] {settings.litellm_model}")
+    console.print(f"[bold]Model:[/bold] {settings.default_model}")
     console.print(f"[bold]AWS Region:[/bold] {settings.aws_region}")
-    console.print(f"[bold]Max Context Size:[/bold] {settings.max_context_size}")
+    console.print(f"[bold]Max Context Size:[/bold] {settings.default_max_context_size}")
     console.print(f"[bold]Output Format:[/bold] {settings.output_format}")
     console.print(f"[bold]Cache Directory:[/bold] {settings.cache_dir}")
 

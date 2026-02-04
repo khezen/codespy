@@ -50,10 +50,18 @@ docker build -t codespy .
 
 ## Configuration
 
-Copy the example environment file and configure your settings:
+codespy supports two configuration methods:
+- **`.env` file** - Simple environment variables for basic setup
+- **`codespy.yaml`** - Full YAML configuration for advanced options (per-module settings)
+
+Priority: Environment Variables > YAML Config > Defaults
+
+### Quick Start
 
 ```bash
+# Copy the example files
 cp .env.example .env
+cp codespy.example.yaml codespy.yaml  # Optional, for advanced config
 ```
 
 ### Required Settings
@@ -73,13 +81,13 @@ cp .env.example .env
 
    **OpenAI:**
    ```bash
-   LITELLM_MODEL=gpt-4o
+   DEFAULT_MODEL=gpt-4o
    OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
    ```
 
    **AWS Bedrock:**
    ```bash
-   LITELLM_MODEL=bedrock/anthropic.claude-3-sonnet-20240229-v1:0
+   DEFAULT_MODEL=bedrock/anthropic.claude-3-sonnet-20240229-v1:0
    AWS_REGION=us-east-1
    # Uses ~/.aws/credentials by default, or set explicitly:
    # AWS_ACCESS_KEY_ID=...
@@ -88,14 +96,66 @@ cp .env.example .env
 
    **Anthropic (direct):**
    ```bash
-   LITELLM_MODEL=claude-3-opus-20240229
+   DEFAULT_MODEL=claude-3-opus-20240229
    ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
+   ```
+
+   **Google Gemini:**
+   ```bash
+   DEFAULT_MODEL=gemini/gemini-1.5-pro
+   GEMINI_API_KEY=xxxxxxxxxxxxxxxxxxxx
    ```
 
    **Local Ollama:**
    ```bash
-   LITELLM_MODEL=ollama/llama3
+   DEFAULT_MODEL=ollama/llama3
    ```
+
+### Advanced Configuration (YAML)
+
+For per-module settings, use `codespy.yaml`:
+
+```yaml
+# codespy.yaml
+
+# Default settings for all modules
+default_model: gpt-4o             # Also settable via DEFAULT_MODEL env var
+default_max_iters: 10
+default_max_context_size: 50000
+
+# Per-module overrides
+modules:
+  security_auditor:
+    enabled: true
+    max_iters: 10
+
+  doc_reviewer:
+    enabled: true
+    max_iters: 15
+
+  domain_expert:
+    enabled: true
+    max_iters: 30               # More iterations for deep exploration
+
+  deduplicator:
+    model: gpt-3.5-turbo        # Cheaper model for simple task
+
+output_format: markdown
+```
+
+Override YAML settings via environment variables using `__` separator:
+
+```bash
+# Default settings
+export DEFAULT_MODEL=gpt-4o
+export DEFAULT_MAX_ITERS=20
+
+# Per-module settings
+export DOMAIN_EXPERT__MAX_ITERS=20
+export DOC_REVIEWER__ENABLED=false
+```
+
+See `codespy.example.yaml` for full configuration options.
 
 ## Usage
 

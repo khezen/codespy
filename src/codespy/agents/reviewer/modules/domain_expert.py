@@ -10,6 +10,7 @@ import dspy  # type: ignore[import-untyped]
 from codespy.agents import ModuleContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import is_speculative, MIN_CONFIDENCE
+from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -121,6 +122,7 @@ class DomainExpert(dspy.Module):
         """Initialize the domain expert."""
         super().__init__()
         self._cost_tracker = get_cost_tracker()
+        self._settings = get_settings()
 
     async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
         """Create DSPy tools from MCP servers for codebase exploration."""
@@ -176,10 +178,13 @@ class DomainExpert(dspy.Module):
         all_issues: list[Issue] = []
 
         try:
+            # Get max_iters from config
+            max_iters = self._settings.get_effective_max_iters(self.MODULE_NAME)
+
             agent = dspy.ReAct(
                 signature=DomainExpertSignature,
                 tools=tools,
-                max_iters=30,  # Allow more iterations for deep exploration
+                max_iters=max_iters,
             )
 
             # Use ModuleContext to track costs and timing for this module

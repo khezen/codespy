@@ -40,9 +40,12 @@ COPY --from=builder /usr/local/bin/codespy /usr/local/bin/codespy
 # Copy source code
 COPY src/ ./src/
 
+# Copy config to user's home directory
+COPY codespy.yaml /home/codespy/codespy.yaml
+
 # Set up cache directory and DSPy local_cache directory
 RUN mkdir -p /home/codespy/.cache/codespy && \
-    chown -R codespy:codespy /home/codespy/.cache
+    chown -R codespy:codespy /home/codespy/.cache /home/codespy/codespy.yaml
 
 # Switch to non-root user
 USER codespy

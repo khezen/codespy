@@ -16,7 +16,7 @@ def configure_dspy(settings: Settings) -> None:
     Args:
         settings: Application settings containing model and API key configuration.
     """
-    model = settings.litellm_model
+    model = settings.default_model
 
     # Configure LiteLLM environment if needed
     if settings.openai_api_key:
@@ -40,7 +40,9 @@ def configure_dspy(settings: Settings) -> None:
 
 
 def verify_model_access(settings: Settings) -> tuple[bool, str]:
-    """Verify that the model is accessible.
+    """Verify that all configured models are accessible.
+
+    Checks the default model and all per-module model overrides.
 
     Args:
         settings: Application settings containing model configuration.
@@ -48,23 +50,44 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
     Returns:
         Tuple of (success, message)
     """
-    model = settings.litellm_model
-    try:
-        # Make a minimal test call
-        litellm.completion(
-            model=model,
-            messages=[{"role": "user", "content": "Hi"}],
-            max_tokens=5,
-        )
-        return True, "Model access verified"
-    except litellm.AuthenticationError as e:
-        return False, f"Authentication failed: {e}"
-    except litellm.RateLimitError as e:
-        return False, f"Rate limit exceeded: {e}"
-    except litellm.APIConnectionError as e:
-        return False, f"Connection error: {e}"
-    except Exception as e:
-        return False, f"Model access error: {e}"
+    # Collect all unique models from config
+    models_to_check: set[str] = {settings.default_model}
+    
+    module_names = [
+        "security_auditor", "bug_detector", "doc_reviewer", 
+        "domain_expert", "scope_identifier", "deduplicator", "summarizer"
+    ]
+    for module_name in module_names:
+        config = settings.modules.get_module_config(module_name)
+        if config.model:
+            models_to_check.add(config.model)
+    
+    # Check each model
+    verified: list[str] = []
+    failed: list[str] = []
+    
+    for model in models_to_check:
+        try:
+            litellm.completion(
+                model=model,
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=5,
+            )
+            verified.append(model)
+            logger.info(f"Model verified: {model}")
+        except litellm.AuthenticationError as e:
+            failed.append(f"{model}: authentication failed - {e}")
+        except litellm.RateLimitError as e:
+            failed.append(f"{model}: rate limit exceeded - {e}")
+        except litellm.APIConnectionError as e:
+            failed.append(f"{model}: connection error - {e}")
+        except Exception as e:
+            failed.append(f"{model}: {e}")
+    
+    if failed:
+        return False, f"Model verification failed: {'; '.join(failed)}"
+    
+    return True, f"Verified {len(verified)} model(s): {', '.join(verified)}"
 
 
 class _TaskDestroyedFilter(logging.Filter):

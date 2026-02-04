@@ -10,6 +10,7 @@ import dspy  # type: ignore[import-untyped]
 from codespy.agents import ModuleContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import is_speculative, MIN_CONFIDENCE
+from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -201,6 +202,7 @@ class SecurityAuditor(dspy.Module):
         """Initialize the security auditor."""
         super().__init__()
         self._cost_tracker = get_cost_tracker()
+        self._settings = get_settings()
 
     async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
         """Create DSPy tools from filesystem, parser, and OSV MCP servers.
@@ -264,16 +266,24 @@ class SecurityAuditor(dspy.Module):
         all_issues: list[Issue] = []
         tools, contexts = await self._create_mcp_tools(repo_path)
 
+        # Get max_iters from config
+        max_iters = self._settings.get_effective_max_iters(self.MODULE_NAME)
+
         # Create ReAct agents with code exploration tools
         code_security_agent = dspy.ReAct(
             signature=CodeSecuritySignature,
             tools=tools,
-            max_iters=10,
+            max_iters=max_iters,
         )
         dependency_security_agent = dspy.ReAct(
             signature=DependencySecuritySignature,
             tools=tools,
-            max_iters=5,
+            max_iters=max_iters
+        )
+        artifact_security_agent = dspy.ReAct(
+            signature=ArtifactSecuritySignature,
+            tools=tools,
+            max_iters=max_iters
         )
 
         try:
@@ -298,13 +308,7 @@ class SecurityAuditor(dspy.Module):
                         logger.debug(f"  Code security in scope {scope.subroot}: {len(issues)} issues")
                     except Exception as e:
                         logger.error(f"Error analyzing scope {scope.subroot}: {e}")
-
                 # 2. Run artifact security analysis (Dockerfiles, etc.)
-                artifact_security_agent = dspy.ReAct(
-                    signature=ArtifactSecuritySignature,
-                    tools=tools,
-                    max_iters=5,
-                )
                 for scope in scopes:
                     for artifact in scope.artifacts:
                         if not artifact.has_changes:
