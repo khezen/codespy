@@ -262,6 +262,10 @@ class Settings(BaseSettings):
     output_format: Literal["markdown", "json"] = "markdown"
     cache_dir: Path = Path.home() / ".cache" / "codespy"
 
+    # Output destinations
+    output_stdout: bool = True  # Enable stdout output (markdown or json)
+    output_github_pr: bool = False  # Enable GitHub PR review comments
+
     # GitHub token (can also use GITHUB_TOKEN or GH_TOKEN env var)
     github_token: str = Field(default="", repr=False)
     gh_token: str = Field(default="", repr=False)

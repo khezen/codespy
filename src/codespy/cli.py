@@ -77,6 +77,20 @@ def review(
             help="LLM model to use (overrides DEFAULT_MODEL env var)",
         ),
     ] = None,
+    stdout: Annotated[
+        bool | None,
+        typer.Option(
+            "--stdout/--no-stdout",
+            help="Enable/disable stdout output (overrides config)",
+        ),
+    ] = None,
+    github_comment: Annotated[
+        bool | None,
+        typer.Option(
+            "--github-comment/--no-github-comment",
+            help="Enable/disable GitHub PR review comments (overrides config)",
+        ),
+    ] = None,
 ) -> None:
     """Review a GitHub pull request for security, bugs, and documentation.
 
@@ -84,6 +98,8 @@ def review(
         codespy review https://github.com/owner/repo/pull/123
         codespy review https://github.com/owner/repo/pull/123 --output json
         codespy review https://github.com/owner/repo/pull/123 --model bedrock/anthropic.claude-3-sonnet
+        codespy review https://github.com/owner/repo/pull/123 --github-comment
+        codespy review https://github.com/owner/repo/pull/123 --no-stdout --github-comment
     """
     # Set up logging with timestamps
     logging.basicConfig(
@@ -100,11 +116,15 @@ def review(
     # Log module configurations
     settings.log_signature_configs()
 
-    # Override settings if provided via CLI
+    # Override settings if provided via CLI (CLI > env > yaml > defaults)
     if model:
         settings.default_model = model
     if output:
         settings.output_format = output  # type: ignore
+    if stdout is not None:
+        settings.output_stdout = stdout
+    if github_comment is not None:
+        settings.output_github_pr = github_comment
 
     # Validate GitHub token
     token_source = get_token_source()
@@ -119,11 +139,19 @@ def review(
         )
         raise typer.Exit(1)
 
+    # Build output destinations display
+    output_destinations = []
+    if settings.output_stdout:
+        output_destinations.append(f"stdout ({settings.output_format})")
+    if settings.output_github_pr:
+        output_destinations.append("GitHub PR comment")
+    output_display = ", ".join(output_destinations) if output_destinations else "[red]none[/red]"
+
     console.print(
         Panel(
             f"[bold blue]Reviewing PR:[/bold blue] {pr_url}\n"
             f"[bold]Model:[/bold] {settings.default_model}\n"
-            f"[bold]Output:[/bold] {settings.output_format}\n"
+            f"[bold]Output:[/bold] {output_display}\n"
             f"[bold]GitHub Token:[/bold] [green]found[/green] [dim]({token_source})[/dim]",
             title="codespy",
         )
@@ -158,11 +186,18 @@ def review(
                 )
             )
 
-        # Output results
-        if output == "json":
-            console.print_json(json.dumps(result.to_json_dict(), indent=2))
-        else:
-            console.print(result.to_markdown())
+        # Output results using reporters
+        from codespy.agents.reviewer.reporters import StdoutReporter, GitHubPRReporter
+
+        if settings.output_stdout:
+            stdout_reporter = StdoutReporter(format=settings.output_format, console=console)
+            stdout_reporter.report(result)
+
+        if settings.output_github_pr:
+            console.print("[dim]Posting review to GitHub...[/dim]")
+            github_reporter = GitHubPRReporter(pr_url=pr_url, settings=settings)
+            github_reporter.report(result)
+            console.print("[green]✓[/green] GitHub review posted successfully")
 
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")

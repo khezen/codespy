@@ -186,3 +186,64 @@ class GitHubClient:
                 repo.git.checkout(ref)
 
         return repo_dir
+
+    def submit_review(
+        self,
+        pr_url: str,
+        body: str,
+        comments: list[dict] | None = None,
+        commit_sha: str | None = None,
+    ) -> None:
+        """Submit a review on a pull request.
+
+        Args:
+            pr_url: GitHub PR URL
+            body: Review body/summary text
+            comments: List of inline comment dicts with keys:
+                - path: File path
+                - line: Line number (in the diff, not the file)
+                - body: Comment text
+                - side: 'RIGHT' for additions, 'LEFT' for deletions (default: RIGHT)
+            commit_sha: Commit SHA to review (defaults to PR head SHA)
+
+        Note:
+            Uses event='COMMENT' to avoid approving/requesting changes.
+            The bot should not make approval decisions - that's for humans.
+        """
+        owner, repo_name, pr_number = self.parse_pr_url(pr_url)
+
+        repo = self.github.get_repo(f"{owner}/{repo_name}")
+        gh_pr: GHPullRequest = repo.get_pull(pr_number)
+
+        # Use provided commit SHA or default to head
+        review_commit = commit_sha or gh_pr.head.sha
+
+        # Build comments list for the API
+        review_comments = []
+        if comments:
+            for comment in comments:
+                review_comment = {
+                    "path": comment["path"],
+                    "body": comment["body"],
+                    "side": comment.get("side", "RIGHT"),
+                }
+                # Use line for single-line comments
+                if "line" in comment:
+                    review_comment["line"] = comment["line"]
+                # Support multi-line comments
+                if "start_line" in comment and "line" in comment:
+                    review_comment["start_line"] = comment["start_line"]
+                review_comments.append(review_comment)
+
+        # Submit the review
+        gh_pr.create_review(
+            commit=repo.get_commit(review_commit),
+            body=body,
+            event="COMMENT",
+            comments=review_comments,
+        )
+
+        logger.info(
+            f"Submitted review on {owner}/{repo_name}#{pr_number} "
+            f"with {len(review_comments)} inline comments"
+        )

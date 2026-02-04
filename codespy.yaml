@@ -89,7 +89,7 @@ signatures:
 
   # Domain Expert signature
   domain_analysis:
-    enabled: true                        # DOMAIN_ANALYSIS_ENABLED
+    enabled: false                       # DOMAIN_ANALYSIS_ENABLED
     max_iters: 6                         # DOMAIN_ANALYSIS_MAX_ITERS
     model: claude-sonnet-4-5-20250929    # DOMAIN_ANALYSIS_MODEL (Haiku 4.5)
     max_context_size: null               # DOMAIN_ANALYSIS_MAX_CONTEXT_SIZE
@@ -117,6 +117,8 @@ signatures:
 # OUTPUT
 # ============================================================================
 output_format: markdown                  # OUTPUT_FORMAT (markdown | json)
+output_stdout: true                      # OUTPUT_STDOUT (enable stdout output)
+output_github_pr: false                  # OUTPUT_GITHUB_PR (post review to GitHub PR)
 cache_dir: ~/.cache/codespy              # CACHE_DIR
 
 # ============================================================================
