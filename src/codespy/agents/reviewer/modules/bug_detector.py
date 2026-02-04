@@ -1,13 +1,15 @@
-"""Bug detection module."""
+"""Bug detection module with code exploration tools."""
 
+import asyncio
 import logging
-from typing import Sequence
+from pathlib import Path
+from typing import Any, Sequence
 
 import dspy  # type: ignore[import-untyped]
 
-from codespy.tools.github.models import ChangedFile
-from codespy.agents.reviewer.models import Issue, IssueCategory
+from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import get_language, is_speculative, MIN_CONFIDENCE
+from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
 
@@ -16,26 +18,38 @@ class BugDetectionSignature(dspy.Signature):
     """Detect VERIFIED bugs and logic errors in code changes.
 
     You are an expert software engineer reviewing code for bugs.
+    You have access to tools that let you explore the codebase to VERIFY your findings.
 
     CRITICAL RULES:
-    - ONLY report bugs you can DIRECTLY SEE in the code diff or full content
+    - ONLY report bugs you can VERIFY using the available tools
+    - Before reporting any bug, USE the tools to verify your assumptions
     - DO NOT speculate about potential issues you cannot verify
     - DO NOT report "might be", "could be", "possibly", "may cause" issues
-    - If you cannot point to the EXACT buggy code, do NOT report it
+    - If you cannot point to the EXACT buggy code with evidence, do NOT report it
     - Quality over quantity: prefer 0 reports over 1 speculative report
 
-    Look for CONCRETE bugs:
-    - Logic errors with clear incorrect conditions visible in code
-    - Null/undefined references where you can see the missing check
-    - Resource leaks where you can see open without close
-    - Error handling where you can see the missing try/catch or error check
-    - Type mismatches visible in the code
-    - Off-by-one errors with clear evidence
+    VERIFICATION WORKFLOW:
+    1. Analyze the diff and full content for potential issues
+    2. For each suspected issue, VERIFY using tools:
+       - Use read_file to examine related files (imports, dependencies, base classes)
+       - Use find_function_definitions to check function signatures and implementations
+       - Use find_function_calls to understand how functions are called
+       - Use find_function_usages/find_callers to trace usage patterns
+       - Use search_literal to find related code patterns
+    3. Only report issues that are CONFIRMED by your verification
+
+    CONCRETE bugs to look for (with verification):
+    - Logic errors: verify the condition is actually incorrect by checking related code
+    - Null/undefined references: verify the check is actually missing by reading the code
+    - Resource leaks: verify there's no cleanup in finally/defer/close methods
+    - Error handling: verify errors aren't handled elsewhere in the call chain
+    - Type mismatches: verify types by checking definitions
+    - Off-by-one errors: verify by understanding the data structure bounds
 
     DO NOT report:
     - Style issues or minor improvements
-    - Hypothetical edge cases you cannot see evidence for
-    - "This might cause problems" without concrete evidence
+    - Hypothetical edge cases without evidence
+    - Issues that might exist in code you haven't verified
     """
 
     diff: str = dspy.InputField(
@@ -55,52 +69,104 @@ class BugDetectionSignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="VERIFIED bugs found. Empty list if none."
+        desc="VERIFIED bugs found. Empty list if none confirmed."
     )
 
 
 class BugDetector(dspy.Module):
-    """Detects potential bugs and logic errors using DSPy."""
+    """Detects bugs and logic errors using DSPy with code exploration tools."""
 
     category = IssueCategory.BUG
 
     def __init__(self) -> None:
-        """Initialize the bug detector with chain-of-thought reasoning."""
+        """Initialize the bug detector."""
         super().__init__()
 
-    def forward(self, files: Sequence[ChangedFile]) -> list[Issue]:
-        """Analyze files for bugs and return issues.
+    async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
+        """Create DSPy tools from filesystem and parser MCP servers.
 
         Args:
-            files: The changed files to analyze
+            repo_path: Path to the repository root
 
         Returns:
-            List of bug issues found across all files
+            Tuple of (tools, contexts) for cleanup
+        """
+        tools: list[Any] = []
+        contexts: list[Any] = []
+        tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
+        repo_path_str = str(repo_path)
+        # Add filesystem tools for reading files and exploring structure
+        tools.extend(await connect_mcp_server(
+            tools_dir / "filesystem" / "server.py",
+            [repo_path_str],
+            contexts
+        ))
+        # Add tree-sitter tools for parsing code structure
+        tools.extend(await connect_mcp_server(
+            tools_dir / "parsers" / "treesitter" / "server.py",
+            [repo_path_str],
+            contexts
+        ))
+        # Add ripgrep tools for searching code patterns
+        tools.extend(await connect_mcp_server(
+            tools_dir / "parsers" / "ripgrep" / "server.py",
+            [repo_path_str],
+            contexts
+        ))
+        return tools, contexts
+
+    async def aforward(self, scopes: Sequence[ScopeResult], repo_path: Path) -> list[Issue]:
+        """Analyze scopes for bugs and return issues.
+
+        Args:
+            scopes: The scopes containing changed files to analyze
+            repo_path: Path to the cloned repository for code exploration
+
+        Returns:
+            List of bug issues found across all scopes
         """
         all_issues: list[Issue] = []
-        
-        # Create agent once outside loop for better performance
-        bug_detection_agent = dspy.ChainOfThought(BugDetectionSignature)
-        
-        for file in files:
-            if not file.patch:
-                logger.debug(f"Skipping {file.filename}: no patch available")
-                continue
-            try:
-                result = bug_detection_agent(
-                    diff=file.patch or "",
-                    full_content=file.content or "",
-                    filename=file.filename,
-                    language=get_language(file),
-                    category=self.category,
-                )
-                issues = [
-                    issue for issue in result.issues
-                    if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-                ]
-                all_issues.extend(issues)
-                logger.debug(f"  Bugs in {file.filename}: {len(issues)} issues")
-            except Exception as e:
-                logger.error(f"Error analyzing {file.filename}: {e}")
-        
+        tools, contexts = await self._create_mcp_tools(repo_path)
+        # Create ReAct agent with code exploration tools
+        bug_detection_agent = dspy.ReAct(
+            signature=BugDetectionSignature,
+            tools=tools,
+            max_iters=10,
+        )
+        try:
+            for scope in scopes:
+                for file in scope.changed_files:
+                    if not file.patch:
+                        logger.debug(f"Skipping {file.filename}: no patch available")
+                        continue
+                    try:
+                        result = await bug_detection_agent.acall(
+                            diff=file.patch or "",
+                            full_content=file.content or "",
+                            filename=file.filename,
+                            language=get_language(file),
+                            category=self.category,
+                        )
+                        issues = [
+                            issue for issue in result.issues
+                            if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                        ]
+                        all_issues.extend(issues)
+                        logger.debug(f"  Bugs in {file.filename}: {len(issues)} issues")
+                    except Exception as e:
+                        logger.error(f"Error analyzing {file.filename}: {e}")
+        finally:
+            await cleanup_mcp_contexts(contexts)
         return all_issues
+
+    def forward(self, scopes: Sequence[ScopeResult], repo_path: Path) -> list[Issue]:
+        """Analyze scopes for bugs (sync wrapper).
+
+        Args:
+            scopes: The scopes containing changed files to analyze
+            repo_path: Path to the cloned repository for code exploration
+
+        Returns:
+            List of bug issues found across all scopes
+        """
+        return asyncio.run(self.aforward(scopes, repo_path))

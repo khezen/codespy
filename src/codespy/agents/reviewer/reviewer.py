@@ -105,9 +105,9 @@ class ReviewPipeline(dspy.Module):
         all_issues: list[Issue] = []
         logger.info("Running review modules in parallel (bug detection, security analysis, documentation review, domain expert)...")
         # Define execution pairs: (module, inputs_as_dict)
-        # Note: bug_detector takes 'files', others take 'scopes' and 'repo_path'
+        # All modules take 'scopes' and 'repo_path'
         exec_pairs = [
-            (self.bug_detector, {"files": pr.code_files}),
+            (self.bug_detector, {"scopes": scopes, "repo_path": repo_path}),
             (self.security_auditor, {"scopes": scopes, "repo_path": repo_path}),
             (self.doc_reviewer, {"scopes": scopes, "repo_path": repo_path}),
             (self.domain_expert, {"scopes": scopes, "repo_path": repo_path}),
