@@ -1,10 +1,15 @@
 """MCP server for OSV (Open Source Vulnerabilities) security scanning operations."""
 
+import logging
+import os
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from codespy.tools.cyber.osv.client import OSVClient
+
+logger = logging.getLogger(__name__)
+_caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 
 mcp = FastMCP("osv")
 _client: OSVClient | None = None
@@ -29,6 +34,7 @@ def query_package(name: str, ecosystem: str, version: str) -> dict[str, Any]:
     Returns:
         Dict with vulnerabilities list, each containing id, summary, details, severity, etc.
     """
+    logger.info(f"[OSV] {_caller_module} -> query_package: {ecosystem}/{name}@{version}")
     vulns = _get_client().query_package(name, ecosystem, version)
     return {"vulnerabilities": [v.model_dump() for v in vulns], "count": len(vulns)}
 
@@ -44,6 +50,7 @@ def query_purl(purl: str, version: str | None = None) -> dict[str, Any]:
     Returns:
         Dict with vulnerabilities list
     """
+    logger.info(f"[OSV] {_caller_module} -> query_purl: {purl}@{version or 'latest'}")
     vulns = _get_client().query_purl(purl, version)
     return {"vulnerabilities": [v.model_dump() for v in vulns], "count": len(vulns)}
 
@@ -58,6 +65,7 @@ def query_commit(commit_hash: str) -> dict[str, Any]:
     Returns:
         Dict with vulnerabilities list affecting the commit
     """
+    logger.info(f"[OSV] {_caller_module} -> query_commit: {commit_hash[:8]}")
     vulns = _get_client().query_commit(commit_hash)
     return {"vulnerabilities": [v.model_dump() for v in vulns], "count": len(vulns)}
 
@@ -72,6 +80,7 @@ def get_vulnerability(osv_id: str) -> dict[str, Any]:
     Returns:
         Dict with full vulnerability details including affected packages, severity, references
     """
+    logger.info(f"[OSV] {_caller_module} -> get_vulnerability: {osv_id}")
     vuln = _get_client().get_vulnerability(osv_id)
     return vuln.model_dump()
 
@@ -88,6 +97,7 @@ def scan_package(name: str, ecosystem: str, version: str) -> dict[str, Any]:
     Returns:
         Dict with package_name, ecosystem, version, vulnerabilities, is_vulnerable, count
     """
+    logger.info(f"[OSV] {_caller_module} -> scan_package: {ecosystem}/{name}@{version}")
     result = _get_client().scan_package(name, ecosystem, version)
     return result.model_dump()
 
@@ -104,6 +114,7 @@ def scan_dependencies(dependencies: list[dict[str, str]]) -> dict[str, Any]:
         Dict with scan summary: total_packages, vulnerable_packages, total_vulnerabilities,
         and detailed results for each package
     """
+    logger.info(f"[OSV] {_caller_module} -> scan_dependencies: {len(dependencies)} packages")
     summary = _get_client().scan_dependencies(dependencies)
     return summary.model_dump()
 
@@ -119,6 +130,7 @@ def scan_pypi_package(name: str, version: str) -> dict[str, Any]:
     Returns:
         Dict with scan result including vulnerabilities found
     """
+    logger.info(f"[OSV] {_caller_module} -> scan_pypi_package: {name}@{version}")
     result = _get_client().scan_pypi_package(name, version)
     return result.model_dump()
 
@@ -134,6 +146,7 @@ def scan_npm_package(name: str, version: str) -> dict[str, Any]:
     Returns:
         Dict with scan result including vulnerabilities found
     """
+    logger.info(f"[OSV] {_caller_module} -> scan_npm_package: {name}@{version}")
     result = _get_client().scan_npm_package(name, version)
     return result.model_dump()
 
@@ -149,6 +162,7 @@ def scan_go_package(name: str, version: str) -> dict[str, Any]:
     Returns:
         Dict with scan result including vulnerabilities found
     """
+    logger.info(f"[OSV] {_caller_module} -> scan_go_package: {name}@{version}")
     result = _get_client().scan_go_package(name, version)
     return result.model_dump()
 
@@ -165,6 +179,7 @@ def scan_maven_package(group_id: str, artifact_id: str, version: str) -> dict[st
     Returns:
         Dict with scan result including vulnerabilities found
     """
+    logger.info(f"[OSV] {_caller_module} -> scan_maven_package: {group_id}:{artifact_id}@{version}")
     result = _get_client().scan_maven_package(group_id, artifact_id, version)
     return result.model_dump()
 
@@ -180,6 +195,7 @@ def scan_rubygems_package(name: str, version: str) -> dict[str, Any]:
     Returns:
         Dict with scan result including vulnerabilities found
     """
+    logger.info(f"[OSV] {_caller_module} -> scan_rubygems_package: {name}@{version}")
     result = _get_client().scan_rubygems_package(name, version)
     return result.model_dump()
 
@@ -195,10 +211,15 @@ def scan_cargo_package(name: str, version: str) -> dict[str, Any]:
     Returns:
         Dict with scan result including vulnerabilities found
     """
+    logger.info(f"[OSV] {_caller_module} -> scan_cargo_package: {name}@{version}")
     result = _get_client().scan_cargo_package(name, version)
     return result.model_dump()
 
 
 if __name__ == "__main__":
+    # Suppress noisy MCP server "Processing request" logs
+    logging.getLogger("mcp.server").setLevel(logging.WARNING)
+    logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
+    
     _client = OSVClient()
     mcp.run()

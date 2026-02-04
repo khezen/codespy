@@ -119,5 +119,16 @@ class _TaskDestroyedFilter(logging.Filter):
         return True
 
 
+class _MCPRequestFilter(logging.Filter):
+    """Filter to suppress all noisy 'Processing request of type' MCP server messages."""
+    
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "Processing request of type" not in record.getMessage()
+
+
 # Suppress LiteLLM's async logging worker warnings that occur during multi-threaded execution
 logging.getLogger("asyncio").addFilter(_TaskDestroyedFilter())
+
+# Suppress noisy MCP server "Processing request" messages
+logging.getLogger("mcp.server").addFilter(_MCPRequestFilter())
+logging.getLogger("mcp.server.lowlevel").addFilter(_MCPRequestFilter())

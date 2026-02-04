@@ -1,5 +1,6 @@
 """MCP server for GitHub operations."""
 
+import logging
 import os
 import sys
 
@@ -7,6 +8,11 @@ from mcp.server.fastmcp import FastMCP
 
 from codespy.config import Settings
 from codespy.tools.github.client import GitHubClient
+
+logger = logging.getLogger(__name__)
+
+# Get caller module from environment (set by mcp_utils.py)
+_caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 
 mcp = FastMCP("github")
 _client: GitHubClient | None = None
@@ -75,6 +81,7 @@ def clone_repository(
         Path to the cloned repository
     """
     from pathlib import Path
+    logger.info(f"[GH] {_caller_module} -> clone_repository: {owner}/{repo_name}@{ref[:8]}")
     path = _get_client().clone_repository(
         owner=owner,
         repo_name=repo_name,
@@ -87,6 +94,10 @@ def clone_repository(
 
 
 if __name__ == "__main__":
+    # Suppress noisy MCP server "Processing request" logs
+    logging.getLogger("mcp.server").setLevel(logging.WARNING)
+    logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
+    
     # Initialize with settings from environment
     settings = Settings()
     _client = GitHubClient(settings)

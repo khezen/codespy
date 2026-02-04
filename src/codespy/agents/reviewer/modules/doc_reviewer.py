@@ -91,22 +91,23 @@ class DocumentationReviewer(dspy.Module):
         contexts: list[Any] = []
         tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
         repo_path_str = str(repo_path)
+        caller = "doc_reviewer"
         # Filesystem tools: read_file, list_directory, get_tree, file_exists, get_file_info
         tools.extend(
             await connect_mcp_server(
-                tools_dir / "filesystem" / "server.py", [repo_path_str], contexts
+                tools_dir / "filesystem" / "server.py", [repo_path_str], contexts, caller
             )
         )
         # Ripgrep tools: search_literal, find_function_usages, find_type_usages, etc.
         tools.extend(
             await connect_mcp_server(
-                tools_dir / "parsers" / "ripgrep" / "server.py", [repo_path_str], contexts
+                tools_dir / "parsers" / "ripgrep" / "server.py", [repo_path_str], contexts, caller
             )
         )
         # Treesitter tools: find_function_definitions, find_function_calls, etc.
         tools.extend(
             await connect_mcp_server(
-                tools_dir / "parsers" / "treesitter" / "server.py", [repo_path_str], contexts
+                tools_dir / "parsers" / "treesitter" / "server.py", [repo_path_str], contexts, caller
             )
         )
         return tools, contexts

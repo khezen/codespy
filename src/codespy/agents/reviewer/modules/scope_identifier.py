@@ -148,10 +148,11 @@ class ScopeIdentifier(dspy.Module):
         contexts: list[Any] = []
         tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
         repo_path_str = str(repo_path)
-        tools.extend(await connect_mcp_server(tools_dir / "filesystem" / "server.py", [repo_path_str], contexts))
-        tools.extend(await connect_mcp_server(tools_dir / "parsers" / "ripgrep" / "server.py", [repo_path_str], contexts))
-        tools.extend(await connect_mcp_server(tools_dir / "parsers" / "treesitter" / "server.py", [repo_path_str], contexts))
-        tools.extend(await connect_mcp_server(tools_dir / "github" / "server.py", [], contexts))
+        caller = "scope_identifier"
+        tools.extend(await connect_mcp_server(tools_dir / "filesystem" / "server.py", [repo_path_str], contexts, caller))
+        tools.extend(await connect_mcp_server(tools_dir / "parsers" / "ripgrep" / "server.py", [repo_path_str], contexts, caller))
+        tools.extend(await connect_mcp_server(tools_dir / "parsers" / "treesitter" / "server.py", [repo_path_str], contexts, caller))
+        tools.extend(await connect_mcp_server(tools_dir / "github" / "server.py", [], contexts, caller))
         return tools, contexts
 
     async def aforward(self, pr: PullRequest, repo_path: Path) -> list[ScopeResult]:

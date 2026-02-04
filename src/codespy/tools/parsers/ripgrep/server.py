@@ -1,11 +1,16 @@
 """MCP server for ripgrep code search operations."""
 
+import logging
+import os
 import sys
 from dataclasses import asdict
 
 from mcp.server.fastmcp import FastMCP
 
 from codespy.tools.parsers.ripgrep.client import RipgrepSearch
+
+logger = logging.getLogger(__name__)
+_caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 
 mcp = FastMCP("ripgrep")
 _search: RipgrepSearch | None = None
@@ -34,6 +39,7 @@ def find_function_usages(
     Returns:
         List of search results with file, line_number, line_content, match_text
     """
+    logger.info(f"[RG] {_caller_module} -> find_function_usages: {function_name}")
     results = _get_search().find_function_usages(function_name, file_patterns, exclude_file)
     return [asdict(r) for r in results]
 
@@ -52,6 +58,7 @@ def find_type_usages(
     Returns:
         List of search results
     """
+    logger.info(f"[RG] {_caller_module} -> find_type_usages: {type_name}")
     results = _get_search().find_type_usages(type_name, file_patterns)
     return [asdict(r) for r in results]
 
@@ -70,6 +77,7 @@ def find_imports_of(
     Returns:
         List of search results showing import statements
     """
+    logger.info(f"[RG] {_caller_module} -> find_imports_of: {module_or_package}")
     results = _get_search().find_imports_of(module_or_package, file_patterns)
     return [asdict(r) for r in results]
 
@@ -90,6 +98,7 @@ def find_callers(
     Returns:
         List of search results showing callers
     """
+    logger.info(f"[RG] {_caller_module} -> find_callers: {function_name} (from {defining_file})")
     results = _get_search().find_callers(function_name, defining_file, language)
     return [asdict(r) for r in results]
 
@@ -108,11 +117,16 @@ def search_literal(
     Returns:
         List of search results
     """
+    logger.info(f"[RG] {_caller_module} -> search_literal: {text[:50]}...")
     results = _get_search().search_literal(text, file_patterns)
     return [asdict(r) for r in results]
 
 
 if __name__ == "__main__":
+    # Suppress noisy MCP server "Processing request" logs
+    logging.getLogger("mcp.server").setLevel(logging.WARNING)
+    logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
+    
     repo_path = sys.argv[1] if len(sys.argv) > 1 else "."
     _search = RipgrepSearch(repo_path)
     mcp.run()

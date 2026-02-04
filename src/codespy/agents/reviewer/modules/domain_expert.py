@@ -119,23 +119,27 @@ class DomainExpert(dspy.Module):
         contexts: list[Any] = []
         tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
         repo_path_str = str(repo_path)
+        caller = "domain_expert"
         # Filesystem tools for reading and navigating code
         tools.extend(await connect_mcp_server(
             tools_dir / "filesystem" / "server.py",
             [repo_path_str],
-            contexts
+            contexts,
+            caller,
         ))
         # Ripgrep tools for searching patterns and usages
         tools.extend(await connect_mcp_server(
             tools_dir / "parsers" / "ripgrep" / "server.py",
             [repo_path_str],
-            contexts
+            contexts,
+            caller,
         ))
         # Tree-sitter tools for AST analysis
         tools.extend(await connect_mcp_server(
             tools_dir / "parsers" / "treesitter" / "server.py",
             [repo_path_str],
-            contexts
+            contexts,
+            caller,
         ))
 
         return tools, contexts

@@ -95,23 +95,27 @@ class BugDetector(dspy.Module):
         contexts: list[Any] = []
         tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
         repo_path_str = str(repo_path)
+        caller = "bug_detector"
         # Add filesystem tools for reading files and exploring structure
         tools.extend(await connect_mcp_server(
             tools_dir / "filesystem" / "server.py",
             [repo_path_str],
-            contexts
+            contexts,
+            caller,
         ))
         # Add tree-sitter tools for parsing code structure
         tools.extend(await connect_mcp_server(
             tools_dir / "parsers" / "treesitter" / "server.py",
             [repo_path_str],
-            contexts
+            contexts,
+            caller,
         ))
         # Add ripgrep tools for searching code patterns
         tools.extend(await connect_mcp_server(
             tools_dir / "parsers" / "ripgrep" / "server.py",
             [repo_path_str],
-            contexts
+            contexts,
+            caller,
         ))
         return tools, contexts
 

@@ -1,11 +1,18 @@
 """MCP server for filesystem operations."""
 
+import logging
+import os
 import sys
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
 from codespy.tools.filesystem.client import FileSystem
+
+logger = logging.getLogger(__name__)
+
+# Get caller module from environment (set by mcp_utils.py)
+_caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 
 mcp = FastMCP("filesystem")
 _fs: FileSystem | None = None
@@ -30,7 +37,10 @@ def read_file(path: str, max_bytes: int = 100_000, max_lines: int | None = None)
     Returns:
         Dict with path, content, size, lines, and truncated flag
     """
-    return _get_fs().read_file(path, max_bytes, max_lines).model_dump()
+    fs = _get_fs()
+    resolved = fs.root / path if path else fs.root
+    logger.info(f"[FS] {_caller_module} -> read_file: {resolved}")
+    return fs.read_file(path, max_bytes, max_lines).model_dump()
 
 
 @mcp.tool()
@@ -44,7 +54,10 @@ def list_directory(path: str = "", include_hidden: bool = False) -> dict:
     Returns:
         Dict with path, entries, total_files, total_directories
     """
-    return _get_fs().list_directory(path, include_hidden).model_dump()
+    fs = _get_fs()
+    resolved = fs.root / path if path else fs.root
+    logger.info(f"[FS] {_caller_module} -> list_directory: {resolved}")
+    return fs.list_directory(path, include_hidden).model_dump()
 
 
 @mcp.tool()
@@ -59,7 +72,10 @@ def get_tree(path: str = "", max_depth: int = 3, include_hidden: bool = False) -
     Returns:
         String representation of the directory tree
     """
-    return _get_fs().get_tree_string(path, max_depth, include_hidden)
+    fs = _get_fs()
+    resolved = fs.root / path if path else fs.root
+    logger.info(f"[FS] {_caller_module} -> get_tree: {resolved} (depth={max_depth})")
+    return fs.get_tree_string(path, max_depth, include_hidden)
 
 
 @mcp.tool()
@@ -72,7 +88,10 @@ def file_exists(path: str = "") -> bool:
     Returns:
         True if path exists
     """
-    return _get_fs().exists(path)
+    fs = _get_fs()
+    resolved = fs.root / path if path else fs.root
+    logger.info(f"[FS] {_caller_module} -> file_exists: {resolved}")
+    return fs.exists(path)
 
 
 @mcp.tool()
@@ -85,10 +104,17 @@ def get_file_info(path: str = "") -> dict:
     Returns:
         Dict with path, name, entry_type, size, modified_at, extension
     """
-    return _get_fs().get_info(path).model_dump()
+    fs = _get_fs()
+    resolved = fs.root / path if path else fs.root
+    logger.info(f"[FS] {_caller_module} -> get_file_info: {resolved}")
+    return fs.get_info(path).model_dump()
 
 
 if __name__ == "__main__":
+    # Suppress noisy MCP server "Processing request" logs
+    logging.getLogger("mcp.server").setLevel(logging.WARNING)
+    logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
+    
     root = sys.argv[1] if len(sys.argv) > 1 else "."
     _fs = FileSystem(root)
     mcp.run()

@@ -1,5 +1,7 @@
 """Utilities for MCP server connections."""
 
+import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -8,11 +10,14 @@ import dspy  # type: ignore[import-untyped]
 from mcp import ClientSession, StdioServerParameters  # type: ignore[import-not-found]
 from mcp.client.stdio import stdio_client  # type: ignore[import-not-found]
 
+logger = logging.getLogger(__name__)
+
 
 async def connect_mcp_server(
     mcp_path: Path,
     args: list[str] | None = None,
     contexts: list[Any] | None = None,
+    caller_module: str = "unknown",
 ) -> list[Any]:
     """Connect to an MCP server and return DSPy tools.
 
@@ -20,6 +25,7 @@ async def connect_mcp_server(
         mcp_path: Path to the MCP server Python module
         args: Additional command-line arguments for the server
         contexts: List to append context managers for cleanup (transport, session)
+        caller_module: Name of the calling module for logging (e.g., 'domain_expert')
 
     Returns:
         List of DSPy Tool objects from the MCP server
@@ -29,9 +35,14 @@ async def connect_mcp_server(
     if contexts is None:
         contexts = []
 
+    # Pass caller_module to subprocess via environment variable
+    env = os.environ.copy()
+    env["MCP_CALLER_MODULE"] = caller_module
+
     params = StdioServerParameters(
         command=sys.executable,
         args=[str(mcp_path)] + args,
+        env=env,
     )
 
     transport = stdio_client(params)
@@ -42,7 +53,7 @@ async def connect_mcp_server(
     await session.__aenter__()
     contexts.append(session)
     await session.initialize()
-
+    
     tools_response = await session.list_tools()
     return [dspy.Tool.from_mcp_tool(session, tool) for tool in tools_response.tools]
 
