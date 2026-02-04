@@ -2,7 +2,7 @@
 #
 # ENVIRONMENT VARIABLE OVERRIDES:
 # All settings can be overridden via environment variables.
-# - Flat values: <KEY> (e.g., OUTPUT_FORMAT=json, DEFAULT_MODEL=gpt-4o)
+# - Flat values: <KEY> (e.g., OUTPUT_FORMAT=json, DEFAULT_MODEL=gpt-5)
 # - Signature values: <SIGNATURE>_<KEY>
 #   Examples:
 #     CODE_SECURITY_MAX_ITERS=15
@@ -55,7 +55,7 @@ github:
 # Set to null to use defaults
 
 # These apply to all signatures unless overridden per-signature
-default_model: gpt-4o                    # DEFAULT_MODEL
+default_model: claude-sonnet-4-5-20250929  # DEFAULT_MODEL (Haiku 4.5 - default)
 default_max_iters: 3                     # DEFAULT_MAX_ITERS
 default_max_context_size: 50000          # DEFAULT_MAX_CONTEXT_SIZE
 
@@ -64,53 +64,53 @@ signatures:
   code_security:
     enabled: true                        # CODE_SECURITY_ENABLED
     max_iters: null                      # CODE_SECURITY_MAX_ITERS
-    model: null                          # CODE_SECURITY_MODEL
+    model: claude-sonnet-4-5-20250929    # CODE_SECURITY_MODEL (Haiku 4.5)
     max_context_size: null               # CODE_SECURITY_MAX_CONTEXT_SIZE
 
   supply_chain:
     enabled: true                        # SUPPLY_CHAIN_ENABLED
     max_iters: 5                         # SUPPLY_CHAIN_MAX_ITERS
-    model: null                          # SUPPLY_CHAIN_MODEL
+    model: claude-sonnet-4-5-20250929    # SUPPLY_CHAIN_MODEL (Haiku 4.5)
     max_context_size: null               # SUPPLY_CHAIN_MAX_CONTEXT_SIZE
 
   # Bug Detector signature
   bug_detection:
     enabled: true                        # BUG_DETECTION_ENABLED
     max_iters: null                      # BUG_DETECTION_MAX_ITERS
-    model: null                          # BUG_DETECTION_MODEL
+    model: claude-sonnet-4-5-20250929    # BUG_DETECTION_MODEL (Haiku 4.5)
     max_context_size: null               # BUG_DETECTION_MAX_CONTEXT_SIZE
 
   # Doc Reviewer signature
   doc_review:
     enabled: true                        # DOC_REVIEW_ENABLED
     max_iters: null                      # DOC_REVIEW_MAX_ITERS
-    model: null                          # DOC_REVIEW_MODEL
+    model: claude-haiku-4-5-20251001     # DOC_REVIEW_MODEL (smallest)
     max_context_size: null               # DOC_REVIEW_MAX_CONTEXT_SIZE
 
   # Domain Expert signature
   domain_analysis:
-    enabled: true                       # DOMAIN_ANALYSIS_ENABLED
-    max_iters: 6                      # DOMAIN_ANALYSIS_MAX_ITERS
-    model: null                          # DOMAIN_ANALYSIS_MODEL
+    enabled: true                        # DOMAIN_ANALYSIS_ENABLED
+    max_iters: 6                         # DOMAIN_ANALYSIS_MAX_ITERS
+    model: claude-sonnet-4-5-20250929    # DOMAIN_ANALYSIS_MODEL (Haiku 4.5)
     max_context_size: null               # DOMAIN_ANALYSIS_MAX_CONTEXT_SIZE
 
   # Scope Identifier signature
   scope_identification:
     enabled: true                        # SCOPE_IDENTIFICATION_ENABLED
     max_iters: 10                        # SCOPE_IDENTIFICATION_MAX_ITERS
-    model: null                          # SCOPE_IDENTIFICATION_MODEL
+    model: claude-opus-4-5-20251101      # SCOPE_IDENTIFICATION_MODEL (Sonnet 4.5)
     max_context_size: null               # SCOPE_IDENTIFICATION_MAX_CONTEXT_SIZE
 
   # Deduplicator signature
   deduplication:
     enabled: true                        # DEDUPLICATION_ENABLED
-    model: gpt-3.5-turbo                 # DEDUPLICATION_MODEL
+    model: claude-haiku-4-5-20251001     # DEDUPLICATION_MODEL (smallest)
     max_context_size: null               # DEDUPLICATION_MAX_CONTEXT_SIZE
 
   # Summarizer signature
   summarization:
     enabled: true                        # SUMMARIZATION_ENABLED
-    model: gpt-3.5-turbo                 # SUMMARIZATION_MODEL
+    model: claude-haiku-4-5-20251001     # SUMMARIZATION_MODEL (smallest)
     max_context_size: null               # SUMMARIZATION_MAX_CONTEXT_SIZE
 
 # ============================================================================

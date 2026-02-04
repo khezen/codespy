@@ -250,7 +250,7 @@ class Settings(BaseSettings):
     signatures: dict[str, SignatureConfig] = Field(default_factory=dict)
 
     # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
-    default_model: str = "gpt-4o"
+    default_model: str = "gpt-5"
     default_max_iters: int = 10
     default_max_context_size: int = 50000
 

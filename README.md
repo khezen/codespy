@@ -79,30 +79,30 @@ cp codespy.example.yaml codespy.yaml  # Optional, for advanced config
 
 2. **LLM Provider** - Choose one:
 
-   **OpenAI:**
+   **Anthropic:**
    ```bash
-   DEFAULT_MODEL=gpt-4o
-   OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
+   DEFAULT_MODEL=claude-sonnet-4-5-20250929
+   ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
    ```
 
    **AWS Bedrock:**
    ```bash
-   DEFAULT_MODEL=bedrock/anthropic.claude-3-sonnet-20240229-v1:0
+   DEFAULT_MODEL=bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
    AWS_REGION=us-east-1
    # Uses ~/.aws/credentials by default, or set explicitly:
    # AWS_ACCESS_KEY_ID=...
    # AWS_SECRET_ACCESS_KEY=...
    ```
 
-   **Anthropic (direct):**
+   **OpenAI:**
    ```bash
-   DEFAULT_MODEL=claude-3-opus-20240229
-   ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
+   DEFAULT_MODEL=gpt-5
+   OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
    ```
 
    **Google Gemini:**
    ```bash
-   DEFAULT_MODEL=gemini/gemini-1.5-pro
+   DEFAULT_MODEL=gemini/gemini-2.5-pro
    GEMINI_API_KEY=xxxxxxxxxxxxxxxxxxxx
    ```
 
@@ -119,7 +119,7 @@ For per-module settings, use `codespy.yaml`:
 # codespy.yaml
 
 # Default settings for all modules
-default_model: gpt-4o             # Also settable via DEFAULT_MODEL env var
+default_model: claude-sonnet-4-5-20250929  # Also settable via DEFAULT_MODEL env var
 default_max_iters: 10
 default_max_context_size: 50000
 
@@ -138,7 +138,7 @@ modules:
     max_iters: 30               # More iterations for deep exploration
 
   deduplicator:
-    model: gpt-3.5-turbo        # Cheaper model for simple task
+    model: claude-haiku-4-5-20251001  # Smaller model for simple task
 
 output_format: markdown
 ```
@@ -147,7 +147,7 @@ Override YAML settings via environment variables using `_` separator:
 
 ```bash
 # Default settings
-export DEFAULT_MODEL=gpt-4o
+export DEFAULT_MODEL=claude-sonnet-4-5-20250929
 export DEFAULT_MAX_ITERS=20
 
 # Per-module settings
@@ -169,7 +169,7 @@ codespy review https://github.com/owner/repo/pull/123
 codespy review https://github.com/owner/repo/pull/123 --output json
 
 # Use a specific model
-codespy review https://github.com/owner/repo/pull/123 --model bedrock/anthropic.claude-3-sonnet-20240229-v1:0
+codespy review https://github.com/owner/repo/pull/123 --model claude-opus-4-5-20251101
 
 # Skip codebase context analysis
 codespy review https://github.com/owner/repo/pull/123 --no-with-context
@@ -193,8 +193,8 @@ docker compose run codespy review https://github.com/owner/repo/pull/123
 # With docker run
 docker run --rm \
   -e GITHUB_TOKEN=$GITHUB_TOKEN \
-  -e LITELLM_MODEL=gpt-4o \
-  -e OPENAI_API_KEY=$OPENAI_API_KEY \
+  -e DEFAULT_MODEL=claude-sonnet-4-5-20250929 \
+  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
   codespy review https://github.com/owner/repo/pull/123
 ```
 
@@ -207,7 +207,7 @@ docker run --rm \
 
 **PR:** [owner/repo#123](https://github.com/owner/repo/pull/123)
 **Reviewed at:** 2024-01-15 10:30 UTC
-**Model:** gpt-4o
+**Model:** claude-sonnet-4-5-20250929
 
 ## Summary
 
