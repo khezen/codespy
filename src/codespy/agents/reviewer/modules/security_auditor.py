@@ -83,6 +83,55 @@ class CodeSecuritySignature(dspy.Signature):
     )
 
 
+class ArtifactSecuritySignature(dspy.Signature):
+    """Analyze security-relevant artifacts like Dockerfiles for security issues.
+
+    You are a security expert reviewing container configuration files.
+    You have access to tools to read files and explore the codebase.
+
+    DOCKERFILE SECURITY CHECKS:
+    For Dockerfiles, look for these verified security issues:
+    - Running as root: Missing USER instruction or explicit USER root
+    - Secrets in build: Hardcoded passwords, API keys, tokens in ENV or ARG
+    - Insecure base images: Using :latest tag, unverified base images
+    - Package manager issues: Not pinning versions, not cleaning cache
+    - COPY/ADD risks: Copying sensitive files (.env, credentials, private keys)
+    - Exposed ports: Unnecessary exposed ports
+    - Shell injection: Unquoted variables in RUN commands
+    - Privilege escalation: Unnecessary --privileged or capabilities
+
+    VERIFICATION:
+    - Use read_file to examine the artifact content
+    - Check for actual security issues, not hypotheticals
+    - Verify base images and their security status if needed
+
+    For each issue, provide:
+    - A clear title
+    - Severity (critical, high, medium, low, info)
+    - Detailed description
+    - The affected line/section
+    - A suggested fix
+    - CWE ID if applicable (e.g., CWE-250 for privilege issues)
+    """
+
+    artifact_path: str = dspy.InputField(
+        desc="Path to the artifact file (e.g., Dockerfile)"
+    )
+    artifact_type: str = dspy.InputField(
+        desc="Type of artifact (e.g., 'dockerfile')"
+    )
+    artifact_content: str = dspy.InputField(
+        desc="Full content of the artifact file"
+    )
+    category: IssueCategory = dspy.InputField(
+        desc="Category for all issues (use this value for the 'category' field)"
+    )
+
+    issues: list[Issue] = dspy.OutputField(
+        desc="VERIFIED security issues found. Empty list if none confirmed."
+    )
+
+
 class DependencySecuritySignature(dspy.Signature):
     """Analyze package dependencies for known security vulnerabilities using OSV database.
 
@@ -236,7 +285,42 @@ class SecurityAuditor(dspy.Module):
                     except Exception as e:
                         logger.error(f"Error analyzing {file.filename}: {e}")
 
-            # 2. Run dependency security analysis for each scope with package manifest
+            # 2. Run artifact security analysis (Dockerfiles, etc.)
+            artifact_security_agent = dspy.ReAct(
+                signature=ArtifactSecuritySignature,
+                tools=tools,
+                max_iters=5,
+            )
+            for scope in scopes:
+                for artifact in scope.artifacts:
+                    if not artifact.has_changes:
+                        logger.debug(f"Skipping unchanged artifact {artifact.path}")
+                        continue
+                    try:
+                        # Read artifact content
+                        artifact_full_path = repo_path / artifact.path
+                        if artifact_full_path.exists():
+                            artifact_content = artifact_full_path.read_text()
+                        else:
+                            logger.warning(f"Artifact file not found: {artifact.path}")
+                            continue
+
+                        result = await artifact_security_agent.acall(
+                            artifact_path=artifact.path,
+                            artifact_type=artifact.artifact_type,
+                            artifact_content=artifact_content,
+                            category=self.category,
+                        )
+                        issues = [
+                            issue for issue in result.issues
+                            if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                        ]
+                        all_issues.extend(issues)
+                        logger.debug(f"  Artifact security in {artifact.path}: {len(issues)} issues")
+                    except Exception as e:
+                        logger.error(f"Error analyzing artifact {artifact.path}: {e}")
+
+            # 3. Run dependency security analysis for each scope with package manifest
             for scope in scopes:
                 if not scope.package_manifest:
                     continue

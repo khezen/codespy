@@ -8,7 +8,7 @@ from typing import Any
 import dspy  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
-from codespy.agents.reviewer.models import PackageManifest, ScopeResult, ScopeType
+from codespy.agents.reviewer.models import Artifact, PackageManifest, ScopeResult, ScopeType
 from codespy.tools.github.models import ChangedFile, PullRequest
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
@@ -37,6 +37,9 @@ class ScopeAssignment(BaseModel):
     language: str | None = Field(default=None, description="Primary language detected")
     package_manifest: PackageManifest | None = Field(
         default=None, description="Package manifest info if present"
+    )
+    artifacts: list[Artifact] = Field(
+        default_factory=list, description="Security-relevant artifacts found in this scope (e.g., Dockerfile)"
     )
     changed_files: list[str] = Field(
         default_factory=list, description="Changed file paths belonging to this scope"
@@ -95,6 +98,13 @@ class ScopeIdentifierSignature(dspy.Signature):
     - go.mod (go) with lock file: go.sum
     - Cargo.toml (cargo) with lock file: Cargo.lock
     - pom.xml (maven), build.gradle (gradle), composer.json (composer), Gemfile (bundler)
+
+    SECURITY-RELEVANT ARTIFACTS TO DETECT:
+    Look for these files in each scope and add them to the artifacts list:
+    - Dockerfile, Containerfile (artifact_type: "dockerfile")
+      * Files named: Dockerfile, Dockerfile.*, *.Dockerfile, Containerfile
+      * Often found at scope root or in docker/, build/ directories
+    For each artifact found, set has_changes=true if the file is in the PR changed files list.
 
     CRITICAL RULES:
     1. EVERY changed file must be assigned to exactly ONE scope
@@ -225,6 +235,7 @@ class ScopeIdentifier(dspy.Module):
                 confidence=assignment.confidence,
                 language=assignment.language,
                 package_manifest=assignment.package_manifest,
+                artifacts=assignment.artifacts,
                 changed_files=changed_files,
                 reason=assignment.reason,
             ))
