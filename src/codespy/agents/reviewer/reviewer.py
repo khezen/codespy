@@ -5,11 +5,11 @@ from pathlib import Path
 
 import dspy  # type: ignore[import-untyped]
 
-from codespy.agents import ModuleContext, configure_dspy, get_cost_tracker, verify_model_access
+from codespy.agents import SignatureContext, configure_dspy, get_cost_tracker, verify_model_access
 from codespy.config import Settings, get_settings
 from codespy.tools.github.client import GitHubClient
 from codespy.tools.github.models import ChangedFile, PullRequest
-from codespy.agents.reviewer.models import Issue, ModuleStatsResult, ReviewResult
+from codespy.agents.reviewer.models import Issue, SignatureStatsResult, ReviewResult
 from codespy.agents.reviewer.modules import (
     BugDetector,
     DomainExpert,
@@ -62,15 +62,13 @@ class ReviewPipeline(dspy.Module):
         self.cost_tracker = get_cost_tracker()
         configure_dspy(self.settings)
 
-        # Initialize modules based on config
-        modules_config = self.settings.modules
-
-        self.scope_identifier = ScopeIdentifier() if modules_config.is_enabled("scope_identifier") else None
-        self.security_auditor = SecurityAuditor() if modules_config.is_enabled("security_auditor") else None
-        self.bug_detector = BugDetector() if modules_config.is_enabled("bug_detector") else None
-        self.doc_reviewer = DocumentationReviewer() if modules_config.is_enabled("doc_reviewer") else None
-        self.domain_expert = DomainExpert() if modules_config.is_enabled("domain_expert") else None
-        self.deduplicator = IssueDeduplicator() if modules_config.is_enabled("deduplicator") else None
+        # Initialize all modules - they internally check if their signatures are enabled
+        self.scope_identifier = ScopeIdentifier()
+        self.security_auditor = SecurityAuditor()
+        self.bug_detector = BugDetector()
+        self.doc_reviewer = DocumentationReviewer()
+        self.domain_expert = DomainExpert()
+        self.deduplicator = IssueDeduplicator()
 
     def _verify_model_access(self) -> None:
         """Verify LLM model access."""
@@ -102,95 +100,70 @@ class ReviewPipeline(dspy.Module):
         pr = self._fetch_pr(pr_url)
         repo_path = self._get_repo_path(pr)
 
-        # Identify scopes (required for other modules)
-        if self.scope_identifier:
-            logger.info("Identifying code scopes...")
-            scopes = self.scope_identifier(pr, repo_path)
-            for scope in scopes:
-                logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
-        else:
-            # Fallback: single scope with all files
-            from codespy.agents.reviewer.models import ScopeResult, ScopeType
-            scopes = [ScopeResult(
-                subroot=".",
-                scope_type=ScopeType.APPLICATION,
-                has_changes=True,
-                is_dependency=False,
-                confidence=0.5,
-                language=None,
-                package_manifest=None,
-                changed_files=list(pr.changed_files),
-                reason="Scope identifier disabled",
-            )]
-            logger.info("Scope identifier disabled, using single scope for all files")
+        # Identify scopes (the module internally checks if signature is enabled)
+        logger.info("Identifying code scopes...")
+        scopes = self.scope_identifier(pr, repo_path)
+        for scope in scopes:
+            logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
 
-        # Build list of enabled review modules
+        # Build list of review modules (they check signature enabled status internally)
         all_issues: list[Issue] = []
-        exec_pairs = []
-        enabled_modules = []
+        exec_pairs = [
+            (self.bug_detector, {"scopes": scopes, "repo_path": repo_path}),
+            (self.security_auditor, {"scopes": scopes, "repo_path": repo_path}),
+            (self.doc_reviewer, {"scopes": scopes, "repo_path": repo_path}),
+            (self.domain_expert, {"scopes": scopes, "repo_path": repo_path}),
+        ]
+        module_names = ["bug_detector", "security_auditor", "doc_reviewer", "domain_expert"]
 
-        if self.bug_detector:
-            exec_pairs.append((self.bug_detector, {"scopes": scopes, "repo_path": repo_path}))
-            enabled_modules.append("bug_detector")
-        if self.security_auditor:
-            exec_pairs.append((self.security_auditor, {"scopes": scopes, "repo_path": repo_path}))
-            enabled_modules.append("security_auditor")
-        if self.doc_reviewer:
-            exec_pairs.append((self.doc_reviewer, {"scopes": scopes, "repo_path": repo_path}))
-            enabled_modules.append("doc_reviewer")
-        if self.domain_expert:
-            exec_pairs.append((self.domain_expert, {"scopes": scopes, "repo_path": repo_path}))
-            enabled_modules.append("domain_expert")
-
-        if not exec_pairs:
-            logger.warning("No review modules enabled!")
-        else:
-            logger.info(f"Running review modules in parallel: {', '.join(enabled_modules)}...")
+        logger.info(f"Running review modules in parallel: {', '.join(module_names)}...")
         # Execute in parallel with error handling
         if exec_pairs:
             parallel = dspy.Parallel(num_threads=len(exec_pairs), return_failed_examples=True, provide_traceback=True)
             results, failed_examples, exceptions = parallel(exec_pairs)
             # Log any failures
             for i, (failed, exc) in enumerate(zip(failed_examples, exceptions)):
-                if failed is not None:
-                    # Find which module failed by checking the failed example
-                    for j, (module, inputs) in enumerate(exec_pairs):
-                        if inputs == failed:
-                            logger.error(f"{module} failed: {exc}")
-                            break
+                if failed is not None and exc is not None:
+                    logger.error(f"{module_names[i]} failed: {exc}")
             # Aggregate successful results
             for result in results:
                 if result is not None:
                     all_issues.extend(result)
             logger.info(f"Found {len(all_issues)} issues before deduplication")
 
-        # Deduplicate issues across reviewers
-        if self.deduplicator and all_issues:
+        # Deduplicate issues across reviewers (deduplicator checks if enabled internally)
+        if all_issues:
             logger.info("Deduplicating issues...")
             all_issues = self.deduplicator(all_issues)
             logger.info(f"After deduplication: {len(all_issues)} unique issues")
         # Generate summary, quality assessment, and recommendation
-        logger.info("Generating PR summary...")
-        try:
-            summarizer = dspy.ChainOfThought(PRSummarySignature)
-            # Track the summarizer module's costs
-            with ModuleContext("summarizer", self.cost_tracker):
-                result = summarizer(
-                    pr_title=pr.title,
-                    pr_description=pr.body or "No description provided.",
-                    changed_files=pr.changed_files,
-                    all_issues=all_issues,
-                )
-            summary = result.summary
-            quality_assessment = result.quality_assessment
-            recommendation = result.recommendation
-        except Exception as e:
-            logger.error(f"Failed to generate summary: {e}")
+        if self.settings.is_signature_enabled("summarization"):
+            logger.info("Generating PR summary...")
+            try:
+                summarizer = dspy.ChainOfThought(PRSummarySignature)
+                # Track the summarization signature's costs
+                with SignatureContext("summarization", self.cost_tracker):
+                    result = summarizer(
+                        pr_title=pr.title,
+                        pr_description=pr.body or "No description provided.",
+                        changed_files=pr.changed_files,
+                        all_issues=all_issues,
+                    )
+                summary = result.summary
+                quality_assessment = result.quality_assessment
+                recommendation = result.recommendation
+            except Exception as e:
+                logger.error(f"Failed to generate summary: {e}")
+                summary = f"Reviewed {len(pr.changed_files)} files with {len(all_issues)} issues."
+                quality_assessment = "Unable to assess due to error."
+                recommendation = "NEEDS_DISCUSSION: Summary generation failed."
+        else:
+            logger.debug("Skipping summarization: disabled")
             summary = f"Reviewed {len(pr.changed_files)} files with {len(all_issues)} issues."
-            quality_assessment = "Unable to assess due to error."
-            recommendation = "NEEDS_DISCUSSION: Summary generation failed."
-        # Collect per-module statistics
-        module_stats_list = self._collect_module_stats()
+            quality_assessment = "Summarization disabled."
+            recommendation = "NEEDS_DISCUSSION" if all_issues else "APPROVE"
+        # Collect per-signature statistics
+        signature_stats_list = self._collect_signature_stats()
         
         return ReviewResult(
             pr_number=pr.number,
@@ -205,21 +178,21 @@ class ReviewPipeline(dspy.Module):
             total_cost=self.cost_tracker.total_cost,
             total_tokens=self.cost_tracker.total_tokens,
             llm_calls=self.cost_tracker.call_count,
-            module_stats=module_stats_list,
+            signature_stats=signature_stats_list,
         )
 
-    def _collect_module_stats(self) -> list[ModuleStatsResult]:
-        """Collect statistics from all modules that executed.
+    def _collect_signature_stats(self) -> list[SignatureStatsResult]:
+        """Collect statistics from all signatures that executed.
         
         Returns:
-            List of ModuleStatsResult for each module that ran
+            List of SignatureStatsResult for each signature that ran
         """
-        stats_list: list[ModuleStatsResult] = []
-        all_module_stats = self.cost_tracker.get_all_module_stats()
+        stats_list: list[SignatureStatsResult] = []
+        all_signature_stats = self.cost_tracker.get_all_signature_stats()
         
-        for module_name, stats in all_module_stats.items():
-            stats_list.append(ModuleStatsResult(
-                name=module_name,
+        for signature_name, stats in all_signature_stats.items():
+            stats_list.append(SignatureStatsResult(
+                name=signature_name,
                 cost=stats.cost,
                 tokens=stats.tokens,
                 call_count=stats.call_count,

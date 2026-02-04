@@ -117,13 +117,13 @@ class Issue(BaseModel):
             return f"{self.filename}:{self.line_start}"
         return self.filename
 
-class ModuleStatsResult(BaseModel):
-    """Statistics for a single module's execution during review."""
+class SignatureStatsResult(BaseModel):
+    """Statistics for a single signature's execution during review."""
 
-    name: str = Field(description="Module name (e.g., bug_detector, security_auditor)")
-    cost: float = Field(default=0.0, description="Cost in USD for this module")
-    tokens: int = Field(default=0, description="Tokens used by this module")
-    call_count: int = Field(default=0, description="Number of LLM calls made by this module")
+    name: str = Field(description="Signature name (e.g., bug_detection, code_security)")
+    cost: float = Field(default=0.0, description="Cost in USD for this signature")
+    tokens: int = Field(default=0, description="Tokens used by this signature")
+    call_count: int = Field(default=0, description="Number of LLM calls made by this signature")
     duration_seconds: float = Field(default=0.0, description="Execution time in seconds")
 
     @property
@@ -167,8 +167,8 @@ class ReviewResult(BaseModel):
     total_cost: float = Field(default=0.0, description="Total cost in USD")
     total_tokens: int = Field(default=0, description="Total tokens used")
     llm_calls: int = Field(default=0, description="Number of LLM calls made")
-    module_stats: list[ModuleStatsResult] = Field(
-        default_factory=list, description="Per-module statistics (cost, tokens, time)"
+    signature_stats: list[SignatureStatsResult] = Field(
+        default_factory=list, description="Per-signature statistics (cost, tokens, time)"
     )
 
     @property
@@ -251,15 +251,15 @@ class ReviewResult(BaseModel):
                 "",
             ])
 
-            # Per-module breakdown
-            if self.module_stats:
+            # Per-signature breakdown
+            if self.signature_stats:
                 lines.extend([
-                    "### Per-Module Breakdown",
+                    "### Per-Signature Breakdown",
                     "",
-                    "| Module | Cost | Tokens | Calls | Duration |",
-                    "|--------|------|--------|-------|----------|",
+                    "| Signature | Cost | Tokens | Calls | Duration |",
+                    "|-----------|------|--------|-------|----------|",
                 ])
-                for stats in sorted(self.module_stats, key=lambda x: x.cost, reverse=True):
+                for stats in sorted(self.signature_stats, key=lambda x: x.cost, reverse=True):
                     duration_str = f"{stats.duration_seconds:.1f}s"
                     lines.append(
                         f"| {stats.name} | ${stats.cost:.4f} | {stats.tokens:,} | {stats.call_count} | {duration_str} |"

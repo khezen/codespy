@@ -7,7 +7,7 @@ from typing import Any, Sequence
 
 import dspy  # type: ignore[import-untyped]
 
-from codespy.agents import ModuleContext, get_cost_tracker
+from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import is_speculative, MIN_CONFIDENCE
 from codespy.config import get_settings
@@ -170,7 +170,6 @@ class SecurityAuditor(dspy.Module):
     """Analyzes code for security vulnerabilities using DSPy."""
 
     category = IssueCategory.SECURITY
-    MODULE_NAME = "security_auditor"
 
     def __init__(self) -> None:
         """Initialize the security auditor."""
@@ -240,43 +239,53 @@ class SecurityAuditor(dspy.Module):
         all_issues: list[Issue] = []
         tools, contexts = await self._create_mcp_tools(repo_path)
 
-        # Get max_iters from config
-        max_iters = self._settings.get_effective_max_iters(self.MODULE_NAME)
+        # Check which signatures are enabled
+        code_security_enabled = self._settings.is_signature_enabled("code_security")
+        supply_chain_enabled = self._settings.is_signature_enabled("supply_chain")
 
-        # Create ReAct agents with code exploration tools
-        code_security_agent = dspy.ReAct(
-            signature=CodeSecuritySignature,
-            tools=tools,
-            max_iters=max_iters,
-        )
-        supply_chain_agent = dspy.ReAct(
-            signature=SupplyChainSecuritySignature,
-            tools=tools,
-            max_iters=max_iters,
-        )
+        # Create ReAct agents with per-signature config
+        code_security_agent = None
+        supply_chain_agent = None
+
+        if code_security_enabled:
+            code_security_max_iters = self._settings.get_max_iters("code_security")
+            code_security_agent = dspy.ReAct(
+                signature=CodeSecuritySignature,
+                tools=tools,
+                max_iters=code_security_max_iters,
+            )
+
+        if supply_chain_enabled:
+            supply_chain_max_iters = self._settings.get_max_iters("supply_chain")
+            supply_chain_agent = dspy.ReAct(
+                signature=SupplyChainSecuritySignature,
+                tools=tools,
+                max_iters=supply_chain_max_iters,
+            )
 
         try:
-            # Use ModuleContext to track costs and timing for this module
-            async with ModuleContext(self.MODULE_NAME, self._cost_tracker):
-                for scope in scopes:
-                    # 1. Run code security analysis if there are changed files
-                    if scope.changed_files:
-                        try:
-                            logger.debug(f"Analyzing scope {scope.subroot} with {len(scope.changed_files)} files")
+            for scope in scopes:
+                # 1. Run code security analysis if enabled and there are changed files
+                if code_security_agent and scope.changed_files:
+                    try:
+                        logger.debug(f"Analyzing scope {scope.subroot} with {len(scope.changed_files)} files")
+                        # Track code_security signature costs separately
+                        async with SignatureContext("code_security", self._cost_tracker):
                             result = await code_security_agent.acall(
                                 scope=scope,
                                 category=self.category,
                             )
-                            issues = [
-                                issue for issue in result.issues
-                                if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-                            ]
-                            all_issues.extend(issues)
-                            logger.debug(f"  Code security in scope {scope.subroot}: {len(issues)} issues")
-                        except Exception as e:
-                            logger.error(f"Error analyzing scope {scope.subroot}: {e}")
+                        issues = [
+                            issue for issue in result.issues
+                            if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                        ]
+                        all_issues.extend(issues)
+                        logger.debug(f"  Code security in scope {scope.subroot}: {len(issues)} issues")
+                    except Exception as e:
+                        logger.error(f"Error analyzing scope {scope.subroot}: {e}")
 
-                    # 2. Run supply chain security analysis (artifacts + dependencies)
+                # 2. Run supply chain security analysis if enabled (artifacts + dependencies)
+                if supply_chain_agent:
                     # Collect changed artifacts with their content
                     artifacts_data: list[dict] = []
                     for artifact in scope.artifacts:
@@ -298,13 +307,15 @@ class SecurityAuditor(dspy.Module):
                                 f"Analyzing supply chain in scope {scope.subroot}: "
                                 f"{len(artifacts_data)} artifacts, manifest={bool(manifest_path)}"
                             )
-                            result = await supply_chain_agent.acall(
-                                artifacts=artifacts_data,
-                                manifest_path=manifest_path,
-                                lock_file_path=lock_file_path,
-                                package_manager=package_manager,
-                                category=self.category,
-                            )
+                            # Track supply_chain signature costs separately
+                            async with SignatureContext("supply_chain", self._cost_tracker):
+                                result = await supply_chain_agent.acall(
+                                    artifacts=artifacts_data,
+                                    manifest_path=manifest_path,
+                                    lock_file_path=lock_file_path,
+                                    package_manager=package_manager,
+                                    category=self.category,
+                                )
                             issues = [
                                 issue for issue in result.issues
                                 if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)

@@ -42,7 +42,7 @@ def configure_dspy(settings: Settings) -> None:
 def verify_model_access(settings: Settings) -> tuple[bool, str]:
     """Verify that all configured models are accessible.
 
-    Checks the default model and all per-module model overrides.
+    Checks the default model and all per-signature model overrides.
 
     Args:
         settings: Application settings containing model configuration.
@@ -53,14 +53,10 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
     # Collect all unique models from config
     models_to_check: set[str] = {settings.default_model}
     
-    module_names = [
-        "security_auditor", "bug_detector", "doc_reviewer", 
-        "domain_expert", "scope_identifier", "deduplicator", "summarizer"
-    ]
-    for module_name in module_names:
-        config = settings.modules.get_module_config(module_name)
-        if config.model:
-            models_to_check.add(config.model)
+    # Check all signature-specific models
+    for sig_name, sig_config in settings.signatures.items():
+        if sig_config.model:
+            models_to_check.add(sig_config.model)
     
     # Check each model
     verified: list[str] = []

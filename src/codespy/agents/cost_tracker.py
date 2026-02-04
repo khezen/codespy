@@ -1,6 +1,6 @@
-"""Thread-safe cost tracking for LLM calls with per-module attribution.
+"""Thread-safe cost tracking for LLM calls with per-signature attribution.
 
-Uses DSPy's internal LM history mechanism for reliable per-module attribution,
+Uses DSPy's internal LM history mechanism for reliable per-signature attribution,
 even during parallel execution with dspy.Parallel.
 """
 
@@ -13,8 +13,8 @@ import dspy  # type: ignore[import-untyped]
 
 
 @dataclass
-class ModuleStats:
-    """Statistics for a single module's LLM usage."""
+class SignatureStats:
+    """Statistics for a single signature's LLM usage."""
 
     name: str
     cost: float = 0.0
@@ -43,47 +43,47 @@ class ModuleStats:
 
 
 class CostTracker:
-    """Track LLM costs across multiple calls with per-module attribution.
+    """Track LLM costs across multiple calls with per-signature attribution.
     
-    Uses DSPy's LM history for per-module tracking, which works reliably
+    Uses DSPy's LM history for per-signature tracking, which works reliably
     even during parallel execution.
     """
 
     def __init__(self) -> None:
         """Initialize the cost tracker."""
         self._lock = threading.Lock()
-        self._module_stats: dict[str, ModuleStats] = {}
+        self._signature_stats: dict[str, SignatureStats] = {}
 
     def reset(self) -> None:
         """Reset all tracking."""
         with self._lock:
-            self._module_stats.clear()
+            self._signature_stats.clear()
 
-    def start_module(self, module_name: str) -> None:
-        """Mark the start of a module's execution.
+    def start_signature(self, signature_name: str) -> None:
+        """Mark the start of a signature's execution.
         
         Args:
-            module_name: Name of the module starting execution
+            signature_name: Name of the signature starting execution
         """
         with self._lock:
-            if module_name not in self._module_stats:
-                self._module_stats[module_name] = ModuleStats(name=module_name)
-            self._module_stats[module_name].start_time = time.time()
-            self._module_stats[module_name].end_time = None
+            if signature_name not in self._signature_stats:
+                self._signature_stats[signature_name] = SignatureStats(name=signature_name)
+            self._signature_stats[signature_name].start_time = time.time()
+            self._signature_stats[signature_name].end_time = None
 
-    def end_module(self, module_name: str, cost: float, tokens: int, call_count: int) -> None:
-        """Mark the end of a module's execution with its costs.
+    def end_signature(self, signature_name: str, cost: float, tokens: int, call_count: int) -> None:
+        """Mark the end of a signature's execution with its costs.
         
         Args:
-            module_name: Name of the module ending execution
-            cost: Total cost for this module's LLM calls
-            tokens: Total tokens used by this module
-            call_count: Number of LLM calls made by this module
+            signature_name: Name of the signature ending execution
+            cost: Total cost for this signature's LLM calls
+            tokens: Total tokens used by this signature
+            call_count: Number of LLM calls made by this signature
         """
         with self._lock:
-            if module_name not in self._module_stats:
-                self._module_stats[module_name] = ModuleStats(name=module_name)
-            stats = self._module_stats[module_name]
+            if signature_name not in self._signature_stats:
+                self._signature_stats[signature_name] = SignatureStats(name=signature_name)
+            stats = self._signature_stats[signature_name]
             stats.end_time = time.time()
             stats.cost += cost
             stats.tokens += tokens
@@ -91,50 +91,50 @@ class CostTracker:
 
     @property
     def total_cost(self) -> float:
-        """Get total cost in USD across all modules."""
+        """Get total cost in USD across all signatures."""
         with self._lock:
-            return sum(s.cost for s in self._module_stats.values())
+            return sum(s.cost for s in self._signature_stats.values())
 
     @property
     def total_tokens(self) -> int:
-        """Get total tokens used across all modules."""
+        """Get total tokens used across all signatures."""
         with self._lock:
-            return sum(s.tokens for s in self._module_stats.values())
+            return sum(s.tokens for s in self._signature_stats.values())
 
     @property
     def call_count(self) -> int:
-        """Get total number of LLM calls across all modules."""
+        """Get total number of LLM calls across all signatures."""
         with self._lock:
-            return sum(s.call_count for s in self._module_stats.values())
+            return sum(s.call_count for s in self._signature_stats.values())
 
-    def get_module_stats(self, module_name: str) -> Optional[ModuleStats]:
-        """Get stats for a specific module.
+    def get_signature_stats(self, signature_name: str) -> Optional[SignatureStats]:
+        """Get stats for a specific signature.
         
         Args:
-            module_name: Name of the module
+            signature_name: Name of the signature
             
         Returns:
-            ModuleStats or None if module not found
+            SignatureStats or None if signature not found
         """
         with self._lock:
-            return self._module_stats.get(module_name)
+            return self._signature_stats.get(signature_name)
 
-    def get_all_module_stats(self) -> dict[str, ModuleStats]:
-        """Get stats for all modules.
+    def get_all_signature_stats(self) -> dict[str, SignatureStats]:
+        """Get stats for all signatures.
         
         Returns:
-            Dictionary of module name to ModuleStats
+            Dictionary of signature name to SignatureStats
         """
         with self._lock:
             # Return a copy to avoid concurrent modification issues
-            return {k: ModuleStats(
+            return {k: SignatureStats(
                 name=v.name,
                 cost=v.cost,
                 tokens=v.tokens,
                 call_count=v.call_count,
                 start_time=v.start_time,
                 end_time=v.end_time,
-            ) for k, v in self._module_stats.items()}
+            ) for k, v in self._signature_stats.items()}
 
 
 def _get_history_entries() -> list[dict]:
@@ -196,37 +196,37 @@ def _calculate_costs_from_entries(entries: list[dict], exclude_uuids: set[str]) 
     return total_cost, total_tokens, call_count
 
 
-class ModuleContext:
-    """Context manager for tracking module execution.
+class SignatureContext:
+    """Context manager for tracking signature execution.
     
     Uses DSPy's LM history mechanism to track costs reliably, even during
     parallel execution with dspy.Parallel. Works by:
-    1. Recording history UUIDs before module execution
+    1. Recording history UUIDs before signature execution
     2. After execution, finding new entries (by UUID)
     3. Summing costs/tokens from new entries
     
     Usage:
-        with ModuleContext("bug_detector", cost_tracker):
-            # All LLM calls here will be attributed to bug_detector
+        with SignatureContext("bug_detection", cost_tracker):
+            # All LLM calls here will be attributed to bug_detection
             result = await agent.acall(...)
     """
     
-    def __init__(self, module_name: str, tracker: "CostTracker") -> None:
-        """Initialize the module context.
+    def __init__(self, signature_name: str, tracker: "CostTracker") -> None:
+        """Initialize the signature context.
         
         Args:
-            module_name: Name of the module
+            signature_name: Name of the signature
             tracker: CostTracker instance
         """
-        self.module_name = module_name
+        self.signature_name = signature_name
         self.tracker = tracker
         self._before_uuids: set[str] = set()
 
-    def __enter__(self) -> "ModuleContext":
+    def __enter__(self) -> "SignatureContext":
         """Enter the context, capturing current history state."""
-        # Capture UUIDs of entries that exist before module execution
+        # Capture UUIDs of entries that exist before signature execution
         self._before_uuids = _get_history_uuids()
-        self.tracker.start_module(self.module_name)
+        self.tracker.start_signature(self.signature_name)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -235,9 +235,9 @@ class ModuleContext:
         entries = _get_history_entries()
         cost, tokens, call_count = _calculate_costs_from_entries(entries, self._before_uuids)
         
-        self.tracker.end_module(self.module_name, cost, tokens, call_count)
+        self.tracker.end_signature(self.signature_name, cost, tokens, call_count)
 
-    async def __aenter__(self) -> "ModuleContext":
+    async def __aenter__(self) -> "SignatureContext":
         """Async enter the context."""
         return self.__enter__()
 

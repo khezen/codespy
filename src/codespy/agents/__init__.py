@@ -2,8 +2,8 @@
 
 from codespy.agents.cost_tracker import (
     CostTracker,
-    ModuleContext,
-    ModuleStats,
+    SignatureContext,
+    SignatureStats,
     get_cost_tracker,
 )
 from codespy.agents.dspy_config import (
@@ -13,8 +13,8 @@ from codespy.agents.dspy_config import (
 
 __all__ = [
     "CostTracker",
-    "ModuleContext",
-    "ModuleStats",
+    "SignatureContext",
+    "SignatureStats",
     "get_cost_tracker",
     "configure_dspy",
     "verify_model_access",

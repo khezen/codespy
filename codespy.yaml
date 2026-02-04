@@ -3,13 +3,12 @@
 # ENVIRONMENT VARIABLE OVERRIDES:
 # All settings can be overridden via environment variables.
 # - Flat values: <KEY> (e.g., OUTPUT_FORMAT=json, DEFAULT_MODEL=gpt-4o)
-# - Nested module values: <MODULE>_<KEY> (use single underscore)
+# - Signature values: <SIGNATURE>_<KEY>
 #   Examples:
-#     DEFAULT_MODEL=gpt-4-turbo
-#     DEFAULT_MAX_ITERS=15
-#     DOMAIN_EXPERT_MAX_ITERS=15
-#     DOC_REVIEWER_ENABLED=false
-#     LLM_AWS_REGION=us-west-2
+#     CODE_SECURITY_MAX_ITERS=15
+#     CODE_SECURITY_ENABLED=false
+#     SUPPLY_CHAIN_MODEL=gpt-4-turbo
+#     BUG_DETECTION_MAX_ITERS=10
 #
 # Priority: Environment Variables > YAML Config > Defaults
 
@@ -45,57 +44,69 @@ github:
   token: null                            # GITHUB_TOKEN (auto-discovered if not set)
 
 # ============================================================================
-# MODULES
+# SIGNATURES
 # ============================================================================
-# Each module supports: enabled, max_iters, model, max_context_size
+# Each signature config supports: enabled, max_iters, model, max_context_size
 # Set to null to use defaults
 
-# These apply to all modules unless overridden per-module
-
+# These apply to all signatures unless overridden per-signature
 default_model: gpt-4o                    # DEFAULT_MODEL
-default_max_iters: 3                    # DEFAULT_MAX_ITERS
+default_max_iters: 3                     # DEFAULT_MAX_ITERS
 default_max_context_size: 50000          # DEFAULT_MAX_CONTEXT_SIZE
 
-modules:
-  security_auditor:
-    enabled: true                        # SECURITY_AUDITOR_ENABLED
-    max_iters: null                      # SECURITY_AUDITOR_MAX_ITERS (default: 10)
-    model: null                          # SECURITY_AUDITOR_MODEL (default: default_model)
-    max_context_size: null               # SECURITY_AUDITOR_MAX_CONTEXT_SIZE
+signatures:
+  # Security Auditor signatures
+  code_security:
+    enabled: true                        # CODE_SECURITY_ENABLED
+    max_iters: null                      # CODE_SECURITY_MAX_ITERS
+    model: null                          # CODE_SECURITY_MODEL
+    max_context_size: null               # CODE_SECURITY_MAX_CONTEXT_SIZE
 
-  bug_detector:
-    enabled: true                        # BUG_DETECTOR_ENABLED
-    max_iters: null                      # BUG_DETECTOR_MAX_ITERS
-    model: null                          # BUG_DETECTOR_MODEL
-    max_context_size: null               # BUG_DETECTOR_MAX_CONTEXT_SIZE
+  supply_chain:
+    enabled: true                        # SUPPLY_CHAIN_ENABLED
+    max_iters: null                      # SUPPLY_CHAIN_MAX_ITERS
+    model: null                          # SUPPLY_CHAIN_MODEL
+    max_context_size: null               # SUPPLY_CHAIN_MAX_CONTEXT_SIZE
 
-  doc_reviewer:
-    enabled: true                        # DOC_REVIEWER_ENABLED
-    max_iters: null                        # DOC_REVIEWER_MAX_ITERS (higher for thorough docs check)
-    model: null                          # DOC_REVIEWER_MODEL
-    max_context_size: null               # DOC_REVIEWER_MAX_CONTEXT_SIZE
+  # Bug Detector signature
+  bug_detection:
+    enabled: true                        # BUG_DETECTION_ENABLED
+    max_iters: null                      # BUG_DETECTION_MAX_ITERS
+    model: null                          # BUG_DETECTION_MODEL
+    max_context_size: null               # BUG_DETECTION_MAX_CONTEXT_SIZE
 
-  domain_expert:
-    enabled: false                        # DOMAIN_EXPERT_ENABLED
-    max_iters: null                      # DOMAIN_EXPERT_MAX_ITERS (higher for deep codebase exploration)
-    model: null                          # DOMAIN_EXPERT_MODEL
-    max_context_size: null               # DOMAIN_EXPERT_MAX_CONTEXT_SIZE
+  # Doc Reviewer signature
+  doc_review:
+    enabled: true                        # DOC_REVIEW_ENABLED
+    max_iters: null                      # DOC_REVIEW_MAX_ITERS
+    model: null                          # DOC_REVIEW_MODEL
+    max_context_size: null               # DOC_REVIEW_MAX_CONTEXT_SIZE
 
-  scope_identifier:
-    enabled: true                        # SCOPE_IDENTIFIER_ENABLED
-    max_iters: 10                        # SCOPE_IDENTIFIER_MAX_ITERS
-    model: null                          # SCOPE_IDENTIFIER_MODEL
-    max_context_size: null               # SCOPE_IDENTIFIER_MAX_CONTEXT_SIZE
+  # Domain Expert signature
+  domain_analysis:
+    enabled: false                       # DOMAIN_ANALYSIS_ENABLED
+    max_iters: null                      # DOMAIN_ANALYSIS_MAX_ITERS
+    model: null                          # DOMAIN_ANALYSIS_MODEL
+    max_context_size: null               # DOMAIN_ANALYSIS_MAX_CONTEXT_SIZE
 
-  deduplicator:
-    enabled: true                        # DEDUPLICATOR_ENABLED
-    model: gpt-3.5-turbo                 # DEDUPLICATOR_MODEL (cheaper model for simple deduplication)
-    max_context_size: null               # DEDUPLICATOR_MAX_CONTEXT_SIZE
+  # Scope Identifier signature
+  scope_identification:
+    enabled: true                        # SCOPE_IDENTIFICATION_ENABLED
+    max_iters: 10                        # SCOPE_IDENTIFICATION_MAX_ITERS
+    model: null                          # SCOPE_IDENTIFICATION_MODEL
+    max_context_size: null               # SCOPE_IDENTIFICATION_MAX_CONTEXT_SIZE
 
-  summarizer:
-    enabled: true                        # SUMMARIZER_ENABLED
-    model: gpt-3.5-turbo                 # SUMMARIZER_MODEL (cheaper model for summarization)
-    max_context_size: null               # SUMMARIZER_MAX_CONTEXT_SIZE
+  # Deduplicator signature
+  deduplication:
+    enabled: true                        # DEDUPLICATION_ENABLED
+    model: gpt-3.5-turbo                 # DEDUPLICATION_MODEL
+    max_context_size: null               # DEDUPLICATION_MAX_CONTEXT_SIZE
+
+  # Summarizer signature
+  summarization:
+    enabled: true                        # SUMMARIZATION_ENABLED
+    model: gpt-3.5-turbo                 # SUMMARIZATION_MODEL
+    max_context_size: null               # SUMMARIZATION_MAX_CONTEXT_SIZE
 
 # ============================================================================
 # OUTPUT

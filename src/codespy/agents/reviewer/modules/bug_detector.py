@@ -7,7 +7,7 @@ from typing import Any, Sequence
 
 import dspy  # type: ignore[import-untyped]
 
-from codespy.agents import ModuleContext, get_cost_tracker
+from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import is_speculative, MIN_CONFIDENCE
 from codespy.config import get_settings
@@ -87,7 +87,6 @@ class BugDetector(dspy.Module):
     """Detects bugs and logic errors using DSPy with code exploration tools."""
 
     category = IssueCategory.BUG
-    MODULE_NAME = "bug_detector"
 
     def __init__(self) -> None:
         """Initialize the bug detector."""
@@ -142,10 +141,16 @@ class BugDetector(dspy.Module):
         Returns:
             List of bug issues found across all scopes
         """
+        # Check if signature is enabled
+        if not self._settings.is_signature_enabled("bug_detection"):
+            logger.debug("Skipping bug_detection: disabled")
+            return []
+
         all_issues: list[Issue] = []
         tools, contexts = await self._create_mcp_tools(repo_path)
-        # Get max_iters from config
-        max_iters = self._settings.get_effective_max_iters(self.MODULE_NAME)
+
+        # Get max_iters from signature config
+        max_iters = self._settings.get_max_iters("bug_detection")
 
         # Create ReAct agent with code exploration tools
         bug_detection_agent = dspy.ReAct(
@@ -154,26 +159,26 @@ class BugDetector(dspy.Module):
             max_iters=max_iters,
         )
         try:
-            # Use ModuleContext to track costs and timing for this module
-            async with ModuleContext(self.MODULE_NAME, self._cost_tracker):
-                for scope in scopes:
-                    if not scope.changed_files:
-                        logger.debug(f"Skipping scope {scope.subroot}: no changed files")
-                        continue
-                    try:
-                        logger.debug(f"Analyzing scope {scope.subroot} with {len(scope.changed_files)} files")
+            for scope in scopes:
+                if not scope.changed_files:
+                    logger.debug(f"Skipping scope {scope.subroot}: no changed files")
+                    continue
+                try:
+                    logger.debug(f"Analyzing scope {scope.subroot} with {len(scope.changed_files)} files")
+                    # Track bug_detection signature costs
+                    async with SignatureContext("bug_detection", self._cost_tracker):
                         result = await bug_detection_agent.acall(
                             scope=scope,
                             category=self.category,
                         )
-                        issues = [
-                            issue for issue in result.issues
-                            if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-                        ]
-                        all_issues.extend(issues)
-                        logger.debug(f"  Bugs in scope {scope.subroot}: {len(issues)} issues")
-                    except Exception as e:
-                        logger.error(f"Error analyzing scope {scope.subroot}: {e}")
+                    issues = [
+                        issue for issue in result.issues
+                        if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                    ]
+                    all_issues.extend(issues)
+                    logger.debug(f"  Bugs in scope {scope.subroot}: {len(issues)} issues")
+                except Exception as e:
+                    logger.error(f"Error analyzing scope {scope.subroot}: {e}")
         finally:
             await cleanup_mcp_contexts(contexts)
         return all_issues

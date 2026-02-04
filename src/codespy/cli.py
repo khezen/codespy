@@ -105,7 +105,7 @@ def review(
     logging.info(f"Loaded config: {settings}")
     
     # Log module configurations
-    settings.log_module_configs()
+    settings.log_signature_configs()
 
     # Override settings if provided via CLI
     if model:

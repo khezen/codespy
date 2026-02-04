@@ -7,7 +7,7 @@ from typing import Any, Sequence
 
 import dspy  # type: ignore[import-untyped]
 
-from codespy.agents import ModuleContext, get_cost_tracker
+from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -78,7 +78,6 @@ class DocumentationReviewer(dspy.Module):
     """
 
     category = IssueCategory.DOCUMENTATION
-    MODULE_NAME = "doc_reviewer"
 
     def __init__(self) -> None:
         """Initialize the documentation reviewer."""
@@ -132,6 +131,11 @@ class DocumentationReviewer(dspy.Module):
         Returns:
             List of documentation issues found
         """
+        # Check if signature is enabled
+        if not self._settings.is_signature_enabled("doc_review"):
+            logger.debug("Skipping doc_review: disabled")
+            return []
+
         # Filter to scopes that have changes
         changed_scopes = [s for s in scopes if s.has_changes and s.changed_files]
         if not changed_scopes:
@@ -140,8 +144,8 @@ class DocumentationReviewer(dspy.Module):
         all_issues: list[Issue] = []
         tools, contexts = await self._create_mcp_tools(repo_path)
         try:
-            # Get max_iters from config
-            max_iters = self._settings.get_effective_max_iters(self.MODULE_NAME)
+            # Get max_iters from signature config
+            max_iters = self._settings.get_max_iters("doc_review")
 
             agent = dspy.ReAct(
                 signature=DocumentationReviewSignature,
@@ -153,25 +157,25 @@ class DocumentationReviewer(dspy.Module):
                 f"Reviewing documentation for {len(changed_scopes)} scopes "
                 f"({total_files} changed files)..."
             )
-            # Use ModuleContext to track costs and timing for this module
-            async with ModuleContext(self.MODULE_NAME, self._cost_tracker):
-                for scope in changed_scopes:
-                    try:
+            for scope in changed_scopes:
+                try:
+                    # Track doc_review signature costs
+                    async with SignatureContext("doc_review", self._cost_tracker):
                         result = await agent.acall(
                             scope=scope,
                             category=self.category,
                         )
-                        issues = result.issues if result.issues else []
-                        # Filter to high-confidence issues
-                        filtered_issues = [
-                            issue for issue in issues if issue.confidence >= 0.7
-                        ]
-                        all_issues.extend(filtered_issues)
-                        logger.debug(
-                            f"  Documentation in {scope.subroot}: {len(filtered_issues)} issues"
-                        )
-                    except Exception as e:
-                        logger.error(f"Documentation review failed for scope {scope.subroot}: {e}")
+                    issues = result.issues if result.issues else []
+                    # Filter to high-confidence issues
+                    filtered_issues = [
+                        issue for issue in issues if issue.confidence >= 0.7
+                    ]
+                    all_issues.extend(filtered_issues)
+                    logger.debug(
+                        f"  Documentation in {scope.subroot}: {len(filtered_issues)} issues"
+                    )
+                except Exception as e:
+                    logger.error(f"Documentation review failed for scope {scope.subroot}: {e}")
             logger.info(f"Documentation review found {len(all_issues)} issues")
             return all_issues
         finally:

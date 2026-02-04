@@ -120,35 +120,13 @@ class GitHubConfig(BaseModel):
     token: str | None = Field(default=None, repr=False)
 
 
-class ModuleConfig(BaseModel):
-    """Configuration for a single review module."""
+class SignatureConfig(BaseModel):
+    """Configuration for a single signature."""
 
     enabled: bool = True
     max_iters: int | None = None
     model: str | None = None
     max_context_size: int | None = None
-
-
-class ModulesConfig(BaseModel):
-    """Configuration for all review modules."""
-
-    # Individual module configs
-    security_auditor: ModuleConfig = Field(default_factory=ModuleConfig)
-    bug_detector: ModuleConfig = Field(default_factory=ModuleConfig)
-    doc_reviewer: ModuleConfig = Field(default_factory=lambda: ModuleConfig(max_iters=15))
-    domain_expert: ModuleConfig = Field(default_factory=lambda: ModuleConfig(max_iters=30))
-    scope_identifier: ModuleConfig = Field(default_factory=lambda: ModuleConfig(max_iters=20))
-    deduplicator: ModuleConfig = Field(default_factory=lambda: ModuleConfig(model="gpt-3.5-turbo"))
-    summarizer: ModuleConfig = Field(default_factory=lambda: ModuleConfig(model="gpt-3.5-turbo"))
-
-    def get_module_config(self, module_name: str) -> ModuleConfig:
-        """Get config for a module by name."""
-        return getattr(self, module_name, ModuleConfig())
-
-    def is_enabled(self, module_name: str) -> bool:
-        """Check if a module is enabled."""
-        config = self.get_module_config(module_name)
-        return config.enabled
 
 
 def _load_yaml_config() -> dict[str, Any]:
@@ -169,70 +147,85 @@ def _load_yaml_config() -> dict[str, Any]:
     return {}
 
 
-# Known module names for env var routing (with their uppercase prefixes for matching)
-_MODULE_NAMES = {
-    "security_auditor",
-    "bug_detector",
-    "doc_reviewer",
-    "domain_expert",
-    "scope_identifier",
-    "deduplicator",
-    "summarizer",
+# Known signature names for env var routing
+_SIGNATURE_NAMES = {
+    "code_security",
+    "supply_chain",
+    "bug_detection",
+    "doc_review",
+    "domain_analysis",
+    "scope_identification",
+    "deduplication",
+    "summarization",
 }
 
-# Create uppercase prefixes for matching (e.g., "SECURITY_AUDITOR_")
-_MODULE_PREFIXES = {name.upper() + "_": name for name in _MODULE_NAMES}
+# Create uppercase prefixes for matching (e.g., "CODE_SECURITY_")
+_SIGNATURE_PREFIXES = {name.upper() + "_": name for name in _SIGNATURE_NAMES}
+
+# Known signature settings for validation
+_SIGNATURE_SETTINGS = {"enabled", "max_iters", "model", "max_context_size"}
+
+
+def _convert_env_value(value: str) -> Any:
+    """Convert environment variable string to appropriate Python type."""
+    import json
+
+    if value.lower() in ("true", "false"):
+        return value.lower() == "true"
+    elif value.isdigit():
+        return int(value)
+    elif value.startswith("[") or value.startswith("{"):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    elif value.lower() == "null" or value == "":
+        return None
+    return value
 
 
 def _apply_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
-    """Apply environment variable overrides to config for module settings only.
+    """Apply environment variable overrides to config for signature settings.
 
-    Only handles module-specific settings with known prefixes:
-    - SECURITY_AUDITOR_MAX_ITERS -> config['modules']['security_auditor']['max_iters']
-    - BUG_DETECTOR_MODEL -> config['modules']['bug_detector']['model']
+    Handles signature settings with pattern:
+    - CODE_SECURITY_MAX_ITERS -> signatures.code_security.max_iters
+    - SUPPLY_CHAIN_ENABLED -> signatures.supply_chain.enabled
 
     Top-level settings (DEFAULT_MODEL, AWS_REGION, etc.) are handled directly
     by pydantic-settings and should NOT be processed here.
     """
-    import json
-
-    for key, value in os.environ.items():
+    # Load .env file first to ensure env vars are available
+    from dotenv import dotenv_values
+    
+    env_vars = {**dotenv_values(".env"), **os.environ}  # .env + actual env vars
+    
+    for key, value in env_vars.items():
+        if value is None:
+            continue
         key_upper = key.upper()
 
-        # Only process module-specific settings
-        module_name = None
+        # Only process signature-specific settings
+        signature_name = None
         setting = None
 
-        for prefix, mod_name in _MODULE_PREFIXES.items():
+        for prefix, sig_name in _SIGNATURE_PREFIXES.items():
             if key_upper.startswith(prefix):
-                module_name = mod_name
-                setting = key[len(prefix):].lower()
+                signature_name = sig_name
+                setting = key_upper[len(prefix):].lower()
                 break
 
-        # Skip if not a module setting
-        if not module_name or not setting:
+        # Skip if not a signature setting or not a valid setting name
+        if not signature_name or setting not in _SIGNATURE_SETTINGS:
             continue
 
-        # Ensure modules dict exists
-        if "modules" not in config:
-            config["modules"] = {}
-        if module_name not in config["modules"]:
-            config["modules"][module_name] = {}
+        # Ensure signatures dict exists
+        if "signatures" not in config:
+            config["signatures"] = {}
+        if signature_name not in config["signatures"]:
+            config["signatures"][signature_name] = {}
 
-        # Set the value (with type conversion)
-        if value.lower() in ("true", "false"):
-            config["modules"][module_name][setting] = value.lower() == "true"
-        elif value.isdigit():
-            config["modules"][module_name][setting] = int(value)
-        elif value.startswith("[") or value.startswith("{"):
-            try:
-                config["modules"][module_name][setting] = json.loads(value)
-            except json.JSONDecodeError:
-                config["modules"][module_name][setting] = value
-        elif value.lower() == "null" or value == "":
-            config["modules"][module_name][setting] = None
-        else:
-            config["modules"][module_name][setting] = value
+        # Set the value
+        config["signatures"][signature_name][setting] = _convert_env_value(value)
 
     return config
 
@@ -249,7 +242,9 @@ class Settings(BaseSettings):
     # Nested config sections
     llm: LLMConfig = Field(default_factory=LLMConfig)
     github: GitHubConfig = Field(default_factory=GitHubConfig)
-    modules: ModulesConfig = Field(default_factory=ModulesConfig)
+
+    # Flat signature configs (signature_name -> SignatureConfig)
+    signatures: dict[str, SignatureConfig] = Field(default_factory=dict)
 
     # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
     default_model: str = "gpt-4o"
@@ -289,40 +284,38 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(default=None, repr=False)
     gemini_api_key: str | None = Field(default=None, repr=False)
 
-    # Helper methods for module config
-    def get_effective_model(self, module_name: str) -> str:
-        """Get effective model for a module (module-specific or default)."""
-        config = self.modules.get_module_config(module_name)
+    # Helper methods for signature config
+    def get_signature_config(self, signature_name: str) -> SignatureConfig:
+        """Get config for a signature."""
+        return self.signatures.get(signature_name, SignatureConfig())
+
+    def is_signature_enabled(self, signature_name: str) -> bool:
+        """Check if a signature is enabled."""
+        return self.get_signature_config(signature_name).enabled
+
+    def get_model(self, signature_name: str) -> str:
+        """Get model for a signature (signature-specific or default)."""
+        config = self.get_signature_config(signature_name)
         return config.model or self.default_model
 
-    def get_effective_max_iters(self, module_name: str) -> int:
-        """Get effective max_iters for a module (module-specific or default)."""
-        config = self.modules.get_module_config(module_name)
+    def get_max_iters(self, signature_name: str) -> int:
+        """Get max_iters for a signature (signature-specific or default)."""
+        config = self.get_signature_config(signature_name)
         return config.max_iters or self.default_max_iters
 
-    def get_effective_max_context_size(self, module_name: str) -> int:
-        """Get effective max_context_size for a module (module-specific or default)."""
-        config = self.modules.get_module_config(module_name)
+    def get_max_context_size(self, signature_name: str) -> int:
+        """Get max_context_size for a signature (signature-specific or default)."""
+        config = self.get_signature_config(signature_name)
         return config.max_context_size or self.default_max_context_size
 
-    def log_module_configs(self) -> None:
-        """Log the configuration for all modules."""
-        module_names = [
-            "scope_identifier",
-            "security_auditor",
-            "bug_detector",
-            "doc_reviewer",
-            "domain_expert",
-            "deduplicator",
-            "summarizer",
-        ]
-        logger.info("Module configurations:")
-        for module_name in module_names:
-            enabled = self.modules.is_enabled(module_name)
-            model = self.get_effective_model(module_name)
-            max_iters = self.get_effective_max_iters(module_name)
-            status = "enabled" if enabled else "disabled"
-            logger.info(f"  {module_name}: {status}, model={model}, max_iters={max_iters}")
+    def log_signature_configs(self) -> None:
+        """Log all signature configurations."""
+        logger.info("Signature configurations:")
+        for sig_name, sig_config in self.signatures.items():
+            status = "enabled" if sig_config.enabled else "disabled"
+            model = sig_config.model or self.default_model
+            max_iters = sig_config.max_iters or self.default_max_iters
+            logger.info(f"  {sig_name}: {status}, model={model}, max_iters={max_iters}")
 
     @model_validator(mode="before")
     @classmethod

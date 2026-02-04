@@ -8,7 +8,7 @@ from typing import Any
 import dspy  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
-from codespy.agents import ModuleContext, get_cost_tracker
+from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Artifact, PackageManifest, ScopeResult, ScopeType
 from codespy.config import get_settings
 from codespy.tools.github.models import ChangedFile, PullRequest
@@ -140,8 +140,6 @@ class ScopeIdentifier(dspy.Module):
     and identify logical code scopes for focused code review.
     """
 
-    MODULE_NAME = "scope_identifier"
-
     def __init__(self) -> None:
         """Initialize the scope identifier."""
         super().__init__()
@@ -163,14 +161,29 @@ class ScopeIdentifier(dspy.Module):
 
     async def aforward(self, pr: PullRequest, repo_path: Path) -> list[ScopeResult]:
         """Identify scopes in the repository for the given PR."""
+        # Check if signature is enabled
+        if not self._settings.is_signature_enabled("scope_identification"):
+            logger.warning("scope_identification is disabled - using fallback single scope")
+            return [ScopeResult(
+                subroot=".",
+                scope_type=ScopeType.APPLICATION,
+                has_changes=True,
+                is_dependency=False,
+                confidence=0.5,
+                language=None,
+                package_manifest=None,
+                changed_files=list(pr.changed_files),
+                reason="Scope identification disabled - fallback to single scope",
+            )]
+
         tools, contexts = await self._create_mcp_tools(repo_path)
         changed_file_paths = [f.filename for f in pr.changed_files]
         # Build map from filename to ChangedFile for post-processing
         changed_files_map: dict[str, ChangedFile] = {f.filename: f for f in pr.changed_files}
         
         try:
-            # Get max_iters from config
-            max_iters = self._settings.get_effective_max_iters(self.MODULE_NAME)
+            # Get max_iters from signature config
+            max_iters = self._settings.get_max_iters("scope_identification")
 
             agent = dspy.ReAct(
                 signature=ScopeIdentifierSignature,
@@ -178,8 +191,8 @@ class ScopeIdentifier(dspy.Module):
                 max_iters=max_iters,
             )
             logger.info(f"Identifying scopes for {len(changed_file_paths)} changed files...")
-            # Use ModuleContext to track costs and timing for this module
-            async with ModuleContext(self.MODULE_NAME, self._cost_tracker):
+            # Track scope_identification signature costs
+            async with SignatureContext("scope_identification", self._cost_tracker):
                 result = await agent.acall(
                     changed_files=changed_file_paths,
                     repo_owner=pr.repo_owner,
@@ -189,12 +202,12 @@ class ScopeIdentifier(dspy.Module):
                     pr_title=pr.title or "No title",
                     pr_description=pr.body or "No description",
                 )
-                scope_assignments: list[ScopeAssignment] = result.scopes
-                # Ensure we got valid scopes
-                if not scope_assignments:
-                    raise ValueError("No scopes returned by agent")
-                # Convert ScopeAssignment (with string paths) to ScopeResult (with ChangedFile objects)
-                scopes = self._convert_assignments_to_results(scope_assignments, changed_files_map)
+            scope_assignments: list[ScopeAssignment] = result.scopes
+            # Ensure we got valid scopes
+            if not scope_assignments:
+                raise ValueError("No scopes returned by agent")
+            # Convert ScopeAssignment (with string paths) to ScopeResult (with ChangedFile objects)
+            scopes = self._convert_assignments_to_results(scope_assignments, changed_files_map)
         except Exception as e:
             logger.error(f"Agent failed: {e}")
             scopes = [ScopeResult(

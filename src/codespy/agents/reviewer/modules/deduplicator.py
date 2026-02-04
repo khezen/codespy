@@ -5,8 +5,9 @@ from typing import Sequence
 
 import dspy  # type: ignore[import-untyped]
 
-from codespy.agents import ModuleContext, get_cost_tracker
+from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueSeverity
+from codespy.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +60,11 @@ class IssueDeduplicator(dspy.Module):
     Prioritizes keeping issues with higher severity, then higher confidence.
     """
 
-    MODULE_NAME = "deduplicator"
-
     def __init__(self) -> None:
         """Initialize the issue deduplicator with chain-of-thought reasoning."""
         super().__init__()
         self._cost_tracker = get_cost_tracker()
+        self._settings = get_settings()
 
     def forward(self, issues: Sequence[Issue]) -> list[Issue]:
         """Deduplicate issues and return the unique list.
@@ -75,6 +75,11 @@ class IssueDeduplicator(dspy.Module):
         Returns:
             Deduplicated list of issues, prioritizing higher severity and confidence
         """
+        # Check if signature is enabled
+        if not self._settings.is_signature_enabled("deduplication"):
+            logger.debug("Skipping deduplication: disabled")
+            return list(issues)
+
         if not issues:
             return []
 
@@ -85,10 +90,10 @@ class IssueDeduplicator(dspy.Module):
 
         try:
             deduplicator_agent = dspy.ChainOfThought(IssueDeduplicationSignature)
-            # Use ModuleContext to track costs and timing for this module
-            with ModuleContext(self.MODULE_NAME, self._cost_tracker):
+            # Track deduplication signature costs
+            with SignatureContext("deduplication", self._cost_tracker):
                 result = deduplicator_agent(issues=list(issues))
-                deduplicated = result.deduplicated_issues
+            deduplicated = result.deduplicated_issues
             removed_count = len(issues) - len(deduplicated)
             if removed_count > 0:
                 logger.info(f"Removed {removed_count} duplicate issues")

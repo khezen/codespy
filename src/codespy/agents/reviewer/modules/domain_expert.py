@@ -7,7 +7,7 @@ from typing import Any, Sequence
 
 import dspy  # type: ignore[import-untyped]
 
-from codespy.agents import ModuleContext, get_cost_tracker
+from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import is_speculative, MIN_CONFIDENCE
 from codespy.config import get_settings
@@ -116,7 +116,6 @@ class DomainExpert(dspy.Module):
     """
 
     category = IssueCategory.CONTEXT
-    MODULE_NAME = "domain_expert"
 
     def __init__(self) -> None:
         """Initialize the domain expert."""
@@ -167,6 +166,11 @@ class DomainExpert(dspy.Module):
         Returns:
             List of contextual issues found through deep codebase analysis
         """
+        # Check if signature is enabled
+        if not self._settings.is_signature_enabled("domain_analysis"):
+            logger.debug("Skipping domain_analysis: disabled")
+            return []
+
         # Filter to scopes with changes
         changed_scopes = [s for s in scopes if s.has_changes and s.changed_files]
 
@@ -178,8 +182,8 @@ class DomainExpert(dspy.Module):
         all_issues: list[Issue] = []
 
         try:
-            # Get max_iters from config
-            max_iters = self._settings.get_effective_max_iters(self.MODULE_NAME)
+            # Get max_iters from signature config
+            max_iters = self._settings.get_max_iters("domain_analysis")
 
             agent = dspy.ReAct(
                 signature=DomainExpertSignature,
@@ -187,33 +191,33 @@ class DomainExpert(dspy.Module):
                 max_iters=max_iters,
             )
 
-            # Use ModuleContext to track costs and timing for this module
-            async with ModuleContext(self.MODULE_NAME, self._cost_tracker):
-                for scope in changed_scopes:
-                    file_count = len(scope.changed_files)
-                    logger.info(
-                        f"Domain expert analyzing scope '{scope.subroot}' "
-                        f"({file_count} changed files)..."
-                    )
+            for scope in changed_scopes:
+                file_count = len(scope.changed_files)
+                logger.info(
+                    f"Domain expert analyzing scope '{scope.subroot}' "
+                    f"({file_count} changed files)..."
+                )
 
-                    try:
+                try:
+                    # Track domain_analysis signature costs
+                    async with SignatureContext("domain_analysis", self._cost_tracker):
                         result = await agent.acall(
                             scope=scope,
                             category=self.category,
                         )
-                        issues = result.issues if result.issues else []
-                        # Filter issues by confidence and speculation
-                        filtered_issues = [
-                            issue for issue in issues
-                            if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-                        ]
-                        all_issues.extend(filtered_issues)
-                        logger.info(
-                            f"  Found {len(filtered_issues)} issues in scope '{scope.subroot}' "
-                            f"(filtered from {len(issues)} raw issues)"
-                        )
-                    except Exception as e:
-                        logger.error(f"Error analyzing scope '{scope.subroot}': {e}")
+                    issues = result.issues if result.issues else []
+                    # Filter issues by confidence and speculation
+                    filtered_issues = [
+                        issue for issue in issues
+                        if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                    ]
+                    all_issues.extend(filtered_issues)
+                    logger.info(
+                        f"  Found {len(filtered_issues)} issues in scope '{scope.subroot}' "
+                        f"(filtered from {len(issues)} raw issues)"
+                    )
+                except Exception as e:
+                    logger.error(f"Error analyzing scope '{scope.subroot}': {e}")
 
             logger.info(f"Domain expert found {len(all_issues)} total issues")
             return all_issues
