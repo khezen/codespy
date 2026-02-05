@@ -64,6 +64,8 @@ Built for **engineering teams that care about correctness, security, and control
 - 🤖 **Model Agnostic** - Works with OpenAI, AWS Bedrock, Anthropic, Ollama, and more via LiteLLM
 - 🐳 **Docker Ready** - Run locally or in the cloud with Docker
 
+---
+
 ## Installation
 
 ### Using Poetry (recommended)
@@ -100,6 +102,8 @@ docker pull ghcr.io/khezen/codespy:latest
 # Or build locally
 docker build -t codespy .
 ```
+
+---
 
 ## Configuration
 
@@ -272,6 +276,8 @@ export OUTPUT_GITHUB_PR=true
 
 See `codespy.yaml` for full configuration options.
 
+---
+
 ## Usage
 
 ### Command Line
@@ -326,6 +332,9 @@ docker run --rm \
   ghcr.io/khezen/codespy:0.1.0 review https://github.com/owner/repo/pull/123
 ```
 
+---
+
+
 ## Output
 
 ### Markdown (default)
@@ -369,6 +378,103 @@ Use parameterized queries instead...
 **Reference:** [CWE-89](https://cwe.mitre.org/data/definitions/89.html)
 
 ```
+
+### GitHub PR Review
+
+CodeSpy can post reviews directly to GitHub PRs as native review comments with inline annotations.
+
+**Enable via CLI:**
+```bash
+codespy review https://github.com/owner/repo/pull/123 --github-comment
+
+# Combine: only post to GitHub, no stdout
+codespy review https://github.com/owner/repo/pull/123 --no-stdout --github-comment
+```
+
+**Enable via configuration:**
+```bash
+# Environment variable
+export OUTPUT_GITHUB_PR=true
+
+# Or in codespy.yaml
+output_github_pr: true
+```
+
+**Features:**
+
+- 🎯 **Inline Comments** - Issues are posted as review comments on the exact lines where they occur
+- 📏 **Multi-line Support** - Issues spanning multiple lines are annotated with start/end line ranges
+- 🔴🟠🟡🔵 **Severity Indicators** - Visual emoji markers for Critical, High, Medium, Low severity
+- 📦 **Collapsible Sections** - Organized review body with expandable details:
+  - 📋 Summary of changes
+  - 🎯 Quality Assessment
+  - 📊 Statistics table
+  - 💰 Cost breakdown per signature
+  - 💡 Recommendation
+- 🔗 **CWE References** - Security issues link directly to MITRE CWE database
+
+**Example PR Review Body:**
+
+```markdown
+# 🔍 CodeSpy Review
+
+**Issues Found:** 3 | **Critical:** 1 | **High:** 1 | **Medium:** 1
+
+<details>
+<summary>📋 Summary</summary>
+
+This PR implements user authentication with JWT tokens...
+
+</details>
+
+<details>
+<summary>📊 Statistics</summary>
+
+| Metric | Count |
+|--------|-------|
+| Total Issues | 3 |
+| Critical | 1 |
+| Security | 2 |
+| Bugs | 1 |
+
+</details>
+
+<details>
+<summary>💰 Cost Summary</summary>
+
+**Total:** $0.0234 | **Tokens:** 12,450 | **LLM Calls:** 8
+
+| Signature | Cost | Tokens | Calls | Duration |
+|-----------|------|--------|-------|----------|
+| code_security | $0.0120 | 6,200 | 3 | 4.2s |
+| bug_detection | $0.0080 | 4,100 | 3 | 3.1s |
+| deduplication | $0.0034 | 2,150 | 2 | 1.5s |
+
+</details>
+```
+
+**Example Inline Comment:**
+
+```markdown
+🔴 **[Critical] SQL Injection Vulnerability**
+
+**Category:** security
+
+The user input is directly interpolated into the SQL query without sanitization...
+
+<details>
+<summary>💡 Suggestion</summary>
+
+Use parameterized queries instead:
+query = "SELECT * FROM users WHERE username = ?"
+cursor.execute(query, (username,))
+
+</details>
+
+**Reference:** [CWE-89](https://cwe.mitre.org/data/definitions/89.html)
+```
+
+---
 
 ## Architecture
 
@@ -499,6 +605,8 @@ poetry run codespy review https://github.com/owner/repo/pull/123
 poetry run ruff check src/
 poetry run mypy src/
 ```
+
+---
 
 ## License
 
