@@ -30,8 +30,6 @@ class CodeSecuritySignature(dspy.Signature):
       * changed_files: List of ChangedFile objects, each with:
         - filename: Path to the file
         - patch: The diff showing exactly what changed (additions/deletions)
-      * package_manifest: Package manifest info if present
-      * artifacts: Security-relevant artifacts (Dockerfiles, etc.)
 
     TOKEN EFFICIENCY:
     - The patch shows exactly what changed - analyze it FIRST before using tools

@@ -30,26 +30,20 @@ class DocumentationReviewSignature(dspy.Signature):
 
     Follow this process:
 
-    1. ANALYZE CODE CHANGES FIRST (from patches):
-       - Review each changed_file's patch to understand what changed
-       - Identify changed functions, types, APIs from the diff
-       - Note any new public APIs or significant changes
-
-    2. CHECK PRE-IDENTIFIED DOC PATHS:
+    1. CHECK PRE-IDENTIFIED DOC PATHS:
        - The scope.doc_paths field contains documentation files/directories found by scope identifier
        - Prioritize reading these paths first as they are confirmed to exist
        - Check README.md, docs/ directories, API docs listed in doc_paths
        - If doc_paths is empty, the scope may not have significant documentation
+       - In case doc_paths doesn't cover all potential documentation then use search_literal to find if any docs reference the changed entities
 
-    3. SEARCH FOR ADDITIONAL DOC REFERENCES (if needed):
-       - Use search_literal to find if any docs reference the changed entities
-       - This is useful if doc_paths doesn't cover all potential documentation
-
-    4. VERIFY ISSUES:
+    2. VERIFY ISSUES:
        - Use read_file to check if documentation accurately reflects the changes
        - Check if documentation is now outdated due to code changes
+       - Identify changed functions, types, APIs from the diff
+       - Note any new public APIs or significant changes
 
-    5. CHECK DOCSTRING CONVENTIONS (if needed):
+    3. CHECK DOCSTRING CONVENTIONS (if needed):
        - Only if adding public APIs, check scope's docstring conventions
        - Use find_function_definitions on one or two existing files
        - Only flag missing docstrings if the scope consistently uses them
