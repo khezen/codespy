@@ -3,6 +3,7 @@
 import logging
 
 import dspy  # type: ignore[import-untyped]
+from dspy.adapters.json_adapter import JSONAdapter  # type: ignore[import-untyped]
 import litellm  # type: ignore[import-untyped]
 
 from codespy.config import Settings
@@ -11,7 +12,16 @@ logger = logging.getLogger(__name__)
 
 
 def configure_dspy(settings: Settings) -> None:
-    """Configure DSPy with the LLM backend.
+    """Configure DSPy with the LLM backend for reliable structured output.
+
+    This configures DSPy with:
+    - JSONAdapter for structured output parsing
+    - Global timeout and retries for reliability
+    - Provider-side prompt caching (when enabled)
+    - Memory caching for LLM responses
+
+    The ReAct agents use concise=True to reduce reasoning verbosity
+    and prevent JSONAdapter parsing failures from format drift.
 
     Args:
         settings: Application settings containing model and API key configuration.
@@ -31,8 +41,13 @@ def configure_dspy(settings: Settings) -> None:
             os.environ["AWS_ACCESS_KEY_ID"] = settings.aws_access_key_id
         if settings.aws_secret_access_key:
             os.environ["AWS_SECRET_ACCESS_KEY"] = settings.aws_secret_access_key
-    # Build LM kwargs
-    lm_kwargs: dict = {"model": model}
+
+    # Build LM kwargs with reliability settings
+    lm_kwargs: dict = {
+        "model": model,
+        "timeout": settings.llm_timeout,  # Global timeout (default: 120s)
+        "num_retries": settings.llm_retries,  # Global retries (default: 3)
+    }
 
     # Enable provider-side prompt caching if configured
     # This caches system prompts on the LLM provider's servers (Anthropic, OpenAI, Bedrock, etc.)
@@ -41,13 +56,22 @@ def configure_dspy(settings: Settings) -> None:
             {"location": "message", "role": "system"}
         ]
 
-    # Configure DSPy with LiteLLM
+    # Configure DSPy with LiteLLM and JSON adapter
     lm = dspy.LM(**lm_kwargs)
-    dspy.configure(lm=lm)
+    dspy.settings.configure(
+        lm=lm,
+        adapter=JSONAdapter(),  # Use JSON adapter for structured output
+    )
+
     # Enable memory-only caching for LLM calls (no disk caching)
     dspy.configure_cache(enable_memory_cache=True, enable_disk_cache=False, memory_max_entries=1000)
+
     prompt_cache_status = "enabled" if settings.enable_prompt_caching else "disabled"
-    logger.info(f"Configured DSPy with model: {model} (memory cache enabled, provider prompt caching {prompt_cache_status})")
+    logger.info(
+        f"Configured DSPy with model: {model} "
+        f"(JSON adapter, timeout={settings.llm_timeout}s, retries={settings.llm_retries}, "
+        f"provider prompt caching {prompt_cache_status})"
+    )
 
 
 def verify_model_access(settings: Settings) -> tuple[bool, str]:

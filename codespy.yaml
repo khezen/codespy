@@ -63,6 +63,12 @@ github:
 default_model: claude-sonnet-4-5-20250929  # DEFAULT_MODEL (Haiku 4.5 - default)
 default_max_iters: 3                     # DEFAULT_MAX_ITERS
 default_max_context_size: 50000          # DEFAULT_MAX_CONTEXT_SIZE
+default_max_reasoning_tokens: 1024       # DEFAULT_MAX_REASONING_TOKENS (limits LLM reasoning verbosity)
+default_temperature: 0.1                 # DEFAULT_TEMPERATURE (lower = more deterministic JSON output)
+
+# Global LLM reliability settings
+llm_retries: 3                           # LLM_RETRIES (number of retries for LLM API calls)
+llm_timeout: 120                         # LLM_TIMEOUT (timeout in seconds for LLM calls)
 
 signatures:
   # Security Auditor signatures
@@ -71,12 +77,16 @@ signatures:
     max_iters: null                      # CODE_SECURITY_MAX_ITERS
     model: claude-sonnet-4-5-20250929    # CODE_SECURITY_MODEL (Haiku 4.5)
     max_context_size: null               # CODE_SECURITY_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # CODE_SECURITY_MAX_REASONING_TOKENS
+    temperature: null                    # CODE_SECURITY_TEMPERATURE
 
   supply_chain:
     enabled: true                        # SUPPLY_CHAIN_ENABLED
     max_iters: null                      # SUPPLY_CHAIN_MAX_ITERS
     model: claude-sonnet-4-5-20250929    # SUPPLY_CHAIN_MODEL (Haiku 4.5)
     max_context_size: null               # SUPPLY_CHAIN_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # SUPPLY_CHAIN_MAX_REASONING_TOKENS
+    temperature: null                    # SUPPLY_CHAIN_TEMPERATURE
 
   # Bug Detector signature
   bug_detection:
@@ -84,6 +94,8 @@ signatures:
     max_iters: null                      # BUG_DETECTION_MAX_ITERS
     model: claude-sonnet-4-5-20250929    # BUG_DETECTION_MODEL (Haiku 4.5)
     max_context_size: null               # BUG_DETECTION_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # BUG_DETECTION_MAX_REASONING_TOKENS
+    temperature: null                    # BUG_DETECTION_TEMPERATURE
 
   # Doc Reviewer signature
   doc_review:
@@ -91,6 +103,8 @@ signatures:
     max_iters: null                      # DOC_REVIEW_MAX_ITERS
     model: claude-haiku-4-5-20251001     # DOC_REVIEW_MODEL (smallest)
     max_context_size: null               # DOC_REVIEW_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # DOC_REVIEW_MAX_REASONING_TOKENS
+    temperature: null                    # DOC_REVIEW_TEMPERATURE
 
   # Domain Expert signature
   domain_analysis:
@@ -98,6 +112,8 @@ signatures:
     max_iters: 6                         # DOMAIN_ANALYSIS_MAX_ITERS
     model: claude-sonnet-4-5-20250929    # DOMAIN_ANALYSIS_MODEL (Haiku 4.5)
     max_context_size: null               # DOMAIN_ANALYSIS_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # DOMAIN_ANALYSIS_MAX_REASONING_TOKENS
+    temperature: null                    # DOMAIN_ANALYSIS_TEMPERATURE
 
   # Scope Identifier signature
   scope_identification:
@@ -105,18 +121,24 @@ signatures:
     max_iters: 10                        # SCOPE_IDENTIFICATION_MAX_ITERS
     model: claude-opus-4-5-20251101      # SCOPE_IDENTIFICATION_MODEL (Sonnet 4.5)
     max_context_size: null               # SCOPE_IDENTIFICATION_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS
+    temperature: null                    # SCOPE_IDENTIFICATION_TEMPERATURE
 
   # Deduplicator signature
   deduplication:
     enabled: true                        # DEDUPLICATION_ENABLED
     model: claude-haiku-4-5-20251001     # DEDUPLICATION_MODEL (smallest)
     max_context_size: null               # DEDUPLICATION_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # DEDUPLICATION_MAX_REASONING_TOKENS
+    temperature: null                    # DEDUPLICATION_TEMPERATURE
 
   # Summarizer signature
   summarization:
     enabled: true                        # SUMMARIZATION_ENABLED
     model: claude-haiku-4-5-20251001     # SUMMARIZATION_MODEL (smallest)
     max_context_size: null               # SUMMARIZATION_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # SUMMARIZATION_MAX_REASONING_TOKENS
+    temperature: null                    # SUMMARIZATION_TEMPERATURE
 
 # ============================================================================
 # OUTPUT

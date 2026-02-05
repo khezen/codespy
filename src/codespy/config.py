@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     default_model: str = "claude-sonnet-4-5-20250929"
     default_max_iters: int = 3
     default_max_context_size: int = 50000
+    default_max_reasoning_tokens: int = 1024  # Limit reasoning verbosity for JSONAdapter reliability
+    default_temperature: float = 0.1  # Lower = more deterministic JSON output
+
+    # Global LLM reliability settings
+    llm_retries: int = 3  # Number of retries for LLM API calls
+    llm_timeout: int = 120  # Timeout in seconds for LLM calls
 
     # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
     enable_prompt_caching: bool = True
@@ -136,6 +142,16 @@ class Settings(BaseSettings):
         config = self.get_signature_config(signature_name)
         return config.max_context_size or self.default_max_context_size
 
+    def get_max_reasoning_tokens(self, signature_name: str) -> int:
+        """Get max_reasoning_tokens for a signature (signature-specific or default)."""
+        config = self.get_signature_config(signature_name)
+        return config.max_reasoning_tokens or self.default_max_reasoning_tokens
+
+    def get_temperature(self, signature_name: str) -> float:
+        """Get temperature for a signature (signature-specific or default)."""
+        config = self.get_signature_config(signature_name)
+        return config.temperature if config.temperature is not None else self.default_temperature
+
     def log_signature_configs(self) -> None:
         """Log all signature configurations."""
         logger.info("Signature configurations:")
@@ -143,7 +159,12 @@ class Settings(BaseSettings):
             status = "enabled" if sig_config.enabled else "disabled"
             model = sig_config.model or self.default_model
             max_iters = sig_config.max_iters or self.default_max_iters
-            logger.info(f"  {sig_name}: {status}, model={model}, max_iters={max_iters}")
+            max_reasoning = sig_config.max_reasoning_tokens or self.default_max_reasoning_tokens
+            temp = sig_config.temperature if sig_config.temperature is not None else self.default_temperature
+            logger.info(
+                f"  {sig_name}: {status}, model={model}, max_iters={max_iters}, "
+                f"max_reasoning_tokens={max_reasoning}, temperature={temp}"
+            )
 
     @model_validator(mode="before")
     @classmethod

@@ -238,8 +238,12 @@ class ScopeIdentifier(dspy.Module):
         # Build map from filename to ChangedFile for post-processing
         changed_files_map: dict[str, ChangedFile] = {f.filename: f for f in reviewable_files}
         try:
-            # Get max_iters from signature config
+            # Get per-signature config
             max_iters = self._settings.get_max_iters("scope_identification")
+            temperature = self._settings.get_temperature("scope_identification")
+            max_reasoning = self._settings.get_max_reasoning_tokens("scope_identification")
+            
+            # Create ReAct agent
             agent = dspy.ReAct(
                 signature=ScopeIdentifierSignature,
                 tools=tools,
