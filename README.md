@@ -43,7 +43,10 @@ pip install .
 ### Using Docker
 
 ```bash
-# Build the image
+# Pull the pre-built image from GitHub Container Registry
+docker pull ghcr.io/khezen/codespy:latest
+
+# Or build locally
 docker build -t codespy .
 ```
 
@@ -257,12 +260,19 @@ codespy --version
 # With docker compose
 docker compose run codespy review https://github.com/owner/repo/pull/123
 
-# With docker run
+# With docker run (using GHCR image)
 docker run --rm \
   -e GITHUB_TOKEN=$GITHUB_TOKEN \
   -e DEFAULT_MODEL=claude-sonnet-4-5-20250929 \
   -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
-  codespy review https://github.com/owner/repo/pull/123
+  ghcr.io/khezen/codespy:latest review https://github.com/owner/repo/pull/123
+
+# Or use a specific version
+docker run --rm \
+  -e GITHUB_TOKEN=$GITHUB_TOKEN \
+  -e DEFAULT_MODEL=claude-sonnet-4-5-20250929 \
+  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  ghcr.io/khezen/codespy:0.1.0 review https://github.com/owner/repo/pull/123
 ```
 
 ## Output
