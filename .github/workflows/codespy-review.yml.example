@@ -1,0 +1,105 @@
+# Example workflow for using CodeSpy GitHub Action
+# Copy this file to your repository at .github/workflows/codespy-review.yml
+# and customize as needed.
+
+name: CodeSpy Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Prevent duplicate reviews on the same PR
+concurrency:
+  group: codespy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # Required for posting review comments
+
+    steps:
+      - name: Run CodeSpy Review
+        uses: khezen/codespy@v1
+        with:
+          # Required: Choose your LLM model
+          model: 'claude-sonnet-4-5-20250929'
+          
+          # Required: Provide your LLM API key (use GitHub Secrets!)
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          
+          # Optional: Post review as PR comment (default: true)
+          post-comment: 'true'
+          
+          # Optional: Fail the workflow if critical issues are found
+          fail-on-critical: 'false'
+
+# ============================================================
+# ALTERNATIVE CONFIGURATIONS
+# ============================================================
+
+# --- Using OpenAI GPT ---
+# - name: Run CodeSpy Review
+#   uses: khezen/codespy@v1
+#   with:
+#     model: 'gpt-5'
+#     openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+
+# --- Using AWS Bedrock ---
+# - name: Run CodeSpy Review
+#   uses: khezen/codespy@v1
+#   with:
+#     model: 'bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0'
+#     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#     aws-region: 'us-east-1'
+
+# --- Using Google Gemini ---
+# - name: Run CodeSpy Review
+#   uses: khezen/codespy@v1
+#   with:
+#     model: 'gemini/gemini-2.5-pro'
+#     gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+
+# --- Fine-tuning signature settings ---
+# - name: Run CodeSpy Review
+#   uses: khezen/codespy@v1
+#   with:
+#     model: 'claude-sonnet-4-5-20250929'
+#     anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+#     
+#     # Global defaults
+#     default-max-iters: '5'
+#     default-temperature: '0.1'
+#     
+#     # Per-signature overrides
+#     code-security-enabled: 'true'
+#     code-security-max-iters: '10'
+#     
+#     doc-review-enabled: 'false'  # Disable documentation review
+#     
+#     deduplication-model: 'claude-haiku-4-5-20251001'  # Use smaller model
+
+# --- Using outputs in subsequent steps ---
+# - name: Run CodeSpy Review
+#   id: codespy
+#   uses: khezen/codespy@v1
+#   with:
+#     model: 'claude-sonnet-4-5-20250929'
+#     anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+#     fail-on-critical: 'false'
+# 
+# - name: Check results
+#   run: |
+#     echo "Total issues: ${{ steps.codespy.outputs.issues-count }}"
+#     echo "Critical issues: ${{ steps.codespy.outputs.critical-count }}"
+#     echo "High issues: ${{ steps.codespy.outputs.high-count }}"
+# 
+# - name: Fail if too many issues
+#   if: steps.codespy.outputs.issues-count > 10
+#   run: |
+#     echo "Too many issues found!"
+#     exit 1

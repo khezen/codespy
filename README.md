@@ -63,6 +63,7 @@ Built for **engineering teams that care about correctness, security, and control
 - 💰 **Cost Tracking** - Track LLM calls, tokens, and costs per review
 - 🤖 **Model Agnostic** - Works with OpenAI, AWS Bedrock, Anthropic, Ollama, and more via LiteLLM
 - 🐳 **Docker Ready** - Run locally or in the cloud with Docker
+- 🔌 **GitHub Action** - One-line integration for automatic PR reviews
 
 ---
 
@@ -177,6 +178,59 @@ docker run --rm \
   -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
   ghcr.io/khezen/codespy:0.1.0 review https://github.com/owner/repo/pull/123
 ```
+
+### GitHub Action
+
+Add CodeSpy to your repository for automatic PR reviews:
+
+```yaml
+# .github/workflows/codespy-review.yml
+name: CodeSpy Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Run CodeSpy Review
+        uses: khezen/codespy@v1
+        with:
+          model: 'claude-sonnet-4-5-20250929'
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+**Available Providers:**
+
+```yaml
+# OpenAI
+- uses: khezen/codespy@v1
+  with:
+    model: 'gpt-5'
+    openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+
+# AWS Bedrock
+- uses: khezen/codespy@v1
+  with:
+    model: 'bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0'
+    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    aws-region: 'us-east-1'
+
+# Google Gemini
+- uses: khezen/codespy@v1
+  with:
+    model: 'gemini/gemini-2.5-pro'
+    gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+```
+
+See [`.github/workflows/codespy-review.yml.example`](.github/workflows/codespy-review.yml.example) for more examples.
 
 ---
 
