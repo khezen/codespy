@@ -301,6 +301,9 @@ class SecurityAuditor(dspy.Module):
                     artifacts_data: list[dict] = []
                     for artifact in scope.artifacts:
                         artifact_full_path = repo_path / artifact.path
+                        if not artifact_full_path.exists():
+                            logger.warning(f"Artifact file not found, skipping: {artifact.path}")
+                            continue
                         artifacts_data.append({
                             "path": artifact.path,
                             "artifact_type": artifact.artifact_type,
