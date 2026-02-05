@@ -1,10 +1,18 @@
-# CodeSpy
+<p align="center">
+  <img src="assets/codespy-logo.png" alt="CodeSpy logo">
+</p>
 
-**Automated code reviews for teams who care about correctness.**
+<h1 align="center">CodeSpy</h1>
 
-An open-source AI reviewer that catches bugs, improves code quality, and integrates directly into your PR workflow, without sacrificing control or security.
-
-*"Fast feedback. No black box. No vendor lock-in."*
+<p align="center">
+  <strong>Automated code reviews for teams who care about correctness.</strong>
+</p>
+<p align="center">
+  An open-source AI reviewer that catches bugs, improves code quality, and integrates directly into your PR workflow, without sacrificing control or security.
+</p>
+<p align="center">
+  <i>"Fast feedback. No black box. No vendor lock-in."</i>
+</p>
 
 ## Features
 
