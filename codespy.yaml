@@ -60,11 +60,12 @@ github:
 # Set to null to use defaults
 
 # These apply to all signatures unless overridden per-signature
-default_model: claude-sonnet-4-5-20250929  # DEFAULT_MODEL (Haiku 4.5 - default)
-default_max_iters: 3                     # DEFAULT_MAX_ITERS
-default_max_context_size: 50000          # DEFAULT_MAX_CONTEXT_SIZE
-default_max_reasoning_tokens: 1024       # DEFAULT_MAX_REASONING_TOKENS (limits LLM reasoning verbosity)
-default_temperature: 0.1                 # DEFAULT_TEMPERATURE (lower = more deterministic JSON output)
+default_model: claude-sonnet-4-5-20250929    # DEFAULT_MODEL (Haiku 4.5 - default)
+extraction_model: claude-haiku-4-5-20251001  # EXTRACTION_MODEL (for TwoStepAdapter field extraction)
+default_max_iters: 3                         # DEFAULT_MAX_ITERS
+default_max_context_size: 50000              # DEFAULT_MAX_CONTEXT_SIZE
+default_max_reasoning_tokens: 8000           # DEFAULT_MAX_REASONING_TOKENS (limits LLM reasoning verbosity)
+default_temperature: 0.1                     # DEFAULT_TEMPERATURE (lower = more deterministic JSON output)
 
 # Global LLM reliability settings
 llm_retries: 3                           # LLM_RETRIES (number of retries for LLM API calls)
@@ -145,7 +146,7 @@ signatures:
 # ============================================================================
 output_format: markdown                  # OUTPUT_FORMAT (markdown | json)
 output_stdout: true                      # OUTPUT_STDOUT (enable stdout output)
-output_github_pr: false                  # OUTPUT_GITHUB_PR (post review to GitHub PR)
+output_github_pr: true                  # OUTPUT_GITHUB_PR (post review to GitHub PR)
 cache_dir: ~/.cache/codespy              # CACHE_DIR
 
 # ============================================================================

@@ -3,7 +3,7 @@
 import logging
 
 import dspy  # type: ignore[import-untyped]
-from dspy.adapters.json_adapter import JSONAdapter  # type: ignore[import-untyped]
+from dspy.adapters.two_step_adapter import TwoStepAdapter  # type: ignore[import-untyped]
 import litellm  # type: ignore[import-untyped]
 
 from codespy.config import Settings
@@ -15,13 +15,15 @@ def configure_dspy(settings: Settings) -> None:
     """Configure DSPy with the LLM backend for reliable structured output.
 
     This configures DSPy with:
-    - JSONAdapter for structured output parsing
+    - TwoStepAdapter for robust structured output parsing:
+      * Stage 1: Main LM generates free-form reasoning without format constraints
+      * Stage 2: Extraction LM extracts structured fields from free-form response
     - Global timeout and retries for reliability
     - Provider-side prompt caching (when enabled)
     - Memory caching for LLM responses
 
-    The ReAct agents use concise=True to reduce reasoning verbosity
-    and prevent JSONAdapter parsing failures from format drift.
+    TwoStepAdapter decouples reasoning quality from format compliance,
+    solving ChatAdapter parsing failures with ReAct agents.
 
     Args:
         settings: Application settings containing model and API key configuration.
@@ -56,20 +58,30 @@ def configure_dspy(settings: Settings) -> None:
             {"location": "message", "role": "system"}
         ]
 
-    # Configure DSPy with LiteLLM and JSON adapter
+    # Configure DSPy with LiteLLM and TwoStepAdapter
     lm = dspy.LM(**lm_kwargs)
+
+    # Create extraction LM for TwoStepAdapter's second stage
+    # Uses a smaller/faster model to extract structured fields from free-form responses
+    extraction_lm = dspy.LM(
+        model=settings.extraction_model,
+        timeout=settings.llm_timeout,
+        num_retries=settings.llm_retries,
+    )
+
     dspy.settings.configure(
         lm=lm,
-        adapter=JSONAdapter(),  # Use JSON adapter for structured output
+        adapter=TwoStepAdapter(extraction_lm),  # TwoStepAdapter solves ChatAdapter parsing failures
     )
 
     # Enable memory-only caching for LLM calls (no disk caching)
-    dspy.configure_cache(enable_memory_cache=True, enable_disk_cache=False, memory_max_entries=1000)
+    dspy.configure_cache(enable_memory_cache=True, enable_disk_cache=False, memory_max_entries=10000)
 
     prompt_cache_status = "enabled" if settings.enable_prompt_caching else "disabled"
     logger.info(
         f"Configured DSPy with model: {model} "
-        f"(JSON adapter, timeout={settings.llm_timeout}s, retries={settings.llm_retries}, "
+        f"(TwoStepAdapter with extraction_model={settings.extraction_model}, "
+        f"timeout={settings.llm_timeout}s, retries={settings.llm_retries}, "
         f"provider prompt caching {prompt_cache_status})"
     )
 

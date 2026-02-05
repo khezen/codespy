@@ -23,90 +23,90 @@ def _get_client() -> OSVClient:
     return _client
 
 
-@mcp.tool()
-def query_package(name: str, ecosystem: str, version: str) -> dict[str, Any]:
-    """Query vulnerabilities for a specific package version.
+# @mcp.tool()
+# def query_package(name: str, ecosystem: str, version: str) -> dict[str, Any]:
+#     """Query vulnerabilities for a specific package version.
 
-    Args:
-        name: Package name (e.g., 'requests', 'lodash')
-        ecosystem: Package ecosystem (e.g., 'PyPI', 'npm', 'Go', 'Maven', 'RubyGems')
-        version: Package version to check
+#     Args:
+#         name: Package name (e.g., 'requests', 'lodash')
+#         ecosystem: Package ecosystem (e.g., 'PyPI', 'npm', 'Go', 'Maven', 'RubyGems')
+#         version: Package version to check
 
-    Returns:
-        Dict with vulnerabilities list, each containing id, summary, details, severity, etc.
-    """
-    logger.info(f"[OSV] {_caller_module} -> query_package: {ecosystem}/{name}@{version}")
-    vulns = _get_client().query_package(name, ecosystem, version)
-    return {"vulnerabilities": [v.model_dump() for v in vulns], "count": len(vulns)}
-
-
-@mcp.tool()
-def query_purl(purl: str, version: str | None = None) -> dict[str, Any]:
-    """Query vulnerabilities using a Package URL (purl).
-
-    Args:
-        purl: Package URL (e.g., 'pkg:pypi/requests', 'pkg:npm/lodash')
-        version: Optional version (if not included in purl)
-
-    Returns:
-        Dict with vulnerabilities list
-    """
-    logger.info(f"[OSV] {_caller_module} -> query_purl: {purl}@{version or 'latest'}")
-    vulns = _get_client().query_purl(purl, version)
-    return {"vulnerabilities": [v.model_dump() for v in vulns], "count": len(vulns)}
+#     Returns:
+#         Dict with vulnerabilities list, each containing id, summary, details, severity, etc.
+#     """
+#     logger.info(f"[OSV] {_caller_module} -> query_package: {ecosystem}/{name}@{version}")
+#     vulns = _get_client().query_package(name, ecosystem, version)
+#     return {"vulnerabilities": [v.model_dump() for v in vulns], "count": len(vulns)}
 
 
-@mcp.tool()
-def query_commit(commit_hash: str) -> dict[str, Any]:
-    """Query vulnerabilities for a git commit hash.
+# @mcp.tool()
+# def query_purl(purl: str, version: str | None = None) -> dict[str, Any]:
+#     """Query vulnerabilities using a Package URL (purl).
 
-    Args:
-        commit_hash: Git commit SHA hash
+#     Args:
+#         purl: Package URL (e.g., 'pkg:pypi/requests', 'pkg:npm/lodash')
+#         version: Optional version (if not included in purl)
 
-    Returns:
-        Dict with vulnerabilities list affecting the commit
-    """
-    logger.info(f"[OSV] {_caller_module} -> query_commit: {commit_hash[:8]}")
-    vulns = _get_client().query_commit(commit_hash)
-    return {"vulnerabilities": [v.model_dump() for v in vulns], "count": len(vulns)}
-
-
-@mcp.tool()
-def get_vulnerability(osv_id: str) -> dict[str, Any]:
-    """Get full details of a specific vulnerability by its ID.
-
-    Args:
-        osv_id: OSV vulnerability ID (e.g., 'GHSA-xxxx-xxxx-xxxx', 'CVE-2021-xxxx')
-
-    Returns:
-        Dict with full vulnerability details including affected packages, severity, references
-    """
-    logger.info(f"[OSV] {_caller_module} -> get_vulnerability: {osv_id}")
-    vuln = _get_client().get_vulnerability(osv_id)
-    return vuln.model_dump()
+#     Returns:
+#         Dict with vulnerabilities list
+#     """
+#     logger.info(f"[OSV] {_caller_module} -> query_purl: {purl}@{version or 'latest'}")
+#     vulns = _get_client().query_purl(purl, version)
+#     return {"vulnerabilities": [v.model_dump() for v in vulns], "count": len(vulns)}
 
 
-@lru_cache(maxsize=512)
-def _scan_package_cached(name: str, ecosystem: str, version: str) -> tuple:
-    """Cached version of scan_package."""
-    result = _get_client().scan_package(name, ecosystem, version)
-    return tuple(sorted(result.model_dump().items()))
+# @mcp.tool()
+# def query_commit(commit_hash: str) -> dict[str, Any]:
+#     """Query vulnerabilities for a git commit hash.
+
+#     Args:
+#         commit_hash: Git commit SHA hash
+
+#     Returns:
+#         Dict with vulnerabilities list affecting the commit
+#     """
+#     logger.info(f"[OSV] {_caller_module} -> query_commit: {commit_hash[:8]}")
+#     vulns = _get_client().query_commit(commit_hash)
+#     return {"vulnerabilities": [v.model_dump() for v in vulns], "count": len(vulns)}
 
 
-@mcp.tool()
-def scan_package(name: str, ecosystem: str, version: str) -> dict[str, Any]:
-    """Scan a single package for vulnerabilities.
+# @mcp.tool()
+# def get_vulnerability(osv_id: str) -> dict[str, Any]:
+#     """Get full details of a specific vulnerability by its ID.
 
-    Args:
-        name: Package name
-        ecosystem: Package ecosystem (PyPI, npm, Go, Maven, RubyGems, crates.io, etc.)
-        version: Package version
+#     Args:
+#         osv_id: OSV vulnerability ID (e.g., 'GHSA-xxxx-xxxx-xxxx', 'CVE-2021-xxxx')
 
-    Returns:
-        Dict with package_name, ecosystem, version, vulnerabilities, is_vulnerable, count
-    """
-    logger.info(f"[OSV] {_caller_module} -> scan_package: {ecosystem}/{name}@{version}")
-    return dict(_scan_package_cached(name, ecosystem, version))
+#     Returns:
+#         Dict with full vulnerability details including affected packages, severity, references
+#     """
+#     logger.info(f"[OSV] {_caller_module} -> get_vulnerability: {osv_id}")
+#     vuln = _get_client().get_vulnerability(osv_id)
+#     return vuln.model_dump()
+
+
+# @lru_cache(maxsize=512)
+# def _scan_package_cached(name: str, ecosystem: str, version: str) -> tuple:
+#     """Cached version of scan_package."""
+#     result = _get_client().scan_package(name, ecosystem, version)
+#     return tuple(sorted(result.model_dump().items()))
+
+
+# @mcp.tool()
+# def scan_package(name: str, ecosystem: str, version: str) -> dict[str, Any]:
+#     """Scan a single package for vulnerabilities.
+
+#     Args:
+#         name: Package name
+#         ecosystem: Package ecosystem (PyPI, npm, Go, Maven, RubyGems, crates.io, etc.)
+#         version: Package version
+
+#     Returns:
+#         Dict with package_name, ecosystem, version, vulnerabilities, is_vulnerable, count
+#     """
+#     logger.info(f"[OSV] {_caller_module} -> scan_package: {ecosystem}/{name}@{version}")
+#     return dict(_scan_package_cached(name, ecosystem, version))
 
 
 @mcp.tool()

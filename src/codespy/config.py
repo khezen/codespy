@@ -75,9 +75,10 @@ class Settings(BaseSettings):
 
     # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
     default_model: str = "claude-sonnet-4-5-20250929"
+    extraction_model: str = "claude-haiku-4-5-20251001-v1:0"  # For TwoStepAdapter field extraction
     default_max_iters: int = 3
     default_max_context_size: int = 50000
-    default_max_reasoning_tokens: int = 1024  # Limit reasoning verbosity for JSONAdapter reliability
+    default_max_reasoning_tokens: int = 8000  # Limit reasoning verbosity for adapter reliability
     default_temperature: float = 0.1  # Lower = more deterministic JSON output
 
     # Global LLM reliability settings
