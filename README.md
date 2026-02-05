@@ -2,7 +2,7 @@
   <img src="assets/codespy-logo.png" alt="CodeSpy logo">
 </p>
 
-<h1 align="center">Code[Spy](https://github.com/khezen/codespy)</h1>
+<h1 align="center">Code(Spy)[https://github.com/khezen/codespy]</h1>
 
 <p align="center">
   <strong>Automated code reviews for teams who care about correctness.</strong>
