@@ -113,10 +113,10 @@ export DEFAULT_MODEL=claude-sonnet-4-5-20250929
 export ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
 
 # 3. Review a PR!
-codespy review https://github.com/owner/repo/pull/123
+cpsy review https://github.com/owner/repo/pull/123
 ```
 
-codespy auto-discovers credentials from standard locations (`~/.aws/credentials`, `gh auth token`, etc.) - see [Configuration](#configuration) for details.
+cspy auto-discovers credentials from standard locations (`~/.aws/credentials`, `gh auth token`, etc.) - see [Configuration](#configuration) for details.
 
 ---
 
@@ -126,39 +126,36 @@ codespy auto-discovers credentials from standard locations (`~/.aws/credentials`
 
 ```bash
 # Basic review
-codespy review https://github.com/owner/repo/pull/123
+cspy review https://github.com/owner/repo/pull/123
 
 # Output as JSON
-codespy review https://github.com/owner/repo/pull/123 --output json
+cspy review https://github.com/owner/repo/pull/123 --output json
 
 # Use a specific model
-codespy review https://github.com/owner/repo/pull/123 --model claude-sonnet-4-5-20250929
+cspy review https://github.com/owner/repo/pull/123 --model claude-sonnet-4-5-20250929
 
 # Skip codebase context analysis
 codespy review https://github.com/owner/repo/pull/123 --no-with-context
 
 # Disable stdout output (useful with --github-comment)
-codespy review https://github.com/owner/repo/pull/123 --no-stdout
+cspy review https://github.com/owner/repo/pull/123 --no-stdout
 
 # Post review as GitHub PR comment
-codespy review https://github.com/owner/repo/pull/123 --github-comment
+cspy review https://github.com/owner/repo/pull/123 --github-comment
 
 # Combine: only post to GitHub, no stdout
-codespy review https://github.com/owner/repo/pull/123 --no-stdout --github-comment
+cspy review https://github.com/owner/repo/pull/123 --no-stdout --github-comment
 
 # Show current configuration
-codespy config
+cspy config
 
 # Show version
-codespy --version
+cspy --version
 ```
 
 ### Using Docker
 
 ```bash
-# With docker compose
-docker compose run codespy review https://github.com/owner/repo/pull/123
-
 # With docker run (using GHCR image)
 docker run --rm \
   -e GITHUB_TOKEN=$GITHUB_TOKEN \
