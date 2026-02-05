@@ -14,6 +14,21 @@
   <i>"Fast feedback. No black box. No vendor lock-in."</i>
 </p>
 
+<p align="center">
+  <a href="https://github.com/khezen/codespy/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/khezen/codespy/ci.yml">
+  </a>
+  <a href="https://github.com/khezen/codespy/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/khezen/codespy">
+  </a>
+  <a href="https://github.com/khezen/codespy/stargazers">
+    <img src="https://img.shields.io/github/stars/khezen/codespy">
+  </a>
+  <a href="https://github.com/khezen/codespy/issues">
+    <img src="https://img.shields.io/github/issues/khezen/codespy">
+  </a>
+</p>
+
 ---
 
 ## Why CodeSpy?
