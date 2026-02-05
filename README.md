@@ -71,7 +71,7 @@ Built for **engineering teams that care about correctness, security, and control
 ### Using pip
 
 ```bash
-pip install cspy
+pip install codespy-ai
 ```
 
 ### Using Docker
@@ -113,10 +113,10 @@ export DEFAULT_MODEL=claude-sonnet-4-5-20250929
 export ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
 
 # 3. Review a PR!
-cpsy review https://github.com/owner/repo/pull/123
+codespy review https://github.com/owner/repo/pull/123
 ```
 
-cspy auto-discovers credentials from standard locations (`~/.aws/credentials`, `gh auth token`, etc.) - see [Configuration](#configuration) for details.
+codespy auto-discovers credentials from standard locations (`~/.aws/credentials`, `gh auth token`, etc.) - see [Configuration](#configuration) for details.
 
 ---
 
@@ -126,31 +126,31 @@ cspy auto-discovers credentials from standard locations (`~/.aws/credentials`, `
 
 ```bash
 # Basic review
-cspy review https://github.com/owner/repo/pull/123
+codespy review https://github.com/owner/repo/pull/123
 
 # Output as JSON
-cspy review https://github.com/owner/repo/pull/123 --output json
+codespy review https://github.com/owner/repo/pull/123 --output json
 
 # Use a specific model
-cspy review https://github.com/owner/repo/pull/123 --model claude-sonnet-4-5-20250929
+codespy review https://github.com/owner/repo/pull/123 --model claude-sonnet-4-5-20250929
 
 # Skip codebase context analysis
 codespy review https://github.com/owner/repo/pull/123 --no-with-context
 
 # Disable stdout output (useful with --github-comment)
-cspy review https://github.com/owner/repo/pull/123 --no-stdout
+codespy review https://github.com/owner/repo/pull/123 --no-stdout
 
 # Post review as GitHub PR comment
-cspy review https://github.com/owner/repo/pull/123 --github-comment
+codespy review https://github.com/owner/repo/pull/123 --github-comment
 
 # Combine: only post to GitHub, no stdout
-cspy review https://github.com/owner/repo/pull/123 --no-stdout --github-comment
+codespy review https://github.com/owner/repo/pull/123 --no-stdout --github-comment
 
 # Show current configuration
-cspy config
+codespy config
 
 # Show version
-cspy --version
+codespy --version
 ```
 
 ### Using Docker
