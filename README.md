@@ -7,8 +7,7 @@
 - 🔒 **Security Analysis** - Detects common vulnerabilities (injection, auth issues, data exposure, etc.) with CWE references
 - 🐛 **Bug Detection** - Identifies logic errors, null references, resource leaks, edge cases
 - 📝 **Documentation Review** - Checks for missing docstrings, outdated comments, incomplete docs
-- 🧠 **Domain Expert Analysis** - Analyzes changes in context of the broader codebase
-- 🔍 **Intelligent Scope Detection** - Automatically identifies code scopes (frontend, backend, infra, microservice in mono repo, etc.)
+- 🔍 **Intelligent Scope Detection** - Automatically identifies code scopes (frontend, backend, infra, microservice in mono repo, etc...)
 - 🔄 **Smart Deduplication** - LLM-powered issue deduplication across reviewers
 - 💰 **Cost Tracking** - Track LLM calls, tokens, and costs per review
 - 🤖 **Model Agnostic** - Works with OpenAI, AWS Bedrock, Anthropic, Ollama, and more via LiteLLM
@@ -231,7 +230,7 @@ codespy review https://github.com/owner/repo/pull/123
 codespy review https://github.com/owner/repo/pull/123 --output json
 
 # Use a specific model
-codespy review https://github.com/owner/repo/pull/123 --model claude-opus-4-5-20251101
+codespy review https://github.com/owner/repo/pull/123 --model claude-sonnet-4-5-20250929
 
 # Skip codebase context analysis
 codespy review https://github.com/owner/repo/pull/123 --no-with-context
@@ -385,12 +384,12 @@ The review is powered by DSPy signatures that structure the LLM's analysis:
 
 | Signature | Config Key | Description |
 |-----------|------------|-------------|
-| **ScopeIdentifierSignature** | `scope_identification` | Identifies code scopes (frontend, backend, infrastructure, etc.) |
+| **ScopeIdentifierSignature** | `scope_identification` | Identifies code scopes (frontend, backend, infra, microservice in mono repo, etc...) |
 | **CodeSecuritySignature** | `code_security` | Analyzes code changes for verified security vulnerabilities with CWE references |
 | **SupplyChainSecuritySignature** | `supply_chain` | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
 | **BugDetectionSignature** | `bug_detection` | Detects verified bugs, logic errors, and resource leaks |
 | **DocumentationReviewSignature** | `doc_review` | Reviews documentation for accuracy based on code changes |
-| **DomainExpertSignature** | `domain_analysis` | Analyzes business logic, architecture, patterns, and style consistency |
+| **DomainExpertSignature** (experimental, disabled by default)| `domain_analysis` | Analyzes business logic, architecture, patterns, and style consistency |
 | **IssueDeduplicationSignature** | `deduplication` | LLM-powered deduplication of issues across reviewers |
 | **PRSummarySignature** | `summarization` | Generates summary, quality assessment, and recommendation |
 
