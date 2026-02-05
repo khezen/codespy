@@ -74,6 +74,13 @@ Built for **engineering teams that care about correctness, security, and control
 pip install codespy-ai
 ```
 
+### Using Homebrew (macOS/Linux)
+
+```bash
+brew tap khezen/codespy
+brew install codespy
+```
+
 ### Using Docker
 
 ```bash

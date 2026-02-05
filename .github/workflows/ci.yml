@@ -113,3 +113,88 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
+
+  update-homebrew:
+    runs-on: ubuntu-latest
+    needs: publish-pypi
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from pyproject.toml
+        id: version
+        run: |
+          VERSION=$(grep -m1 '^version' pyproject.toml | sed 's/.*"\(.*\)"/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Wait for PyPI to be available
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          URL="https://files.pythonhosted.org/packages/source/c/codespy-ai/codespy_ai-${VERSION}.tar.gz"
+          echo "Waiting for $URL to be available..."
+          for i in {1..30}; do
+            if curl --output /dev/null --silent --head --fail "$URL"; then
+              echo "Package available!"
+              exit 0
+            fi
+            echo "Attempt $i/30: Package not yet available, waiting 10s..."
+            sleep 10
+          done
+          echo "Package not available after 5 minutes"
+          exit 1
+
+      - name: Download and calculate SHA256
+        id: sha
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          URL="https://files.pythonhosted.org/packages/source/c/codespy-ai/codespy_ai-${VERSION}.tar.gz"
+          curl -sL "$URL" -o package.tar.gz
+          SHA256=$(sha256sum package.tar.gz | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "SHA256: $SHA256"
+
+      - name: Update Homebrew formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA256="${{ steps.sha.outputs.sha256 }}"
+          
+          # Clone the tap repository
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/khezen/homebrew-codespy.git tap
+          cd tap
+          
+          # Create Formula directory if it doesn't exist
+          mkdir -p Formula
+          
+          # Create/update the formula
+          cat > Formula/codespy.rb << EOF
+          class Codespy < Formula
+            include Language::Python::Virtualenv
+
+            desc "Automated code review agent powered by DSPy"
+            homepage "https://github.com/khezen/codespy"
+            url "https://files.pythonhosted.org/packages/source/c/codespy-ai/codespy_ai-${VERSION}.tar.gz"
+            sha256 "${SHA256}"
+            license "MIT"
+
+            depends_on "python@3.11"
+
+            def install
+              virtualenv_install_with_resources
+            end
+
+            test do
+              assert_match "codespy", shell_output("#{bin}/codespy --version")
+            end
+          end
+          EOF
+          
+          # Commit and push
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/codespy.rb
+          git commit -m "Update codespy to ${VERSION}" || echo "No changes to commit"
+          git push
