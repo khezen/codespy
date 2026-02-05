@@ -91,7 +91,7 @@ class GitHubPRReporter(BaseReporter):
         lines = []
 
         # Header with stats - link to CodeSpy repo
-        lines.append("# 🔍 [CodeSpy](https://github.com/khezen/codespy) Review")
+        lines.append("# 🔍 Code[Spy](https://github.com/khezen/codespy) Review")
         lines.append("")
         lines.append(
             f"**Issues Found:** {result.total_issues} | "
