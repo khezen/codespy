@@ -59,44 +59,68 @@ class ScopeIdentifierSignature(dspy.Signature):
     You have tools to clone the repository, explore its filesystem, and analyze code.
     Your goal is to identify logical code boundaries (scopes) and assign each changed file to exactly one scope.
 
-    FIRST STEP - CLONE THE REPOSITORY:
-    Before exploring, you MUST clone the repository using clone_repository tool:
+    STEP 1 - ANALYZE CHANGED FILE PATHS (before cloning):
+    The changed file paths are your MOST IMPORTANT signal for scope detection.
+    1. Extract common directory prefixes from changed files to find candidate scopes
+    2. Look for scope indicator patterns at ANY DEPTH in the path:
+       - svc/, services/, microservices/ → likely a service scope
+       - libs/, packages/, shared/, common/, core/ → likely a library scope
+       - apps/, web/, frontend/, mobile/ → likely an application scope
+       - scripts/, bin/, tools/, hack/, ci/, .github/ → likely a script scope
+    3. EXAMPLES of nested scope detection from file paths:
+       - Files: mono/svc/my-service-v1/internal/handler.go, mono/svc/my-service-v1/cmd/main.go
+         → Candidate scope: mono/svc/my-service-v1 (the "svc/" pattern indicates service)
+       - Files: platform/packages/auth/src/index.ts, platform/packages/auth/package.json
+         → Candidate scope: platform/packages/auth (the "packages/" pattern indicates library)
+       - Files: company/backend/services/user-api/main.go
+         → Candidate scope: company/backend/services/user-api
+    4. Group files by their longest common directory prefix that contains a scope indicator
+
+    STEP 2 - CLONE THE REPOSITORY:
+    Clone using clone_repository tool:
     1. Use the repo_owner, repo_name, and head_sha provided in the inputs
     2. Clone to the target_repo_path provided
-    3. For efficiency, derive sparse_paths from changed_files:
-       - Extract unique parent directories from changed files
-       - Include root directory for package manifests (use "." or specific manifest files)
-       - Example: ["services/auth/", "libs/common/", "package.json", "go.mod"]
+    3. Derive sparse_paths from candidate scopes identified in STEP 1:
+       - Include each candidate scope directory
+       - Example: ["mono/svc/my-service-v1/", "libs/common/"]
     4. Use depth=1 for fastest clone (single commit)
 
-    EXPLORATION STRATEGY (after cloning):
-    1. Examine the changed files list to understand what areas are affected
-    2. Use get_tree to explore the repository structure (start with depth 3-4)
-    3. Use file_exists and read_file to check for package manifest files (package.json, go.mod, pyproject.toml, Cargo.toml, etc.)
-    4. Identify logical boundaries based on directory structure and conventions
+    STEP 3 - VERIFY SCOPES WITH PACKAGE MANIFESTS:
+    For each candidate scope from STEP 1:
+    1. Check if a package manifest exists at that path (go.mod, package.json, pyproject.toml, Cargo.toml, etc.)
+    2. If found → CONFIRM that directory as the scope root
+    3. If NOT found → Walk UP parent directories until you find a package manifest
+       - Example: If candidate is mono/svc/my-service-v1/internal, check:
+         * mono/svc/my-service-v1/internal/go.mod (not found)
+         * mono/svc/my-service-v1/go.mod (FOUND → this is the scope)
+    4. The directory containing the package manifest is the authoritative scope root
 
     SCOPE TYPE CLASSIFICATION:
-    - library: Shared code that others import (libs/, packages/, shared/, common/, core/)
-      * Directories named: libs/, packages/, shared/, common/, core/
+    These patterns can appear at ANY NESTING DEPTH - not just at the repository root!
+    - library: Shared code that others import
+      * Patterns at any depth: */libs/*, */packages/*, */shared/*, */common/*, */core/*
       * Multiple consumers importing from this scope
       * Generic/reusable code patterns
-    - service: Isolated microservice with APIs (services/, microservices/, svc/, has HTTP handlers/gRPC)
-      * Directories named: services/, microservices/, svc/
+    - service: Isolated microservice with APIs
+      * Patterns at any depth: */services/*, */microservices/*, */svc/*
       * Own package manifest, often with server/API code
       * HTTP handlers, gRPC definitions, message consumers
-    - application: Standalone app or frontend (apps/, web/, frontend/, mobile/, has main entry point)
-      * Directories named: apps/, web/, frontend/, mobile/
+    - application: Standalone app or frontend
+      * Patterns at any depth: */apps/*, */web/*, */frontend/*, */mobile/*
       * Entry points (main.go, index.ts, App.tsx)
       * UI components, routing, state management
-    - script: Build/deployment scripts, tooling (scripts/, bin/, tools/, hack/, ci/, .github/)
-      * Directories named: scripts/, bin/, tools/, hack/, ci/, .github/
+    - script: Build/deployment scripts, tooling
+      * Patterns at any depth: */scripts/*, */bin/*, */tools/*, */hack/*, */ci/*, */.github/*
       * Shell scripts, Makefiles, Dockerfiles
       * CI/CD configuration, deployment scripts
 
-    MONO-REPO PATTERNS:
-    - Check root package.json for workspaces configuration
-    - Look for lerna.json, pnpm-workspace.yaml, turbo.json
-    - Directories under packages/, services/, apps/ often have their own package manifests
+    MONO-REPO PATTERNS (can be nested!):
+    - Check root AND nested package.json for workspaces configuration
+    - Look for lerna.json, pnpm-workspace.yaml, turbo.json at various depths
+    - Scope indicator directories (packages/, services/, apps/, svc/) can appear at any level:
+      * repo/services/api/ ← traditional mono-repo
+      * repo/mono/svc/user-api/ ← nested mono-repo
+      * repo/platform/backend/services/api/ ← deeply nested
 
     PACKAGE MANIFESTS TO DETECT:
     - package.json (npm) with lock files: package-lock.json, yarn.lock, pnpm-lock.yaml
@@ -126,9 +150,14 @@ class ScopeIdentifierSignature(dspy.Signature):
     CRITICAL RULES:
     1. EVERY changed file must be assigned to exactly ONE scope
     2. Don't create overlapping scopes (parent contains child)
-    3. For flat repos without sub-projects, use "." as the single scope containing all files
-    4. Prefer the most specific scope that contains each file
+    3. ALWAYS prefer the most specific scope - the deepest directory with a package manifest
+       - If files are in mono/svc/my-service-v1/, use that as scope, NOT "." or "mono/"
+    4. Use "." as scope ONLY when:
+       - Files are truly at the repo root with no nested project structure
+       - No package manifest exists at any deeper level
+       - Changed files span multiple unrelated directories with no common scope indicator
     5. Use tools to verify package manifest existence - don't guess
+    6. Trust the file paths - if they contain svc/, services/, packages/ etc., that's a strong scope signal
     """
 
     changed_files: list[str] = dspy.InputField(
