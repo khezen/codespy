@@ -1,8 +1,10 @@
 # codespy
 
-Automated code reviews for teams who care about correctness.
+**Automated code reviews for teams who care about correctness.**
 
-An open-source AI reviewer that catches bugs, improves code quality, and integrates directly into your PR workflow — without sacrificing control or security.
+An open-source AI reviewer that catches bugs, improves code quality, and integrates directly into your PR workflow, without sacrificing control or security.
+
+**Fast feedback. No black box. No vendor lock-in.**
 
 ## Features
 
