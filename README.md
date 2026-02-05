@@ -14,6 +14,30 @@
   <i>"Fast feedback. No black box. No vendor lock-in."</i>
 </p>
 
+---
+
+## Why CodeSpy?
+
+Most AI code reviewers are:
+- ❌ Black boxes  
+- ❌ SaaS-only  
+- ❌ Opaque about reasoning  
+- ❌ Risky for sensitive codebases  
+
+**CodeSpy is different:**
+
+- 🔍 Transparent reasoning  
+- 🔐 Self-hostable  
+- 🧠 Configurable review rules  
+- 🔄 Native PR integration  
+- 🧩 Extensible architecture  
+- 📦 100% open-source  
+
+Built for **engineering teams that care about correctness, security, and control.**
+
+---
+
+
 ## Features
 
 - 🔒 **Security Analysis** - Detects common vulnerabilities (injection, auth issues, data exposure, etc.) with CWE references
