@@ -1,4 +1,4 @@
-# codespy
+# *CodeSpy*
 
 **Automated code reviews for teams who care about correctness.**
 
