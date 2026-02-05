@@ -71,7 +71,7 @@ Built for **engineering teams that care about correctness, security, and control
 ### Using pip
 
 ```bash
-pip install codespy
+pip install cspy
 ```
 
 ### Using Docker
@@ -100,176 +100,23 @@ poetry install --only main
 
 ---
 
-## Configuration
+## Quick Start
 
-codespy supports two configuration methods:
-- **`.env` file** - Simple environment variables for basic setup
-- **`codespy.yaml`** - Full YAML configuration for advanced options (per-module settings)
-
-Priority: Environment Variables > YAML Config > Defaults
-
-### Quick Start
+Get up and running in 30 seconds:
 
 ```bash
-# Copy the example files
-cp .env.example .env
-cp codespy.example.yaml codespy.yaml  # Optional, for advanced config
-```
+# 1. Set your GitHub token (or let codespy auto-discover from gh CLI)
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
 
-### Required Settings
-
-1. **GitHub Token** - codespy automatically discovers your GitHub token from multiple sources:
-   - `GITHUB_TOKEN` or `GH_TOKEN` environment variables
-   - GitHub CLI (`gh auth token`)
-   - Git credential helper
-   - `~/.netrc` file
-   
-   Or create a token at https://github.com/settings/tokens with `repo` scope:
-   ```bash
-   GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
-   ```
-   
-   To disable auto-discovery:
-   ```bash
-   GITHUB_AUTO_DISCOVER_TOKEN=false
-   ```
-
-2. **LLM Provider** - codespy auto-discovers credentials for all providers:
-
-   **Anthropic** (auto-discovers from `$ANTHROPIC_API_KEY`, `~/.config/anthropic/`, `~/.anthropic/`):
-   ```bash
-   DEFAULT_MODEL=claude-sonnet-4-5-20250929
-   # Optional - set explicitly or let codespy auto-discover:
-   # ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
-   ```
-
-   **AWS Bedrock** (auto-discovers from `~/.aws/credentials`, AWS CLI, env vars):
-   ```bash
-   DEFAULT_MODEL=bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
-   AWS_REGION=us-east-1
-   # Optional - uses ~/.aws/credentials by default, or set explicitly:
-   # AWS_ACCESS_KEY_ID=...
-   # AWS_SECRET_ACCESS_KEY=...
-   ```
-
-   **OpenAI** (auto-discovers from `$OPENAI_API_KEY`, `~/.config/openai/`, `~/.openai/`):
-   ```bash
-   DEFAULT_MODEL=gpt-5
-   # Optional - set explicitly or let codespy auto-discover:
-   # OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
-   ```
-
-   **Google Gemini** (auto-discovers from `$GEMINI_API_KEY`, `$GOOGLE_API_KEY`, gcloud ADC):
-   ```bash
-   DEFAULT_MODEL=gemini/gemini-2.5-pro
-   # Optional - set explicitly or let codespy auto-discover:
-   # GEMINI_API_KEY=xxxxxxxxxxxxxxxxxxxx
-   ```
-
-   **Local Ollama:**
-   ```bash
-   DEFAULT_MODEL=ollama/llama3
-   ```
-
-   To disable auto-discovery for specific providers:
-   ```bash
-   AUTO_DISCOVER_AWS=false
-   AUTO_DISCOVER_OPENAI=false
-   AUTO_DISCOVER_ANTHROPIC=false
-   AUTO_DISCOVER_GEMINI=false
-   ```
-
-### Advanced Configuration (YAML)
-
-For per-signature settings, use `codespy.yaml`:
-
-```yaml
-# codespy.yaml
-
-# LLM provider settings (credentials are auto-discovered by default)
-llm:
-  auto_discover_openai: true       # Discover from ~/.config/openai/, ~/.openai/, $OPENAI_API_KEY
-  auto_discover_anthropic: true    # Discover from ~/.config/anthropic/, ~/.anthropic/, $ANTHROPIC_API_KEY
-  auto_discover_gemini: true       # Discover from $GEMINI_API_KEY, gcloud ADC
-  auto_discover_aws: true          # Discover from ~/.aws/credentials, AWS CLI
-
-# GitHub settings (token is auto-discovered by default)
-github:
-  auto_discover_token: true        # Discover from gh CLI, git credentials, ~/.netrc
-
-# Default settings for all signatures
-default_model: claude-sonnet-4-5-20250929  # Also settable via DEFAULT_MODEL env var
-default_max_iters: 3
-default_max_context_size: 50000
-
-# Enable provider-side prompt caching (reduces latency and costs)
-enable_prompt_caching: true
-
-# Per-signature overrides (see signatures table below for all available)
-signatures:
-  code_security:
-    enabled: true
-    max_iters: 10
-    model: claude-sonnet-4-5-20250929
-
-  supply_chain:
-    enabled: true
-
-  bug_detection:
-    enabled: true
-
-  doc_review:
-    enabled: true
-    model: claude-haiku-4-5-20251001  # Smaller model for simpler task
-
-  domain_analysis:
-    enabled: false                    # Disabled by default (expensive)
-    max_iters: 6
-
-  scope_identification:
-    enabled: true
-    max_iters: 10
-
-  deduplication:
-    enabled: true
-    model: claude-haiku-4-5-20251001  # Smaller model for simple task
-
-  summarization:
-    enabled: true
-    model: claude-haiku-4-5-20251001
-
-# Output destinations
-output_format: markdown              # markdown or json
-output_stdout: true                  # Print to stdout
-output_github_pr: false              # Post as GitHub PR review comment
-
-# Directories to skip during review
-excluded_directories:
-  - vendor
-  - node_modules
-  - dist
-  - build
-  - __pycache__
-```
-
-Override YAML settings via environment variables using `_` separator:
-
-```bash
-# Default settings
+# 2. Set your LLM provider (example with Anthropic)
 export DEFAULT_MODEL=claude-sonnet-4-5-20250929
-export DEFAULT_MAX_ITERS=20
+export ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
 
-# Per-signature settings (use signature name, not module name)
-export DOMAIN_ANALYSIS_MAX_ITERS=20
-export DOC_REVIEW_ENABLED=false
-export CODE_SECURITY_MODEL=gpt-5
-
-# Output settings
-export OUTPUT_STDOUT=false
-export OUTPUT_GITHUB_PR=true
+# 3. Review a PR!
+codespy review https://github.com/owner/repo/pull/123
 ```
 
-See `codespy.yaml` for full configuration options.
+codespy auto-discovers credentials from standard locations (`~/.aws/credentials`, `gh auth token`, etc.) - see [Configuration](#configuration) for details.
 
 ---
 
@@ -329,6 +176,185 @@ docker run --rm \
 
 ---
 
+## Configuration
+
+codespy supports two configuration methods:
+- **`.env` file** - Simple environment variables for basic setup
+- **`codespy.yaml`** - Full YAML configuration for advanced options (per-module settings)
+
+Priority: Environment Variables > YAML Config > Defaults
+
+### Setup
+
+```bash
+# Copy the example files
+cp .env.example .env
+cp codespy.example.yaml codespy.yaml  # Optional, for advanced config
+```
+
+### GitHub Token
+
+codespy automatically discovers your GitHub token from multiple sources:
+- `GITHUB_TOKEN` or `GH_TOKEN` environment variables
+- GitHub CLI (`gh auth token`)
+- Git credential helper
+- `~/.netrc` file
+
+Or create a token at https://github.com/settings/tokens with `repo` scope:
+```bash
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+```
+
+To disable auto-discovery:
+```bash
+GITHUB_AUTO_DISCOVER_TOKEN=false
+```
+
+### LLM Provider
+
+codespy auto-discovers credentials for all providers:
+
+**Anthropic** (auto-discovers from `$ANTHROPIC_API_KEY`, `~/.config/anthropic/`, `~/.anthropic/`):
+```bash
+DEFAULT_MODEL=claude-sonnet-4-5-20250929
+# Optional - set explicitly or let codespy auto-discover:
+# ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
+```
+
+**AWS Bedrock** (auto-discovers from `~/.aws/credentials`, AWS CLI, env vars):
+```bash
+DEFAULT_MODEL=bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+AWS_REGION=us-east-1
+# Optional - uses ~/.aws/credentials by default, or set explicitly:
+# AWS_ACCESS_KEY_ID=...
+# AWS_SECRET_ACCESS_KEY=...
+```
+
+**OpenAI** (auto-discovers from `$OPENAI_API_KEY`, `~/.config/openai/`, `~/.openai/`):
+```bash
+DEFAULT_MODEL=gpt-5
+# Optional - set explicitly or let codespy auto-discover:
+# OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
+```
+
+**Google Gemini** (auto-discovers from `$GEMINI_API_KEY`, `$GOOGLE_API_KEY`, gcloud ADC):
+```bash
+DEFAULT_MODEL=gemini/gemini-2.5-pro
+# Optional - set explicitly or let codespy auto-discover:
+# GEMINI_API_KEY=xxxxxxxxxxxxxxxxxxxx
+```
+
+**Local Ollama:**
+```bash
+DEFAULT_MODEL=ollama/llama3
+```
+
+To disable auto-discovery for specific providers:
+```bash
+AUTO_DISCOVER_AWS=false
+AUTO_DISCOVER_OPENAI=false
+AUTO_DISCOVER_ANTHROPIC=false
+AUTO_DISCOVER_GEMINI=false
+```
+
+### Advanced Configuration (YAML)
+
+For per-signature settings, use `codespy.yaml`:
+
+```yaml
+# codespy.yaml
+
+# LLM provider settings (credentials are auto-discovered by default)
+llm:
+  auto_discover_openai: true       # Discover from ~/.config/openai/, ~/.openai/, $OPENAI_API_KEY
+  auto_discover_anthropic: true    # Discover from ~/.config/anthropic/, ~/.anthropic/, $ANTHROPIC_API_KEY
+  auto_discover_gemini: true       # Discover from $GEMINI_API_KEY, gcloud ADC
+  auto_discover_aws: true          # Discover from ~/.aws/credentials, AWS CLI
+  enable_prompt_caching: true      # Provider-side prompt caching (reduces latency and costs)
+
+# GitHub settings (token is auto-discovered by default)
+github:
+  auto_discover_token: true        # Discover from gh CLI, git credentials, ~/.netrc
+
+# Default settings for all signatures
+default_model: claude-sonnet-4-5-20250929  # Also settable via DEFAULT_MODEL env var
+extraction_model: claude-haiku-4-5-20251001  # For field extraction (smaller model)
+default_max_iters: 3
+default_max_context_size: 50000
+default_max_reasoning_tokens: 8000  # Limit reasoning verbosity
+default_temperature: 0.1            # Lower = more deterministic output
+
+# Global LLM reliability settings
+llm_retries: 3                       # Number of retries for LLM API calls
+llm_timeout: 120                     # Timeout in seconds
+
+# Per-signature overrides (see signatures table below for all available)
+signatures:
+  code_security:
+    enabled: true
+    model: claude-sonnet-4-5-20250929
+
+  supply_chain:
+    enabled: true
+
+  bug_detection:
+    enabled: true
+
+  doc_review:
+    enabled: true
+    model: claude-haiku-4-5-20251001  # Smaller model for simpler task
+
+  domain_analysis:
+    enabled: false                    # Disabled by default (expensive)
+    max_iters: 6
+
+  scope_identification:
+    enabled: true
+    max_iters: 10
+    model: claude-opus-4-5-20251101   # Larger model for complex scope analysis
+
+  deduplication:
+    enabled: true
+    model: claude-haiku-4-5-20251001  # Smaller model for simple task
+
+  summarization:
+    enabled: true
+    model: claude-haiku-4-5-20251001
+
+# Output destinations
+output_format: markdown              # markdown or json
+output_stdout: true                  # Print to stdout
+output_github_pr: false              # Post as GitHub PR review comment
+
+# Directories to skip during review
+excluded_directories:
+  - vendor
+  - node_modules
+  - dist
+  - build
+  - __pycache__
+```
+
+Override YAML settings via environment variables using `_` separator:
+
+```bash
+# Default settings
+export DEFAULT_MODEL=claude-sonnet-4-5-20250929
+export DEFAULT_MAX_ITERS=20
+
+# Per-signature settings (use signature name, not module name)
+export DOMAIN_ANALYSIS_MAX_ITERS=20
+export DOC_REVIEW_ENABLED=false
+export CODE_SECURITY_MODEL=gpt-5
+
+# Output settings
+export OUTPUT_STDOUT=false
+export OUTPUT_GITHUB_PR=true
+```
+
+See `codespy.yaml` for full configuration options.
+
+---
 
 ## Output
 

@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "codespy"
+name = "cspy"
 version = "0.1.0"
 description = "Code review agent powered by DSPy"
 readme = "README.md"
