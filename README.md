@@ -1,6 +1,8 @@
 # codespy
 
-**Code review agent written with DSPy** - Automatically review GitHub pull requests for security vulnerabilities, bugs, and documentation issues.
+Automated code reviews for teams who care about correctness.
+
+An open-source AI reviewer that catches bugs, improves code quality, and integrates directly into your PR workflow — without sacrificing control or security.
 
 ## Features
 
