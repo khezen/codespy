@@ -10,7 +10,8 @@ from rich.logging import RichHandler
 from rich.panel import Panel
 
 from codespy import __version__
-from codespy.config import get_settings, get_token_source
+from codespy.config import get_settings
+from codespy.config_git import get_token_source
 
 app = typer.Typer(
     name="codespy",

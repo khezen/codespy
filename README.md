@@ -76,39 +76,55 @@ cp codespy.example.yaml codespy.yaml  # Optional, for advanced config
    ```bash
    GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
    ```
-
-2. **LLM Provider** - Choose one:
-
-   **Anthropic:**
+   
+   To disable auto-discovery:
    ```bash
-   DEFAULT_MODEL=claude-sonnet-4-5-20250929
-   ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
+   GITHUB_AUTO_DISCOVER_TOKEN=false
    ```
 
-   **AWS Bedrock:**
+2. **LLM Provider** - codespy auto-discovers credentials for all providers:
+
+   **Anthropic** (auto-discovers from `$ANTHROPIC_API_KEY`, `~/.config/anthropic/`, `~/.anthropic/`):
+   ```bash
+   DEFAULT_MODEL=claude-sonnet-4-5-20250929
+   # Optional - set explicitly or let codespy auto-discover:
+   # ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
+   ```
+
+   **AWS Bedrock** (auto-discovers from `~/.aws/credentials`, AWS CLI, env vars):
    ```bash
    DEFAULT_MODEL=bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
    AWS_REGION=us-east-1
-   # Uses ~/.aws/credentials by default, or set explicitly:
+   # Optional - uses ~/.aws/credentials by default, or set explicitly:
    # AWS_ACCESS_KEY_ID=...
    # AWS_SECRET_ACCESS_KEY=...
    ```
 
-   **OpenAI:**
+   **OpenAI** (auto-discovers from `$OPENAI_API_KEY`, `~/.config/openai/`, `~/.openai/`):
    ```bash
    DEFAULT_MODEL=gpt-5
-   OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
+   # Optional - set explicitly or let codespy auto-discover:
+   # OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
    ```
 
-   **Google Gemini:**
+   **Google Gemini** (auto-discovers from `$GEMINI_API_KEY`, `$GOOGLE_API_KEY`, gcloud ADC):
    ```bash
    DEFAULT_MODEL=gemini/gemini-2.5-pro
-   GEMINI_API_KEY=xxxxxxxxxxxxxxxxxxxx
+   # Optional - set explicitly or let codespy auto-discover:
+   # GEMINI_API_KEY=xxxxxxxxxxxxxxxxxxxx
    ```
 
    **Local Ollama:**
    ```bash
    DEFAULT_MODEL=ollama/llama3
+   ```
+
+   To disable auto-discovery for specific providers:
+   ```bash
+   AUTO_DISCOVER_AWS=false
+   AUTO_DISCOVER_OPENAI=false
+   AUTO_DISCOVER_ANTHROPIC=false
+   AUTO_DISCOVER_GEMINI=false
    ```
 
 ### Advanced Configuration (YAML)
@@ -117,6 +133,17 @@ For per-signature settings, use `codespy.yaml`:
 
 ```yaml
 # codespy.yaml
+
+# LLM provider settings (credentials are auto-discovered by default)
+llm:
+  auto_discover_openai: true       # Discover from ~/.config/openai/, ~/.openai/, $OPENAI_API_KEY
+  auto_discover_anthropic: true    # Discover from ~/.config/anthropic/, ~/.anthropic/, $ANTHROPIC_API_KEY
+  auto_discover_gemini: true       # Discover from $GEMINI_API_KEY, gcloud ADC
+  auto_discover_aws: true          # Discover from ~/.aws/credentials, AWS CLI
+
+# GitHub settings (token is auto-discovered by default)
+github:
+  auto_discover_token: true        # Discover from gh CLI, git credentials, ~/.netrc
 
 # Default settings for all signatures
 default_model: claude-sonnet-4-5-20250929  # Also settable via DEFAULT_MODEL env var

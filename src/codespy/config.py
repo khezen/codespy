@@ -1,135 +1,42 @@
 """Configuration management for codespy."""
 
 import logging
-import os
-import subprocess
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from codespy.config_dspy import SignatureConfig, apply_signature_env_overrides
+from codespy.config_git import (
+    GitHubConfig,
+    discover_github_token,
+    get_token_source,
+    set_token_source,
+)
+from codespy.config_io import DEFAULT_EXCLUDED_DIRECTORIES, OutputFormat
+from codespy.config_llm import (
+    LLMConfig,
+    discover_anthropic_api_key,
+    discover_aws_credentials,
+    discover_gemini_api_key,
+    discover_openai_api_key,
+)
 
 logger = logging.getLogger(__name__)
 
-
-def discover_github_token() -> tuple[str | None, str]:
-    """Try to discover GitHub token from local environment.
-
-    Returns:
-        Tuple of (token, source) where source describes where the token was found.
-    """
-    # 1. Check environment variables
-    for env_var in ("GITHUB_TOKEN", "GH_TOKEN"):
-        if token := os.environ.get(env_var):
-            return token, f"environment variable ${env_var}"
-
-    # 2. Try GitHub CLI (gh auth token)
-    try:
-        result = subprocess.run(
-            ["gh", "auth", "token"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip(), "GitHub CLI (gh auth token)"
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-
-    # 3. Try git credential helper
-    try:
-        result = subprocess.run(
-            ["git", "credential", "fill"],
-            input="protocol=https\nhost=github.com\n",
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            for line in result.stdout.split("\n"):
-                if line.startswith("password="):
-                    return line.split("=", 1)[1], "git credential helper"
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-
-    # 4. Try .netrc file
-    netrc_path = Path.home() / ".netrc"
-    if netrc_path.exists():
-        try:
-            content = netrc_path.read_text()
-            in_github = False
-            for line in content.split("\n"):
-                line = line.strip()
-                if "github.com" in line:
-                    in_github = True
-                if in_github and line.startswith("password"):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        return parts[1], "~/.netrc file"
-                if in_github and line.startswith("machine") and "github.com" not in line:
-                    in_github = False
-        except Exception:
-            pass
-
-    return None, "not found"
-
-
-# Global variable to track token source
-_token_source: str = "not set"
-
-
-def get_token_source() -> str:
-    """Get the source of the GitHub token."""
-    return _token_source
-
-
-# ============================================================================
-# YAML CONFIG MODELS
-# ============================================================================
-
-
-class LLMConfig(BaseModel):
-    """LLM provider configuration."""
-
-    # OpenAI
-    openai_api_key: str | None = Field(default=None, repr=False)
-    openai_api_base: str | None = None
-
-    # Anthropic
-    anthropic_api_key: str | None = Field(default=None, repr=False)
-
-    # Google Gemini
-    gemini_api_key: str | None = Field(default=None, repr=False)
-
-    # AWS Bedrock
-    aws_region: str = "us-east-1"
-    aws_access_key_id: str | None = Field(default=None, repr=False)
-    aws_secret_access_key: str | None = Field(default=None, repr=False)
-    aws_profile: str | None = None
-
-    # Azure OpenAI
-    azure_api_key: str | None = Field(default=None, repr=False)
-    azure_api_base: str | None = None
-    azure_api_version: str | None = None
-
-    # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
-    enable_prompt_caching: bool = True
-
-
-class GitHubConfig(BaseModel):
-    """GitHub configuration."""
-
-    token: str | None = Field(default=None, repr=False)
-
-
-class SignatureConfig(BaseModel):
-    """Configuration for a single signature."""
-
-    enabled: bool = True
-    max_iters: int | None = None
-    model: str | None = None
-    max_context_size: int | None = None
+# Re-export for convenience
+__all__ = [
+    "Settings",
+    "get_settings",
+    "reload_settings",
+    "get_token_source",
+    "LLMConfig",
+    "GitHubConfig",
+    "SignatureConfig",
+    "OutputFormat",
+]
 
 
 def _load_yaml_config() -> dict[str, Any]:
@@ -148,89 +55,6 @@ def _load_yaml_config() -> dict[str, Any]:
                 return yaml.safe_load(f) or {}
 
     return {}
-
-
-# Known signature names for env var routing
-_SIGNATURE_NAMES = {
-    "code_security",
-    "supply_chain",
-    "bug_detection",
-    "doc_review",
-    "domain_analysis",
-    "scope_identification",
-    "deduplication",
-    "summarization",
-}
-
-# Create uppercase prefixes for matching (e.g., "CODE_SECURITY_")
-_SIGNATURE_PREFIXES = {name.upper() + "_": name for name in _SIGNATURE_NAMES}
-
-# Known signature settings for validation
-_SIGNATURE_SETTINGS = {"enabled", "max_iters", "model", "max_context_size"}
-
-
-def _convert_env_value(value: str) -> Any:
-    """Convert environment variable string to appropriate Python type."""
-    import json
-
-    if value.lower() in ("true", "false"):
-        return value.lower() == "true"
-    elif value.isdigit():
-        return int(value)
-    elif value.startswith("[") or value.startswith("{"):
-        try:
-            return json.loads(value)
-        except json.JSONDecodeError:
-            return value
-    elif value.lower() == "null" or value == "":
-        return None
-    return value
-
-
-def _apply_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
-    """Apply environment variable overrides to config for signature settings.
-
-    Handles signature settings with pattern:
-    - CODE_SECURITY_MAX_ITERS -> signatures.code_security.max_iters
-    - SUPPLY_CHAIN_ENABLED -> signatures.supply_chain.enabled
-
-    Top-level settings (DEFAULT_MODEL, AWS_REGION, etc.) are handled directly
-    by pydantic-settings and should NOT be processed here.
-    """
-    # Load .env file first to ensure env vars are available
-    from dotenv import dotenv_values
-    
-    env_vars = {**dotenv_values(".env"), **os.environ}  # .env + actual env vars
-    
-    for key, value in env_vars.items():
-        if value is None:
-            continue
-        key_upper = key.upper()
-
-        # Only process signature-specific settings
-        signature_name = None
-        setting = None
-
-        for prefix, sig_name in _SIGNATURE_PREFIXES.items():
-            if key_upper.startswith(prefix):
-                signature_name = sig_name
-                setting = key_upper[len(prefix):].lower()
-                break
-
-        # Skip if not a signature setting or not a valid setting name
-        if not signature_name or setting not in _SIGNATURE_SETTINGS:
-            continue
-
-        # Ensure signatures dict exists
-        if "signatures" not in config:
-            config["signatures"] = {}
-        if signature_name not in config["signatures"]:
-            config["signatures"][signature_name] = {}
-
-        # Set the value
-        config["signatures"][signature_name][setting] = _convert_env_value(value)
-
-    return config
 
 
 class Settings(BaseSettings):
@@ -255,63 +79,38 @@ class Settings(BaseSettings):
     default_max_context_size: int = 50000
 
     # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
-    # This caches system prompts on the LLM provider's servers to reduce latency and costs
     enable_prompt_caching: bool = True
 
     # Top-level settings
-    output_format: Literal["markdown", "json"] = "markdown"
+    output_format: OutputFormat = "markdown"
     cache_dir: Path = Path.home() / ".cache" / "codespy"
 
     # Output destinations
     output_stdout: bool = True  # Enable stdout output (markdown or json)
     output_github_pr: bool = False  # Enable GitHub PR review comments
 
-    # File exclusion settings - directories to skip during review
-    excluded_directories: list[str] = Field(
-        default=[
-            # Vendor/dependency directories
-            "vendor",
-            "node_modules",
-            "third_party",
-            "external",
-            "deps",
-            "_vendor",
-            "vendored",
-            # Build output directories
-            "dist",
-            "build",
-            "out",
-            "target",
-            # Package manager directories
-            ".bundle",
-            "Pods",
-            "Carthage",
-            "bower_components",
-            "jspm_packages",
-            # Version control
-            ".git",
-            ".svn",
-            ".hg",
-            # Cache directories
-            "__pycache__",
-            ".cache",
-            ".pytest_cache",
-            ".mypy_cache",
-            ".ruff_cache",
-        ]
-    )
+    # File exclusion settings
+    excluded_directories: list[str] = Field(default=DEFAULT_EXCLUDED_DIRECTORIES)
 
     # GitHub token (can also use GITHUB_TOKEN or GH_TOKEN env var)
     github_token: str = Field(default="", repr=False)
     gh_token: str = Field(default="", repr=False)
+    github_auto_discover_token: bool = True  # GITHUB_AUTO_DISCOVER_TOKEN
 
     # LLM provider settings (flat for simple env var access)
     aws_region: str = "us-east-1"
     aws_access_key_id: str | None = Field(default=None, repr=False)
     aws_secret_access_key: str | None = Field(default=None, repr=False)
+    aws_profile: str | None = None
     openai_api_key: str | None = Field(default=None, repr=False)
     anthropic_api_key: str | None = Field(default=None, repr=False)
     gemini_api_key: str | None = Field(default=None, repr=False)
+
+    # Auto-discovery toggles (flat for env var access)
+    auto_discover_aws: bool = True  # AUTO_DISCOVER_AWS
+    auto_discover_openai: bool = True  # AUTO_DISCOVER_OPENAI
+    auto_discover_anthropic: bool = True  # AUTO_DISCOVER_ANTHROPIC
+    auto_discover_gemini: bool = True  # AUTO_DISCOVER_GEMINI
 
     # Helper methods for signature config
     def get_signature_config(self, signature_name: str) -> SignatureConfig:
@@ -354,7 +153,7 @@ class Settings(BaseSettings):
         Priority: Environment Variables > YAML Config > Defaults
         """
         yaml_config = _load_yaml_config()
-        yaml_config = _apply_env_overrides(yaml_config)
+        yaml_config = apply_signature_env_overrides(yaml_config)
 
         # Merge YAML config into values only if not already set (env vars take precedence)
         for key, val in yaml_config.items():
@@ -366,7 +165,6 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def resolve_github_token(self) -> "Settings":
         """Auto-discover GitHub token if not explicitly set."""
-        global _token_source
 
         def is_placeholder(token: str) -> bool:
             """Check if token looks like a placeholder."""
@@ -377,20 +175,20 @@ class Settings(BaseSettings):
         # First check nested config
         if self.github.token and not is_placeholder(self.github.token):
             self.github_token = self.github.token
-            _token_source = "YAML config or GITHUB_TOKEN environment variable"
+            set_token_source("YAML config or GITHUB_TOKEN environment variable")
             return self
 
         # If github_token is set and not a placeholder, use it
         if self.github_token and not is_placeholder(self.github_token):
             self.github.token = self.github_token
-            _token_source = "GITHUB_TOKEN environment variable or .env file"
+            set_token_source("GITHUB_TOKEN environment variable or .env file")
             return self
 
         # If GH_TOKEN is set and not a placeholder, use it
         if self.gh_token and not is_placeholder(self.gh_token):
             self.github_token = self.gh_token
             self.github.token = self.gh_token
-            _token_source = "GH_TOKEN environment variable"
+            set_token_source("GH_TOKEN environment variable")
             return self
 
         # Clear placeholder if present
@@ -398,15 +196,21 @@ class Settings(BaseSettings):
             self.github_token = ""
             self.github.token = None
 
-        # Try auto-discovery
-        token, source = discover_github_token()
-        if token and not is_placeholder(token):
-            self.github_token = token
-            self.github.token = token
-            _token_source = source
-            logger.debug(f"GitHub token discovered from: {source}")
+        # Try auto-discovery if enabled
+        auto_discover = self.github.auto_discover_token and self.github_auto_discover_token
+
+        if auto_discover:
+            token, source = discover_github_token()
+            if token and not is_placeholder(token):
+                self.github_token = token
+                self.github.token = token
+                set_token_source(source)
+                logger.debug(f"GitHub token discovered from: {source}")
+            else:
+                set_token_source("not found")
         else:
-            _token_source = "not found"
+            set_token_source("auto-discovery disabled")
+            logger.debug("GitHub token auto-discovery is disabled")
 
         return self
 
@@ -441,9 +245,80 @@ class Settings(BaseSettings):
         if self.gemini_api_key and not self.llm.gemini_api_key:
             self.llm.gemini_api_key = self.gemini_api_key
 
-        # Sync prompt caching setting (nested takes precedence if explicitly set in YAML)
-        # Note: llm.enable_prompt_caching defaults to True, so we sync it to flat field
+        # Sync prompt caching setting
         self.enable_prompt_caching = self.llm.enable_prompt_caching
+
+        return self
+
+    @model_validator(mode="after")
+    def resolve_llm_credentials(self) -> "Settings":
+        """Auto-discover LLM provider credentials if not explicitly set."""
+
+        def is_placeholder(value: str | None) -> bool:
+            """Check if value looks like a placeholder."""
+            if not value:
+                return True
+            placeholders = ["xxx", "your", "key", "example", "placeholder", "null"]
+            value_lower = value.lower()
+            return any(p in value_lower for p in placeholders)
+
+        # AWS credentials auto-discovery
+        if not self.aws_access_key_id or not self.aws_secret_access_key:
+            auto_discover = self.llm.auto_discover_aws and self.auto_discover_aws
+            if auto_discover:
+                access_key, secret_key, region, profile, source = discover_aws_credentials()
+                if access_key and secret_key:
+                    self.aws_access_key_id = access_key
+                    self.aws_secret_access_key = secret_key
+                    self.llm.aws_access_key_id = access_key
+                    self.llm.aws_secret_access_key = secret_key
+                    if region:
+                        self.aws_region = region
+                        self.llm.aws_region = region
+                    if profile:
+                        self.aws_profile = profile
+                        self.llm.aws_profile = profile
+                    logger.debug(f"AWS credentials discovered from: {source}")
+            else:
+                logger.debug("AWS credentials auto-discovery is disabled")
+
+        # OpenAI API key auto-discovery
+        if not self.openai_api_key or is_placeholder(self.openai_api_key):
+            auto_discover = self.llm.auto_discover_openai and self.auto_discover_openai
+            if auto_discover:
+                key, source = discover_openai_api_key()
+                if key and not is_placeholder(key):
+                    self.openai_api_key = key
+                    self.llm.openai_api_key = key
+                    logger.debug(f"OpenAI API key discovered from: {source}")
+            else:
+                logger.debug("OpenAI API key auto-discovery is disabled")
+
+        # Anthropic API key auto-discovery
+        if not self.anthropic_api_key or is_placeholder(self.anthropic_api_key):
+            auto_discover = self.llm.auto_discover_anthropic and self.auto_discover_anthropic
+            if auto_discover:
+                key, source = discover_anthropic_api_key()
+                if key and not is_placeholder(key):
+                    self.anthropic_api_key = key
+                    self.llm.anthropic_api_key = key
+                    logger.debug(f"Anthropic API key discovered from: {source}")
+            else:
+                logger.debug("Anthropic API key auto-discovery is disabled")
+
+        # Gemini API key auto-discovery
+        if not self.gemini_api_key or is_placeholder(self.gemini_api_key):
+            auto_discover = self.llm.auto_discover_gemini and self.auto_discover_gemini
+            if auto_discover:
+                key, source = discover_gemini_api_key()
+                if key and not is_placeholder(key):
+                    self.gemini_api_key = key
+                    self.llm.gemini_api_key = key
+                    logger.debug(f"Gemini API key discovered from: {source}")
+                elif source != "not found":
+                    logger.debug(f"Gemini: {source}")
+            else:
+                logger.debug("Gemini API key auto-discovery is disabled")
 
         return self
 
