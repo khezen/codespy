@@ -2,7 +2,7 @@
   <img src="assets/codespy-logo.png" alt="CodeSpy logo">
 </p>
 
-<h1 align="center">CodeSpy</h1>
+<h1 align="center">Code[Spy](https://github.com/khezen/codespy)</h1>
 
 <p align="center">
   <strong>Automated code reviews for teams who care about correctness.</strong>
@@ -191,9 +191,8 @@ Priority: Environment Variables > YAML Config > Defaults
 ### Setup
 
 ```bash
-# Copy the example files
+# Copy the example file
 cp .env.example .env
-cp codespy.example.yaml codespy.yaml  # Optional, for advanced config
 ```
 
 ### GitHub Token
