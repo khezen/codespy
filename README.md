@@ -68,7 +68,23 @@ Built for **engineering teams that care about correctness, security, and control
 
 ## Installation
 
-### Using Poetry (recommended)
+### Using pip
+
+```bash
+pip install codespy
+```
+
+### Using Docker
+
+```bash
+# Pull the pre-built image from GitHub Container Registry
+docker pull ghcr.io/khezen/codespy:latest
+
+# Or build locally
+docker build -t codespy .
+```
+
+### Using Poetry (for development)
 
 ```bash
 # Clone the repository
@@ -80,27 +96,6 @@ poetry install
 
 # Or install only production dependencies
 poetry install --only main
-```
-
-### Using pip
-
-```bash
-# Clone the repository
-git clone https://github.com/khezen/codespy.git
-cd codespy
-
-# Install from pyproject.toml
-pip install .
-```
-
-### Using Docker
-
-```bash
-# Pull the pre-built image from GitHub Container Registry
-docker pull ghcr.io/khezen/codespy:latest
-
-# Or build locally
-docker build -t codespy .
 ```
 
 ---

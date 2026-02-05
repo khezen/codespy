@@ -4,7 +4,11 @@ version = "0.1.0"
 description = "Code review agent powered by DSPy"
 readme = "README.md"
 license = "MIT"
-authors = ["codespy <codespy@example.com>"]
+authors = ["khezen <khezen@users.noreply.github.com>"]
+repository = "https://github.com/khezen/codespy"
+homepage = "https://github.com/khezen/codespy"
+documentation = "https://github.com/khezen/codespy#readme"
+keywords = ["code-review", "ai", "dspy", "llm", "github", "pull-request", "security", "bug-detection", "static-analysis"]
 packages = [{ include = "codespy", from = "src" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
