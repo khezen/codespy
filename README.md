@@ -63,7 +63,7 @@ Built for **engineering teams that care about correctness, security, and control
 - 💰 **Cost Tracking** - Track LLM calls, tokens, and costs per review
 - 🤖 **Model Agnostic** - Works with OpenAI, AWS Bedrock, Anthropic, Ollama, and more via LiteLLM
 - 🐳 **Docker Ready** - Run locally or in the cloud with Docker
-- 🔌 **GitHub & GitLab** <img src="assets/GitHub_Invertocat_Black.svg" height="20" alt="GitHub"> <img src="assets/gitlab-logo-500-rgb.png" height="20" alt="GitLab"> - Works with both platforms, auto-detects from URL
+- <img src="assets/GitHub_Invertocat_Black.svg" height="20" alt="GitHub"> <img src="assets/gitlab-logo-500-rgb.png" height="20" alt="GitLab"> **GitHub & GitLab**  - Works with both platforms, auto-detects from URL
 - 🔌 **GitHub Action** - One-line integration for automatic PR reviews
 
 
