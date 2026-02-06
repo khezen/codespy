@@ -11,9 +11,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from codespy.config_dspy import SignatureConfig, apply_signature_env_overrides
 from codespy.config_git import (
     GitHubConfig,
+    GitLabConfig,
     discover_github_token,
-    get_token_source,
-    set_token_source,
+    discover_gitlab_token,
+    get_github_token_source,
+    get_gitlab_token_source,
+    set_github_token_source,
+    set_gitlab_token_source,
 )
 from codespy.config_io import DEFAULT_EXCLUDED_DIRECTORIES, OutputFormat
 from codespy.config_llm import (
@@ -31,9 +35,11 @@ __all__ = [
     "Settings",
     "get_settings",
     "reload_settings",
-    "get_token_source",
+    "get_github_token_source",
+    "get_gitlab_token_source",
     "LLMConfig",
     "GitHubConfig",
+    "GitLabConfig",
     "SignatureConfig",
     "OutputFormat",
 ]
@@ -69,6 +75,7 @@ class Settings(BaseSettings):
     # Nested config sections
     llm: LLMConfig = Field(default_factory=LLMConfig)
     github: GitHubConfig = Field(default_factory=GitHubConfig)
+    gitlab: GitLabConfig = Field(default_factory=GitLabConfig)
 
     # Flat signature configs (signature_name -> SignatureConfig)
     signatures: dict[str, SignatureConfig] = Field(default_factory=dict)
@@ -94,7 +101,7 @@ class Settings(BaseSettings):
 
     # Output destinations
     output_stdout: bool = True  # Enable stdout output (markdown or json)
-    output_github_pr: bool = False  # Enable GitHub PR review comments
+    output_git: bool = False  # Enable Git platform review comments (GitHub PR or GitLab MR)
 
     # File exclusion settings
     excluded_directories: list[str] = Field(default=DEFAULT_EXCLUDED_DIRECTORIES)
@@ -103,6 +110,11 @@ class Settings(BaseSettings):
     github_token: str = Field(default="", repr=False)
     gh_token: str = Field(default="", repr=False)
     github_auto_discover_token: bool = True  # GITHUB_AUTO_DISCOVER_TOKEN
+
+    # GitLab token (can also use GITLAB_TOKEN or GITLAB_PRIVATE_TOKEN env var)
+    gitlab_token: str = Field(default="", repr=False)
+    gitlab_url: str = "https://gitlab.com"  # GITLAB_URL for self-hosted instances
+    gitlab_auto_discover_token: bool = True  # GITLAB_AUTO_DISCOVER_TOKEN
 
     # LLM provider settings (flat for simple env var access)
     aws_region: str = "us-east-1"
@@ -197,20 +209,20 @@ class Settings(BaseSettings):
         # First check nested config
         if self.github.token and not is_placeholder(self.github.token):
             self.github_token = self.github.token
-            set_token_source("YAML config or GITHUB_TOKEN environment variable")
+            set_github_token_source("YAML config or GITHUB_TOKEN environment variable")
             return self
 
         # If github_token is set and not a placeholder, use it
         if self.github_token and not is_placeholder(self.github_token):
             self.github.token = self.github_token
-            set_token_source("GITHUB_TOKEN environment variable or .env file")
+            set_github_token_source("GITHUB_TOKEN environment variable or .env file")
             return self
 
         # If GH_TOKEN is set and not a placeholder, use it
         if self.gh_token and not is_placeholder(self.gh_token):
             self.github_token = self.gh_token
             self.github.token = self.gh_token
-            set_token_source("GH_TOKEN environment variable")
+            set_github_token_source("GH_TOKEN environment variable")
             return self
 
         # Clear placeholder if present
@@ -226,13 +238,62 @@ class Settings(BaseSettings):
             if token and not is_placeholder(token):
                 self.github_token = token
                 self.github.token = token
-                set_token_source(source)
+                set_github_token_source(source)
                 logger.debug(f"GitHub token discovered from: {source}")
             else:
-                set_token_source("not found")
+                set_github_token_source("not found")
         else:
-            set_token_source("auto-discovery disabled")
+            set_github_token_source("auto-discovery disabled")
             logger.debug("GitHub token auto-discovery is disabled")
+
+        return self
+
+    @model_validator(mode="after")
+    def resolve_gitlab_token(self) -> "Settings":
+        """Auto-discover GitLab token if not explicitly set."""
+
+        def is_placeholder(token: str) -> bool:
+            """Check if token looks like a placeholder."""
+            placeholders = ["xxx", "your", "token", "example", "placeholder"]
+            token_lower = token.lower()
+            return any(p in token_lower for p in placeholders)
+
+        # First check nested config
+        if self.gitlab.token and not is_placeholder(self.gitlab.token):
+            self.gitlab_token = self.gitlab.token
+            set_gitlab_token_source("YAML config or GITLAB_TOKEN environment variable")
+            return self
+
+        # Sync URL from nested config
+        if self.gitlab.url:
+            self.gitlab_url = self.gitlab.url
+
+        # If gitlab_token is set and not a placeholder, use it
+        if self.gitlab_token and not is_placeholder(self.gitlab_token):
+            self.gitlab.token = self.gitlab_token
+            set_gitlab_token_source("GITLAB_TOKEN environment variable or .env file")
+            return self
+
+        # Clear placeholder if present
+        if self.gitlab_token and is_placeholder(self.gitlab_token):
+            self.gitlab_token = ""
+            self.gitlab.token = None
+
+        # Try auto-discovery if enabled
+        auto_discover = self.gitlab.auto_discover_token and self.gitlab_auto_discover_token
+
+        if auto_discover:
+            token, source = discover_gitlab_token()
+            if token and not is_placeholder(token):
+                self.gitlab_token = token
+                self.gitlab.token = token
+                set_gitlab_token_source(source)
+                logger.debug(f"GitLab token discovered from: {source}")
+            else:
+                set_gitlab_token_source("not found")
+        else:
+            set_gitlab_token_source("auto-discovery disabled")
+            logger.debug("GitLab token auto-discovery is disabled")
 
         return self
 
@@ -259,7 +320,7 @@ class Settings(BaseSettings):
         if self.llm.aws_secret_access_key:
             self.aws_secret_access_key = self.llm.aws_secret_access_key
 
-        # Sync from flat to nested (for backward compat)
+        # Sync from flat to nested
         if self.openai_api_key and not self.llm.openai_api_key:
             self.llm.openai_api_key = self.openai_api_key
         if self.anthropic_api_key and not self.llm.anthropic_api_key:

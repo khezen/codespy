@@ -63,6 +63,7 @@ Built for **engineering teams that care about correctness, security, and control
 - 💰 **Cost Tracking** - Track LLM calls, tokens, and costs per review
 - 🤖 **Model Agnostic** - Works with OpenAI, AWS Bedrock, Anthropic, Ollama, and more via LiteLLM
 - 🐳 **Docker Ready** - Run locally or in the cloud with Docker
+- 🔌 **GitHub & GitLab** - Works with both platforms, auto-detects from URL
 - 🔌 **GitHub Action** - One-line integration for automatic PR reviews
 
 ---
@@ -113,18 +114,22 @@ poetry install --only main
 Get up and running in 30 seconds:
 
 ```bash
-# 1. Set your GitHub token (or let codespy auto-discover from gh CLI)
-export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+# 1. Set your Git token (or let codespy auto-discover from gh/glab CLI)
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx  # For GitHub
+# OR
+export GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx  # For GitLab
 
 # 2. Set your LLM provider (example with Anthropic)
 export DEFAULT_MODEL=claude-sonnet-4-5-20250929
 export ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
 
-# 3. Review a PR!
+# 3. Review a PR or MR!
 codespy review https://github.com/owner/repo/pull/123
+# OR
+codespy review https://gitlab.com/group/project/-/merge_requests/123
 ```
 
-codespy auto-discovers credentials from standard locations (`~/.aws/credentials`, `gh auth token`, etc.) - see [Configuration](#configuration) for details.
+codespy auto-discovers credentials from standard locations (`~/.aws/credentials`, `gh auth token`, `glab auth token`, etc.) - see [Configuration](#configuration) for details.
 
 ---
 
@@ -133,8 +138,17 @@ codespy auto-discovers credentials from standard locations (`~/.aws/credentials`
 ### Command Line
 
 ```bash
-# Basic review
+# Review GitHub Pull Request
 codespy review https://github.com/owner/repo/pull/123
+
+# Review GitLab Merge Request
+codespy review https://gitlab.com/group/project/-/merge_requests/123
+
+# GitLab with nested groups
+codespy review https://gitlab.com/group/subgroup/project/-/merge_requests/123
+
+# Self-hosted GitLab
+codespy review https://gitlab.mycompany.com/team/project/-/merge_requests/123
 
 # Output as JSON
 codespy review https://github.com/owner/repo/pull/123 --output json
@@ -145,14 +159,14 @@ codespy review https://github.com/owner/repo/pull/123 --model claude-sonnet-4-5-
 # Skip codebase context analysis
 codespy review https://github.com/owner/repo/pull/123 --no-with-context
 
-# Disable stdout output (useful with --github-comment)
+# Disable stdout output (useful with --git-comment)
 codespy review https://github.com/owner/repo/pull/123 --no-stdout
 
-# Post review as GitHub PR comment
-codespy review https://github.com/owner/repo/pull/123 --github-comment
+# Post review as GitHub/GitLab comment
+codespy review https://github.com/owner/repo/pull/123 --git-comment
 
-# Combine: only post to GitHub, no stdout
-codespy review https://github.com/owner/repo/pull/123 --no-stdout --github-comment
+# Combine: only post to Git platform, no stdout
+codespy review https://github.com/owner/repo/pull/123 --no-stdout --git-comment
 
 # Show current configuration
 codespy config
@@ -249,9 +263,13 @@ Priority: Environment Variables > YAML Config > Defaults
 cp .env.example .env
 ```
 
-### GitHub Token
+### Git Platform Tokens
 
-codespy automatically discovers your GitHub token from multiple sources:
+codespy automatically detects the platform (GitHub or GitLab) from the URL and discovers tokens from multiple sources.
+
+#### GitHub Token
+
+Auto-discovered from:
 - `GITHUB_TOKEN` or `GH_TOKEN` environment variables
 - GitHub CLI (`gh auth token`)
 - Git credential helper
@@ -265,6 +283,31 @@ GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
 To disable auto-discovery:
 ```bash
 GITHUB_AUTO_DISCOVER_TOKEN=false
+```
+
+#### GitLab Token
+
+Auto-discovered from:
+- `GITLAB_TOKEN` or `GITLAB_PRIVATE_TOKEN` environment variables
+- GitLab CLI (`glab auth token`)
+- Git credential helper
+- `~/.netrc` file
+- python-gitlab config files (`~/.python-gitlab.cfg`, `/etc/python-gitlab.cfg`)
+
+Or create a token at https://gitlab.com/-/user_settings/personal_access_tokens with `api` scope:
+```bash
+GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx
+```
+
+For self-hosted GitLab:
+```bash
+GITLAB_URL=https://gitlab.mycompany.com
+GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx
+```
+
+To disable auto-discovery:
+```bash
+GITLAB_AUTO_DISCOVER_TOKEN=false
 ```
 
 ### LLM Provider
@@ -332,6 +375,11 @@ llm:
 # GitHub settings (token is auto-discovered by default)
 github:
   auto_discover_token: true        # Discover from gh CLI, git credentials, ~/.netrc
+
+# GitLab settings (token is auto-discovered by default)
+gitlab:
+  auto_discover_token: true        # Discover from glab CLI, git credentials, ~/.netrc
+  # url: https://gitlab.mycompany.com  # For self-hosted GitLab (default: gitlab.com)
 
 # Default settings for all signatures
 default_model: claude-sonnet-4-5-20250929  # Also settable via DEFAULT_MODEL env var
@@ -457,25 +505,29 @@ Use parameterized queries instead...
 
 ```
 
-### GitHub PR Review
+### GitHub/GitLab Review Comments
 
-CodeSpy can post reviews directly to GitHub PRs as native review comments with inline annotations.
+CodeSpy can post reviews directly to GitHub PRs or GitLab MRs as native review comments with inline annotations.
 
 **Enable via CLI:**
 ```bash
-codespy review https://github.com/owner/repo/pull/123 --github-comment
+# GitHub
+codespy review https://github.com/owner/repo/pull/123 --git-comment
 
-# Combine: only post to GitHub, no stdout
-codespy review https://github.com/owner/repo/pull/123 --no-stdout --github-comment
+# GitLab
+codespy review https://gitlab.com/group/project/-/merge_requests/123 --git-comment
+
+# Combine: only post to platform, no stdout
+codespy review https://github.com/owner/repo/pull/123 --no-stdout --git-comment
 ```
 
 **Enable via configuration:**
 ```bash
 # Environment variable
-export OUTPUT_GITHUB_PR=true
+export OUTPUT_GIT_COMMENT=true
 
 # Or in codespy.yaml
-output_github_pr: true
+output_git_comment: true
 ```
 
 **Features:**
@@ -503,8 +555,10 @@ output_github_pr: true
 └──────────────────────────────┬──────────────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────────────┐
-│                      GitHub Integration                             │
-│  - Fetch PR diff, changed files, commit messages                    │
+│                  Git Platform Integration                           │
+│  - GitHub: Fetch PR diff, changed files, commit messages            │
+│  - GitLab: Fetch MR diff, changed files, commit messages            │
+│  - Auto-detects platform from URL                                   │
 │  - Clone/access full repository for context                         │
 └──────────────────────────────┬──────────────────────────────────────┘
                                │
@@ -545,7 +599,8 @@ output_github_pr: true
 ┌──────────────────────────────▼──────────────────────────────────────┐
 │                        Tools Layer                                  │
 │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌──────────────┐   │
-│  │ Filesystem │  │   GitHub   │  │    Web     │  │  Cyber/OSV   │   │
+│  │ Filesystem │  │    Git     │  │    Web     │  │  Cyber/OSV   │   │
+│  │            │  │ (GH + GL)  │  │            │  │              │   │
 │  └────────────┘  └────────────┘  └────────────┘  └──────────────┘   │
 │  ┌────────────────────────────────────────────────────────────────┐ │
 │  │                      Parsers                                   │ │
@@ -575,7 +630,7 @@ The review is powered by DSPy signatures that structure the LLM's analysis:
 | **DocumentationReviewSignature** | `doc_review` | Reviews documentation for accuracy based on code changes |
 | **DomainExpertSignature** (experimental, disabled by default)| `domain_analysis` | Analyzes business logic, architecture, patterns, and style consistency |
 | **IssueDeduplicationSignature** | `deduplication` | LLM-powered deduplication of issues across reviewers |
-| **PRSummarySignature** | `summarization` | Generates summary, quality assessment, and recommendation |
+| **MRSummarySignature** | `summarization` | Generates summary, quality assessment, and recommendation |
 
 ## Supported Languages
 

@@ -57,7 +57,7 @@ class Artifact(BaseModel):
     )
 
 
-from codespy.tools.github.models import ChangedFile
+from codespy.tools.git.models import ChangedFile
 
 
 class ScopeResult(BaseModel):
@@ -146,11 +146,11 @@ class SignatureStatsResult(BaseModel):
 
 
 class ReviewResult(BaseModel):
-    """Complete review results for a pull request."""
+    """Complete review results for a merge request (GitHub PR or GitLab MR)."""
 
-    pr_number: int = Field(description="PR number")
-    pr_title: str = Field(description="PR title")
-    pr_url: str = Field(description="PR URL")
+    mr_number: int = Field(description="MR number")
+    mr_title: str = Field(description="MR title")
+    mr_url: str = Field(description="MR URL")
     repo: str = Field(description="Repository name (owner/repo)")
     reviewed_at: datetime = Field(
         default_factory=datetime.utcnow, description="Review timestamp"
@@ -215,9 +215,9 @@ class ReviewResult(BaseModel):
     def to_markdown(self) -> str:
         """Format review results as Markdown."""
         lines = [
-            f"# Code Review: {self.pr_title}",
+            f"# Code Review: {self.mr_title}",
             "",
-            f"**PR:** [{self.repo}#{self.pr_number}]({self.pr_url})",
+            f"**MR:** [{self.repo}#{self.mr_number}]({self.mr_url})",
             f"**Reviewed at:** {self.reviewed_at.strftime('%Y-%m-%d %H:%M UTC')}",
             f"**Model:** {self.model_used}",
             "",

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Artifact, PackageManifest, ScopeResult, ScopeType
 from codespy.config import get_settings
-from codespy.tools.github.models import ChangedFile, PullRequest, should_review_file
+from codespy.tools.git.models import ChangedFile, MergeRequest, should_review_file
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ class ScopeAssignment(BaseModel):
 
 
 class ScopeIdentifierSignature(dspy.Signature):
-    """Identify code scopes in a repository for a pull request.
+    """Identify code scopes in a repository for a merge request.
 
     You have tools to clone the repository, explore its filesystem, and analyze code.
     Your goal is to identify logical code boundaries (scopes) and assign each changed file to exactly one scope.
@@ -66,7 +66,7 @@ class ScopeIdentifierSignature(dspy.Signature):
        - svc/, services/, microservices/ → likely a service scope
        - libs/, packages/, shared/, common/, core/ → likely a library scope
        - apps/, web/, frontend/, mobile/ → likely an application scope
-       - scripts/, bin/, tools/, hack/, ci/, .github/ → likely a script scope
+       - scripts/, bin/, tools/, hack/, ci/, .github/, .gitlab/ → likely a script scope
     3. EXAMPLES of nested scope detection from file paths:
        - Files: mono/svc/my-service-v1/internal/handler.go, mono/svc/my-service-v1/cmd/main.go
          → Candidate scope: mono/svc/my-service-v1 (the "svc/" pattern indicates service)
@@ -161,16 +161,16 @@ class ScopeIdentifierSignature(dspy.Signature):
     """
 
     changed_files: list[str] = dspy.InputField(
-        desc="List of changed file paths from the PR. Use these to derive sparse_paths for efficient cloning."
+        desc="List of changed file paths from the MR. Use these to derive sparse_paths for efficient cloning."
     )
-    repo_owner: str = dspy.InputField(desc="Repository owner (e.g., 'facebook')")
+    repo_owner: str = dspy.InputField(desc="Repository owner/namespace (e.g., 'facebook' or 'group/subgroup')")
     repo_name: str = dspy.InputField(desc="Repository name (e.g., 'react')")
     head_sha: str = dspy.InputField(desc="Git commit SHA to checkout")
     target_repo_path: str = dspy.InputField(
         desc="Absolute path where repository should be cloned. Clone here before exploring."
     )
-    pr_title: str = dspy.InputField(desc="PR title for additional context")
-    pr_description: str = dspy.InputField(desc="PR description for additional context")
+    mr_title: str = dspy.InputField(desc="MR title for additional context")
+    mr_description: str = dspy.InputField(desc="MR description for additional context")
     
     scopes: list[ScopeAssignment] = dspy.OutputField(
         desc="List of identified scopes. EVERY changed file path must appear in exactly one scope's changed_files list."
@@ -200,23 +200,23 @@ class ScopeIdentifier(dspy.Module):
         tools.extend(await connect_mcp_server(tools_dir / "filesystem" / "server.py", [repo_path_str], contexts, caller))
         tools.extend(await connect_mcp_server(tools_dir / "parsers" / "ripgrep" / "server.py", [repo_path_str], contexts, caller))
         tools.extend(await connect_mcp_server(tools_dir / "parsers" / "treesitter" / "server.py", [repo_path_str], contexts, caller))
-        tools.extend(await connect_mcp_server(tools_dir / "github" / "server.py", [], contexts, caller))
+        tools.extend(await connect_mcp_server(tools_dir / "git" / "server.py", [], contexts, caller))
         return tools, contexts
 
-    async def aforward(self, pr: PullRequest, repo_path: Path) -> list[ScopeResult]:
-        """Identify scopes in the repository for the given PR."""
+    async def aforward(self, mr: MergeRequest, repo_path: Path) -> list[ScopeResult]:
+        """Identify scopes in the repository for the given MR."""
         # Get excluded directories from settings
         excluded_dirs = self._settings.excluded_directories
         
         # Filter out binary, lock files, minified files, excluded directories, etc.
-        reviewable_files = [f for f in pr.changed_files if should_review_file(f, excluded_dirs)]
-        excluded_count = len(pr.changed_files) - len(reviewable_files)
+        reviewable_files = [f for f in mr.changed_files if should_review_file(f, excluded_dirs)]
+        excluded_count = len(mr.changed_files) - len(reviewable_files)
         if excluded_count > 0:
-            excluded_files = [f.filename for f in pr.changed_files if not should_review_file(f, excluded_dirs)]
+            excluded_files = [f.filename for f in mr.changed_files if not should_review_file(f, excluded_dirs)]
             logger.info(f"Excluded {excluded_count} non-reviewable files: {excluded_files[:10]}{'...' if len(excluded_files) > 10 else ''}")
         
         if not reviewable_files:
-            logger.warning("No reviewable files in PR - all files are binary, lock files, or in excluded directories")
+            logger.warning("No reviewable files in MR - all files are binary, lock files, or in excluded directories")
             return []
         
         # Check if signature is enabled
@@ -254,12 +254,12 @@ class ScopeIdentifier(dspy.Module):
             async with SignatureContext("scope_identification", self._cost_tracker):
                 result = await agent.acall(
                     changed_files=changed_file_paths,
-                    repo_owner=pr.repo_owner,
-                    repo_name=pr.repo_name,
-                    head_sha=pr.head_sha,
+                    repo_owner=mr.repo_owner,
+                    repo_name=mr.repo_name,
+                    head_sha=mr.head_sha,
                     target_repo_path=str(repo_path),
-                    pr_title=pr.title or "No title",
-                    pr_description=pr.body or "No description",
+                    mr_title=mr.title or "No title",
+                    mr_description=mr.body or "No description",
                 )
             scope_assignments: list[ScopeAssignment] = result.scopes
             # Ensure we got valid scopes
@@ -277,7 +277,7 @@ class ScopeIdentifier(dspy.Module):
                 confidence=0.5,
                 language=None,
                 package_manifest=None,
-                changed_files=list(pr.changed_files),
+                changed_files=list(mr.changed_files),
                 reason=f"Fallback due to agent error: {e}",
             )]
         finally:
@@ -325,6 +325,6 @@ class ScopeIdentifier(dspy.Module):
             ))
         return results
 
-    def forward(self, pr: PullRequest, repo_path: Path) -> list[ScopeResult]:
+    def forward(self, mr: MergeRequest, repo_path: Path) -> list[ScopeResult]:
         """Identify scopes (sync wrapper)."""
-        return asyncio.run(self.aforward(pr, repo_path))
+        return asyncio.run(self.aforward(mr, repo_path))

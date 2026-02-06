@@ -47,11 +47,16 @@ llm:
 
 
 # ============================================================================
-# GITHUB
+# GIT PLATFORMS
 # ============================================================================
 github:
   token: null                            # GITHUB_TOKEN (auto-discovered if not set)
   auto_discover_token: true              # GITHUB_AUTO_DISCOVER_TOKEN (set to false to disable auto-discovery)
+
+gitlab:
+  token: null                            # GITLAB_TOKEN (auto-discovered if not set)
+  url: https://gitlab.com                # GITLAB_URL (for self-hosted instances)
+  auto_discover_token: true              # GITLAB_AUTO_DISCOVER_TOKEN (set to false to disable auto-discovery)
 
 # ============================================================================
 # SIGNATURES
@@ -146,7 +151,7 @@ signatures:
 # ============================================================================
 output_format: markdown                  # OUTPUT_FORMAT (markdown | json)
 output_stdout: true                      # OUTPUT_STDOUT (enable stdout output)
-output_github_pr: true                   # OUTPUT_GITHUB_PR (post review to GitHub PR)
+output_git: true                         # OUTPUT_GIT (post review to GitHub PR or GitLab MR)
 cache_dir: ~/.cache/codespy              # CACHE_DIR
 
 # ============================================================================

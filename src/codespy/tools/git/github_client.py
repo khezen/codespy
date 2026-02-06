@@ -8,27 +8,38 @@ from git import Repo
 from github import Auth, Github
 from github.PullRequest import PullRequest as GHPullRequest
 
-from codespy.config import Settings, get_settings
-from codespy.tools.github.models import ChangedFile, FileStatus, PullRequest
+from codespy.tools.git.base import GitClient
+from codespy.tools.git.models import (
+    ChangedFile,
+    FileStatus,
+    GitPlatform,
+    MergeRequest,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class GitHubClient:
+class GitHubClient(GitClient):
     """Client for interacting with GitHub API."""
 
     PR_URL_PATTERN = re.compile(
         r"https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)"
     )
 
-    def __init__(self, settings: Settings | None = None) -> None:
-        """Initialize the GitHub client.
-
-        Args:
-            settings: Application settings. Uses global settings if not provided.
-        """
-        self.settings = settings or get_settings()
+    def __init__(self, settings=None) -> None:
+        """Initialize the GitHub client."""
+        super().__init__(settings)
         self._github: Github | None = None
+
+    @property
+    def platform_name(self) -> str:
+        """Return the platform name."""
+        return "GitHub"
+
+    @staticmethod
+    def can_handle(url: str) -> bool:
+        """Check if this client can handle the given URL."""
+        return "github.com" in url and "/pull/" in url
 
     @property
     def github(self) -> Github:
@@ -41,7 +52,7 @@ class GitHubClient:
                 self._github = Github()
         return self._github
 
-    def parse_pr_url(self, url: str) -> tuple[str, str, int]:
+    def parse_url(self, url: str) -> tuple[str, str, int]:
         """Parse a GitHub PR URL into owner, repo, and PR number.
 
         Args:
@@ -61,16 +72,16 @@ class GitHubClient:
             )
         return match.group("owner"), match.group("repo"), int(match.group("number"))
 
-    def fetch_pull_request(self, pr_url: str) -> PullRequest:
+    def fetch_merge_request(self, url: str) -> MergeRequest:
         """Fetch pull request data from GitHub.
 
         Args:
-            pr_url: GitHub PR URL
+            url: GitHub PR URL
 
         Returns:
-            PullRequest model with all data
+            MergeRequest model with all data
         """
-        owner, repo_name, pr_number = self.parse_pr_url(pr_url)
+        owner, repo_name, pr_number = self.parse_url(url)
 
         # Get repository and PR
         repo = self.github.get_repo(f"{owner}/{repo_name}")
@@ -91,7 +102,7 @@ class GitHubClient:
                 )
             )
 
-        return PullRequest(
+        return MergeRequest(
             number=gh_pr.number,
             title=gh_pr.title,
             body=gh_pr.body,
@@ -107,6 +118,7 @@ class GitHubClient:
             repo_name=repo_name,
             changed_files=changed_files,
             labels=[label.name for label in gh_pr.labels],
+            platform=GitPlatform.GITHUB,
         )
 
     def clone_repository(
@@ -189,7 +201,7 @@ class GitHubClient:
 
     def submit_review(
         self,
-        pr_url: str,
+        url: str,
         body: str,
         comments: list[dict] | None = None,
         commit_sha: str | None = None,
@@ -197,7 +209,7 @@ class GitHubClient:
         """Submit a review on a pull request.
 
         Args:
-            pr_url: GitHub PR URL
+            url: GitHub PR URL
             body: Review body/summary text
             comments: List of inline comment dicts with keys:
                 - path: File path
@@ -210,7 +222,7 @@ class GitHubClient:
             Uses event='COMMENT' to avoid approving/requesting changes.
             The bot should not make approval decisions - that's for humans.
         """
-        owner, repo_name, pr_number = self.parse_pr_url(pr_url)
+        owner, repo_name, pr_number = self.parse_url(url)
 
         repo = self.github.get_repo(f"{owner}/{repo_name}")
         gh_pr: GHPullRequest = repo.get_pull(pr_number)
@@ -218,12 +230,23 @@ class GitHubClient:
         # Use provided commit SHA or default to head
         review_commit = commit_sha or gh_pr.head.sha
 
-        # Build comments list for the API
+        # Get list of changed file paths to validate comments
+        changed_file_paths = {f.filename for f in gh_pr.get_files()}
+
+        # Build comments list for the API, filtering out invalid paths
         review_comments = []
+        skipped_comments = []
         if comments:
             for comment in comments:
+                path = comment["path"]
+                # Skip comments for files not in the PR diff
+                if path not in changed_file_paths:
+                    skipped_comments.append(comment)
+                    logger.warning(f"Skipping comment for file not in PR: {path}")
+                    continue
+
                 review_comment = {
-                    "path": comment["path"],
+                    "path": path,
                     "body": comment["body"],
                     "side": comment.get("side", "RIGHT"),
                 }
@@ -235,15 +258,35 @@ class GitHubClient:
                     review_comment["start_line"] = comment["start_line"]
                 review_comments.append(review_comment)
 
-        # Submit the review
-        gh_pr.create_review(
-            commit=repo.get_commit(review_commit),
-            body=body,
-            event="COMMENT",
-            comments=review_comments,
-        )
+        # Try to submit the review, falling back to body-only if inline comments fail
+        try:
+            gh_pr.create_review(
+                commit=repo.get_commit(review_commit),
+                body=body,
+                event="COMMENT",
+                comments=review_comments,
+            )
+            logger.info(
+                f"Submitted review on {owner}/{repo_name}#{pr_number} "
+                f"with {len(review_comments)} inline comments"
+            )
+        except Exception as e:
+            # If inline comments fail, submit review without them
+            if review_comments and ("Path could not be resolved" in str(e) or "Line could not be resolved" in str(e)):
+                logger.warning(
+                    f"Inline comments failed ({e}), submitting review without inline comments"
+                )
+                gh_pr.create_review(
+                    commit=repo.get_commit(review_commit),
+                    body=body,
+                    event="COMMENT",
+                    comments=[],
+                )
+                logger.info(
+                    f"Submitted review on {owner}/{repo_name}#{pr_number} (body only)"
+                )
+            else:
+                raise
 
-        logger.info(
-            f"Submitted review on {owner}/{repo_name}#{pr_number} "
-            f"with {len(review_comments)} inline comments"
-        )
+        if skipped_comments:
+            logger.info(f"Skipped {len(skipped_comments)} comments for files not in PR")

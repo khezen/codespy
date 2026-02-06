@@ -3,7 +3,7 @@
 import logging
 import os
 
-from codespy.tools.github.models import ChangedFile
+from codespy.tools.git.models import ChangedFile
 from codespy.agents.reviewer.models import Issue
 
 logger = logging.getLogger(__name__)
