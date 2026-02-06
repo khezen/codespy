@@ -109,8 +109,8 @@ signatures:
   # Doc Reviewer signature
   doc_review:
     enabled: true                        # DOC_REVIEW_ENABLED
-    max_iters: null                      # DOC_REVIEW_MAX_ITERS
-    model: claude-haiku-4-5-20251001     # DOC_REVIEW_MODEL (smallest)
+    max_iters: 8                      # DOC_REVIEW_MAX_ITERS
+    model: claude-sonnet-4-5-20250929    # DOC_REVIEW_MODEL (Sonnet 4.5)
     max_context_size: null               # DOC_REVIEW_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # DOC_REVIEW_MAX_REASONING_TOKENS
     temperature: null                    # DOC_REVIEW_TEMPERATURE

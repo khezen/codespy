@@ -21,37 +21,100 @@ class DocumentationReviewSignature(dspy.Signature):
     You have tools to explore the repository filesystem, search for text, and analyze code.
     All file paths are relative to the repository root.
 
-    TOKEN EFFICIENCY:
-    - The patch in each changed_file shows exactly what changed - analyze it FIRST
-    - The scope.doc_paths contains pre-identified documentation locations - USE THEM
-    - Use read_file on doc_paths to check documentation content directly
-    - Use search_literal to find additional doc references only if needed
-    - Stop exploring once you have enough evidence to confirm or dismiss an issue
+    ═══════════════════════════════════════════════════════════════════════════════
+    MANDATORY FIRST STEP - DO THIS BEFORE ANYTHING ELSE:
+    ═══════════════════════════════════════════════════════════════════════════════
+    
+    Use read_file to read the README at the scope root:
+    - Path: {scope.subroot}/readme.md OR {scope.subroot}/README.md
+    - If scope.subroot is "peaks/svc/authenticator-v1", read "peaks/svc/authenticator-v1/readme.md"
+    - This file contains documentation that MUST be checked against code changes
+    
+    If README doesn't exist at scope root, check scope.doc_paths for alternatives.
+    
+    ═══════════════════════════════════════════════════════════════════════════════
 
     Follow this process:
 
-    1. CHECK PRE-IDENTIFIED DOC PATHS:
+    1. READ THE README (MANDATORY):
+       - Call read_file("{scope.subroot}/readme.md") to get the documentation
+       - Look for: API endpoints, request/response examples, error codes, usage examples
+       - This is where you'll find outdated documentation that needs updating
+
+    2. ANALYZE THE DIFF FOR CHANGE TYPES:
+       First, categorize what changed in the diff to guide your documentation search:
+       - HTTP/API changes: Handler files, response structs, status codes, Content-Type
+       - Function signature changes: Parameters added/removed/renamed, return types changed
+       - Configuration changes: Config structs, environment variables, defaults
+       - Data model changes: Structs, fields, types, validation
+       - Error handling changes: New error types, removed errors, status code changes
+       - CLI changes: Commands, flags, arguments
+       - Client library changes: Client methods, return types
+       - check for missing docstrings, ONLY if the scope consistently uses them
+
+    3. VERIFY DOCUMENTATION AGAINST SPECIFIC CHANGE TYPES:
+       
        - The scope.doc_paths field contains documentation files/directories found by scope identifier
-       - Prioritize reading these paths first as they are confirmed to exist
-       - Check README.md, docs/ directories, API docs listed in doc_paths
-       - If doc_paths is empty, the scope may not have significant documentation
-       - In case doc_paths doesn't cover all potential documentation then use search_literal to find if any docs reference the changed entities
 
-    2. VERIFY ISSUES:
-       - Use read_file to check if documentation accurately reflects the changes
-       - Check if documentation is now outdated due to code changes
-       - Identify changed functions, types, APIs from the diff
-       - Note any new public APIs or significant changes
+       HTTP/API CHANGES (CRITICAL - high miss rate):
+       - Content-Type changes (text/plain → application/json) - check documented examples
+       - HTTP status code changes (e.g., 428 error → 202 success) - update all references
+       - Response body structure changes - verify documented examples match
+       - New response fields added - ensure they're documented
+       - Search docs for endpoint paths (e.g., /api/v1/login) to find all examples
 
-    3. CHECK DOCSTRING CONVENTIONS (if needed):
-       - Only if adding public APIs, check scope's docstring conventions
-       - Use find_function_definitions on one or two existing files
-       - Only flag missing docstrings if the scope consistently uses them
+       FUNCTION/METHOD SIGNATURE CHANGES:
+       - Parameters added/removed/renamed → Check if docs reference old signatures
+       - Return type changes (e.g., []byte → *Struct) → Update all examples
+       - New public functions → Ensure documented if scope has doc conventions
+       - Search for function names in markdown files to find usage examples
+
+       CONFIGURATION & ENVIRONMENT VARIABLES:
+       - New config fields → Check README Configuration section or .env.example
+       - Removed/renamed fields → Search docs for old field names
+       - Default value changes → Verify docs reflect new defaults
+       - New environment variables → Check if documented with description
+
+       ERROR TYPES & CODES:
+       - New error types/codes → Check if error documentation lists them
+       - Removed error types → Verify old errors aren't still documented
+       - Error behavior changes (error → success response) → BREAKING, must document
+       - HTTP status code semantics change → Update API docs
+
+       DATA MODELS & STRUCTS:
+       - New fields in request/response structs → Update API examples
+       - Removed fields → Search docs for references to old fields
+       - Field type changes → Update examples
+       - Required/optional field changes → Update documentation
+
+       CLIENT LIBRARY/SDK CHANGES:
+       - New methods → Document with usage examples
+       - Changed method signatures → Update code examples  
+       - Return type changes (e.g., string → *Struct) → BREAKING, update all examples
+       - Deprecations → Add deprecation notices
+
+       CLI COMMANDS & FLAGS:
+       - New commands/flags → Add to CLI reference
+       - Removed/renamed flags → Search docs for old flag names
+       - Changed default values → Update documentation
+
+       CONSTANTS & ENUMS:
+       - New enum values → Document new valid values
+       - Removed values → Check if docs reference removed values
+
+    4. BREAKING CHANGES - ALWAYS FLAG DOCUMENTATION UPDATES:
+       - Public function signatures change
+       - Return types change from primitive to struct (or vice versa)
+       - Required parameters added
+       - Response format changes (plain text → JSON)
+       - HTTP status code semantics change (error → success)
+       - Error behavior changes
 
     REPORT only:
     - Documentation that references changed code but is now outdated
     - Missing documentation for new public APIs (if scope has doc convention)
     - Broken or stale references you've verified
+    - Breaking changes that require documentation updates
 
     IMPORTANT: Only report concrete issues with high confidence.
     Do NOT report speculative issues or issues about code you haven't verified.
@@ -160,6 +223,11 @@ class DocumentationReviewer(dspy.Module):
             )
             for scope in changed_scopes:
                 try:
+                    # Log doc_paths for debugging
+                    logger.info(
+                        f"  Scope {scope.subroot}: doc_paths={scope.doc_paths}, "
+                        f"checking {scope.subroot}/readme.md"
+                    )
                     # Track doc_review signature costs
                     async with SignatureContext("doc_review", self._cost_tracker):
                         result = await agent.acall(
