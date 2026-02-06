@@ -429,7 +429,7 @@ signatures:
 # Output destinations
 output_format: markdown              # markdown or json
 output_stdout: true                  # Print to stdout
-output_github_pr: false              # Post as GitHub PR review comment
+output_git: true                    # Post as GitHub PR / GitLab MR review comment
 
 # Directories to skip during review
 excluded_directories:
@@ -454,7 +454,7 @@ export CODE_SECURITY_MODEL=gpt-5
 
 # Output settings
 export OUTPUT_STDOUT=false
-export OUTPUT_GITHUB_PR=true
+export OUTPUT_GIT=true
 ```
 
 See `codespy.yaml` for full configuration options.
@@ -524,10 +524,10 @@ codespy review https://github.com/owner/repo/pull/123 --no-stdout --git-comment
 **Enable via configuration:**
 ```bash
 # Environment variable
-export OUTPUT_GIT_COMMENT=true
+export OUTPUT_GIT=true
 
 # Or in codespy.yaml
-output_git_comment: true
+output_git: true
 ```
 
 **Features:**
