@@ -22,23 +22,6 @@ class BugDetectionSignature(dspy.Signature):
     You are an expert software engineer reviewing code for bugs.
     You have access to tools that let you explore the codebase to VERIFY your findings.
 
-    INPUT:
-    - scope: A ScopeResult containing:
-      * subroot: Path relative to repo root (e.g., "packages/auth")
-      * scope_type: Type of scope (library, service, application, script)
-      * language: Primary programming language
-      * changed_files: List of ChangedFile objects, each with:
-        - filename: Path to the file
-        - patch: The diff showing exactly what changed (additions/deletions)
-      * package_manifest: Package manifest info if present
-      * artifacts: Security-relevant artifacts (Dockerfiles, etc.)
-
-    TOKEN EFFICIENCY:
-    - The patch shows exactly what changed - analyze it FIRST before using tools
-    - The scope.doc_paths may contain documentation (README, API docs) - use if helpful for understanding expected behavior
-    - Use read_file ONLY when you need context outside the diff (e.g., checking base class, error handling)
-    - Prefer targeted searches (find_function_definitions, find_callers) over reading entire files
-    - Stop exploring once you have enough evidence to confirm or dismiss an issue
 
     CRITICAL RULES:
     - Analyze ALL changed files in the scope
@@ -73,7 +56,7 @@ class BugDetectionSignature(dspy.Signature):
     """
 
     scope: ScopeResult = dspy.InputField(
-        desc="Full scope context including all changed files, scope type, subroot, language, and doc_paths (pre-identified documentation that may help understand expected behavior)"
+        desc="Full scope context including all changed files, scope type, subroot, and language"
     )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field)"
@@ -174,7 +157,7 @@ class BugDetector(dspy.Module):
                         )
                     issues = [
                         issue for issue in result.issues
-                        if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                        if issue.confidence >= MIN_CONFIDENCE #and not is_speculative(issue)
                     ]
                     all_issues.extend(issues)
                     logger.debug(f"  Bugs in scope {scope.subroot}: {len(issues)} issues")
@@ -182,6 +165,7 @@ class BugDetector(dspy.Module):
                     logger.error(f"Error analyzing scope {scope.subroot}: {e}")
         finally:
             await cleanup_mcp_contexts(contexts)
+        logger.info(f"Bug detection found {len(all_issues)} issues")
         return all_issues
 
     def forward(self, scopes: Sequence[ScopeResult], repo_path: Path) -> list[Issue]:

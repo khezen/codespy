@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.reviewer.models import Artifact, PackageManifest, ScopeResult, ScopeType
+from codespy.agents.reviewer.models import PackageManifest, ScopeResult, ScopeType
 from codespy.config import get_settings
 from codespy.tools.git.models import ChangedFile, MergeRequest, should_review_file
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -39,13 +39,6 @@ class ScopeAssignment(BaseModel):
     language: str | None = Field(default=None, description="Primary language detected")
     package_manifest: PackageManifest | None = Field(
         default=None, description="Package manifest info if present"
-    )
-    artifacts: list[Artifact] = Field(
-        default_factory=list, description="Security-relevant artifacts found in this scope (e.g., Dockerfile)"
-    )
-    doc_paths: list[str] = Field(
-        default_factory=list,
-        description="Documentation file/directory paths in this scope (e.g., README.md, docs/)"
     )
     changed_files: list[str] = Field(
         default_factory=list, description="Changed file paths belonging to this scope"
@@ -128,24 +121,6 @@ class ScopeIdentifierSignature(dspy.Signature):
     - go.mod (go) with lock file: go.sum
     - Cargo.toml (cargo) with lock file: Cargo.lock
     - pom.xml (maven), build.gradle (gradle), composer.json (composer), Gemfile (bundler)
-
-    SECURITY-RELEVANT ARTIFACTS TO DETECT:
-    Look for these files in each scope and add them to the artifacts list:
-    - Dockerfile, Containerfile (artifact_type: "dockerfile")
-      * Files named: Dockerfile, Dockerfile.*, *.Dockerfile, Containerfile
-      * Often found at scope root or in docker/, build/ directories
-    For each artifact found, set has_changes=true if the file is in the PR changed files list.
-
-    DOCUMENTATION PATHS TO DETECT:
-    Look for these documentation files/directories in each scope and add them to doc_paths:
-    - README files: README.md, README.rst, README.txt, README (any case)
-    - Documentation directories: docs/, documentation/, doc/
-    - API documentation: api.md, API.md, api-docs/, openapi.yaml, swagger.yaml
-    - Changelog files: CHANGELOG.md, HISTORY.md, CHANGES.md, RELEASE_NOTES.md
-    - Contributing guides: CONTRIBUTING.md, CONTRIBUTORS.md
-    - Other common docs: ARCHITECTURE.md, DESIGN.md, USAGE.md, EXAMPLES.md
-    - Wiki-style docs: *.wiki, wiki/
-    Use file_exists or get_tree to verify these paths exist before adding them.
 
     CRITICAL RULES:
     1. EVERY changed file must be assigned to exactly ONE scope
@@ -318,8 +293,6 @@ class ScopeIdentifier(dspy.Module):
                 confidence=assignment.confidence,
                 language=assignment.language,
                 package_manifest=assignment.package_manifest,
-                artifacts=assignment.artifacts,
-                doc_paths=assignment.doc_paths,
                 changed_files=changed_files,
                 reason=assignment.reason,
             ))

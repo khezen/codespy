@@ -22,21 +22,6 @@ class CodeSecuritySignature(dspy.Signature):
     You are a security expert reviewing code changes.
     You have access to tools that let you explore the codebase to VERIFY your findings.
 
-    INPUT:
-    - scope: A ScopeResult containing:
-      * subroot: Path relative to repo root (e.g., "packages/auth")
-      * scope_type: Type of scope (library, service, application, script)
-      * language: Primary programming language
-      * changed_files: List of ChangedFile objects, each with:
-        - filename: Path to the file
-        - patch: The diff showing exactly what changed (additions/deletions)
-
-    TOKEN EFFICIENCY:
-    - The patch shows exactly what changed - analyze it FIRST before using tools
-    - Use read_file ONLY when you need context outside the diff (e.g., checking if validation exists elsewhere)
-    - Prefer targeted searches (find_function_calls, search_literal) over reading entire files
-    - Stop exploring once you have enough evidence to confirm or dismiss an issue
-
     CRITICAL RULES:
     - Analyze ALL changed files in the scope
     - ONLY report vulnerabilities you can VERIFY using the available tools
@@ -92,7 +77,7 @@ class CodeSecuritySignature(dspy.Signature):
 
 
 class SupplyChainSecuritySignature(dspy.Signature):
-    """Analyze supply chain security: artifacts (Dockerfiles, etc.) and dependencies.
+    """Analyze supply chain security: Dockerfiles and dependencies.
 
     You are a security expert reviewing supply chain security aspects of a project.
     You have access to:
@@ -101,9 +86,14 @@ class SupplyChainSecuritySignature(dspy.Signature):
 
     You will analyze TWO types of supply chain security concerns:
 
-    ## 1. ARTIFACT SECURITY (Dockerfiles, CI configs, etc.)
+    ## 1. DOCKERFILE SECURITY
 
-    For each artifact provided, check for:
+    FIRST, search for Dockerfiles in the scope using filesystem tools:
+    - Use get_tree or list_directory to find Dockerfile, Dockerfile.*, *.Dockerfile, Containerfile
+    - Common locations: scope root, docker/, build/, .docker/ directories
+    - Once found, use read_file to get the contents
+
+    For each Dockerfile found, check for:
     - Running as root: Missing USER instruction or explicit USER root
     - Secrets in build: Hardcoded passwords, API keys, tokens in ENV or ARG
     - Insecure base images: Using :latest tag, unverified base images
@@ -117,19 +107,18 @@ class SupplyChainSecuritySignature(dspy.Signature):
 
     If manifest info is provided:
     1. Use read_file to read the manifest file at manifest_path
-    2. If lock_file_path is provided, read it as well
-    3. Extract ALL dependencies with their names and versions
+    2. Extract ALL dependencies with their names and versions
+    3. Use OSV tools to scan dependencies for vulnerabilities
+    4. Only report vulnerabilities actually found by OSV queries
 
-    4. **CRITICAL: Use BATCH scanning to scan ALL dependencies in a SINGLE call**
-       ALWAYS use scan_dependencies() instead of individual scan calls:
+    ## AVAILABLE OSV TOOLS
 
-       scan_dependencies([
-           {"name": "requests", "ecosystem": "PyPI", "version": "2.25.0"},
-           {"name": "django", "ecosystem": "PyPI", "version": "3.1.0"},
-           ...all other dependencies...
-       ])
+    You have access to these OSV tools for querying vulnerability data:
 
-       Ecosystem values by package manager:
+    **Batch Scanning (PREFERRED for multiple packages):**
+    - scan_dependencies(dependencies) - Scan multiple packages in a single call
+      Example: scan_dependencies([{"name": "requests", "ecosystem": "PyPI", "version": "2.25.0"}, ...])
+      Ecosystem values by package manager:
        - Python (pip/poetry/pipenv) → "PyPI"
        - JavaScript/Node.js (npm/yarn/pnpm) → "npm"
        - Go (go mod) → "Go"
@@ -137,15 +126,25 @@ class SupplyChainSecuritySignature(dspy.Signature):
        - Ruby (bundler) → "RubyGems"
        - Rust (cargo) → "crates.io"
 
-       DO NOT call individual scan tools (scan_pypi_package, scan_npm_package, etc.)
-       for multiple packages - this wastes iterations. Use scan_dependencies() for ALL.
+    **Individual Package Scanning:**
+    - scan_package(name, ecosystem, version) - Scan any package (generic)
+    - scan_pypi_package(name, version) - Scan Python/PyPI packages
+    - scan_npm_package(name, version) - Scan npm/Node.js packages
+    - scan_go_package(name, version) - Scan Go modules
+    - scan_maven_package(group_id, artifact_id, version) - Scan Java/Maven packages
+    - scan_rubygems_package(name, version) - Scan Ruby gems
+    - scan_cargo_package(name, version) - Scan Rust/Cargo crates
 
-    5. Only report vulnerabilities actually found by OSV queries
+    **Query Tools:**
+    - query_package(name, ecosystem, version) - Query vulnerabilities for a specific package
+    - query_purl(purl, version) - Query using Package URL (e.g., 'pkg:pypi/requests')
+    - query_commit(commit_hash) - Query vulnerabilities affecting a git commit
+    - get_vulnerability(osv_id) - Get full details of a vulnerability by ID (e.g., 'GHSA-xxxx' or 'CVE-2021-xxxx')
 
     ## VERIFICATION RULES
     - Check for actual security issues, not hypotheticals
     - For dependencies, only report CVE/GHSA IDs returned by OSV
-    - For artifacts, verify the issue exists in the content provided
+    - For Dockerfiles, verify the issue exists by reading the file content
 
     For each issue, provide:
     - A clear title
@@ -156,8 +155,8 @@ class SupplyChainSecuritySignature(dspy.Signature):
     - CWE ID if applicable
     """
 
-    artifacts: list[dict] = dspy.InputField(
-        desc="List of artifact dicts with keys: path, artifact_type, content. Empty list if no artifacts."
+    scope_subroot: str = dspy.InputField(
+        desc="Path to scope root relative to repo root. Search here for Dockerfiles."
     )
     manifest_path: str = dspy.InputField(
         desc="Path to manifest file (e.g., package.json, go.mod). Empty string if none."
@@ -288,34 +287,18 @@ class SecurityAuditor(dspy.Module):
                             )
                         issues = [
                             issue for issue in result.issues
-                            if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                            if issue.confidence >= MIN_CONFIDENCE #and not is_speculative(issue)
                         ]
                         all_issues.extend(issues)
                         logger.debug(f"  Code security in scope {scope.subroot}: {len(issues)} issues")
                     except Exception as e:
                         logger.error(f"Error analyzing scope {scope.subroot}: {e}")
 
-                # 2. Run supply chain security analysis if enabled (artifacts + dependencies)
+                # 2. Run supply chain security analysis if enabled (Dockerfiles + dependencies)
                 if supply_chain_agent:
-                    # Check if we should scan unchanged artifacts/manifests
+                    # Check if we should scan unchanged manifests
                     scan_unchanged = self._settings.get_scan_unchanged("supply_chain")
 
-                    # Collect artifacts with their content (filter by has_changes if scan_unchanged=False)
-                    artifacts_data: list[dict] = []
-                    for artifact in scope.artifacts:
-                        # Skip unchanged artifacts if scan_unchanged is False
-                        if not scan_unchanged and not artifact.has_changes:
-                            logger.debug(f"Skipping unchanged artifact: {artifact.path}")
-                            continue
-                        artifact_full_path = repo_path / artifact.path
-                        if not artifact_full_path.exists():
-                            logger.warning(f"Artifact file not found, skipping: {artifact.path}")
-                            continue
-                        artifacts_data.append({
-                            "path": artifact.path,
-                            "artifact_type": artifact.artifact_type,
-                            "content": artifact_full_path.read_text(),
-                        })
                     # Get manifest info (skip if unchanged and scan_unchanged=False)
                     manifest = scope.package_manifest
                     should_scan_manifest = manifest and (scan_unchanged or manifest.dependencies_changed)
@@ -324,32 +307,32 @@ class SecurityAuditor(dspy.Module):
                     package_manager = manifest.package_manager if should_scan_manifest else ""
                     if manifest and not should_scan_manifest:
                         logger.debug(f"Skipping unchanged manifest: {manifest.manifest_path}")
-                    # Run supply chain analysis if there's anything to analyze
-                    if artifacts_data or manifest_path:
-                        try:
-                            logger.debug(
-                                f"Analyzing supply chain in scope {scope.subroot}: "
-                                f"{len(artifacts_data)} artifacts, manifest={bool(manifest_path)}"
+                    # Run supply chain analysis - agent will search for Dockerfiles itself
+                    try:
+                        logger.debug(
+                            f"Analyzing supply chain in scope {scope.subroot}: "
+                            f"manifest={bool(manifest_path)}"
+                        )
+                        # Track supply_chain signature costs separately
+                        async with SignatureContext("supply_chain", self._cost_tracker):
+                            result = await supply_chain_agent.acall(
+                                scope_subroot=scope.subroot,
+                                manifest_path=manifest_path,
+                                lock_file_path=lock_file_path,
+                                package_manager=package_manager,
+                                category=self.category,
                             )
-                            # Track supply_chain signature costs separately
-                            async with SignatureContext("supply_chain", self._cost_tracker):
-                                result = await supply_chain_agent.acall(
-                                    artifacts=artifacts_data,
-                                    manifest_path=manifest_path,
-                                    lock_file_path=lock_file_path,
-                                    package_manager=package_manager,
-                                    category=self.category,
-                                )
-                            issues = [
-                                issue for issue in result.issues
-                                if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
-                            ]
-                            all_issues.extend(issues)
-                            logger.debug(f"  Supply chain security in scope {scope.subroot}: {len(issues)} issues")
-                        except Exception as e:
-                            logger.error(f"Error analyzing supply chain in scope {scope.subroot}: {e}")
+                        issues = [
+                            issue for issue in result.issues
+                            if issue.confidence >= MIN_CONFIDENCE #and not is_speculative(issue)
+                        ]
+                        all_issues.extend(issues)
+                        logger.debug(f"  Supply chain security in scope {scope.subroot}: {len(issues)} issues")
+                    except Exception as e:
+                        logger.error(f"Error analyzing supply chain in scope {scope.subroot}: {e}")
         finally:
             await cleanup_mcp_contexts(contexts)
+        logger.info(f"Security audit found {len(all_issues)} issues")
         return all_issues
 
     def forward(self, scopes: Sequence[ScopeResult], repo_path: Path) -> list[Issue]:

@@ -47,16 +47,6 @@ class PackageManifest(BaseModel):
     )
 
 
-class Artifact(BaseModel):
-    """Security-relevant artifact file information (e.g., Dockerfile)."""
-
-    path: str = Field(description="Path to the artifact file relative to repo root")
-    artifact_type: str = Field(description="Type of artifact (e.g., dockerfile)")
-    has_changes: bool = Field(
-        default=False, description="Whether this artifact was modified in the PR"
-    )
-
-
 from codespy.tools.git.models import ChangedFile
 
 
@@ -77,13 +67,6 @@ class ScopeResult(BaseModel):
     language: str | None = Field(default=None, description="Primary language detected")
     package_manifest: PackageManifest | None = Field(
         default=None, description="Package manifest info if present"
-    )
-    artifacts: list[Artifact] = Field(
-        default_factory=list, description="Security-relevant artifacts found in this scope (e.g., Dockerfile)"
-    )
-    doc_paths: list[str] = Field(
-        default_factory=list,
-        description="Documentation file/directory paths in this scope (e.g., README.md, docs/)"
     )
     changed_files: list[ChangedFile] = Field(
         default_factory=list, description="Changed files belonging to this scope"

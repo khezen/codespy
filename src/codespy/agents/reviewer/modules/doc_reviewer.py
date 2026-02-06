@@ -30,31 +30,12 @@ class DocumentationReviewSignature(dspy.Signature):
     - If scope.subroot is "peaks/svc/authenticator-v1", read "peaks/svc/authenticator-v1/readme.md"
     - This file contains documentation that MUST be checked against code changes
     
-    If README doesn't exist at scope root, check scope.doc_paths for alternatives.
+    If README doesn't exist at scope root, search for alternative documentation files
+    (e.g., docs/, documentation/, README.rst) using get_tree or file_exists.
     
     ═══════════════════════════════════════════════════════════════════════════════
 
-    Follow this process:
-
-    1. READ THE README (MANDATORY):
-       - Call read_file("{scope.subroot}/readme.md") to get the documentation
-       - Look for: API endpoints, request/response examples, error codes, usage examples
-       - This is where you'll find outdated documentation that needs updating
-
-    2. ANALYZE THE DIFF FOR CHANGE TYPES:
-       First, categorize what changed in the diff to guide your documentation search:
-       - HTTP/API changes: Handler files, response structs, status codes, Content-Type
-       - Function signature changes: Parameters added/removed/renamed, return types changed
-       - Configuration changes: Config structs, environment variables, defaults
-       - Data model changes: Structs, fields, types, validation
-       - Error handling changes: New error types, removed errors, status code changes
-       - CLI changes: Commands, flags, arguments
-       - Client library changes: Client methods, return types
-       - check for missing docstrings, ONLY if the scope consistently uses them
-
-    3. VERIFY DOCUMENTATION AGAINST SPECIFIC CHANGE TYPES:
-       
-       - The scope.doc_paths field contains documentation files/directories found by scope identifier
+    VERIFY DOCUMENTATION AGAINST SPECIFIC CHANGE TYPES:
 
        HTTP/API CHANGES (CRITICAL - high miss rate):
        - Content-Type changes (text/plain → application/json) - check documented examples
@@ -101,29 +82,11 @@ class DocumentationReviewSignature(dspy.Signature):
        CONSTANTS & ENUMS:
        - New enum values → Document new valid values
        - Removed values → Check if docs reference removed values
-
-    4. BREAKING CHANGES - ALWAYS FLAG DOCUMENTATION UPDATES:
-       - Public function signatures change
-       - Return types change from primitive to struct (or vice versa)
-       - Required parameters added
-       - Response format changes (plain text → JSON)
-       - HTTP status code semantics change (error → success)
-       - Error behavior changes
-
-    REPORT only:
-    - Documentation that references changed code but is now outdated
-    - Missing documentation for new public APIs (if scope has doc convention)
-    - Broken or stale references you've verified
-    - Breaking changes that require documentation updates
-
-    IMPORTANT: Only report concrete issues with high confidence.
-    Do NOT report speculative issues or issues about code you haven't verified.
     """
 
     scope: ScopeResult = dspy.InputField(
         desc="Scope with changed files. Has: subroot, scope_type, "
-        "changed_files (filename + patch - analyze patch first), language, package_manifest, "
-        "doc_paths (pre-identified documentation files/directories - check these first)."
+        "changed_files (filename + patch - analyze patch first), language, package_manifest."
     )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field in Issue objects)"
@@ -223,11 +186,7 @@ class DocumentationReviewer(dspy.Module):
             )
             for scope in changed_scopes:
                 try:
-                    # Log doc_paths for debugging
-                    logger.info(
-                        f"  Scope {scope.subroot}: doc_paths={scope.doc_paths}, "
-                        f"checking {scope.subroot}/readme.md"
-                    )
+                    logger.info(f"  Reviewing scope {scope.subroot}, checking {scope.subroot}/readme.md")
                     # Track doc_review signature costs
                     async with SignatureContext("doc_review", self._cost_tracker):
                         result = await agent.acall(

@@ -113,6 +113,13 @@ class ReviewPipeline(dspy.Module):
         scopes = self.scope_identifier(mr, repo_path)
         for scope in scopes:
             logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
+            if scope.package_manifest:
+                manifest = scope.package_manifest
+                logger.info(f"    Manifest: {manifest.manifest_path} ({manifest.package_manager})")
+                if manifest.lock_file_path:
+                    logger.info(f"    Lock file: {manifest.lock_file_path}")
+                if manifest.dependencies_changed:
+                    logger.info(f"    Dependencies changed: Yes")
 
         # Build list of review modules (they check signature enabled status internally)
         all_issues: list[Issue] = []

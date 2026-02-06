@@ -37,10 +37,8 @@ class DomainExpertSignature(dspy.Signature):
     EXPLORATION STRATEGY:
 
     PHASE 1 - UNDERSTAND BUSINESS PURPOSE:
-    - The scope.doc_paths contains pre-identified documentation locations - USE THEM FIRST
-    - Prioritize reading README.md, ARCHITECTURE.md, DESIGN.md from doc_paths
-    - If doc_paths is empty, use get_tree to find documentation
     - Use get_tree to see the directory structure of the scope's subroot
+    - Search for documentation files (README.md, ARCHITECTURE.md, DESIGN.md) in the scope
     - Read main entry points, public APIs/interfaces
     - Identify what problem or feature this scope solves
     - Understand the domain concepts (entities, workflows, business rules)
@@ -98,8 +96,7 @@ class DomainExpertSignature(dspy.Signature):
 
     scope: ScopeResult = dspy.InputField(
         desc="The scope to analyze with its changed files. Contains: "
-        "subroot (relative path), scope_type, changed_files list (filename + patch only - use read_file for content), language, package_manifest, "
-        "doc_paths (pre-identified documentation files/directories - check these first for business context)."
+        "subroot (relative path), scope_type, changed_files list (filename + patch only - use read_file for content), language, package_manifest."
     )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field)"
@@ -213,7 +210,7 @@ class DomainExpert(dspy.Module):
                     # Filter issues by confidence and speculation
                     filtered_issues = [
                         issue for issue in issues
-                        if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                        if issue.confidence >= MIN_CONFIDENCE #and not is_speculative(issue)
                     ]
                     all_issues.extend(filtered_issues)
                     logger.info(

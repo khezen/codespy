@@ -183,11 +183,12 @@ class GitReporter(BaseReporter):
 
             for issue in body_issues:
                 emoji = self.SEVERITY_EMOJI.get(issue.severity, "⚪")
+                confidence_pct = int(issue.confidence * 100)
                 lines.extend([
                     f"### {emoji} [{issue.severity.value.title()}] {issue.title}",
                     "",
                     f"**File:** `{issue.filename}`",
-                    f"**Category:** {issue.category.value}",
+                    f"**Category:** {issue.category.value} | **Confidence:** {confidence_pct}%",
                     "",
                     issue.description,
                     "",
@@ -244,10 +245,11 @@ class GitReporter(BaseReporter):
             emoji = self.SEVERITY_EMOJI.get(issue.severity, "⚪")
 
             # Build comment body - keep essential info visible
+            confidence_pct = int(issue.confidence * 100)
             body_lines = [
                 f"{emoji} **[{issue.severity.value.title()}] {issue.title}**",
                 "",
-                f"**Category:** {issue.category.value}",
+                f"**Category:** {issue.category.value} | **Confidence:** {confidence_pct}%",
                 "",
                 issue.description,
             ]

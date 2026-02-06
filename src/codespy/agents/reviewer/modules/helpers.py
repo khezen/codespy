@@ -66,7 +66,7 @@ SPECULATIVE_PHRASES = [
 ]
 
 # Minimum confidence threshold
-MIN_CONFIDENCE = 0.6
+MIN_CONFIDENCE = 0.5
 
 # Markdown file extensions to review
 MARKDOWN_EXTENSIONS = {".md", ".markdown", ".mdx", ".rst", ".txt"}
