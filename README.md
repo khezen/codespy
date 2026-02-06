@@ -220,30 +220,6 @@ jobs:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-**Available Providers:**
-
-```yaml
-# OpenAI
-- uses: khezen/codespy@v1
-  with:
-    model: 'gpt-5'
-    openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-
-# AWS Bedrock
-- uses: khezen/codespy@v1
-  with:
-    model: 'bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0'
-    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    aws-region: 'us-east-1'
-
-# Google Gemini
-- uses: khezen/codespy@v1
-  with:
-    model: 'gemini/gemini-2.5-pro'
-    gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
-```
-
 See [`.github/workflows/codespy-review.yml.example`](.github/workflows/codespy-review.yml.example) for more examples.
 
 ---
@@ -254,7 +230,7 @@ codespy supports two configuration methods:
 - **`.env` file** - Simple environment variables for basic setup
 - **`codespy.yaml`** - Full YAML configuration for advanced options (per-module settings)
 
-Priority: Environment Variables > YAML Config > Defaults
+Priority: cmd options > Environment Variables > YAML Config > Defaults
 
 ### Setup
 
