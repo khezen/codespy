@@ -55,13 +55,7 @@ class CodeSecuritySignature(dspy.Signature):
     - Issues that might exist in code you haven't verified
     - "Could be vulnerable if..." scenarios
 
-    For each issue, provide:
-    - A clear title
-    - Severity (critical, high, medium, low, info)
-    - Detailed description of the vulnerability
-    - The affected code location
-    - A suggested fix
-    - CWE ID if applicable
+    OUTPUT EFFICIENCY: Reference files by name and line number. Do not repeat patch content or code snippets in reasoning steps. Keep each reasoning step to 1-2 sentences.
     """
 
     scope: ScopeResult = dspy.InputField(
@@ -72,7 +66,7 @@ class CodeSecuritySignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="VERIFIED security issues found across all changed files in scope. Empty list if none confirmed."
+        desc="Verified security issues only. Concise titles (<10 words), brief descriptions (<3 sentences). Empty list if none."
     )
 
 
@@ -102,6 +96,8 @@ class SupplyChainSecuritySignature(dspy.Signature):
     - Exposed ports: Unnecessary exposed ports
     - Shell injection: Unquoted variables in RUN commands
     - Privilege escalation: Unnecessary --privileged or capabilities
+
+    OUTPUT EFFICIENCY: Do not enumerate individual dependencies in reasoning steps. Scan them in batch and only mention those with actual findings. Keep each reasoning step to 1-2 sentences.
 
     ## 2. DEPENDENCY SECURITY (package manifests)
 
@@ -172,7 +168,7 @@ class SupplyChainSecuritySignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="VERIFIED supply chain security issues. Empty list if none confirmed."
+        desc="Verified supply chain issues only. Concise titles (<10 words), brief descriptions (<3 sentences). Empty list if none."
     )
 
 

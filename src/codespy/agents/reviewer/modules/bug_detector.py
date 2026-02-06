@@ -53,6 +53,8 @@ class BugDetectionSignature(dspy.Signature):
     - Style issues or minor improvements
     - Hypothetical edge cases without evidence
     - Issues that might exist in code you haven't verified
+
+    OUTPUT EFFICIENCY: Reference files by name and line number. Do not repeat patch content or code snippets in reasoning steps. Keep each reasoning step to 1-2 sentences.
     """
 
     scope: ScopeResult = dspy.InputField(
@@ -63,7 +65,7 @@ class BugDetectionSignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="VERIFIED bugs found across all changed files in scope. Empty list if none confirmed."
+        desc="Verified bugs only. Concise titles (<10 words), brief descriptions (<3 sentences). Empty list if none."
     )
 
 

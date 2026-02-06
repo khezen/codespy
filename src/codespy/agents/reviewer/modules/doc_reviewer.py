@@ -82,6 +82,8 @@ class DocumentationReviewSignature(dspy.Signature):
        CONSTANTS & ENUMS:
        - New enum values → Document new valid values
        - Removed values → Check if docs reference removed values
+
+    OUTPUT EFFICIENCY: Do not quote or restate document contents in reasoning steps. Reference sections by name only. Keep each reasoning step to 1-2 sentences.
     """
 
     scope: ScopeResult = dspy.InputField(
@@ -93,8 +95,7 @@ class DocumentationReviewSignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Documentation issues found. Empty list if documentation is adequate. "
-        "Each issue must have: category, severity, title, description, filename, confidence (0.0-1.0)."
+        desc="Documentation issues only. Concise titles (<10 words), brief descriptions (<3 sentences). Empty list if adequate."
     )
 
 

@@ -133,6 +133,9 @@ class ScopeIdentifierSignature(dspy.Signature):
        - Changed files span multiple unrelated directories with no common scope indicator
     5. Use tools to verify package manifest existence - don't guess
     6. Trust the file paths - if they contain svc/, services/, packages/ etc., that's a strong scope signal
+
+    OUTPUT EFFICIENCY: Group files by common directory prefix in reasoning. Do not reason about each file path individually.
+    Keep each reasoning step to 1-2 sentences.
     """
 
     changed_files: list[str] = dspy.InputField(
@@ -148,7 +151,7 @@ class ScopeIdentifierSignature(dspy.Signature):
     mr_description: str = dspy.InputField(desc="MR description for additional context")
     
     scopes: list[ScopeAssignment] = dspy.OutputField(
-        desc="List of identified scopes. EVERY changed file path must appear in exactly one scope's changed_files list."
+        desc="Identified scopes. Every changed file must appear in exactly one scope. Use concise reasons (<2 sentences)."
     )
 
 
