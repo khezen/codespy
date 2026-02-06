@@ -359,86 +359,12 @@ AUTO_DISCOVER_GEMINI=false
 
 ### Advanced Configuration (YAML)
 
-For per-signature settings, use `codespy.yaml`:
-
-```yaml
-# codespy.yaml
-
-# LLM provider settings (credentials are auto-discovered by default)
-llm:
-  auto_discover_openai: true       # Discover from ~/.config/openai/, ~/.openai/, $OPENAI_API_KEY
-  auto_discover_anthropic: true    # Discover from ~/.config/anthropic/, ~/.anthropic/, $ANTHROPIC_API_KEY
-  auto_discover_gemini: true       # Discover from $GEMINI_API_KEY, gcloud ADC
-  auto_discover_aws: true          # Discover from ~/.aws/credentials, AWS CLI
-  enable_prompt_caching: true      # Provider-side prompt caching (reduces latency and costs)
-
-# GitHub settings (token is auto-discovered by default)
-github:
-  auto_discover_token: true        # Discover from gh CLI, git credentials, ~/.netrc
-
-# GitLab settings (token is auto-discovered by default)
-gitlab:
-  auto_discover_token: true        # Discover from glab CLI, git credentials, ~/.netrc
-  # url: https://gitlab.mycompany.com  # For self-hosted GitLab (default: gitlab.com)
-
-# Default settings for all signatures
-default_model: claude-sonnet-4-5-20250929  # Also settable via DEFAULT_MODEL env var
-extraction_model: claude-haiku-4-5-20251001  # For field extraction (smaller model)
-default_max_iters: 3
-default_max_context_size: 50000
-default_max_reasoning_tokens: 8000  # Limit reasoning verbosity
-default_temperature: 0.1            # Lower = more deterministic output
-
-# Global LLM reliability settings
-llm_retries: 3                       # Number of retries for LLM API calls
-llm_timeout: 120                     # Timeout in seconds
-
-# Per-signature overrides (see signatures table below for all available)
-signatures:
-  code_security:
-    enabled: true
-    model: claude-sonnet-4-5-20250929
-
-  supply_chain:
-    enabled: true
-
-  bug_detection:
-    enabled: true
-
-  doc_review:
-    enabled: true
-    model: claude-haiku-4-5-20251001  # Smaller model for simpler task
-
-  domain_analysis:
-    enabled: false                    # Disabled by default (expensive)
-    max_iters: 6
-
-  scope_identification:
-    enabled: true
-    max_iters: 10
-    model: claude-opus-4-5-20251101   # Larger model for complex scope analysis
-
-  deduplication:
-    enabled: true
-    model: claude-haiku-4-5-20251001  # Smaller model for simple task
-
-  summarization:
-    enabled: true
-    model: claude-haiku-4-5-20251001
-
-# Output destinations
-output_format: markdown              # markdown or json
-output_stdout: true                  # Print to stdout
-output_git: true                    # Post as GitHub PR / GitLab MR review comment
-
-# Directories to skip during review
-excluded_directories:
-  - vendor
-  - node_modules
-  - dist
-  - build
-  - __pycache__
-```
+For per-signature settings, use `codespy.yaml`. See [`codespy.yaml`](codespy.yaml) for all available options including:
+- LLM provider settings and auto-discovery
+- Git platform configuration (GitHub/GitLab)
+- Per-signature model and iteration overrides
+- Output format and destination settings
+- Directory exclusions
 
 Override YAML settings via environment variables using `_` separator:
 
