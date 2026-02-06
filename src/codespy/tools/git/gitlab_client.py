@@ -271,6 +271,8 @@ class GitLabClient(GitClient):
         - The body becomes a general MR note/comment
         - Inline comments become discussions on specific lines
 
+        Uses optimistic approach with line validation fallback.
+
         Args:
             url: GitLab MR URL
             body: Review body/summary text
@@ -286,26 +288,69 @@ class GitLabClient(GitClient):
         project = self.gitlab_client.projects.get(project_path)
         gl_mr = project.mergerequests.get(mr_number)
 
-        # Get commit SHA for positioning
+        # Get changes and commit SHA for positioning
+        changes = gl_mr.changes()
         if not commit_sha:
-            changes = gl_mr.changes()
             commit_sha = changes.get("diff_refs", {}).get("head_sha")
 
-        # Post main review body as a note
-        if body:
-            gl_mr.notes.create({"body": body})
-            logger.info(f"Posted review summary on {project_path}!{mr_number}")
+        # Build changed files map for line validation
+        changed_files_map: dict[str, ChangedFile] = {}
+        for change in changes.get("changes", []):
+            filename = change.get("new_path", change.get("old_path"))
+            diff = change.get("diff", "")
+
+            # Determine status
+            if change.get("new_file"):
+                status = FileStatus.ADDED
+            elif change.get("deleted_file"):
+                status = FileStatus.REMOVED
+            elif change.get("renamed_file"):
+                status = FileStatus.RENAMED
+            else:
+                status = FileStatus.MODIFIED
+
+            additions = sum(1 for line in diff.split("\n") if line.startswith("+") and not line.startswith("+++"))
+            deletions = sum(1 for line in diff.split("\n") if line.startswith("-") and not line.startswith("---"))
+
+            changed_files_map[filename] = ChangedFile(
+                filename=filename,
+                status=status,
+                additions=additions,
+                deletions=deletions,
+                patch=diff,
+                previous_filename=change.get("old_path") if change.get("renamed_file") else None,
+            )
+
+        # Track failed comments to append to body
+        failed_comments: list[dict] = []
+        successful_count = 0
 
         # Post inline comments as discussions
         if comments:
             for comment in comments:
+                path = comment["path"]
+                line = comment.get("line")
+                changed_file = changed_files_map.get(path)
+
+                # Skip if file not in MR
+                if not changed_file:
+                    logger.warning(f"Skipping comment for file not in MR: {path}")
+                    failed_comments.append(comment)
+                    continue
+
+                # Pre-validate line is in diff
+                if line and not changed_file.is_line_in_diff(line):
+                    logger.debug(f"Comment on {path}:{line} not in diff, will add to body")
+                    failed_comments.append(comment)
+                    continue
+
                 # Create a discussion on the specific line
                 position = {
                     "base_sha": gl_mr.diff_refs.get("base_sha"),
                     "head_sha": commit_sha,
                     "start_sha": gl_mr.diff_refs.get("start_sha"),
-                    "new_path": comment["path"],
-                    "new_line": comment["line"],
+                    "new_path": path,
+                    "new_line": line,
                     "position_type": "text",
                 }
 
@@ -318,12 +363,53 @@ class GitLabClient(GitClient):
                         "body": comment["body"],
                         "position": position,
                     })
+                    successful_count += 1
                 except gitlab.exceptions.GitlabCreateError as e:
-                    # Fall back to regular note if position fails
-                    logger.warning(f"Failed to create inline comment, falling back to note: {e}")
-                    fallback_body = f"**{comment['path']}:{comment['line']}**\n\n{comment['body']}"
-                    gl_mr.notes.create({"body": fallback_body})
+                    # Track failed comment to include in body
+                    logger.warning(f"Failed to create inline comment on {path}:{line}: {e}")
+                    failed_comments.append(comment)
 
+        # Build final body with any failed comments
+        final_body = body
+        if failed_comments:
+            final_body = self._append_comments_to_body(body, failed_comments)
+            logger.info(f"Moving {len(failed_comments)} comments to body (could not post inline)")
+
+        # Post main review body as a note (with any failed comments appended)
+        if final_body:
+            gl_mr.notes.create({"body": final_body})
+            logger.info(f"Posted review on {project_path}!{mr_number}")
+
+        if comments:
             logger.info(
-                f"Submitted {len(comments)} inline comments on {project_path}!{mr_number}"
+                f"Submitted {successful_count}/{len(comments)} inline comments on {project_path}!{mr_number}"
             )
+
+    def _append_comments_to_body(self, body: str, comments: list[dict]) -> str:
+        """Append inline comments to the review body when they can't be posted inline.
+
+        Args:
+            body: Original review body
+            comments: List of comment dicts that couldn't be posted inline
+
+        Returns:
+            Updated body with comments appended
+        """
+        if not comments:
+            return body
+
+        lines = [body, "", "---", "", "## ⚠️ Additional Issues (could not post inline)", ""]
+
+        for comment in comments:
+            path = comment.get("path", "unknown")
+            line = comment.get("line", "?")
+            comment_body = comment.get("body", "")
+
+            lines.extend([
+                f"### `{path}:{line}`",
+                "",
+                comment_body,
+                "",
+            ])
+
+        return "\n".join(lines)

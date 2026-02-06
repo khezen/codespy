@@ -208,6 +208,8 @@ class GitHubClient(GitClient):
     ) -> None:
         """Submit a review on a pull request.
 
+        Uses optimistic approach: try all comments first, then validate and retry on failure.
+
         Args:
             url: GitHub PR URL
             body: Review body/summary text
@@ -230,18 +232,27 @@ class GitHubClient(GitClient):
         # Use provided commit SHA or default to head
         review_commit = commit_sha or gh_pr.head.sha
 
-        # Get list of changed file paths to validate comments
-        changed_file_paths = {f.filename for f in gh_pr.get_files()}
+        # Build map of filename -> ChangedFile for line validation
+        changed_files_map: dict[str, ChangedFile] = {}
+        for file in gh_pr.get_files():
+            changed_files_map[file.filename] = ChangedFile(
+                filename=file.filename,
+                status=FileStatus(file.status),
+                additions=file.additions,
+                deletions=file.deletions,
+                patch=file.patch,
+                previous_filename=file.previous_filename,
+            )
 
         # Build comments list for the API, filtering out invalid paths
         review_comments = []
-        skipped_comments = []
+        skipped_path_comments = []
         if comments:
             for comment in comments:
                 path = comment["path"]
                 # Skip comments for files not in the PR diff
-                if path not in changed_file_paths:
-                    skipped_comments.append(comment)
+                if path not in changed_files_map:
+                    skipped_path_comments.append(comment)
                     logger.warning(f"Skipping comment for file not in PR: {path}")
                     continue
 
@@ -258,7 +269,7 @@ class GitHubClient(GitClient):
                     review_comment["start_line"] = comment["start_line"]
                 review_comments.append(review_comment)
 
-        # Try to submit the review, falling back to body-only if inline comments fail
+        # Try to submit the review optimistically with all inline comments
         try:
             gh_pr.create_review(
                 commit=repo.get_commit(review_commit),
@@ -271,22 +282,86 @@ class GitHubClient(GitClient):
                 f"with {len(review_comments)} inline comments"
             )
         except Exception as e:
-            # If inline comments fail, submit review without them
-            if review_comments and ("Path could not be resolved" in str(e) or "Line could not be resolved" in str(e)):
-                logger.warning(
-                    f"Inline comments failed ({e}), submitting review without inline comments"
-                )
-                gh_pr.create_review(
-                    commit=repo.get_commit(review_commit),
-                    body=body,
-                    event="COMMENT",
-                    comments=[],
-                )
-                logger.info(
-                    f"Submitted review on {owner}/{repo_name}#{pr_number} (body only)"
-                )
+            error_msg = str(e)
+            # If inline comments fail due to line resolution, validate and retry
+            if review_comments and ("Path could not be resolved" in error_msg or "Line could not be resolved" in error_msg):
+                logger.warning(f"Inline comments failed ({e}), validating lines and retrying")
+
+                # Validate each comment's line against the diff
+                valid_comments = []
+                invalid_line_comments = []
+                for comment in review_comments:
+                    path = comment["path"]
+                    line = comment.get("line")
+                    changed_file = changed_files_map.get(path)
+
+                    if changed_file and line and changed_file.is_line_in_diff(line):
+                        valid_comments.append(comment)
+                    else:
+                        invalid_line_comments.append(comment)
+                        logger.debug(f"Comment on {path}:{line} not in diff, moving to body")
+
+                # Build updated body with invalid line comments
+                updated_body = body
+                if invalid_line_comments:
+                    updated_body = self._append_comments_to_body(body, invalid_line_comments)
+                    logger.info(f"Moving {len(invalid_line_comments)} comments with invalid lines to body")
+
+                # Retry with valid comments only
+                try:
+                    gh_pr.create_review(
+                        commit=repo.get_commit(review_commit),
+                        body=updated_body,
+                        event="COMMENT",
+                        comments=valid_comments,
+                    )
+                    logger.info(
+                        f"Submitted review on {owner}/{repo_name}#{pr_number} "
+                        f"with {len(valid_comments)} inline comments (after validation)"
+                    )
+                except Exception as retry_e:
+                    # Final fallback: all comments to body
+                    logger.warning(f"Retry with valid comments also failed ({retry_e}), posting body only")
+                    all_failed_comments = review_comments  # All original comments
+                    final_body = self._append_comments_to_body(body, all_failed_comments)
+                    gh_pr.create_review(
+                        commit=repo.get_commit(review_commit),
+                        body=final_body,
+                        event="COMMENT",
+                        comments=[],
+                    )
+                    logger.info(f"Submitted review on {owner}/{repo_name}#{pr_number} (body only, all comments)")
             else:
                 raise
 
-        if skipped_comments:
-            logger.info(f"Skipped {len(skipped_comments)} comments for files not in PR")
+        if skipped_path_comments:
+            logger.info(f"Skipped {len(skipped_path_comments)} comments for files not in PR")
+
+    def _append_comments_to_body(self, body: str, comments: list[dict]) -> str:
+        """Append inline comments to the review body when they can't be posted inline.
+
+        Args:
+            body: Original review body
+            comments: List of comment dicts that couldn't be posted inline
+
+        Returns:
+            Updated body with comments appended
+        """
+        if not comments:
+            return body
+
+        lines = [body, "", "---", "", "## ⚠️ Additional Issues (could not post inline)", ""]
+
+        for comment in comments:
+            path = comment.get("path", "unknown")
+            line = comment.get("line", "?")
+            comment_body = comment.get("body", "")
+
+            lines.extend([
+                f"### `{path}:{line}`",
+                "",
+                comment_body,
+                "",
+            ])
+
+        return "\n".join(lines)

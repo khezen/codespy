@@ -1,5 +1,6 @@
 """Data models for Git merge requests (GitHub PRs and GitLab MRs)."""
 
+import re
 from datetime import datetime
 from enum import Enum
 
@@ -141,6 +142,62 @@ class ChangedFile(BaseModel):
         path_parts = self.filename.lower().split("/")
         excluded_set = {d.lower() for d in excluded_directories}
         return any(part in excluded_set for part in path_parts)
+
+    @property
+    def valid_new_line_numbers(self) -> set[int]:
+        """Get line numbers in the new file that are valid for inline comments.
+        
+        Parses the unified diff patch to extract line numbers where inline comments
+        can be placed. Only lines that appear in the diff (additions and context lines)
+        are valid for GitHub/GitLab review comments.
+        
+        Returns:
+            Set of valid line numbers in the new version of the file
+        """
+        if not self.patch:
+            return set()
+
+        valid_lines: set[int] = set()
+        current_new_line = 0
+
+        for line in self.patch.split("\n"):
+            # Parse hunk header: @@ -old_start,old_count +new_start,new_count @@
+            if line.startswith("@@"):
+                match = re.search(r"\+(\d+)", line)
+                if match:
+                    current_new_line = int(match.group(1))
+                continue
+
+            if not current_new_line:
+                continue
+
+            # Context line (unchanged) - valid for comments
+            if line.startswith(" "):
+                valid_lines.add(current_new_line)
+                current_new_line += 1
+            # Addition line - valid for comments
+            elif line.startswith("+"):
+                valid_lines.add(current_new_line)
+                current_new_line += 1
+            # Deletion line - doesn't increment new line counter (not in new file)
+            elif line.startswith("-"):
+                pass
+            # Other lines (like "\ No newline at end of file") - ignore
+            else:
+                pass
+
+        return valid_lines
+
+    def is_line_in_diff(self, line_number: int) -> bool:
+        """Check if a line number is valid for inline comments.
+        
+        Args:
+            line_number: Line number to check
+            
+        Returns:
+            True if the line is part of the diff and can receive inline comments
+        """
+        return line_number in self.valid_new_line_numbers
 
 
 def should_review_file(file: ChangedFile, excluded_directories: list[str]) -> bool:
