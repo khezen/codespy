@@ -18,6 +18,7 @@ class SignatureConfig(BaseModel):
     max_context_size: int | None = None
     max_reasoning_tokens: int | None = None  # Limit reasoning verbosity for JSONAdapter reliability
     temperature: float | None = None  # Lower = more deterministic JSON output
+    scan_unchanged: bool | None = None  # For supply_chain: scan unmodified artifacts/manifests
 
 
 # Known signature names for env var routing
@@ -36,7 +37,7 @@ SIGNATURE_NAMES = {
 SIGNATURE_PREFIXES = {name.upper() + "_": name for name in SIGNATURE_NAMES}
 
 # Known signature settings for validation
-SIGNATURE_SETTINGS = {"enabled", "max_iters", "model", "max_context_size", "max_reasoning_tokens", "temperature"}
+SIGNATURE_SETTINGS = {"enabled", "max_iters", "model", "max_context_size", "max_reasoning_tokens", "temperature", "scan_unchanged"}
 
 
 def convert_env_value(value: str) -> Any:

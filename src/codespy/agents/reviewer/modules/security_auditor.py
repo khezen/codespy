@@ -297,9 +297,16 @@ class SecurityAuditor(dspy.Module):
 
                 # 2. Run supply chain security analysis if enabled (artifacts + dependencies)
                 if supply_chain_agent:
-                    # Collect changed artifacts with their content
+                    # Check if we should scan unchanged artifacts/manifests
+                    scan_unchanged = self._settings.get_scan_unchanged("supply_chain")
+
+                    # Collect artifacts with their content (filter by has_changes if scan_unchanged=False)
                     artifacts_data: list[dict] = []
                     for artifact in scope.artifacts:
+                        # Skip unchanged artifacts if scan_unchanged is False
+                        if not scan_unchanged and not artifact.has_changes:
+                            logger.debug(f"Skipping unchanged artifact: {artifact.path}")
+                            continue
                         artifact_full_path = repo_path / artifact.path
                         if not artifact_full_path.exists():
                             logger.warning(f"Artifact file not found, skipping: {artifact.path}")
@@ -309,11 +316,14 @@ class SecurityAuditor(dspy.Module):
                             "artifact_type": artifact.artifact_type,
                             "content": artifact_full_path.read_text(),
                         })
-                    # Get manifest info
+                    # Get manifest info (skip if unchanged and scan_unchanged=False)
                     manifest = scope.package_manifest
-                    manifest_path = manifest.manifest_path if manifest else ""
-                    lock_file_path = (manifest.lock_file_path or "") if manifest else ""
-                    package_manager = manifest.package_manager if manifest else ""
+                    should_scan_manifest = manifest and (scan_unchanged or manifest.dependencies_changed)
+                    manifest_path = manifest.manifest_path if should_scan_manifest else ""
+                    lock_file_path = (manifest.lock_file_path or "") if should_scan_manifest else ""
+                    package_manager = manifest.package_manager if should_scan_manifest else ""
+                    if manifest and not should_scan_manifest:
+                        logger.debug(f"Skipping unchanged manifest: {manifest.manifest_path}")
                     # Run supply chain analysis if there's anything to analyze
                     if artifacts_data or manifest_path:
                         try:

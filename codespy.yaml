@@ -93,6 +93,9 @@ signatures:
     max_context_size: null               # SUPPLY_CHAIN_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # SUPPLY_CHAIN_MAX_REASONING_TOKENS
     temperature: null                    # SUPPLY_CHAIN_TEMPERATURE
+    scan_unchanged: true                 # SUPPLY_CHAIN_SCAN_UNCHANGED
+    # When true (default): scans ALL artifacts (Dockerfiles, etc.) and manifests
+    # When false: only scans artifacts/manifests that were modified in the PR
 
   # Bug Detector signature
   bug_detection:
