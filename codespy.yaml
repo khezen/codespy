@@ -151,7 +151,7 @@ signatures:
 # ============================================================================
 output_format: markdown                  # OUTPUT_FORMAT (markdown | json)
 output_stdout: true                      # OUTPUT_STDOUT (enable stdout output)
-output_git: true                         # OUTPUT_GIT (post review to GitHub PR or GitLab MR)
+output_git: false                         # OUTPUT_GIT (post review to GitHub PR or GitLab MR)
 cache_dir: ~/.cache/codespy              # CACHE_DIR
 
 # ============================================================================

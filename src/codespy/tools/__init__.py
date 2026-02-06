@@ -5,13 +5,15 @@ from codespy.tools.filesystem import FileSystem
 from codespy.tools.git import (
     ChangedFile,
     GitClient,
-    GitReporter,
     MergeRequest,
     detect_platform,
     get_client,
 )
 from codespy.tools.parsers import RipgrepSearch, SearchResult, TreeSitterParser
 from codespy.tools.web import SearchResults, WebBrowser, WebPage
+
+# Note: GitReporter is not exported here to avoid circular imports.
+# Import directly: from codespy.tools.git.reporter import GitReporter
 
 __all__ = [
     "FileSystem",
@@ -20,7 +22,6 @@ __all__ = [
     "detect_platform",
     "ChangedFile",
     "MergeRequest",
-    "GitReporter",
     "OSVClient",
     "Vulnerability",
     "ScanResult",

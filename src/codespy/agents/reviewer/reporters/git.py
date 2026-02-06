@@ -1,4 +1,4 @@
-"""Unified Git reporter for posting review comments to GitHub/GitLab."""
+"""Git reporter for posting review comments to GitHub/GitLab."""
 
 import logging
 from typing import TYPE_CHECKING

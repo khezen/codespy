@@ -212,8 +212,7 @@ def review(
             )
 
         # Output results using reporters
-        from codespy.agents.reviewer.reporters import StdoutReporter
-        from codespy.tools.git import GitReporter
+        from codespy.agents.reviewer.reporters import GitReporter, StdoutReporter
 
         if settings.output_stdout:
             stdout_reporter = StdoutReporter(format=settings.output_format, console=console)

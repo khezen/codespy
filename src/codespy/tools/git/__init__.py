@@ -11,7 +11,9 @@ from codespy.tools.git.models import (
     ReviewContext,
     should_review_file,
 )
-from codespy.tools.git.reporter import GitReporter
+
+# Note: GitReporter is not exported here to avoid circular imports.
+# Import directly: from codespy.tools.git.reporter import GitReporter
 
 __all__ = [
     "GitClient",
@@ -25,5 +27,4 @@ __all__ = [
     "ReviewContext",
     "CallerInfo",
     "should_review_file",
-    "GitReporter",
 ]
