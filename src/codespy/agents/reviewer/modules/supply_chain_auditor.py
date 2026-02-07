@@ -136,6 +136,23 @@ class SupplyChainAuditor(dspy.Module):
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
 
+    def _needs_analysis(self, scopes: Sequence[ScopeResult]) -> bool:
+        """Check if any scope has supply-chain-relevant changes.
+
+        Returns True if any scope has dependency changes or Dockerfile modifications.
+        Avoids spinning up MCP servers when there's nothing to audit.
+        """
+        scan_unchanged = self._settings.get_scan_unchanged("supply_chain")
+        for scope in scopes:
+            if scope.package_manifest:
+                if scan_unchanged or scope.package_manifest.dependencies_changed:
+                    return True
+            for cf in scope.changed_files:
+                fname = cf.filename.rsplit("/", 1)[-1].lower()
+                if "dockerfile" in fname or fname == "containerfile":
+                    return True
+        return False
+
     async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
         """Create DSPy tools from filesystem, parser, and OSV MCP servers.
 
@@ -198,6 +215,11 @@ class SupplyChainAuditor(dspy.Module):
         # Check if supply chain signature is enabled
         if not self._settings.is_signature_enabled("supply_chain"):
             logger.debug("Skipping supply_chain: disabled")
+            return []
+
+        # Check if any scope has supply-chain-relevant changes
+        if not self._needs_analysis(scopes):
+            logger.info("Skipping supply chain analysis: no dependency changes or Dockerfiles modified")
             return []
 
         all_issues: list[Issue] = []

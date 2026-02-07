@@ -106,7 +106,7 @@ class Settings(BaseSettings):
 
     # Global LLM reliability settings
     llm_retries: int = 3  # Number of retries for LLM API calls
-    llm_timeout: int = 120  # Timeout in seconds for LLM calls
+    llm_timeout: int = 240  # Timeout in seconds for LLM calls
 
     # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
     enable_prompt_caching: bool = True
@@ -117,7 +117,7 @@ class Settings(BaseSettings):
 
     # Output destinations
     output_stdout: bool = True  # Enable stdout output (markdown or json)
-    output_git: bool = False  # Enable Git platform review comments (GitHub PR or GitLab MR)
+    output_git: bool = True  # Enable Git platform review comments (GitHub PR or GitLab MR)
 
     # File exclusion settings
     excluded_directories: list[str] = Field(default=DEFAULT_EXCLUDED_DIRECTORIES)

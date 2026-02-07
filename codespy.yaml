@@ -100,7 +100,7 @@ default_temperature: 0                          # DEFAULT_TEMPERATURE (lower = m
 
 # Global LLM reliability settings
 llm_retries: 3                           # LLM_RETRIES (number of retries for LLM API calls)
-llm_timeout: 120                         # LLM_TIMEOUT (timeout in seconds for LLM calls)
+llm_timeout: 240                         # LLM_TIMEOUT (timeout in seconds for LLM calls)
 
 signatures:
   # Supply Chain Security signature
