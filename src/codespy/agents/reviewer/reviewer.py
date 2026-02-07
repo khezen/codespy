@@ -10,12 +10,12 @@ from codespy.config import Settings, get_settings
 from codespy.tools.git import GitClient, get_client, ChangedFile, MergeRequest
 from codespy.agents.reviewer.models import Issue, SignatureStatsResult, ReviewResult
 from codespy.agents.reviewer.modules import (
-    BugDetector,
+    DefectDetector,
     DomainExpert,
     DocumentationReviewer,
     IssueDeduplicator,
     ScopeIdentifier,
-    SecurityAuditor,
+    SupplyChainAuditor,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,8 +68,8 @@ class ReviewPipeline(dspy.Module):
 
         # Initialize all modules - they internally check if their signatures are enabled
         self.scope_identifier = ScopeIdentifier()
-        self.security_auditor = SecurityAuditor()
-        self.bug_detector = BugDetector()
+        self.supply_chain_auditor = SupplyChainAuditor()
+        self.defect_detector = DefectDetector()
         self.doc_reviewer = DocumentationReviewer()
         self.domain_expert = DomainExpert()
         self.deduplicator = IssueDeduplicator()
@@ -129,12 +129,12 @@ class ReviewPipeline(dspy.Module):
         # Build list of review modules (they check signature enabled status internally)
         all_issues: list[Issue] = []
         exec_pairs = [
-            (self.bug_detector, {"scopes": scopes, "repo_path": repo_path}),
-            (self.security_auditor, {"scopes": scopes, "repo_path": repo_path}),
+            (self.defect_detector, {"scopes": scopes, "repo_path": repo_path}),
+            (self.supply_chain_auditor, {"scopes": scopes, "repo_path": repo_path}),
             (self.doc_reviewer, {"scopes": scopes, "repo_path": repo_path}),
             (self.domain_expert, {"scopes": scopes, "repo_path": repo_path}),
         ]
-        module_names = ["bug_detector", "security_auditor", "doc_reviewer", "domain_expert"]
+        module_names = ["defect_detector", "supply_chain_auditor", "doc_reviewer", "domain_expert"]
 
         logger.info(f"Running review modules in parallel: {', '.join(module_names)}...")
         # Execute in parallel with error handling

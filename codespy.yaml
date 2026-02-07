@@ -5,10 +5,9 @@
 # - Flat values: <KEY> (e.g., OUTPUT_FORMAT=json, DEFAULT_MODEL=gpt-5)
 # - Signature values: <SIGNATURE>_<KEY>
 #   Examples:
-#     CODE_SECURITY_MAX_ITERS=15
-#     CODE_SECURITY_ENABLED=false
+#     DEFECT_DETECTION_MAX_ITERS=15
+#     DEFECT_DETECTION_ENABLED=false
 #     SUPPLY_CHAIN_MODEL=gpt-4-turbo
-#     BUG_DETECTION_MAX_ITERS=10
 #
 # Priority: Environment Variables > YAML Config > Defaults
 
@@ -77,15 +76,7 @@ llm_retries: 3                           # LLM_RETRIES (number of retries for LL
 llm_timeout: 120                         # LLM_TIMEOUT (timeout in seconds for LLM calls)
 
 signatures:
-  # Security Auditor signatures
-  code_security:
-    enabled: true                        # CODE_SECURITY_ENABLED
-    max_iters: null                      # CODE_SECURITY_MAX_ITERS
-    model: null                          # CODE_SECURITY_MODEL (Haiku 4.5)
-    max_context_size: null               # CODE_SECURITY_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # CODE_SECURITY_MAX_REASONING_TOKENS
-    temperature: null                    # CODE_SECURITY_TEMPERATURE
-
+  # Supply Chain Security signature
   supply_chain:
     enabled: true                        # SUPPLY_CHAIN_ENABLED
     max_iters: null                      # SUPPLY_CHAIN_MAX_ITERS
@@ -97,14 +88,14 @@ signatures:
     # When true (default): scans ALL artifacts (Dockerfiles, etc.) and manifests
     # When false: only scans artifacts/manifests that were modified in the MR
 
-  # Bug Detector signature
-  bug_detection:
-    enabled: true                        # BUG_DETECTION_ENABLED
-    max_iters: null                      # BUG_DETECTION_MAX_ITERS
-    model: null                          # BUG_DETECTION_MODEL (Haiku 4.5)
-    max_context_size: null               # BUG_DETECTION_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # BUG_DETECTION_MAX_REASONING_TOKENS
-    temperature: null                    # BUG_DETECTION_TEMPERATURE
+  # Defect Detector signature (bugs, logic errors, and security vulnerabilities)
+  defect_detection:
+    enabled: true                        # DEFECT_DETECTION_ENABLED
+    max_iters: null                      # DEFECT_DETECTION_MAX_ITERS
+    model: null                          # DEFECT_DETECTION_MODEL
+    max_context_size: null               # DEFECT_DETECTION_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # DEFECT_DETECTION_MAX_REASONING_TOKENS
+    temperature: null                    # DEFECT_DETECTION_TEMPERATURE
 
   # Doc Reviewer signature
   doc_review:

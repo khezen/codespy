@@ -23,9 +23,8 @@ class SignatureConfig(BaseModel):
 
 # Known signature names for env var routing
 SIGNATURE_NAMES = {
-    "code_security",
+    "defect_detection",
     "supply_chain",
-    "bug_detection",
     "doc_review",
     "domain_analysis",
     "scope_identification",
@@ -33,7 +32,7 @@ SIGNATURE_NAMES = {
     "summarization",
 }
 
-# Create uppercase prefixes for matching (e.g., "CODE_SECURITY_")
+# Create uppercase prefixes for matching (e.g., "DEFECT_DETECTION_")
 SIGNATURE_PREFIXES = {name.upper() + "_": name for name in SIGNATURE_NAMES}
 
 # Known signature settings for validation
@@ -62,7 +61,7 @@ def apply_signature_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     """Apply environment variable overrides to config for signature settings.
 
     Handles signature settings with pattern:
-    - CODE_SECURITY_MAX_ITERS -> signatures.code_security.max_iters
+    - DEFECT_DETECTION_MAX_ITERS -> signatures.defect_detection.max_iters
     - SUPPLY_CHAIN_ENABLED -> signatures.supply_chain.enabled
 
     Top-level settings (DEFAULT_MODEL, AWS_REGION, etc.) are handled directly

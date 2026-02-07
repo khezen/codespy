@@ -354,7 +354,7 @@ export DEFAULT_MAX_ITERS=20
 # Per-signature settings (use signature name, not module name)
 export DOMAIN_ANALYSIS_MAX_ITERS=20
 export DOC_REVIEW_ENABLED=false
-export CODE_SECURITY_MODEL=gpt-5
+export DEFECT_DETECTION_MODEL=gpt-5
 
 # Output settings
 export OUTPUT_STDOUT=false
@@ -476,10 +476,10 @@ output_git: true
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
 │  │              Parallel Review Modules                       │     │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐    │     │
-│  │  │  Security   │  │    Bug      │  │  Documentation   │    │     │
-│  │  │   Auditor   │  │  Detector   │  │    Reviewer      │    │     │
-│  │  └─────────────┘  └─────────────┘  └──────────────────┘    │     │
+│  │  ┌──────────────┐  ┌─────────────┐  ┌──────────────────┐   │     │
+│  │  │Supply Chain │  │   Defect   │  │  Documentation   │   │     │
+│  │  │  Auditor    │  │  Detector  │  │    Reviewer      │   │     │
+│  │  └──────────────┘  └─────────────┘  └──────────────────┘   │     │
 │  │                                                            │     │
 │  │              ┌───────────────────────┐                     │     │
 │  │              │     Domain Expert     │                     │     │
@@ -528,9 +528,8 @@ The review is powered by DSPy signatures that structure the LLM's analysis:
 | Signature | Config Key | Description |
 |-----------|------------|-------------|
 | **ScopeIdentifierSignature** | `scope_identification` | Identifies code scopes (frontend, backend, infra, microservice in mono repo, etc...) |
-| **CodeSecuritySignature** | `code_security` | Analyzes code changes for verified security vulnerabilities with CWE references |
+| **CodeDefectSignature** | `defect_detection` | Detects verified bugs, logic errors, and security vulnerabilities with CWE references |
 | **SupplyChainSecuritySignature** | `supply_chain` | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
-| **BugDetectionSignature** | `bug_detection` | Detects verified bugs, logic errors, and resource leaks |
 | **DocumentationReviewSignature** | `doc_review` | Reviews documentation for accuracy based on code changes |
 | **DomainExpertSignature** (experimental, disabled by default)| `domain_analysis` | Analyzes business logic, architecture, patterns, and style consistency |
 | **IssueDeduplicationSignature** | `deduplication` | LLM-powered deduplication of issues across reviewers |
