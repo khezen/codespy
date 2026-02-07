@@ -54,6 +54,14 @@ def review(
             help="Merge request URL (GitHub PR or GitLab MR)",
         ),
     ],
+    config_file: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            "-f",
+            help="Path to a YAML config file (overrides default config locations).",
+        ),
+    ] = None,
     output: Annotated[
         str,
         typer.Option(
@@ -62,14 +70,6 @@ def review(
             help="Output format: markdown or json",
         ),
     ] = "markdown",
-    with_context: Annotated[
-        bool,
-        typer.Option(
-            "--with-context",
-            "-c",
-            help="Include repository context (imports, dependencies)",
-        ),
-    ] = True,
     model: Annotated[
         str | None,
         typer.Option(
@@ -97,6 +97,7 @@ def review(
 
     Examples:
         codespy review https://github.com/owner/repo/pull/123
+        codespy review https://github.com/owner/repo/pull/123 --config path/to/config.yaml
         codespy review https://gitlab.com/namespace/project/-/merge_requests/123
         codespy review https://github.com/owner/repo/pull/123 --output json
         codespy review https://github.com/owner/repo/pull/123 --model bedrock/anthropic.claude-3-sonnet
@@ -110,7 +111,11 @@ def review(
         handlers=[RichHandler(console=console, show_time=True, show_path=False)],
     )
 
-    settings = get_settings()
+    try:
+        settings = get_settings(config_file=config_file)
+    except FileNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
 
     # Print config at startup (secrets are hidden via repr=False)
     logging.info(f"Loaded config: {settings}")
@@ -234,9 +239,22 @@ def review(
 
 
 @app.command()
-def config() -> None:
+def config(
+    config_file: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            "-f",
+            help="Path to a YAML config file (overrides default config locations).",
+        ),
+    ] = None,
+) -> None:
     """Show current configuration."""
-    settings = get_settings()
+    try:
+        settings = get_settings(config_file=config_file)
+    except FileNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
 
     console.print(Panel("[bold]Current Configuration[/bold]", title="codespy"))
 

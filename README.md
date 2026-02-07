@@ -158,8 +158,9 @@ codespy review https://github.com/owner/repo/pull/123 --output json
 # Use a specific model
 codespy review https://github.com/owner/repo/pull/123 --model claude-opus-4-6
 
-# Skip codebase context analysis
-codespy review https://github.com/owner/repo/pull/123 --no-with-context
+# Use a custom config file
+codespy review https://github.com/owner/repo/pull/123 --config path/to/config.yaml
+codespy review https://github.com/owner/repo/pull/123 -f staging.yaml
 
 # Disable stdout output (useful with --git-comment)
 codespy review https://github.com/owner/repo/pull/123 --no-stdout
@@ -172,6 +173,9 @@ codespy review https://github.com/owner/repo/pull/123 --no-stdout --git-comment
 
 # Show current configuration
 codespy config
+
+# Show configuration from a specific file
+codespy config --config path/to/config.yaml
 
 # Show version
 codespy --version
@@ -489,7 +493,7 @@ output_git: true
 ┌─────────────────────────────────────────────────────────────────────┐
 │                           codespy CLI                               │
 ├─────────────────────────────────────────────────────────────────────┤
-│  review <pr_url> [--with-context] [--output json|md] [--model ...]  │
+│  review <pr_url> [--config ...] [--output json|md] [--model ...]    │
 └──────────────────────────────┬──────────────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────────────┐

@@ -30,6 +30,9 @@ from codespy.config_llm import (
 
 logger = logging.getLogger(__name__)
 
+# Custom config path (set via CLI --config flag)
+_custom_config_path: str | None = None
+
 # Re-export for convenience
 __all__ = [
     "Settings",
@@ -46,7 +49,20 @@ __all__ = [
 
 
 def _load_yaml_config() -> dict[str, Any]:
-    """Load YAML config file if it exists."""
+    """Load YAML config file if it exists.
+
+    If _custom_config_path is set (via --config CLI flag), load from that
+    exact path and raise FileNotFoundError if it doesn't exist.
+    Otherwise, search the default locations.
+    """
+    if _custom_config_path is not None:
+        path = Path(_custom_config_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Config file not found: {path}")
+        logger.debug(f"Loading config from {path} (via --config)")
+        with open(path) as f:
+            return yaml.safe_load(f) or {}
+
     config_paths = [
         Path("codespy.yaml"),
         Path("codespy.yml"),
@@ -419,13 +435,36 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-def get_settings() -> Settings:
-    """Get the current settings instance."""
+def get_settings(config_file: str | None = None) -> Settings:
+    """Get the current settings instance.
+
+    Args:
+        config_file: Optional path to a YAML config file. If provided,
+            reloads settings using that file instead of the default locations.
+
+    Raises:
+        FileNotFoundError: If config_file is provided but does not exist.
+    """
+    global settings, _custom_config_path
+    if config_file is not None:
+        # Validate early (before pydantic) to avoid leaking secrets in tracebacks
+        config_path = Path(config_file)
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+        _custom_config_path = config_file
+        settings = Settings()
     return settings
 
 
-def reload_settings() -> Settings:
-    """Reload settings (useful after environment changes)."""
-    global settings
+def reload_settings(config_file: str | None = None) -> Settings:
+    """Reload settings (useful after environment changes).
+
+    Args:
+        config_file: Optional path to a YAML config file. If provided,
+            uses that file instead of the default locations.
+    """
+    global settings, _custom_config_path
+    if config_file is not None:
+        _custom_config_path = config_file
     settings = Settings()
     return settings
