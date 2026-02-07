@@ -513,8 +513,8 @@ output_git: true
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
 │  │              Parallel Review Modules                       │     │
 │  │  ┌──────────────┐  ┌──────────────────────────────────┐    │     │
-│  │  │Supply Chain │  │     Code & Doc Reviewer          │    │     │
-│  │  │  Auditor    │  │  (defects + documentation)       │    │     │
+│  │  │Supply Chain  │  │     Code & Doc Reviewer          │    │     │
+│  │  │  Auditor     │  │  (defects + documentation)       │    │     │
 │  │  └──────────────┘  └──────────────────────────────────┘    │     │
 │  └──────────────────────────┬─────────────────────────────────┘     │
 │                             │                                       │
