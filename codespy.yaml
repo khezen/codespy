@@ -5,8 +5,8 @@
 # - Flat values: <KEY> (e.g., OUTPUT_FORMAT=json, DEFAULT_MODEL=gpt-5)
 # - Signature values: <SIGNATURE>_<KEY>
 #   Examples:
-#     DEFECT_DETECTION_MAX_ITERS=15
-#     DEFECT_DETECTION_ENABLED=false
+#     CODE_AND_DOC_REVIEW_MAX_ITERS=15
+#     CODE_AND_DOC_REVIEW_ENABLED=false
 #     SUPPLY_CHAIN_MODEL=gpt-4-turbo
 #
 # Priority: Environment Variables > YAML Config > Defaults
@@ -115,23 +115,14 @@ signatures:
     # When true (default): scans ALL artifacts (Dockerfiles, etc.) and manifests
     # When false: only scans artifacts/manifests that were modified in the MR
 
-  # Defect Detector signature (bugs, logic errors, and security vulnerabilities)
-  defect_detection:
-    enabled: true                        # DEFECT_DETECTION_ENABLED
-    max_iters: null                      # DEFECT_DETECTION_MAX_ITERS
-    model: null                          # DEFECT_DETECTION_MODEL
-    max_context_size: null               # DEFECT_DETECTION_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # DEFECT_DETECTION_MAX_REASONING_TOKENS
-    temperature: null                    # DEFECT_DETECTION_TEMPERATURE
-
-  # Doc Reviewer signature
-  doc_review:
-    enabled: true                        # DOC_REVIEW_ENABLED
-    max_iters: null                      # DOC_REVIEW_MAX_ITERS
-    model: null                          # DOC_REVIEW_MODEL (Sonnet 4.5)
-    max_context_size: null               # DOC_REVIEW_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # DOC_REVIEW_MAX_REASONING_TOKENS
-    temperature: null                    # DOC_REVIEW_TEMPERATURE
+  # Code & Doc Reviewer signature (bugs, logic errors, security vulnerabilities, and documentation)
+  code_and_doc_review:
+    enabled: true                        # CODE_AND_DOC_REVIEW_ENABLED
+    max_iters: null                      # CODE_AND_DOC_REVIEW_MAX_ITERS
+    model: null                          # CODE_AND_DOC_REVIEW_MODEL
+    max_context_size: null               # CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS
+    temperature: null                    # CODE_AND_DOC_REVIEW_TEMPERATURE
 
   # Domain Expert signature
   domain_analysis:

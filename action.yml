@@ -132,35 +132,35 @@ inputs:
     default: ''
   
   # ==========================================
-  # SIGNATURE: defect_detection
+  # SIGNATURE: code_and_doc_review
   # ==========================================
-  defect-detection-enabled:
-    description: 'Enable defect detection signature (bugs, logic errors, security vulnerabilities)'
+  code-and-doc-review-enabled:
+    description: 'Enable code and doc review signature (bugs, security vulnerabilities, and documentation)'
     required: false
     default: 'true'
   
-  defect-detection-model:
-    description: 'Model for defect detection (empty = use default)'
+  code-and-doc-review-model:
+    description: 'Model for code and doc review (empty = use default)'
     required: false
     default: ''
   
-  defect-detection-max-iters:
-    description: 'Max iterations for defect detection'
+  code-and-doc-review-max-iters:
+    description: 'Max iterations for code and doc review'
     required: false
     default: ''
   
-  defect-detection-max-context-size:
-    description: 'Max context size for defect detection'
+  code-and-doc-review-max-context-size:
+    description: 'Max context size for code and doc review'
     required: false
     default: ''
   
-  defect-detection-max-reasoning-tokens:
-    description: 'Max reasoning tokens for defect detection'
+  code-and-doc-review-max-reasoning-tokens:
+    description: 'Max reasoning tokens for code and doc review'
     required: false
     default: ''
   
-  defect-detection-temperature:
-    description: 'Temperature for defect detection'
+  code-and-doc-review-temperature:
+    description: 'Temperature for code and doc review'
     required: false
     default: ''
   
@@ -194,39 +194,6 @@ inputs:
   
   supply-chain-temperature:
     description: 'Temperature for supply chain security'
-    required: false
-    default: ''
-  
-  # ==========================================
-  # SIGNATURE: doc_review
-  # ==========================================
-  doc-review-enabled:
-    description: 'Enable documentation review signature'
-    required: false
-    default: 'true'
-  
-  doc-review-model:
-    description: 'Model for documentation review (empty = use default)'
-    required: false
-    default: ''
-  
-  doc-review-max-iters:
-    description: 'Max iterations for documentation review'
-    required: false
-    default: ''
-  
-  doc-review-max-context-size:
-    description: 'Max context size for documentation review'
-    required: false
-    default: ''
-  
-  doc-review-max-reasoning-tokens:
-    description: 'Max reasoning tokens for documentation review'
-    required: false
-    default: ''
-  
-  doc-review-temperature:
-    description: 'Temperature for documentation review'
     required: false
     default: ''
   
@@ -371,13 +338,13 @@ runs:
         SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS: ${{ inputs.scope-identification-max-reasoning-tokens }}
         SCOPE_IDENTIFICATION_TEMPERATURE: ${{ inputs.scope-identification-temperature }}
         
-        # Defect detection signature
-        DEFECT_DETECTION_ENABLED: ${{ inputs.defect-detection-enabled }}
-        DEFECT_DETECTION_MODEL: ${{ inputs.defect-detection-model }}
-        DEFECT_DETECTION_MAX_ITERS: ${{ inputs.defect-detection-max-iters }}
-        DEFECT_DETECTION_MAX_CONTEXT_SIZE: ${{ inputs.defect-detection-max-context-size }}
-        DEFECT_DETECTION_MAX_REASONING_TOKENS: ${{ inputs.defect-detection-max-reasoning-tokens }}
-        DEFECT_DETECTION_TEMPERATURE: ${{ inputs.defect-detection-temperature }}
+        # Code and doc review signature
+        CODE_AND_DOC_REVIEW_ENABLED: ${{ inputs.code-and-doc-review-enabled }}
+        CODE_AND_DOC_REVIEW_MODEL: ${{ inputs.code-and-doc-review-model }}
+        CODE_AND_DOC_REVIEW_MAX_ITERS: ${{ inputs.code-and-doc-review-max-iters }}
+        CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.code-and-doc-review-max-context-size }}
+        CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.code-and-doc-review-max-reasoning-tokens }}
+        CODE_AND_DOC_REVIEW_TEMPERATURE: ${{ inputs.code-and-doc-review-temperature }}
         
         # Supply chain signature
         SUPPLY_CHAIN_ENABLED: ${{ inputs.supply-chain-enabled }}
@@ -387,14 +354,6 @@ runs:
         SUPPLY_CHAIN_MAX_REASONING_TOKENS: ${{ inputs.supply-chain-max-reasoning-tokens }}
         SUPPLY_CHAIN_TEMPERATURE: ${{ inputs.supply-chain-temperature }}
         
-        
-        # Doc review signature
-        DOC_REVIEW_ENABLED: ${{ inputs.doc-review-enabled }}
-        DOC_REVIEW_MODEL: ${{ inputs.doc-review-model }}
-        DOC_REVIEW_MAX_ITERS: ${{ inputs.doc-review-max-iters }}
-        DOC_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.doc-review-max-context-size }}
-        DOC_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.doc-review-max-reasoning-tokens }}
-        DOC_REVIEW_TEMPERATURE: ${{ inputs.doc-review-temperature }}
         
         # Deduplication signature
         DEDUPLICATION_ENABLED: ${{ inputs.deduplication-enabled }}
@@ -445,13 +404,13 @@ runs:
         [ -n "$SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS"
         [ -n "$SCOPE_IDENTIFICATION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_TEMPERATURE"
         
-        # Defect detection
-        [ -n "$DEFECT_DETECTION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_DETECTION_ENABLED"
-        [ -n "$DEFECT_DETECTION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_DETECTION_MODEL"
-        [ -n "$DEFECT_DETECTION_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_DETECTION_MAX_ITERS"
-        [ -n "$DEFECT_DETECTION_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_DETECTION_MAX_CONTEXT_SIZE"
-        [ -n "$DEFECT_DETECTION_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_DETECTION_MAX_REASONING_TOKENS"
-        [ -n "$DEFECT_DETECTION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_DETECTION_TEMPERATURE"
+        # Code and doc review
+        [ -n "$CODE_AND_DOC_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_ENABLED"
+        [ -n "$CODE_AND_DOC_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MODEL"
+        [ -n "$CODE_AND_DOC_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MAX_ITERS"
+        [ -n "$CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE"
+        [ -n "$CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS"
+        [ -n "$CODE_AND_DOC_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_TEMPERATURE"
         
         # Supply chain
         [ -n "$SUPPLY_CHAIN_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_ENABLED"
@@ -460,14 +419,6 @@ runs:
         [ -n "$SUPPLY_CHAIN_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_CONTEXT_SIZE"
         [ -n "$SUPPLY_CHAIN_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_REASONING_TOKENS"
         [ -n "$SUPPLY_CHAIN_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_TEMPERATURE"
-        
-        # Doc review
-        [ -n "$DOC_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_ENABLED"
-        [ -n "$DOC_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_MODEL"
-        [ -n "$DOC_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_MAX_ITERS"
-        [ -n "$DOC_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_MAX_CONTEXT_SIZE"
-        [ -n "$DOC_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_MAX_REASONING_TOKENS"
-        [ -n "$DOC_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_TEMPERATURE"
         
         # Deduplication
         [ -n "$DEDUPLICATION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEDUPLICATION_ENABLED"

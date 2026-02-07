@@ -357,8 +357,7 @@ export DEFAULT_MAX_ITERS=20
 
 # Per-signature settings (use signature name, not module name)
 export DOMAIN_ANALYSIS_MAX_ITERS=20
-export DOC_REVIEW_ENABLED=false
-export DEFECT_DETECTION_MODEL=claude-sonnet-4-5-20250929
+export CODE_AND_DOC_REVIEW_MODEL=claude-sonnet-4-5-20250929
 
 # Output settings
 export OUTPUT_STDOUT=false
@@ -373,7 +372,7 @@ codespy uses a tiered model approach to balance review quality and cost:
 
 | Tier | Role | Default | Recommended Model | Used By |
 |------|------|---------|-------------------|---------|
-| 🧠 **Smart** | Core analysis & reasoning | `DEFAULT_MODEL` | `claude-opus-4-6` | Defect detection, supply chain, scope identification, doc review, domain analysis |
+| 🧠 **Smart** | Core analysis & reasoning | `DEFAULT_MODEL` | `claude-opus-4-6` | Code & doc review, supply chain, scope identification, domain analysis |
 | ⚡ **Mid-tier** | Extraction & deduplication | Falls back to `DEFAULT_MODEL` | `claude-sonnet-4-5-20250929` | TwoStepAdapter field extraction, issue deduplication |
 | 💰 **Cheap** | Summarization | Falls back to `DEFAULT_MODEL` | `claude-haiku-4-5-20251001` | PR summary generation |
 
@@ -514,10 +513,10 @@ output_git: true
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
 │  │              Parallel Review Modules                       │     │
-│  │  ┌──────────────┐  ┌─────────────┐  ┌──────────────────┐   │     │
-│  │  │Supply Chain │  │   Defect   │  │  Documentation   │   │     │
-│  │  │  Auditor    │  │  Detector  │  │    Reviewer      │   │     │
-│  │  └──────────────┘  └─────────────┘  └──────────────────┘   │     │
+│  │  ┌──────────────┐  ┌──────────────────────────────────┐    │     │
+│  │  │Supply Chain │  │     Code & Doc Reviewer          │    │     │
+│  │  │  Auditor    │  │  (defects + documentation)       │    │     │
+│  │  └──────────────┘  └──────────────────────────────────┘    │     │
 │  │                                                            │     │
 │  │              ┌───────────────────────┐                     │     │
 │  │              │     Domain Expert     │                     │     │
@@ -566,9 +565,8 @@ The review is powered by DSPy signatures that structure the LLM's analysis:
 | Signature | Config Key | Description |
 |-----------|------------|-------------|
 | **ScopeIdentifierSignature** | `scope_identification` | Identifies code scopes (frontend, backend, infra, microservice in mono repo, etc...) |
-| **CodeDefectSignature** | `defect_detection` | Detects verified bugs, logic errors, and security vulnerabilities with CWE references |
+| **CodeAndDocReviewSignature** | `code_and_doc_review` | Detects verified bugs, security vulnerabilities, and stale/wrong documentation in a single pass |
 | **SupplyChainSecuritySignature** | `supply_chain` | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
-| **DocumentationReviewSignature** | `doc_review` | Reviews documentation for accuracy based on code changes |
 | **DomainExpertSignature** (experimental, disabled by default)| `domain_analysis` | Analyzes business logic, architecture, patterns, and style consistency |
 | **IssueDeduplicationSignature** | `deduplication` | LLM-powered deduplication of issues across reviewers |
 | **MRSummarySignature** | `summarization` | Generates summary, quality assessment, and recommendation |
