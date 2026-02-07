@@ -111,9 +111,9 @@ signatures:
     max_context_size: null               # SUPPLY_CHAIN_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # SUPPLY_CHAIN_MAX_REASONING_TOKENS
     temperature: null                    # SUPPLY_CHAIN_TEMPERATURE
-    scan_unchanged: true                 # SUPPLY_CHAIN_SCAN_UNCHANGED
-    # When true (default): scans ALL artifacts (Dockerfiles, etc.) and manifests
-    # When false: only scans artifacts/manifests that were modified in the MR
+    scan_unchanged: false                # SUPPLY_CHAIN_SCAN_UNCHANGED
+    # When true: scans ALL artifacts (Dockerfiles, etc.) and manifests
+    # When false (default): only scans artifacts/manifests that were modified in the MR
 
   # Code & Doc Reviewer signature (bugs, logic errors, security vulnerabilities, and documentation)
   code_and_doc_review:

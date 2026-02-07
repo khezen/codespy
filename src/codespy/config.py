@@ -182,13 +182,13 @@ class Settings(BaseSettings):
         return config.temperature if config.temperature is not None else self.default_temperature
 
     def get_scan_unchanged(self, signature_name: str) -> bool:
-        """Get scan_unchanged for a signature (signature-specific, default: True).
+        """Get scan_unchanged for a signature (signature-specific, default: False).
 
         When True, scans all artifacts/manifests regardless of whether they changed.
         When False, only scans artifacts/manifests that were modified in the PR.
         """
         config = self.get_signature_config(signature_name)
-        return config.scan_unchanged if config.scan_unchanged is not None else True
+        return config.scan_unchanged if config.scan_unchanged is not None else False
 
     def log_signature_configs(self) -> None:
         """Log all signature configurations."""

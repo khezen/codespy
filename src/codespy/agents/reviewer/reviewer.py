@@ -149,7 +149,7 @@ class ReviewPipeline(dspy.Module):
             logger.info(f"Found {len(all_issues)} issues before deduplication")
 
         # Deduplicate issues across reviewers (deduplicator checks if enabled internally)
-        if all_issues:
+        if len(all_issues) > 1:
             logger.info("Deduplicating issues...")
             all_issues = self.deduplicator(all_issues)
             logger.info(f"After deduplication: {len(all_issues)} unique issues")
