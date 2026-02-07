@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
-from codespy.agents.reviewer.modules.helpers import is_speculative, MIN_CONFIDENCE
+from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE
 from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
@@ -297,7 +297,7 @@ class SecurityAuditor(dspy.Module):
                             )
                         issues = [
                             issue for issue in result.issues
-                            if issue.confidence >= MIN_CONFIDENCE #and not is_speculative(issue)
+                            if issue.confidence >= MIN_CONFIDENCE
                         ]
                         all_issues.extend(issues)
                         logger.debug(f"  Code security in scope {scope.subroot}: {len(issues)} issues")
@@ -334,7 +334,7 @@ class SecurityAuditor(dspy.Module):
                             )
                         issues = [
                             issue for issue in result.issues
-                            if issue.confidence >= MIN_CONFIDENCE #and not is_speculative(issue)
+                            if issue.confidence >= MIN_CONFIDENCE
                         ]
                         all_issues.extend(issues)
                         logger.debug(f"  Supply chain security in scope {scope.subroot}: {len(issues)} issues")

@@ -36,35 +36,6 @@ EXTENSION_TO_LANGUAGE = {
     "svelte": "Svelte",
 }
 
-# Phrases that indicate speculative/unverified issues - filter these out
-SPECULATIVE_PHRASES = [
-    "cannot be verified",
-    "without access to",
-    "may need",
-    "might need",
-    "could cause",
-    "could break",
-    "might break",
-    "may cause",
-    "possibly",
-    "potentially",
-    "i assume",
-    "there might be",
-    "there may be",
-    "likely",
-    "probably",
-    "it's possible",
-    "it is possible",
-    "should verify",
-    "need to verify",
-    "needs verification",
-    "cannot confirm",
-    "unable to verify",
-    "ensure that",
-    "make sure that",
-    "verify that",
-]
-
 # Minimum confidence threshold
 MIN_CONFIDENCE = 0.5
 
@@ -90,30 +61,5 @@ def get_language(file: ChangedFile) -> str:
     return EXTENSION_TO_LANGUAGE.get(file.extension, "Unknown")
 
 
-def is_speculative(issue: Issue) -> bool:
-    """Check if an issue contains speculative/unverified language.
-
-    Args:
-        issue: The issue to check
-
-    Returns:
-        True if the issue appears speculative
-    """
-    text_to_check = (
-        (issue.description or "").lower() +
-        " " +
-        (issue.suggestion or "").lower() +
-        " " +
-        (issue.title or "").lower()
-    )
-
-    for phrase in SPECULATIVE_PHRASES:
-        if phrase in text_to_check:
-            logger.debug(
-                f"Filtering speculative issue '{issue.title}': contains '{phrase}'"
-            )
-            return True
-
-    return False
 
 
