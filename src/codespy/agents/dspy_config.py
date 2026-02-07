@@ -63,8 +63,10 @@ def configure_dspy(settings: Settings) -> None:
 
     # Create extraction LM for TwoStepAdapter's second stage
     # Uses a smaller/faster model to extract structured fields from free-form responses
+    # Falls back to default_model if no extraction_model is configured
+    extraction_model = settings.extraction_model or settings.default_model
     extraction_lm = dspy.LM(
-        model=settings.extraction_model,
+        model=extraction_model,
         timeout=settings.llm_timeout,
         num_retries=settings.llm_retries,
     )
@@ -80,7 +82,7 @@ def configure_dspy(settings: Settings) -> None:
     prompt_cache_status = "enabled" if settings.enable_prompt_caching else "disabled"
     logger.info(
         f"Configured DSPy with model: {model} "
-        f"(TwoStepAdapter with extraction_model={settings.extraction_model}, "
+        f"(TwoStepAdapter with extraction_model={extraction_model}, "
         f"timeout={settings.llm_timeout}s, retries={settings.llm_retries}, "
         f"provider prompt caching {prompt_cache_status})"
     )

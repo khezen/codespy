@@ -81,8 +81,8 @@ class Settings(BaseSettings):
     signatures: dict[str, SignatureConfig] = Field(default_factory=dict)
 
     # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
-    default_model: str = "claude-sonnet-4-5-20250929"
-    extraction_model: str = "claude-haiku-4-5-20251001-v1:0"  # For TwoStepAdapter field extraction
+    default_model: str = "claude-opus-4-6"
+    extraction_model: str | None = None  # For TwoStepAdapter field extraction (falls back to default_model)
     default_max_iters: int = 3
     default_max_context_size: int = 50000
     default_max_reasoning_tokens: int = 8000  # Limit reasoning verbosity for adapter reliability
