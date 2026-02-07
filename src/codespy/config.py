@@ -11,9 +11,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from codespy.config_dspy import SignatureConfig, apply_signature_env_overrides
 from codespy.config_git import (
     GitHubConfig,
+    GitLabConfig,
     discover_github_token,
-    get_token_source,
-    set_token_source,
+    discover_gitlab_token,
+    get_github_token_source,
+    get_gitlab_token_source,
+    set_github_token_source,
+    set_gitlab_token_source,
 )
 from codespy.config_io import DEFAULT_EXCLUDED_DIRECTORIES, OutputFormat
 from codespy.config_llm import (
@@ -26,21 +30,39 @@ from codespy.config_llm import (
 
 logger = logging.getLogger(__name__)
 
+# Custom config path (set via CLI --config flag)
+_custom_config_path: str | None = None
+
 # Re-export for convenience
 __all__ = [
     "Settings",
     "get_settings",
     "reload_settings",
-    "get_token_source",
+    "get_github_token_source",
+    "get_gitlab_token_source",
     "LLMConfig",
     "GitHubConfig",
+    "GitLabConfig",
     "SignatureConfig",
     "OutputFormat",
 ]
 
 
 def _load_yaml_config() -> dict[str, Any]:
-    """Load YAML config file if it exists."""
+    """Load YAML config file if it exists.
+
+    If _custom_config_path is set (via --config CLI flag), load from that
+    exact path and raise FileNotFoundError if it doesn't exist.
+    Otherwise, search the default locations.
+    """
+    if _custom_config_path is not None:
+        path = Path(_custom_config_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Config file not found: {path}")
+        logger.debug(f"Loading config from {path} (via --config)")
+        with open(path) as f:
+            return yaml.safe_load(f) or {}
+
     config_paths = [
         Path("codespy.yaml"),
         Path("codespy.yml"),
@@ -69,13 +91,14 @@ class Settings(BaseSettings):
     # Nested config sections
     llm: LLMConfig = Field(default_factory=LLMConfig)
     github: GitHubConfig = Field(default_factory=GitHubConfig)
+    gitlab: GitLabConfig = Field(default_factory=GitLabConfig)
 
     # Flat signature configs (signature_name -> SignatureConfig)
     signatures: dict[str, SignatureConfig] = Field(default_factory=dict)
 
     # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
-    default_model: str = "claude-sonnet-4-5-20250929"
-    extraction_model: str = "claude-haiku-4-5-20251001-v1:0"  # For TwoStepAdapter field extraction
+    default_model: str = "claude-opus-4-6"
+    extraction_model: str | None = None  # For TwoStepAdapter field extraction (falls back to default_model)
     default_max_iters: int = 3
     default_max_context_size: int = 50000
     default_max_reasoning_tokens: int = 8000  # Limit reasoning verbosity for adapter reliability
@@ -83,7 +106,7 @@ class Settings(BaseSettings):
 
     # Global LLM reliability settings
     llm_retries: int = 3  # Number of retries for LLM API calls
-    llm_timeout: int = 120  # Timeout in seconds for LLM calls
+    llm_timeout: int = 240  # Timeout in seconds for LLM calls
 
     # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
     enable_prompt_caching: bool = True
@@ -94,7 +117,7 @@ class Settings(BaseSettings):
 
     # Output destinations
     output_stdout: bool = True  # Enable stdout output (markdown or json)
-    output_github_pr: bool = False  # Enable GitHub PR review comments
+    output_git: bool = True  # Enable Git platform review comments (GitHub PR or GitLab MR)
 
     # File exclusion settings
     excluded_directories: list[str] = Field(default=DEFAULT_EXCLUDED_DIRECTORIES)
@@ -103,6 +126,11 @@ class Settings(BaseSettings):
     github_token: str = Field(default="", repr=False)
     gh_token: str = Field(default="", repr=False)
     github_auto_discover_token: bool = True  # GITHUB_AUTO_DISCOVER_TOKEN
+
+    # GitLab token (can also use GITLAB_TOKEN or GITLAB_PRIVATE_TOKEN env var)
+    gitlab_token: str = Field(default="", repr=False)
+    gitlab_url: str = "https://gitlab.com"  # GITLAB_URL for self-hosted instances
+    gitlab_auto_discover_token: bool = True  # GITLAB_AUTO_DISCOVER_TOKEN
 
     # LLM provider settings (flat for simple env var access)
     aws_region: str = "us-east-1"
@@ -153,6 +181,15 @@ class Settings(BaseSettings):
         config = self.get_signature_config(signature_name)
         return config.temperature if config.temperature is not None else self.default_temperature
 
+    def get_scan_unchanged(self, signature_name: str) -> bool:
+        """Get scan_unchanged for a signature (signature-specific, default: False).
+
+        When True, scans all artifacts/manifests regardless of whether they changed.
+        When False, only scans artifacts/manifests that were modified in the PR.
+        """
+        config = self.get_signature_config(signature_name)
+        return config.scan_unchanged if config.scan_unchanged is not None else False
+
     def log_signature_configs(self) -> None:
         """Log all signature configurations."""
         logger.info("Signature configurations:")
@@ -197,20 +234,20 @@ class Settings(BaseSettings):
         # First check nested config
         if self.github.token and not is_placeholder(self.github.token):
             self.github_token = self.github.token
-            set_token_source("YAML config or GITHUB_TOKEN environment variable")
+            set_github_token_source("YAML config or GITHUB_TOKEN environment variable")
             return self
 
         # If github_token is set and not a placeholder, use it
         if self.github_token and not is_placeholder(self.github_token):
             self.github.token = self.github_token
-            set_token_source("GITHUB_TOKEN environment variable or .env file")
+            set_github_token_source("GITHUB_TOKEN environment variable or .env file")
             return self
 
         # If GH_TOKEN is set and not a placeholder, use it
         if self.gh_token and not is_placeholder(self.gh_token):
             self.github_token = self.gh_token
             self.github.token = self.gh_token
-            set_token_source("GH_TOKEN environment variable")
+            set_github_token_source("GH_TOKEN environment variable")
             return self
 
         # Clear placeholder if present
@@ -226,13 +263,62 @@ class Settings(BaseSettings):
             if token and not is_placeholder(token):
                 self.github_token = token
                 self.github.token = token
-                set_token_source(source)
+                set_github_token_source(source)
                 logger.debug(f"GitHub token discovered from: {source}")
             else:
-                set_token_source("not found")
+                set_github_token_source("not found")
         else:
-            set_token_source("auto-discovery disabled")
+            set_github_token_source("auto-discovery disabled")
             logger.debug("GitHub token auto-discovery is disabled")
+
+        return self
+
+    @model_validator(mode="after")
+    def resolve_gitlab_token(self) -> "Settings":
+        """Auto-discover GitLab token if not explicitly set."""
+
+        def is_placeholder(token: str) -> bool:
+            """Check if token looks like a placeholder."""
+            placeholders = ["xxx", "your", "token", "example", "placeholder"]
+            token_lower = token.lower()
+            return any(p in token_lower for p in placeholders)
+
+        # First check nested config
+        if self.gitlab.token and not is_placeholder(self.gitlab.token):
+            self.gitlab_token = self.gitlab.token
+            set_gitlab_token_source("YAML config or GITLAB_TOKEN environment variable")
+            return self
+
+        # Sync URL from nested config
+        if self.gitlab.url:
+            self.gitlab_url = self.gitlab.url
+
+        # If gitlab_token is set and not a placeholder, use it
+        if self.gitlab_token and not is_placeholder(self.gitlab_token):
+            self.gitlab.token = self.gitlab_token
+            set_gitlab_token_source("GITLAB_TOKEN environment variable or .env file")
+            return self
+
+        # Clear placeholder if present
+        if self.gitlab_token and is_placeholder(self.gitlab_token):
+            self.gitlab_token = ""
+            self.gitlab.token = None
+
+        # Try auto-discovery if enabled
+        auto_discover = self.gitlab.auto_discover_token and self.gitlab_auto_discover_token
+
+        if auto_discover:
+            token, source = discover_gitlab_token()
+            if token and not is_placeholder(token):
+                self.gitlab_token = token
+                self.gitlab.token = token
+                set_gitlab_token_source(source)
+                logger.debug(f"GitLab token discovered from: {source}")
+            else:
+                set_gitlab_token_source("not found")
+        else:
+            set_gitlab_token_source("auto-discovery disabled")
+            logger.debug("GitLab token auto-discovery is disabled")
 
         return self
 
@@ -259,7 +345,7 @@ class Settings(BaseSettings):
         if self.llm.aws_secret_access_key:
             self.aws_secret_access_key = self.llm.aws_secret_access_key
 
-        # Sync from flat to nested (for backward compat)
+        # Sync from flat to nested
         if self.openai_api_key and not self.llm.openai_api_key:
             self.llm.openai_api_key = self.openai_api_key
         if self.anthropic_api_key and not self.llm.anthropic_api_key:
@@ -349,13 +435,36 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-def get_settings() -> Settings:
-    """Get the current settings instance."""
+def get_settings(config_file: str | None = None) -> Settings:
+    """Get the current settings instance.
+
+    Args:
+        config_file: Optional path to a YAML config file. If provided,
+            reloads settings using that file instead of the default locations.
+
+    Raises:
+        FileNotFoundError: If config_file is provided but does not exist.
+    """
+    global settings, _custom_config_path
+    if config_file is not None:
+        # Validate early (before pydantic) to avoid leaking secrets in tracebacks
+        config_path = Path(config_file)
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+        _custom_config_path = config_file
+        settings = Settings()
     return settings
 
 
-def reload_settings() -> Settings:
-    """Reload settings (useful after environment changes)."""
-    global settings
+def reload_settings(config_file: str | None = None) -> Settings:
+    """Reload settings (useful after environment changes).
+
+    Args:
+        config_file: Optional path to a YAML config file. If provided,
+            uses that file instead of the default locations.
+    """
+    global settings, _custom_config_path
+    if config_file is not None:
+        _custom_config_path = config_file
     settings = Settings()
     return settings

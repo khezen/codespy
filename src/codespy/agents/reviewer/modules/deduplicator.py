@@ -25,7 +25,7 @@ class IssueDeduplicationSignature(dspy.Signature):
     """Identify and deduplicate similar issues from code review.
 
     You are analyzing a list of issues found by multiple code reviewers (security auditor,
-    bug detector, documentation reviewer, domain expert). Different reviewers may identify
+    bug detector, documentation reviewer). Different reviewers may identify
     the same underlying problem but categorize or describe it differently.
 
     Two issues are considered DUPLICATES if they:

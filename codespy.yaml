@@ -5,10 +5,9 @@
 # - Flat values: <KEY> (e.g., OUTPUT_FORMAT=json, DEFAULT_MODEL=gpt-5)
 # - Signature values: <SIGNATURE>_<KEY>
 #   Examples:
-#     CODE_SECURITY_MAX_ITERS=15
-#     CODE_SECURITY_ENABLED=false
+#     CODE_AND_DOC_REVIEW_MAX_ITERS=15
+#     CODE_AND_DOC_REVIEW_ENABLED=false
 #     SUPPLY_CHAIN_MODEL=gpt-4-turbo
-#     BUG_DETECTION_MAX_ITERS=10
 #
 # Priority: Environment Variables > YAML Config > Defaults
 
@@ -47,80 +46,89 @@ llm:
 
 
 # ============================================================================
-# GITHUB
+# GIT PLATFORMS
 # ============================================================================
 github:
   token: null                            # GITHUB_TOKEN (auto-discovered if not set)
   auto_discover_token: true              # GITHUB_AUTO_DISCOVER_TOKEN (set to false to disable auto-discovery)
+
+gitlab:
+  token: null                            # GITLAB_TOKEN (auto-discovered if not set)
+  url: https://gitlab.com                # GITLAB_URL (for self-hosted instances)
+  auto_discover_token: true              # GITLAB_AUTO_DISCOVER_TOKEN (set to false to disable auto-discovery)
 
 # ============================================================================
 # SIGNATURES
 # ============================================================================
 # Each signature config supports: enabled, max_iters, model, max_context_size
 # Set to null to use defaults
+#
+# RECOMMENDED MODEL STRATEGY
+# ============================================================================
+# codespy uses a tiered model approach to balance review quality and cost:
+#
+#   Smart (default_model): Used for core analysis — defect detection, supply
+#     chain, scope identification, doc review. Requires strong reasoning.
+#     Recommended: claude-opus-4-6 or equivalent.
+#
+#   Mid-tier (extraction_model + deduplication): Used for structured field
+#     extraction (TwoStepAdapter) and issue deduplication. Needs accuracy but
+#     not deep reasoning. Recommended: claude-sonnet-4-5-20250929 or equivalent.
+#
+#   Cheap (summarization): Used for PR summary generation. Simple synthesis
+#     task. Recommended: claude-haiku-4-5-20251001 or equivalent.
+#
+# By default, all models fall back to default_model. Override extraction_model,
+# deduplication model, and summarization model for cost optimization:
+#
+#   default_model: claude-opus-4-6
+#   extraction_model: claude-sonnet-4-5-20250929
+#   signatures:
+#     deduplication:
+#       model: claude-sonnet-4-5-20250929
+#     summarization:
+#       model: claude-haiku-4-5-20251001
+# ============================================================================
 
 # These apply to all signatures unless overridden per-signature
-default_model: claude-sonnet-4-5-20250929    # DEFAULT_MODEL (Haiku 4.5 - default)
-extraction_model: claude-haiku-4-5-20251001  # EXTRACTION_MODEL (for TwoStepAdapter field extraction)
-default_max_iters: 3                         # DEFAULT_MAX_ITERS
-default_max_context_size: 50000              # DEFAULT_MAX_CONTEXT_SIZE
-default_max_reasoning_tokens: 8000           # DEFAULT_MAX_REASONING_TOKENS (limits LLM reasoning verbosity)
-default_temperature: 0.1                     # DEFAULT_TEMPERATURE (lower = more deterministic JSON output)
+default_model: claude-opus-4-6                  # DEFAULT_MODEL
+extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model)
+default_max_iters: 10                           # DEFAULT_MAX_ITERS
+default_max_context_size: 50000                 # DEFAULT_MAX_CONTEXT_SIZE
+default_max_reasoning_tokens: 4000              # DEFAULT_MAX_REASONING_TOKENS (limits LLM reasoning verbosity)
+default_temperature: 0                          # DEFAULT_TEMPERATURE (lower = more deterministic output)
 
 # Global LLM reliability settings
 llm_retries: 3                           # LLM_RETRIES (number of retries for LLM API calls)
-llm_timeout: 120                         # LLM_TIMEOUT (timeout in seconds for LLM calls)
+llm_timeout: 240                         # LLM_TIMEOUT (timeout in seconds for LLM calls)
 
 signatures:
-  # Security Auditor signatures
-  code_security:
-    enabled: true                        # CODE_SECURITY_ENABLED
-    max_iters: null                      # CODE_SECURITY_MAX_ITERS
-    model: claude-sonnet-4-5-20250929    # CODE_SECURITY_MODEL (Haiku 4.5)
-    max_context_size: null               # CODE_SECURITY_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # CODE_SECURITY_MAX_REASONING_TOKENS
-    temperature: null                    # CODE_SECURITY_TEMPERATURE
-
+  # Supply Chain Security signature
   supply_chain:
     enabled: true                        # SUPPLY_CHAIN_ENABLED
     max_iters: null                      # SUPPLY_CHAIN_MAX_ITERS
-    model: claude-sonnet-4-5-20250929    # SUPPLY_CHAIN_MODEL (Haiku 4.5)
+    model: null                          # SUPPLY_CHAIN_MODEL (Haiku 4.5)
     max_context_size: null               # SUPPLY_CHAIN_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # SUPPLY_CHAIN_MAX_REASONING_TOKENS
     temperature: null                    # SUPPLY_CHAIN_TEMPERATURE
+    scan_unchanged: false                # SUPPLY_CHAIN_SCAN_UNCHANGED
+    # When true: scans ALL artifacts (Dockerfiles, etc.) and manifests
+    # When false (default): only scans artifacts/manifests that were modified in the MR
 
-  # Bug Detector signature
-  bug_detection:
-    enabled: true                        # BUG_DETECTION_ENABLED
-    max_iters: null                      # BUG_DETECTION_MAX_ITERS
-    model: claude-sonnet-4-5-20250929    # BUG_DETECTION_MODEL (Haiku 4.5)
-    max_context_size: null               # BUG_DETECTION_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # BUG_DETECTION_MAX_REASONING_TOKENS
-    temperature: null                    # BUG_DETECTION_TEMPERATURE
-
-  # Doc Reviewer signature
-  doc_review:
-    enabled: true                        # DOC_REVIEW_ENABLED
-    max_iters: null                      # DOC_REVIEW_MAX_ITERS
-    model: claude-haiku-4-5-20251001     # DOC_REVIEW_MODEL (smallest)
-    max_context_size: null               # DOC_REVIEW_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # DOC_REVIEW_MAX_REASONING_TOKENS
-    temperature: null                    # DOC_REVIEW_TEMPERATURE
-
-  # Domain Expert signature
-  domain_analysis:
-    enabled: false                       # DOMAIN_ANALYSIS_ENABLED
-    max_iters: 6                         # DOMAIN_ANALYSIS_MAX_ITERS
-    model: claude-sonnet-4-5-20250929    # DOMAIN_ANALYSIS_MODEL (Haiku 4.5)
-    max_context_size: null               # DOMAIN_ANALYSIS_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # DOMAIN_ANALYSIS_MAX_REASONING_TOKENS
-    temperature: null                    # DOMAIN_ANALYSIS_TEMPERATURE
+  # Code & Doc Reviewer signature (bugs, logic errors, security vulnerabilities, and documentation)
+  code_and_doc_review:
+    enabled: true                        # CODE_AND_DOC_REVIEW_ENABLED
+    max_iters: null                      # CODE_AND_DOC_REVIEW_MAX_ITERS
+    model: null                          # CODE_AND_DOC_REVIEW_MODEL
+    max_context_size: null               # CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS
+    temperature: null                    # CODE_AND_DOC_REVIEW_TEMPERATURE
 
   # Scope Identifier signature
   scope_identification:
     enabled: true                        # SCOPE_IDENTIFICATION_ENABLED
-    max_iters: 10                        # SCOPE_IDENTIFICATION_MAX_ITERS
-    model: claude-opus-4-5-20251101      # SCOPE_IDENTIFICATION_MODEL (Sonnet 4.5)
+    max_iters: null                      # SCOPE_IDENTIFICATION_MAX_ITERS
+    model: null                          # SCOPE_IDENTIFICATION_MODEL (Sonnet 4.5)
     max_context_size: null               # SCOPE_IDENTIFICATION_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS
     temperature: null                    # SCOPE_IDENTIFICATION_TEMPERATURE
@@ -128,7 +136,7 @@ signatures:
   # Deduplicator signature
   deduplication:
     enabled: true                        # DEDUPLICATION_ENABLED
-    model: claude-haiku-4-5-20251001     # DEDUPLICATION_MODEL (smallest)
+    model: null                          # DEDUPLICATION_MODEL (falls back to default_model)
     max_context_size: null               # DEDUPLICATION_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # DEDUPLICATION_MAX_REASONING_TOKENS
     temperature: null                    # DEDUPLICATION_TEMPERATURE
@@ -136,7 +144,7 @@ signatures:
   # Summarizer signature
   summarization:
     enabled: true                        # SUMMARIZATION_ENABLED
-    model: claude-haiku-4-5-20251001     # SUMMARIZATION_MODEL (smallest)
+    model: null                          # SUMMARIZATION_MODEL (falls back to default_model)
     max_context_size: null               # SUMMARIZATION_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # SUMMARIZATION_MAX_REASONING_TOKENS
     temperature: null                    # SUMMARIZATION_TEMPERATURE
@@ -146,7 +154,7 @@ signatures:
 # ============================================================================
 output_format: markdown                  # OUTPUT_FORMAT (markdown | json)
 output_stdout: true                      # OUTPUT_STDOUT (enable stdout output)
-output_github_pr: true                   # OUTPUT_GITHUB_PR (post review to GitHub PR)
+output_git: true                         # OUTPUT_GIT (post review to GitHub PR or GitLab MR)
 cache_dir: ~/.cache/codespy              # CACHE_DIR
 
 # ============================================================================

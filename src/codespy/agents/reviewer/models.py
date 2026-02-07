@@ -3,7 +3,7 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class IssueSeverity(str, Enum):
@@ -22,7 +22,6 @@ class IssueCategory(str, Enum):
     SECURITY = "security"
     BUG = "bug"
     DOCUMENTATION = "documentation"
-    CONTEXT = "context"  # Issues found from codebase context analysis
 
 
 class ScopeType(str, Enum):
@@ -47,17 +46,7 @@ class PackageManifest(BaseModel):
     )
 
 
-class Artifact(BaseModel):
-    """Security-relevant artifact file information (e.g., Dockerfile)."""
-
-    path: str = Field(description="Path to the artifact file relative to repo root")
-    artifact_type: str = Field(description="Type of artifact (e.g., dockerfile)")
-    has_changes: bool = Field(
-        default=False, description="Whether this artifact was modified in the PR"
-    )
-
-
-from codespy.tools.github.models import ChangedFile
+from codespy.tools.git.models import ChangedFile
 
 
 class ScopeResult(BaseModel):
@@ -78,13 +67,6 @@ class ScopeResult(BaseModel):
     package_manifest: PackageManifest | None = Field(
         default=None, description="Package manifest info if present"
     )
-    artifacts: list[Artifact] = Field(
-        default_factory=list, description="Security-relevant artifacts found in this scope (e.g., Dockerfile)"
-    )
-    doc_paths: list[str] = Field(
-        default_factory=list,
-        description="Documentation file/directory paths in this scope (e.g., README.md, docs/)"
-    )
     changed_files: list[ChangedFile] = Field(
         default_factory=list, description="Changed files belonging to this scope"
     )
@@ -99,11 +81,11 @@ class Issue(BaseModel):
     category: IssueCategory = Field(description="Issue category")
     severity: IssueSeverity = Field(description="Issue severity")
     title: str = Field(description="Brief title of the issue")
-    description: str = Field(description="Detailed description of the issue")
+    description: str = Field(description="≤25 word imperative description. No filler.")
     filename: str = Field(description="File where the issue was found")
     line_start: int | None = Field(default=None, description="Starting line number")
     line_end: int | None = Field(default=None, description="Ending line number")
-    code_snippet: str | None = Field(default=None, description="Relevant code snippet")
+    code_snippet: str | None = Field(default=None, description="Deprecated—use line numbers. Leave None.")
     suggestion: str | None = Field(default=None, description="Suggested fix or improvement")
     cwe_id: str | None = Field(
         default=None, description="CWE ID for security issues (e.g., CWE-79)"
@@ -124,7 +106,7 @@ class Issue(BaseModel):
 class SignatureStatsResult(BaseModel):
     """Statistics for a single signature's execution during review."""
 
-    name: str = Field(description="Signature name (e.g., bug_detection, code_security)")
+    name: str = Field(description="Signature name (e.g., code_and_doc_review, supply_chain)")
     cost: float = Field(default=0.0, description="Cost in USD for this signature")
     tokens: int = Field(default=0, description="Tokens used by this signature")
     call_count: int = Field(default=0, description="Number of LLM calls made by this signature")
@@ -146,11 +128,11 @@ class SignatureStatsResult(BaseModel):
 
 
 class ReviewResult(BaseModel):
-    """Complete review results for a pull request."""
+    """Complete review results for a merge request (GitHub PR or GitLab MR)."""
 
-    pr_number: int = Field(description="PR number")
-    pr_title: str = Field(description="PR title")
-    pr_url: str = Field(description="PR URL")
+    mr_number: int = Field(description="MR number")
+    mr_title: str = Field(description="MR title")
+    mr_url: str = Field(description="MR URL")
     repo: str = Field(description="Repository name (owner/repo)")
     reviewed_at: datetime = Field(
         default_factory=datetime.utcnow, description="Review timestamp"
@@ -200,11 +182,6 @@ class ReviewResult(BaseModel):
         """Get all documentation issues."""
         return [i for i in self.issues if i.category == IssueCategory.DOCUMENTATION]
 
-    @property
-    def context_issues(self) -> list[Issue]:
-        """Get all context issues."""
-        return [i for i in self.issues if i.category == IssueCategory.CONTEXT]
-
     def issues_by_severity(self) -> dict[IssueSeverity, list[Issue]]:
         """Group issues by severity."""
         result: dict[IssueSeverity, list[Issue]] = {s: [] for s in IssueSeverity}
@@ -215,9 +192,9 @@ class ReviewResult(BaseModel):
     def to_markdown(self) -> str:
         """Format review results as Markdown."""
         lines = [
-            f"# Code Review: {self.pr_title}",
+            f"# Code Review: {self.mr_title}",
             "",
-            f"**PR:** [{self.repo}#{self.pr_number}]({self.pr_url})",
+            f"**MR:** [{self.repo}#{self.mr_number}]({self.mr_url})",
             f"**Reviewed at:** {self.reviewed_at.strftime('%Y-%m-%d %H:%M UTC')}",
             f"**Model:** {self.model_used}",
             "",
@@ -240,7 +217,6 @@ class ReviewResult(BaseModel):
             f"- **Security:** {len(self.security_issues)}",
             f"- **Bugs:** {len(self.bug_issues)}",
             f"- **Documentation:** {len(self.documentation_issues)}",
-            f"- **Context:** {len(self.context_issues)}",
             "",
         ])
 

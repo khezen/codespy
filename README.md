@@ -63,7 +63,10 @@ Built for **engineering teams that care about correctness, security, and control
 - 💰 **Cost Tracking** - Track LLM calls, tokens, and costs per review
 - 🤖 **Model Agnostic** - Works with OpenAI, AWS Bedrock, Anthropic, Ollama, and more via LiteLLM
 - 🐳 **Docker Ready** - Run locally or in the cloud with Docker
+- <img src="assets/GitHub_Invertocat_Black.svg" height="20" alt="GitHub"> <img src="assets/gitlab-logo-500-rgb.png" height="20" alt="GitLab"> **GitHub & GitLab**  - Works with both platforms, auto-detects from URL
 - 🔌 **GitHub Action** - One-line integration for automatic PR reviews
+
+
 
 ---
 
@@ -113,18 +116,22 @@ poetry install --only main
 Get up and running in 30 seconds:
 
 ```bash
-# 1. Set your GitHub token (or let codespy auto-discover from gh CLI)
-export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+# 1. Set your Git token (or let codespy auto-discover from gh/glab CLI)
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx  # For GitHub
+# OR
+export GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx  # For GitLab
 
 # 2. Set your LLM provider (example with Anthropic)
-export DEFAULT_MODEL=claude-sonnet-4-5-20250929
+export DEFAULT_MODEL=claude-opus-4-6
 export ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
 
-# 3. Review a PR!
+# 3. Review a PR or MR!
 codespy review https://github.com/owner/repo/pull/123
+# OR
+codespy review https://gitlab.com/group/project/-/merge_requests/123
 ```
 
-codespy auto-discovers credentials from standard locations (`~/.aws/credentials`, `gh auth token`, etc.) - see [Configuration](#configuration) for details.
+codespy auto-discovers credentials from standard locations (`~/.aws/credentials`, `gh auth token`, `glab auth token`, etc.) - see [Configuration](#configuration) for details.
 
 ---
 
@@ -133,29 +140,42 @@ codespy auto-discovers credentials from standard locations (`~/.aws/credentials`
 ### Command Line
 
 ```bash
-# Basic review
+# Review GitHub Pull Request
 codespy review https://github.com/owner/repo/pull/123
+
+# Review GitLab Merge Request
+codespy review https://gitlab.com/group/project/-/merge_requests/123
+
+# GitLab with nested groups
+codespy review https://gitlab.com/group/subgroup/project/-/merge_requests/123
+
+# Self-hosted GitLab
+codespy review https://gitlab.mycompany.com/team/project/-/merge_requests/123
 
 # Output as JSON
 codespy review https://github.com/owner/repo/pull/123 --output json
 
 # Use a specific model
-codespy review https://github.com/owner/repo/pull/123 --model claude-sonnet-4-5-20250929
+codespy review https://github.com/owner/repo/pull/123 --model claude-opus-4-6
 
-# Skip codebase context analysis
-codespy review https://github.com/owner/repo/pull/123 --no-with-context
+# Use a custom config file
+codespy review https://github.com/owner/repo/pull/123 --config path/to/config.yaml
+codespy review https://github.com/owner/repo/pull/123 -f staging.yaml
 
-# Disable stdout output (useful with --github-comment)
+# Disable stdout output (useful with --git-comment)
 codespy review https://github.com/owner/repo/pull/123 --no-stdout
 
-# Post review as GitHub PR comment
-codespy review https://github.com/owner/repo/pull/123 --github-comment
+# Post review as GitHub/GitLab comment
+codespy review https://github.com/owner/repo/pull/123 --git-comment
 
-# Combine: only post to GitHub, no stdout
-codespy review https://github.com/owner/repo/pull/123 --no-stdout --github-comment
+# Combine: only post to Git platform, no stdout
+codespy review https://github.com/owner/repo/pull/123 --no-stdout --git-comment
 
 # Show current configuration
 codespy config
+
+# Show configuration from a specific file
+codespy config --config path/to/config.yaml
 
 # Show version
 codespy --version
@@ -167,14 +187,14 @@ codespy --version
 # With docker run (using GHCR image)
 docker run --rm \
   -e GITHUB_TOKEN=$GITHUB_TOKEN \
-  -e DEFAULT_MODEL=claude-sonnet-4-5-20250929 \
+  -e DEFAULT_MODEL=claude-opus-4-6 \
   -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
   ghcr.io/khezen/codespy:latest review https://github.com/owner/repo/pull/123
 
 # Or use a specific version
 docker run --rm \
   -e GITHUB_TOKEN=$GITHUB_TOKEN \
-  -e DEFAULT_MODEL=claude-sonnet-4-5-20250929 \
+  -e DEFAULT_MODEL=claude-opus-4-6 \
   -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
   ghcr.io/khezen/codespy:0.1.0 review https://github.com/owner/repo/pull/123
 ```
@@ -202,32 +222,8 @@ jobs:
       - name: Run CodeSpy Review
         uses: khezen/codespy@v1
         with:
-          model: 'claude-sonnet-4-5-20250929'
+          model: 'claude-opus-4-6'
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-```
-
-**Available Providers:**
-
-```yaml
-# OpenAI
-- uses: khezen/codespy@v1
-  with:
-    model: 'gpt-5'
-    openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-
-# AWS Bedrock
-- uses: khezen/codespy@v1
-  with:
-    model: 'bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0'
-    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    aws-region: 'us-east-1'
-
-# Google Gemini
-- uses: khezen/codespy@v1
-  with:
-    model: 'gemini/gemini-2.5-pro'
-    gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
 ```
 
 See [`.github/workflows/codespy-review.yml.example`](.github/workflows/codespy-review.yml.example) for more examples.
@@ -240,7 +236,7 @@ codespy supports two configuration methods:
 - **`.env` file** - Simple environment variables for basic setup
 - **`codespy.yaml`** - Full YAML configuration for advanced options (per-module settings)
 
-Priority: Environment Variables > YAML Config > Defaults
+Priority: cmd options > Environment Variables > YAML Config > Defaults
 
 ### Setup
 
@@ -249,9 +245,13 @@ Priority: Environment Variables > YAML Config > Defaults
 cp .env.example .env
 ```
 
-### GitHub Token
+### Git Platform Tokens
 
-codespy automatically discovers your GitHub token from multiple sources:
+codespy automatically detects the platform (GitHub or GitLab) from the URL and discovers tokens from multiple sources.
+
+#### GitHub Token
+
+Auto-discovered from:
 - `GITHUB_TOKEN` or `GH_TOKEN` environment variables
 - GitHub CLI (`gh auth token`)
 - Git credential helper
@@ -267,13 +267,38 @@ To disable auto-discovery:
 GITHUB_AUTO_DISCOVER_TOKEN=false
 ```
 
+#### GitLab Token
+
+Auto-discovered from:
+- `GITLAB_TOKEN` or `GITLAB_PRIVATE_TOKEN` environment variables
+- GitLab CLI (`glab auth token`)
+- Git credential helper
+- `~/.netrc` file
+- python-gitlab config files (`~/.python-gitlab.cfg`, `/etc/python-gitlab.cfg`)
+
+Or create a token at https://gitlab.com/-/user_settings/personal_access_tokens with `api` scope:
+```bash
+GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx
+```
+
+For self-hosted GitLab:
+```bash
+GITLAB_URL=https://gitlab.mycompany.com
+GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx
+```
+
+To disable auto-discovery:
+```bash
+GITLAB_AUTO_DISCOVER_TOKEN=false
+```
+
 ### LLM Provider
 
 codespy auto-discovers credentials for all providers:
 
 **Anthropic** (auto-discovers from `$ANTHROPIC_API_KEY`, `~/.config/anthropic/`, `~/.anthropic/`):
 ```bash
-DEFAULT_MODEL=claude-sonnet-4-5-20250929
+DEFAULT_MODEL=claude-opus-4-6
 # Optional - set explicitly or let codespy auto-discover:
 # ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
 ```
@@ -316,100 +341,63 @@ AUTO_DISCOVER_GEMINI=false
 
 ### Advanced Configuration (YAML)
 
-For per-signature settings, use `codespy.yaml`:
-
-```yaml
-# codespy.yaml
-
-# LLM provider settings (credentials are auto-discovered by default)
-llm:
-  auto_discover_openai: true       # Discover from ~/.config/openai/, ~/.openai/, $OPENAI_API_KEY
-  auto_discover_anthropic: true    # Discover from ~/.config/anthropic/, ~/.anthropic/, $ANTHROPIC_API_KEY
-  auto_discover_gemini: true       # Discover from $GEMINI_API_KEY, gcloud ADC
-  auto_discover_aws: true          # Discover from ~/.aws/credentials, AWS CLI
-  enable_prompt_caching: true      # Provider-side prompt caching (reduces latency and costs)
-
-# GitHub settings (token is auto-discovered by default)
-github:
-  auto_discover_token: true        # Discover from gh CLI, git credentials, ~/.netrc
-
-# Default settings for all signatures
-default_model: claude-sonnet-4-5-20250929  # Also settable via DEFAULT_MODEL env var
-extraction_model: claude-haiku-4-5-20251001  # For field extraction (smaller model)
-default_max_iters: 3
-default_max_context_size: 50000
-default_max_reasoning_tokens: 8000  # Limit reasoning verbosity
-default_temperature: 0.1            # Lower = more deterministic output
-
-# Global LLM reliability settings
-llm_retries: 3                       # Number of retries for LLM API calls
-llm_timeout: 120                     # Timeout in seconds
-
-# Per-signature overrides (see signatures table below for all available)
-signatures:
-  code_security:
-    enabled: true
-    model: claude-sonnet-4-5-20250929
-
-  supply_chain:
-    enabled: true
-
-  bug_detection:
-    enabled: true
-
-  doc_review:
-    enabled: true
-    model: claude-haiku-4-5-20251001  # Smaller model for simpler task
-
-  domain_analysis:
-    enabled: false                    # Disabled by default (expensive)
-    max_iters: 6
-
-  scope_identification:
-    enabled: true
-    max_iters: 10
-    model: claude-opus-4-5-20251101   # Larger model for complex scope analysis
-
-  deduplication:
-    enabled: true
-    model: claude-haiku-4-5-20251001  # Smaller model for simple task
-
-  summarization:
-    enabled: true
-    model: claude-haiku-4-5-20251001
-
-# Output destinations
-output_format: markdown              # markdown or json
-output_stdout: true                  # Print to stdout
-output_github_pr: false              # Post as GitHub PR review comment
-
-# Directories to skip during review
-excluded_directories:
-  - vendor
-  - node_modules
-  - dist
-  - build
-  - __pycache__
-```
+For per-signature settings, use `codespy.yaml`. See [`codespy.yaml`](codespy.yaml) for all available options including:
+- LLM provider settings and auto-discovery
+- Git platform configuration (GitHub/GitLab)
+- Per-signature model and iteration overrides
+- Output format and destination settings
+- Directory exclusions
 
 Override YAML settings via environment variables using `_` separator:
 
 ```bash
 # Default settings
-export DEFAULT_MODEL=claude-sonnet-4-5-20250929
+export DEFAULT_MODEL=claude-opus-4-6
 export DEFAULT_MAX_ITERS=20
 
 # Per-signature settings (use signature name, not module name)
-export DOMAIN_ANALYSIS_MAX_ITERS=20
-export DOC_REVIEW_ENABLED=false
-export CODE_SECURITY_MODEL=gpt-5
+export CODE_AND_DOC_REVIEW_MODEL=claude-sonnet-4-5-20250929
 
 # Output settings
 export OUTPUT_STDOUT=false
-export OUTPUT_GITHUB_PR=true
+export OUTPUT_GIT=true
 ```
 
 See `codespy.yaml` for full configuration options.
+
+### Recommended Model Strategy
+
+codespy uses a tiered model approach to balance review quality and cost:
+
+| Tier | Role | Default | Recommended Model | Used By |
+|------|------|---------|-------------------|---------|
+| 🧠 **Smart** | Core analysis & reasoning | `DEFAULT_MODEL` | `claude-opus-4-6` | Code & doc review, supply chain, scope identification |
+| ⚡ **Mid-tier** | Extraction & deduplication | Falls back to `DEFAULT_MODEL` | `claude-sonnet-4-5-20250929` | TwoStepAdapter field extraction, issue deduplication |
+| 💰 **Cheap** | Summarization | Falls back to `DEFAULT_MODEL` | `claude-haiku-4-5-20251001` | PR summary generation |
+
+By default, **all models use `DEFAULT_MODEL`** (`claude-opus-4-6`). This works out of the box — just set your API credentials and go.
+
+To optimize costs, override the mid-tier and cheap models:
+
+```bash
+# .env or environment variables
+DEFAULT_MODEL=claude-opus-4-6                    # Smart tier (default)
+EXTRACTION_MODEL=claude-sonnet-4-5-20250929      # Mid-tier: field extraction
+DEDUPLICATION_MODEL=claude-sonnet-4-5-20250929   # Mid-tier: issue deduplication
+SUMMARIZATION_MODEL=claude-haiku-4-5-20251001    # Cheap tier: PR summary
+```
+
+Or in `codespy.yaml`:
+
+```yaml
+default_model: claude-opus-4-6
+extraction_model: claude-sonnet-4-5-20250929
+signatures:
+  deduplication:
+    model: claude-sonnet-4-5-20250929
+  summarization:
+    model: claude-haiku-4-5-20251001
+```
 
 ---
 
@@ -422,7 +410,7 @@ See `codespy.yaml` for full configuration options.
 
 **PR:** [owner/repo#123](https://github.com/owner/repo/pull/123)
 **Reviewed at:** 2024-01-15 10:30 UTC
-**Model:** claude-sonnet-4-5-20250929
+**Model:** claude-opus-4-6
 
 ## Summary
 
@@ -457,25 +445,29 @@ Use parameterized queries instead...
 
 ```
 
-### GitHub PR Review
+### GitHub/GitLab Review Comments
 
-CodeSpy can post reviews directly to GitHub PRs as native review comments with inline annotations.
+CodeSpy can post reviews directly to GitHub PRs or GitLab MRs as native review comments with inline annotations.
 
 **Enable via CLI:**
 ```bash
-codespy review https://github.com/owner/repo/pull/123 --github-comment
+# GitHub
+codespy review https://github.com/owner/repo/pull/123 --git-comment
 
-# Combine: only post to GitHub, no stdout
-codespy review https://github.com/owner/repo/pull/123 --no-stdout --github-comment
+# GitLab
+codespy review https://gitlab.com/group/project/-/merge_requests/123 --git-comment
+
+# Combine: only post to platform, no stdout
+codespy review https://github.com/owner/repo/pull/123 --no-stdout --git-comment
 ```
 
 **Enable via configuration:**
 ```bash
 # Environment variable
-export OUTPUT_GITHUB_PR=true
+export OUTPUT_GIT=true
 
 # Or in codespy.yaml
-output_github_pr: true
+output_git: true
 ```
 
 **Features:**
@@ -499,12 +491,14 @@ output_github_pr: true
 ┌─────────────────────────────────────────────────────────────────────┐
 │                           codespy CLI                               │
 ├─────────────────────────────────────────────────────────────────────┤
-│  review <pr_url> [--with-context] [--output json|md] [--model ...]  │
+│  review <pr_url> [--config ...] [--output json|md] [--model ...]    │
 └──────────────────────────────┬──────────────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────────────┐
-│                      GitHub Integration                             │
-│  - Fetch PR diff, changed files, commit messages                    │
+│                  Git Platform Integration                           │
+│  - GitHub: Fetch PR diff, changed files, commit messages            │
+│  - GitLab: Fetch MR diff, changed files, commit messages            │
+│  - Auto-detects platform from URL                                   │
 │  - Clone/access full repository for context                         │
 └──────────────────────────────┬──────────────────────────────────────┘
                                │
@@ -518,15 +512,10 @@ output_github_pr: true
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
 │  │              Parallel Review Modules                       │     │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐    │     │
-│  │  │  Security   │  │    Bug      │  │  Documentation   │    │     │
-│  │  │   Auditor   │  │  Detector   │  │    Reviewer      │    │     │
-│  │  └─────────────┘  └─────────────┘  └──────────────────┘    │     │
-│  │                                                            │     │
-│  │              ┌───────────────────────┐                     │     │
-│  │              │     Domain Expert     │                     │     │
-│  │              │  (codebase awareness) │                     │     │
-│  │              └───────────────────────┘                     │     │
+│  │  ┌──────────────┐  ┌──────────────────────────────────┐    │     │
+│  │  │Supply Chain  │  │     Code & Doc Reviewer          │    │     │
+│  │  │  Auditor     │  │  (defects + documentation)       │    │     │
+│  │  └──────────────┘  └──────────────────────────────────┘    │     │
 │  └──────────────────────────┬─────────────────────────────────┘     │
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
@@ -545,7 +534,8 @@ output_github_pr: true
 ┌──────────────────────────────▼──────────────────────────────────────┐
 │                        Tools Layer                                  │
 │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌──────────────┐   │
-│  │ Filesystem │  │   GitHub   │  │    Web     │  │  Cyber/OSV   │   │
+│  │ Filesystem │  │    Git     │  │    Web     │  │  Cyber/OSV   │   │
+│  │            │  │ (GH + GL)  │  │            │  │              │   │
 │  └────────────┘  └────────────┘  └────────────┘  └──────────────┘   │
 │  ┌────────────────────────────────────────────────────────────────┐ │
 │  │                      Parsers                                   │ │
@@ -569,13 +559,10 @@ The review is powered by DSPy signatures that structure the LLM's analysis:
 | Signature | Config Key | Description |
 |-----------|------------|-------------|
 | **ScopeIdentifierSignature** | `scope_identification` | Identifies code scopes (frontend, backend, infra, microservice in mono repo, etc...) |
-| **CodeSecuritySignature** | `code_security` | Analyzes code changes for verified security vulnerabilities with CWE references |
+| **CodeAndDocReviewSignature** | `code_and_doc_review` | Detects verified bugs, security vulnerabilities, and stale/wrong documentation in a single pass |
 | **SupplyChainSecuritySignature** | `supply_chain` | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
-| **BugDetectionSignature** | `bug_detection` | Detects verified bugs, logic errors, and resource leaks |
-| **DocumentationReviewSignature** | `doc_review` | Reviews documentation for accuracy based on code changes |
-| **DomainExpertSignature** (experimental, disabled by default)| `domain_analysis` | Analyzes business logic, architecture, patterns, and style consistency |
 | **IssueDeduplicationSignature** | `deduplication` | LLM-powered deduplication of issues across reviewers |
-| **PRSummarySignature** | `summarization` | Generates summary, quality assessment, and recommendation |
+| **MRSummarySignature** | `summarization` | Generates summary, quality assessment, and recommendation |
 
 ## Supported Languages
 

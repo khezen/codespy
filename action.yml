@@ -132,35 +132,35 @@ inputs:
     default: ''
   
   # ==========================================
-  # SIGNATURE: code_security
+  # SIGNATURE: code_and_doc_review
   # ==========================================
-  code-security-enabled:
-    description: 'Enable code security analysis signature'
+  code-and-doc-review-enabled:
+    description: 'Enable code and doc review signature (bugs, security vulnerabilities, and documentation)'
     required: false
     default: 'true'
   
-  code-security-model:
-    description: 'Model for code security analysis (empty = use default)'
+  code-and-doc-review-model:
+    description: 'Model for code and doc review (empty = use default)'
     required: false
     default: ''
   
-  code-security-max-iters:
-    description: 'Max iterations for code security analysis'
+  code-and-doc-review-max-iters:
+    description: 'Max iterations for code and doc review'
     required: false
     default: ''
   
-  code-security-max-context-size:
-    description: 'Max context size for code security analysis'
+  code-and-doc-review-max-context-size:
+    description: 'Max context size for code and doc review'
     required: false
     default: ''
   
-  code-security-max-reasoning-tokens:
-    description: 'Max reasoning tokens for code security analysis'
+  code-and-doc-review-max-reasoning-tokens:
+    description: 'Max reasoning tokens for code and doc review'
     required: false
     default: ''
   
-  code-security-temperature:
-    description: 'Temperature for code security analysis'
+  code-and-doc-review-temperature:
+    description: 'Temperature for code and doc review'
     required: false
     default: ''
   
@@ -194,72 +194,6 @@ inputs:
   
   supply-chain-temperature:
     description: 'Temperature for supply chain security'
-    required: false
-    default: ''
-  
-  # ==========================================
-  # SIGNATURE: bug_detection
-  # ==========================================
-  bug-detection-enabled:
-    description: 'Enable bug detection signature'
-    required: false
-    default: 'true'
-  
-  bug-detection-model:
-    description: 'Model for bug detection (empty = use default)'
-    required: false
-    default: ''
-  
-  bug-detection-max-iters:
-    description: 'Max iterations for bug detection'
-    required: false
-    default: ''
-  
-  bug-detection-max-context-size:
-    description: 'Max context size for bug detection'
-    required: false
-    default: ''
-  
-  bug-detection-max-reasoning-tokens:
-    description: 'Max reasoning tokens for bug detection'
-    required: false
-    default: ''
-  
-  bug-detection-temperature:
-    description: 'Temperature for bug detection'
-    required: false
-    default: ''
-  
-  # ==========================================
-  # SIGNATURE: doc_review
-  # ==========================================
-  doc-review-enabled:
-    description: 'Enable documentation review signature'
-    required: false
-    default: 'true'
-  
-  doc-review-model:
-    description: 'Model for documentation review (empty = use default)'
-    required: false
-    default: ''
-  
-  doc-review-max-iters:
-    description: 'Max iterations for documentation review'
-    required: false
-    default: ''
-  
-  doc-review-max-context-size:
-    description: 'Max context size for documentation review'
-    required: false
-    default: ''
-  
-  doc-review-max-reasoning-tokens:
-    description: 'Max reasoning tokens for documentation review'
-    required: false
-    default: ''
-  
-  doc-review-temperature:
-    description: 'Temperature for documentation review'
     required: false
     default: ''
   
@@ -404,13 +338,13 @@ runs:
         SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS: ${{ inputs.scope-identification-max-reasoning-tokens }}
         SCOPE_IDENTIFICATION_TEMPERATURE: ${{ inputs.scope-identification-temperature }}
         
-        # Code security signature
-        CODE_SECURITY_ENABLED: ${{ inputs.code-security-enabled }}
-        CODE_SECURITY_MODEL: ${{ inputs.code-security-model }}
-        CODE_SECURITY_MAX_ITERS: ${{ inputs.code-security-max-iters }}
-        CODE_SECURITY_MAX_CONTEXT_SIZE: ${{ inputs.code-security-max-context-size }}
-        CODE_SECURITY_MAX_REASONING_TOKENS: ${{ inputs.code-security-max-reasoning-tokens }}
-        CODE_SECURITY_TEMPERATURE: ${{ inputs.code-security-temperature }}
+        # Code and doc review signature
+        CODE_AND_DOC_REVIEW_ENABLED: ${{ inputs.code-and-doc-review-enabled }}
+        CODE_AND_DOC_REVIEW_MODEL: ${{ inputs.code-and-doc-review-model }}
+        CODE_AND_DOC_REVIEW_MAX_ITERS: ${{ inputs.code-and-doc-review-max-iters }}
+        CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.code-and-doc-review-max-context-size }}
+        CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.code-and-doc-review-max-reasoning-tokens }}
+        CODE_AND_DOC_REVIEW_TEMPERATURE: ${{ inputs.code-and-doc-review-temperature }}
         
         # Supply chain signature
         SUPPLY_CHAIN_ENABLED: ${{ inputs.supply-chain-enabled }}
@@ -420,21 +354,6 @@ runs:
         SUPPLY_CHAIN_MAX_REASONING_TOKENS: ${{ inputs.supply-chain-max-reasoning-tokens }}
         SUPPLY_CHAIN_TEMPERATURE: ${{ inputs.supply-chain-temperature }}
         
-        # Bug detection signature
-        BUG_DETECTION_ENABLED: ${{ inputs.bug-detection-enabled }}
-        BUG_DETECTION_MODEL: ${{ inputs.bug-detection-model }}
-        BUG_DETECTION_MAX_ITERS: ${{ inputs.bug-detection-max-iters }}
-        BUG_DETECTION_MAX_CONTEXT_SIZE: ${{ inputs.bug-detection-max-context-size }}
-        BUG_DETECTION_MAX_REASONING_TOKENS: ${{ inputs.bug-detection-max-reasoning-tokens }}
-        BUG_DETECTION_TEMPERATURE: ${{ inputs.bug-detection-temperature }}
-        
-        # Doc review signature
-        DOC_REVIEW_ENABLED: ${{ inputs.doc-review-enabled }}
-        DOC_REVIEW_MODEL: ${{ inputs.doc-review-model }}
-        DOC_REVIEW_MAX_ITERS: ${{ inputs.doc-review-max-iters }}
-        DOC_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.doc-review-max-context-size }}
-        DOC_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.doc-review-max-reasoning-tokens }}
-        DOC_REVIEW_TEMPERATURE: ${{ inputs.doc-review-temperature }}
         
         # Deduplication signature
         DEDUPLICATION_ENABLED: ${{ inputs.deduplication-enabled }}
@@ -485,13 +404,13 @@ runs:
         [ -n "$SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS"
         [ -n "$SCOPE_IDENTIFICATION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_TEMPERATURE"
         
-        # Code security
-        [ -n "$CODE_SECURITY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_SECURITY_ENABLED"
-        [ -n "$CODE_SECURITY_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_SECURITY_MODEL"
-        [ -n "$CODE_SECURITY_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_SECURITY_MAX_ITERS"
-        [ -n "$CODE_SECURITY_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_SECURITY_MAX_CONTEXT_SIZE"
-        [ -n "$CODE_SECURITY_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_SECURITY_MAX_REASONING_TOKENS"
-        [ -n "$CODE_SECURITY_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_SECURITY_TEMPERATURE"
+        # Code and doc review
+        [ -n "$CODE_AND_DOC_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_ENABLED"
+        [ -n "$CODE_AND_DOC_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MODEL"
+        [ -n "$CODE_AND_DOC_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MAX_ITERS"
+        [ -n "$CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE"
+        [ -n "$CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS"
+        [ -n "$CODE_AND_DOC_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_TEMPERATURE"
         
         # Supply chain
         [ -n "$SUPPLY_CHAIN_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_ENABLED"
@@ -500,22 +419,6 @@ runs:
         [ -n "$SUPPLY_CHAIN_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_CONTEXT_SIZE"
         [ -n "$SUPPLY_CHAIN_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_REASONING_TOKENS"
         [ -n "$SUPPLY_CHAIN_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_TEMPERATURE"
-        
-        # Bug detection
-        [ -n "$BUG_DETECTION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_DETECTION_ENABLED"
-        [ -n "$BUG_DETECTION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_DETECTION_MODEL"
-        [ -n "$BUG_DETECTION_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_DETECTION_MAX_ITERS"
-        [ -n "$BUG_DETECTION_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_DETECTION_MAX_CONTEXT_SIZE"
-        [ -n "$BUG_DETECTION_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_DETECTION_MAX_REASONING_TOKENS"
-        [ -n "$BUG_DETECTION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_DETECTION_TEMPERATURE"
-        
-        # Doc review
-        [ -n "$DOC_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_ENABLED"
-        [ -n "$DOC_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_MODEL"
-        [ -n "$DOC_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_MAX_ITERS"
-        [ -n "$DOC_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_MAX_CONTEXT_SIZE"
-        [ -n "$DOC_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_MAX_REASONING_TOKENS"
-        [ -n "$DOC_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_TEMPERATURE"
         
         # Deduplication
         [ -n "$DEDUPLICATION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEDUPLICATION_ENABLED"

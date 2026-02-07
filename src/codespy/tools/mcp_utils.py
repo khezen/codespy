@@ -25,7 +25,7 @@ async def connect_mcp_server(
         mcp_path: Path to the MCP server Python module
         args: Additional command-line arguments for the server
         contexts: List to append context managers for cleanup (transport, session)
-        caller_module: Name of the calling module for logging (e.g., 'domain_expert')
+        caller_module: Name of the calling module for logging (e.g., 'supply_chain_auditor')
 
     Returns:
         List of DSPy Tool objects from the MCP server
