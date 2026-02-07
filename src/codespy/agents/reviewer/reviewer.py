@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 class MRSummarySignature(dspy.Signature):
     """Generate an overall summary and recommendation for a merge request.
 
+    You are a busy Principal Engineer. Be extremely terse. State facts only.
+
     Based on all the issues found during review, provide:
     - A concise summary of what the MR does
     - An overall assessment of the code quality

@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 class DocumentationReviewSignature(dspy.Signature):
     """Review documentation for accuracy based on code changes in a scope.
 
+    You are a busy Principal Engineer. Only flag documentation that is factually wrong or dangerously stale.
+    Be extremely terse. Use imperative mood.
+
     You have tools to explore the repository filesystem, search for text, and analyze code.
     All file paths are relative to the repository root.
 
@@ -83,10 +86,9 @@ class DocumentationReviewSignature(dspy.Signature):
        - New enum values → Document new valid values
        - Removed values → Check if docs reference removed values
 
-    OUTPUT EFFICIENCY: Do not quote or restate document contents in reasoning steps. Reference sections by name only.
-    Never copy source code into issues—use line numbers. Keep each reasoning step to 1-2 sentences.
-
-    OUTPUT FORMAT:
+    OUTPUT RULES:
+    - Do not quote or restate document contents in reasoning steps. Reference sections by name only.
+    - Never copy source code into issues—use line numbers. Keep each reasoning step to 1-2 sentences.
     - Empty list if documentation is adequate. No approval text ("LGTM", "looks good").
     - description: ≤25 words, imperative tone, no filler ("Update X section", "Add Y reference").
     - No polite or conversational language ("I suggest", "Please consider", "Great").
