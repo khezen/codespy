@@ -28,6 +28,9 @@ class MRSummarySignature(dspy.Signature):
     - A concise summary of what the MR does
     - An overall assessment of the code quality
     - A recommendation (approve, request changes, or needs discussion)
+
+    OUTPUT RULES: Be direct and terse. No polite filler ("I suggest", "Great job", "Well done").
+    No conversational language. State facts and assessments only.
     """
 
     mr_title: str = dspy.InputField(desc="Title of the merge request")

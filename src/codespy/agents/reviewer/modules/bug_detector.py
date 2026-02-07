@@ -54,7 +54,14 @@ class BugDetectionSignature(dspy.Signature):
     - Hypothetical edge cases without evidence
     - Issues that might exist in code you haven't verified
 
-    OUTPUT EFFICIENCY: Reference files by name and line number. Do not repeat patch content or code snippets in reasoning steps. Keep each reasoning step to 1-2 sentences.
+    OUTPUT EFFICIENCY: Reference files by name and line number only—never copy source code into issues.
+    Do not repeat patch content in reasoning steps. Keep each reasoning step to 1-2 sentences.
+
+    OUTPUT FORMAT:
+    - Empty list if no verified bugs. No approval text ("LGTM", "looks good").
+    - description: ≤25 words, imperative tone, no filler ("Fix X", "Handle Y").
+    - No polite or conversational language ("I suggest", "Please consider", "Great").
+    - Do not populate code_snippet—use line numbers instead.
     """
 
     scope: ScopeResult = dspy.InputField(
@@ -65,7 +72,7 @@ class BugDetectionSignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Verified bugs only. Concise titles (<10 words), brief descriptions (<3 sentences). Empty list if none."
+        desc="Verified bugs only. Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none."
     )
 
 

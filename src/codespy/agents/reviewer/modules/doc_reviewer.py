@@ -83,7 +83,14 @@ class DocumentationReviewSignature(dspy.Signature):
        - New enum values → Document new valid values
        - Removed values → Check if docs reference removed values
 
-    OUTPUT EFFICIENCY: Do not quote or restate document contents in reasoning steps. Reference sections by name only. Keep each reasoning step to 1-2 sentences.
+    OUTPUT EFFICIENCY: Do not quote or restate document contents in reasoning steps. Reference sections by name only.
+    Never copy source code into issues—use line numbers. Keep each reasoning step to 1-2 sentences.
+
+    OUTPUT FORMAT:
+    - Empty list if documentation is adequate. No approval text ("LGTM", "looks good").
+    - description: ≤25 words, imperative tone, no filler ("Update X section", "Add Y reference").
+    - No polite or conversational language ("I suggest", "Please consider", "Great").
+    - Do not populate code_snippet—use line numbers instead.
     """
 
     scope: ScopeResult = dspy.InputField(
@@ -95,7 +102,7 @@ class DocumentationReviewSignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Documentation issues only. Concise titles (<10 words), brief descriptions (<3 sentences). Empty list if adequate."
+        desc="Documentation issues only. Titles <10 words. Descriptions ≤25 words, imperative. Empty list if adequate."
     )
 
 

@@ -55,7 +55,14 @@ class CodeSecuritySignature(dspy.Signature):
     - Issues that might exist in code you haven't verified
     - "Could be vulnerable if..." scenarios
 
-    OUTPUT EFFICIENCY: Reference files by name and line number. Do not repeat patch content or code snippets in reasoning steps. Keep each reasoning step to 1-2 sentences.
+    OUTPUT EFFICIENCY: Reference files by name and line number only—never copy source code into issues.
+    Do not repeat patch content in reasoning steps. Keep each reasoning step to 1-2 sentences.
+
+    OUTPUT FORMAT:
+    - Empty list if no verified vulnerabilities. No approval text ("LGTM", "looks good").
+    - description: ≤25 words, imperative tone, no filler ("Fix X", "Sanitize Y").
+    - No polite or conversational language ("I suggest", "Please consider", "Great").
+    - Do not populate code_snippet—use line numbers instead.
     """
 
     scope: ScopeResult = dspy.InputField(
@@ -66,7 +73,7 @@ class CodeSecuritySignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Verified security issues only. Concise titles (<10 words), brief descriptions (<3 sentences). Empty list if none."
+        desc="Verified security issues only. Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none."
     )
 
 
@@ -98,6 +105,13 @@ class SupplyChainSecuritySignature(dspy.Signature):
     - Privilege escalation: Unnecessary --privileged or capabilities
 
     OUTPUT EFFICIENCY: Do not enumerate individual dependencies in reasoning steps. Scan them in batch and only mention those with actual findings. Keep each reasoning step to 1-2 sentences.
+    Never copy source code into issues—use line numbers.
+
+    OUTPUT FORMAT:
+    - Empty list if no verified supply chain issues. No approval text ("LGTM", "looks good").
+    - description: ≤25 words, imperative tone, no filler ("Fix X", "Pin Y").
+    - No polite or conversational language ("I suggest", "Please consider", "Great").
+    - Do not populate code_snippet—use line numbers instead.
 
     ## 2. DEPENDENCY SECURITY (package manifests)
 
@@ -168,7 +182,7 @@ class SupplyChainSecuritySignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Verified supply chain issues only. Concise titles (<10 words), brief descriptions (<3 sentences). Empty list if none."
+        desc="Verified supply chain issues only. Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none."
     )
 
 

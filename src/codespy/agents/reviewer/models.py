@@ -3,7 +3,7 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class IssueSeverity(str, Enum):
@@ -82,11 +82,11 @@ class Issue(BaseModel):
     category: IssueCategory = Field(description="Issue category")
     severity: IssueSeverity = Field(description="Issue severity")
     title: str = Field(description="Brief title of the issue")
-    description: str = Field(description="Detailed description of the issue")
+    description: str = Field(description="≤25 word imperative description. No filler.")
     filename: str = Field(description="File where the issue was found")
     line_start: int | None = Field(default=None, description="Starting line number")
     line_end: int | None = Field(default=None, description="Ending line number")
-    code_snippet: str | None = Field(default=None, description="Relevant code snippet")
+    code_snippet: str | None = Field(default=None, description="Deprecated—use line numbers. Leave None.")
     suggestion: str | None = Field(default=None, description="Suggested fix or improvement")
     cwe_id: str | None = Field(
         default=None, description="CWE ID for security issues (e.g., CWE-79)"

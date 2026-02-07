@@ -92,6 +92,15 @@ class DomainExpertSignature(dspy.Signature):
     - COMPARE changes to actual existing code, not assumptions
     - QUALITY over quantity: only report verified issues
     - Include specific examples from the codebase to support findings
+
+    OUTPUT EFFICIENCY: Reference files by name and line number only—never copy source code into issues.
+    Keep each reasoning step to 1-2 sentences.
+
+    OUTPUT FORMAT:
+    - Empty list if no verified issues. No approval text ("LGTM", "looks good").
+    - description: ≤25 words, imperative tone, no filler ("Fix X", "Align Y with Z").
+    - No polite or conversational language ("I suggest", "Please consider", "Great").
+    - Do not populate code_snippet—use line numbers instead.
     """
 
     scope: ScopeResult = dspy.InputField(
@@ -103,8 +112,7 @@ class DomainExpertSignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="VERIFIED issues based on codebase exploration. Empty list if none. "
-        "Each issue must cite evidence from exploration."
+        desc="VERIFIED issues with evidence. Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none."
     )
 
 
