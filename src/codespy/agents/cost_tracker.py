@@ -206,8 +206,8 @@ class SignatureContext:
     3. Summing costs/tokens from new entries
     
     Usage:
-        with SignatureContext("bug_detection", cost_tracker):
-            # All LLM calls here will be attributed to bug_detection
+        with SignatureContext("defect_detection", cost_tracker):
+            # All LLM calls here will be attributed to defect_detection
             result = await agent.acall(...)
     """
     

@@ -18,13 +18,13 @@ class SignatureConfig(BaseModel):
     max_context_size: int | None = None
     max_reasoning_tokens: int | None = None  # Limit reasoning verbosity for JSONAdapter reliability
     temperature: float | None = None  # Lower = more deterministic JSON output
+    scan_unchanged: bool | None = None  # For supply_chain: scan unmodified artifacts/manifests
 
 
 # Known signature names for env var routing
 SIGNATURE_NAMES = {
-    "code_security",
+    "defect_detection",
     "supply_chain",
-    "bug_detection",
     "doc_review",
     "domain_analysis",
     "scope_identification",
@@ -32,11 +32,11 @@ SIGNATURE_NAMES = {
     "summarization",
 }
 
-# Create uppercase prefixes for matching (e.g., "CODE_SECURITY_")
+# Create uppercase prefixes for matching (e.g., "DEFECT_DETECTION_")
 SIGNATURE_PREFIXES = {name.upper() + "_": name for name in SIGNATURE_NAMES}
 
 # Known signature settings for validation
-SIGNATURE_SETTINGS = {"enabled", "max_iters", "model", "max_context_size", "max_reasoning_tokens", "temperature"}
+SIGNATURE_SETTINGS = {"enabled", "max_iters", "model", "max_context_size", "max_reasoning_tokens", "temperature", "scan_unchanged"}
 
 
 def convert_env_value(value: str) -> Any:
@@ -61,7 +61,7 @@ def apply_signature_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     """Apply environment variable overrides to config for signature settings.
 
     Handles signature settings with pattern:
-    - CODE_SECURITY_MAX_ITERS -> signatures.code_security.max_iters
+    - DEFECT_DETECTION_MAX_ITERS -> signatures.defect_detection.max_iters
     - SUPPLY_CHAIN_ENABLED -> signatures.supply_chain.enabled
 
     Top-level settings (DEFAULT_MODEL, AWS_REGION, etc.) are handled directly

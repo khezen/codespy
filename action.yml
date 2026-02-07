@@ -132,35 +132,35 @@ inputs:
     default: ''
   
   # ==========================================
-  # SIGNATURE: code_security
+  # SIGNATURE: defect_detection
   # ==========================================
-  code-security-enabled:
-    description: 'Enable code security analysis signature'
+  defect-detection-enabled:
+    description: 'Enable defect detection signature (bugs, logic errors, security vulnerabilities)'
     required: false
     default: 'true'
   
-  code-security-model:
-    description: 'Model for code security analysis (empty = use default)'
+  defect-detection-model:
+    description: 'Model for defect detection (empty = use default)'
     required: false
     default: ''
   
-  code-security-max-iters:
-    description: 'Max iterations for code security analysis'
+  defect-detection-max-iters:
+    description: 'Max iterations for defect detection'
     required: false
     default: ''
   
-  code-security-max-context-size:
-    description: 'Max context size for code security analysis'
+  defect-detection-max-context-size:
+    description: 'Max context size for defect detection'
     required: false
     default: ''
   
-  code-security-max-reasoning-tokens:
-    description: 'Max reasoning tokens for code security analysis'
+  defect-detection-max-reasoning-tokens:
+    description: 'Max reasoning tokens for defect detection'
     required: false
     default: ''
   
-  code-security-temperature:
-    description: 'Temperature for code security analysis'
+  defect-detection-temperature:
+    description: 'Temperature for defect detection'
     required: false
     default: ''
   
@@ -194,39 +194,6 @@ inputs:
   
   supply-chain-temperature:
     description: 'Temperature for supply chain security'
-    required: false
-    default: ''
-  
-  # ==========================================
-  # SIGNATURE: bug_detection
-  # ==========================================
-  bug-detection-enabled:
-    description: 'Enable bug detection signature'
-    required: false
-    default: 'true'
-  
-  bug-detection-model:
-    description: 'Model for bug detection (empty = use default)'
-    required: false
-    default: ''
-  
-  bug-detection-max-iters:
-    description: 'Max iterations for bug detection'
-    required: false
-    default: ''
-  
-  bug-detection-max-context-size:
-    description: 'Max context size for bug detection'
-    required: false
-    default: ''
-  
-  bug-detection-max-reasoning-tokens:
-    description: 'Max reasoning tokens for bug detection'
-    required: false
-    default: ''
-  
-  bug-detection-temperature:
-    description: 'Temperature for bug detection'
     required: false
     default: ''
   
@@ -404,13 +371,13 @@ runs:
         SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS: ${{ inputs.scope-identification-max-reasoning-tokens }}
         SCOPE_IDENTIFICATION_TEMPERATURE: ${{ inputs.scope-identification-temperature }}
         
-        # Code security signature
-        CODE_SECURITY_ENABLED: ${{ inputs.code-security-enabled }}
-        CODE_SECURITY_MODEL: ${{ inputs.code-security-model }}
-        CODE_SECURITY_MAX_ITERS: ${{ inputs.code-security-max-iters }}
-        CODE_SECURITY_MAX_CONTEXT_SIZE: ${{ inputs.code-security-max-context-size }}
-        CODE_SECURITY_MAX_REASONING_TOKENS: ${{ inputs.code-security-max-reasoning-tokens }}
-        CODE_SECURITY_TEMPERATURE: ${{ inputs.code-security-temperature }}
+        # Defect detection signature
+        DEFECT_DETECTION_ENABLED: ${{ inputs.defect-detection-enabled }}
+        DEFECT_DETECTION_MODEL: ${{ inputs.defect-detection-model }}
+        DEFECT_DETECTION_MAX_ITERS: ${{ inputs.defect-detection-max-iters }}
+        DEFECT_DETECTION_MAX_CONTEXT_SIZE: ${{ inputs.defect-detection-max-context-size }}
+        DEFECT_DETECTION_MAX_REASONING_TOKENS: ${{ inputs.defect-detection-max-reasoning-tokens }}
+        DEFECT_DETECTION_TEMPERATURE: ${{ inputs.defect-detection-temperature }}
         
         # Supply chain signature
         SUPPLY_CHAIN_ENABLED: ${{ inputs.supply-chain-enabled }}
@@ -420,13 +387,6 @@ runs:
         SUPPLY_CHAIN_MAX_REASONING_TOKENS: ${{ inputs.supply-chain-max-reasoning-tokens }}
         SUPPLY_CHAIN_TEMPERATURE: ${{ inputs.supply-chain-temperature }}
         
-        # Bug detection signature
-        BUG_DETECTION_ENABLED: ${{ inputs.bug-detection-enabled }}
-        BUG_DETECTION_MODEL: ${{ inputs.bug-detection-model }}
-        BUG_DETECTION_MAX_ITERS: ${{ inputs.bug-detection-max-iters }}
-        BUG_DETECTION_MAX_CONTEXT_SIZE: ${{ inputs.bug-detection-max-context-size }}
-        BUG_DETECTION_MAX_REASONING_TOKENS: ${{ inputs.bug-detection-max-reasoning-tokens }}
-        BUG_DETECTION_TEMPERATURE: ${{ inputs.bug-detection-temperature }}
         
         # Doc review signature
         DOC_REVIEW_ENABLED: ${{ inputs.doc-review-enabled }}
@@ -485,13 +445,13 @@ runs:
         [ -n "$SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS"
         [ -n "$SCOPE_IDENTIFICATION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_TEMPERATURE"
         
-        # Code security
-        [ -n "$CODE_SECURITY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_SECURITY_ENABLED"
-        [ -n "$CODE_SECURITY_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_SECURITY_MODEL"
-        [ -n "$CODE_SECURITY_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_SECURITY_MAX_ITERS"
-        [ -n "$CODE_SECURITY_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_SECURITY_MAX_CONTEXT_SIZE"
-        [ -n "$CODE_SECURITY_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_SECURITY_MAX_REASONING_TOKENS"
-        [ -n "$CODE_SECURITY_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_SECURITY_TEMPERATURE"
+        # Defect detection
+        [ -n "$DEFECT_DETECTION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_DETECTION_ENABLED"
+        [ -n "$DEFECT_DETECTION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_DETECTION_MODEL"
+        [ -n "$DEFECT_DETECTION_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_DETECTION_MAX_ITERS"
+        [ -n "$DEFECT_DETECTION_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_DETECTION_MAX_CONTEXT_SIZE"
+        [ -n "$DEFECT_DETECTION_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_DETECTION_MAX_REASONING_TOKENS"
+        [ -n "$DEFECT_DETECTION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_DETECTION_TEMPERATURE"
         
         # Supply chain
         [ -n "$SUPPLY_CHAIN_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_ENABLED"
@@ -500,14 +460,6 @@ runs:
         [ -n "$SUPPLY_CHAIN_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_CONTEXT_SIZE"
         [ -n "$SUPPLY_CHAIN_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_REASONING_TOKENS"
         [ -n "$SUPPLY_CHAIN_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_TEMPERATURE"
-        
-        # Bug detection
-        [ -n "$BUG_DETECTION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_DETECTION_ENABLED"
-        [ -n "$BUG_DETECTION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_DETECTION_MODEL"
-        [ -n "$BUG_DETECTION_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_DETECTION_MAX_ITERS"
-        [ -n "$BUG_DETECTION_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_DETECTION_MAX_CONTEXT_SIZE"
-        [ -n "$BUG_DETECTION_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_DETECTION_MAX_REASONING_TOKENS"
-        [ -n "$BUG_DETECTION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_DETECTION_TEMPERATURE"
         
         # Doc review
         [ -n "$DOC_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_ENABLED"

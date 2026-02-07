@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
-from codespy.agents.reviewer.modules.helpers import is_speculative, MIN_CONFIDENCE
+from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE
 from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 class DomainExpertSignature(dspy.Signature):
     """Deep codebase analysis for business logic, architecture, patterns, and style consistency.
 
-    You are a domain expert with access to the full codebase through exploration tools.
-    Your goal is to deeply understand the scope's business purpose and then review changes
-    for both business fit and technical consistency.
+    You are a busy Principal Engineer with deep domain knowledge and access to the full codebase through exploration tools.
+    Focus on critical architectural and business logic issues only. Be extremely terse. Use imperative mood.
+    Your goal is to understand the scope's business purpose and review changes for business fit and technical consistency.
 
     TOKEN EFFICIENCY:
     - The patch in each changed_file shows exactly what changed - analyze it FIRST
@@ -37,10 +37,8 @@ class DomainExpertSignature(dspy.Signature):
     EXPLORATION STRATEGY:
 
     PHASE 1 - UNDERSTAND BUSINESS PURPOSE:
-    - The scope.doc_paths contains pre-identified documentation locations - USE THEM FIRST
-    - Prioritize reading README.md, ARCHITECTURE.md, DESIGN.md from doc_paths
-    - If doc_paths is empty, use get_tree to find documentation
     - Use get_tree to see the directory structure of the scope's subroot
+    - Search for documentation files (README.md, ARCHITECTURE.md, DESIGN.md) in the scope
     - Read main entry points, public APIs/interfaces
     - Identify what problem or feature this scope solves
     - Understand the domain concepts (entities, workflows, business rules)
@@ -94,20 +92,26 @@ class DomainExpertSignature(dspy.Signature):
     - COMPARE changes to actual existing code, not assumptions
     - QUALITY over quantity: only report verified issues
     - Include specific examples from the codebase to support findings
+
+    OUTPUT RULES:
+    - Reference files by name and line number only—never copy source code into issues.
+    - Keep each reasoning step to 1-2 sentences.
+    - Empty list if no verified issues. No approval text ("LGTM", "looks good").
+    - description: ≤25 words, imperative tone, no filler ("Fix X", "Align Y with Z").
+    - No polite or conversational language ("I suggest", "Please consider", "Great").
+    - Do not populate code_snippet—use line numbers instead.
     """
 
     scope: ScopeResult = dspy.InputField(
         desc="The scope to analyze with its changed files. Contains: "
-        "subroot (relative path), scope_type, changed_files list (filename + patch only - use read_file for content), language, package_manifest, "
-        "doc_paths (pre-identified documentation files/directories - check these first for business context)."
+        "subroot (relative path), scope_type, changed_files list (filename + patch only - use read_file for content), language, package_manifest."
     )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field)"
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="VERIFIED issues based on codebase exploration. Empty list if none. "
-        "Each issue must cite evidence from exploration."
+        desc="VERIFIED issues with evidence. Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none."
     )
 
 
@@ -213,7 +217,7 @@ class DomainExpert(dspy.Module):
                     # Filter issues by confidence and speculation
                     filtered_issues = [
                         issue for issue in issues
-                        if issue.confidence >= MIN_CONFIDENCE and not is_speculative(issue)
+                        if issue.confidence >= MIN_CONFIDENCE
                     ]
                     all_issues.extend(filtered_issues)
                     logger.info(

@@ -1,11 +1,11 @@
-"""GitHub PR reporter for posting review comments."""
+"""Git reporter for posting review comments to GitHub/GitLab."""
 
 import logging
 from typing import TYPE_CHECKING
 
 from codespy.agents.reviewer.models import Issue, IssueSeverity, ReviewResult
 from codespy.agents.reviewer.reporters.base import BaseReporter
-from codespy.tools.github.client import GitHubClient
+from codespy.tools.git.client import get_client
 
 if TYPE_CHECKING:
     from codespy.config import Settings
@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class GitHubPRReporter(BaseReporter):
-    """Reporter that posts review results as GitHub PR comments."""
+class GitReporter(BaseReporter):
+    """Reporter that posts review results to GitHub PRs or GitLab MRs."""
 
     SEVERITY_EMOJI = {
         IssueSeverity.CRITICAL: "🔴",
@@ -26,22 +26,20 @@ class GitHubPRReporter(BaseReporter):
 
     def __init__(
         self,
-        pr_url: str,
+        url: str,
         settings: "Settings | None" = None,
-        github_client: GitHubClient | None = None,
     ) -> None:
-        """Initialize GitHub PR reporter.
+        """Initialize Git reporter.
 
         Args:
-            pr_url: GitHub PR URL to comment on.
+            url: Merge request URL (GitHub PR or GitLab MR)
             settings: Application settings.
-            github_client: GitHub client instance. Creates new one if not provided.
         """
-        self.pr_url = pr_url
-        self.github_client = github_client or GitHubClient(settings)
+        self.url = url
+        self.client = get_client(url, settings)
 
     def report(self, result: ReviewResult) -> None:
-        """Post review result to GitHub PR.
+        """Post review result to the merge request.
 
         Args:
             result: The review result to post.
@@ -63,14 +61,14 @@ class GitHubPRReporter(BaseReporter):
         comments = self._build_inline_comments(inline_issues)
 
         # Submit the review
-        self.github_client.submit_review(
-            pr_url=self.pr_url,
+        self.client.submit_review(
+            url=self.url,
             body=body,
             comments=comments,
         )
 
         logger.info(
-            f"Posted GitHub review with {len(comments)} inline comments "
+            f"Posted {self.client.platform_name} review with {len(comments)} inline comments "
             f"and {len(body_issues)} issues in body"
         )
 
@@ -185,11 +183,12 @@ class GitHubPRReporter(BaseReporter):
 
             for issue in body_issues:
                 emoji = self.SEVERITY_EMOJI.get(issue.severity, "⚪")
+                confidence_pct = int(issue.confidence * 100)
                 lines.extend([
                     f"### {emoji} [{issue.severity.value.title()}] {issue.title}",
                     "",
                     f"**File:** `{issue.filename}`",
-                    f"**Category:** {issue.category.value}",
+                    f"**Category:** {issue.category.value} | **Confidence:** {confidence_pct}%",
                     "",
                     issue.description,
                     "",
@@ -232,13 +231,13 @@ class GitHubPRReporter(BaseReporter):
         return "\n".join(lines)
 
     def _build_inline_comments(self, issues: list[Issue]) -> list[dict]:
-        """Build inline comment dictionaries for GitHub API.
+        """Build inline comment dictionaries for the Git API.
 
         Args:
             issues: Issues with line numbers.
 
         Returns:
-            List of comment dicts for GitHub API.
+            List of comment dicts for Git API.
         """
         comments = []
 
@@ -246,10 +245,11 @@ class GitHubPRReporter(BaseReporter):
             emoji = self.SEVERITY_EMOJI.get(issue.severity, "⚪")
 
             # Build comment body - keep essential info visible
+            confidence_pct = int(issue.confidence * 100)
             body_lines = [
                 f"{emoji} **[{issue.severity.value.title()}] {issue.title}**",
                 "",
-                f"**Category:** {issue.category.value}",
+                f"**Category:** {issue.category.value} | **Confidence:** {confidence_pct}%",
                 "",
                 issue.description,
             ]
@@ -302,3 +302,7 @@ class GitHubPRReporter(BaseReporter):
             comments.append(comment)
 
         return comments
+
+
+# Backward compatibility alias
+GitHubPRReporter = GitReporter

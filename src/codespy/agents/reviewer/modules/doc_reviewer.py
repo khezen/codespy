@@ -18,57 +18,93 @@ logger = logging.getLogger(__name__)
 class DocumentationReviewSignature(dspy.Signature):
     """Review documentation for accuracy based on code changes in a scope.
 
+    You are a busy Principal Engineer. Only flag documentation that is factually wrong or dangerously stale.
+    Be extremely terse. Use imperative mood.
+
     You have tools to explore the repository filesystem, search for text, and analyze code.
     All file paths are relative to the repository root.
 
-    TOKEN EFFICIENCY:
-    - The patch in each changed_file shows exactly what changed - analyze it FIRST
-    - The scope.doc_paths contains pre-identified documentation locations - USE THEM
-    - Use read_file on doc_paths to check documentation content directly
-    - Use search_literal to find additional doc references only if needed
-    - Stop exploring once you have enough evidence to confirm or dismiss an issue
+    ═══════════════════════════════════════════════════════════════════════════════
+    MANDATORY FIRST STEP - DO THIS BEFORE ANYTHING ELSE:
+    ═══════════════════════════════════════════════════════════════════════════════
+    
+    Use read_file to read the README at the scope root:
+    - Path: {scope.subroot}/readme.md OR {scope.subroot}/README.md
+    - If scope.subroot is "peaks/svc/authenticator-v1", read "peaks/svc/authenticator-v1/readme.md"
+    - This file contains documentation that MUST be checked against code changes
+    
+    If README doesn't exist at scope root, search for alternative documentation files
+    (e.g., docs/, documentation/, README.rst) using get_tree or file_exists.
+    
+    ═══════════════════════════════════════════════════════════════════════════════
 
-    Follow this process:
+    VERIFY DOCUMENTATION AGAINST SPECIFIC CHANGE TYPES:
 
-    1. CHECK PRE-IDENTIFIED DOC PATHS:
-       - The scope.doc_paths field contains documentation files/directories found by scope identifier
-       - Prioritize reading these paths first as they are confirmed to exist
-       - Check README.md, docs/ directories, API docs listed in doc_paths
-       - If doc_paths is empty, the scope may not have significant documentation
-       - In case doc_paths doesn't cover all potential documentation then use search_literal to find if any docs reference the changed entities
+       HTTP/API CHANGES (CRITICAL - high miss rate):
+       - Content-Type changes (text/plain → application/json) - check documented examples
+       - HTTP status code changes (e.g., 428 error → 202 success) - update all references
+       - Response body structure changes - verify documented examples match
+       - New response fields added - ensure they're documented
+       - Search docs for endpoint paths (e.g., /api/v1/login) to find all examples
 
-    2. VERIFY ISSUES:
-       - Use read_file to check if documentation accurately reflects the changes
-       - Check if documentation is now outdated due to code changes
-       - Identify changed functions, types, APIs from the diff
-       - Note any new public APIs or significant changes
+       FUNCTION/METHOD SIGNATURE CHANGES:
+       - Parameters added/removed/renamed → Check if docs reference old signatures
+       - Return type changes (e.g., []byte → *Struct) → Update all examples
+       - New public functions → Ensure documented if scope has doc conventions
+       - Search for function names in markdown files to find usage examples
 
-    3. CHECK DOCSTRING CONVENTIONS (if needed):
-       - Only if adding public APIs, check scope's docstring conventions
-       - Use find_function_definitions on one or two existing files
-       - Only flag missing docstrings if the scope consistently uses them
+       CONFIGURATION & ENVIRONMENT VARIABLES:
+       - New config fields → Check README Configuration section or .env.example
+       - Removed/renamed fields → Search docs for old field names
+       - Default value changes → Verify docs reflect new defaults
+       - New environment variables → Check if documented with description
 
-    REPORT only:
-    - Documentation that references changed code but is now outdated
-    - Missing documentation for new public APIs (if scope has doc convention)
-    - Broken or stale references you've verified
+       ERROR TYPES & CODES:
+       - New error types/codes → Check if error documentation lists them
+       - Removed error types → Verify old errors aren't still documented
+       - Error behavior changes (error → success response) → BREAKING, must document
+       - HTTP status code semantics change → Update API docs
 
-    IMPORTANT: Only report concrete issues with high confidence.
-    Do NOT report speculative issues or issues about code you haven't verified.
+       DATA MODELS & STRUCTS:
+       - New fields in request/response structs → Update API examples
+       - Removed fields → Search docs for references to old fields
+       - Field type changes → Update examples
+       - Required/optional field changes → Update documentation
+
+       CLIENT LIBRARY/SDK CHANGES:
+       - New methods → Document with usage examples
+       - Changed method signatures → Update code examples  
+       - Return type changes (e.g., string → *Struct) → BREAKING, update all examples
+       - Deprecations → Add deprecation notices
+
+       CLI COMMANDS & FLAGS:
+       - New commands/flags → Add to CLI reference
+       - Removed/renamed flags → Search docs for old flag names
+       - Changed default values → Update documentation
+
+       CONSTANTS & ENUMS:
+       - New enum values → Document new valid values
+       - Removed values → Check if docs reference removed values
+
+    OUTPUT RULES:
+    - Do not quote or restate document contents in reasoning steps. Reference sections by name only.
+    - Never copy source code into issues—use line numbers. Keep each reasoning step to 1-2 sentences.
+    - Empty list if documentation is adequate. No approval text ("LGTM", "looks good").
+    - description: ≤25 words, imperative tone, no filler ("Update X section", "Add Y reference").
+    - No polite or conversational language ("I suggest", "Please consider", "Great").
+    - Do not populate code_snippet—use line numbers instead.
     """
 
     scope: ScopeResult = dspy.InputField(
         desc="Scope with changed files. Has: subroot, scope_type, "
-        "changed_files (filename + patch - analyze patch first), language, package_manifest, "
-        "doc_paths (pre-identified documentation files/directories - check these first)."
+        "changed_files (filename + patch - analyze patch first), language, package_manifest."
     )
     category: IssueCategory = dspy.InputField(
         desc="Category for all issues (use this value for the 'category' field in Issue objects)"
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Documentation issues found. Empty list if documentation is adequate. "
-        "Each issue must have: category, severity, title, description, filename, confidence (0.0-1.0)."
+        desc="Documentation issues only. Titles <10 words. Descriptions ≤25 words, imperative. Empty list if adequate."
     )
 
 
@@ -160,6 +196,7 @@ class DocumentationReviewer(dspy.Module):
             )
             for scope in changed_scopes:
                 try:
+                    logger.info(f"  Reviewing scope {scope.subroot}, checking {scope.subroot}/readme.md")
                     # Track doc_review signature costs
                     async with SignatureContext("doc_review", self._cost_tracker):
                         result = await agent.acall(

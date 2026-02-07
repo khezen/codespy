@@ -1,0 +1,92 @@
+╭────────────────────────────────── codespy ───────────────────────────────────╮
+│ Reviewing MR: https://github.com/peaks-com/mono/pull/8581                    │
+│ Platform: Github                                                             │
+│ Model: bedrock/us.anthropic.claude-opus-4-6-v1                               │
+│ Output: stdout (markdown)                                                    │
+│ Github Token: found (GITHUB_TOKEN environment variable or .env file)         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Verifying model access...
+Model: verified (bedrock/us.anthropic.claude-opus-4-6-v1)
+  0%|          | 0/4 [00:00<?, ?it/s]Processed 1 / 4 examples:   0%|          | 0/4 [00:00<?, ?it/s]Processed 2 / 4 examples:  25%|██▌       | 1/4 [00:53<02:40, 53.51s/it]Processed 2 / 4 examples:  50%|█████     | 2/4 [00:53<00:53, 26.75s/it]Processed 3 / 4 examples:  50%|█████     | 2/4 [01:00<00:53, 26.75s/it]Processed 3 / 4 examples:  75%|███████▌  | 3/4 [01:00<00:18, 18.55s/it]Processed 4 / 4 examples:  75%|███████▌  | 3/4 [01:03<00:18, 18.55s/it]Processed 4 / 4 examples: 100%|██████████| 4/4 [01:03<00:00, 12.81s/it]Processed 4 / 4 examples: 100%|██████████| 4/4 [01:03<00:00, 15.93s/it]
+╭──────────────────────────────── Cost Summary ────────────────────────────────╮
+│ LLM Calls: 49                                                                │
+│ Total Tokens: 465,539                                                        │
+│ Total Cost: $2.0949                                                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+# Code Review: PEAKS-16086: authenticator-v1: return mfa flag and phone
+
+**MR:** (https://github.com/peaks-com/mono/pull/8581)
+**Reviewed at:** 2026-02-07 18:39 UTC
+**Model:** bedrock/us.anthropic.claude-opus-4-6-v1
+
+## Summary
+
+MR changes authenticator-v1 to return JSON responses from BasicAuth and 
+OpenIDAuth endpoints: HTTP 200 with auth code on success, HTTP 202 with 
+`mfaRequired` flag and anonymized phone number when MFA is needed. This 
+eliminates a separate round-trip to customer-profile service by the consentor. 
+Breaking change: client methods now return `*BasicAuthResponse` instead of 
+`[]byte`/`string`.
+
+## Quality Assessment
+
+Well-structured overall. Good documentation updates, consistent response 
+handling across both endpoints, proper nil-safety in phone anonymization. One 
+material bug in OpenID path where all `checkMFA` errors are conflated with 
+MFA-required, unlike the BasicAuth path which correctly discriminates via 
+`errors.Is`. Client and state interfaces are updated consistently. Tests updated
+but only cover BasicAuth path.
+
+## Statistics
+
+- **Total Issues:** 1
+- **Critical:** 0
+- **Security:** 0
+- **Bugs:** 1
+- **Documentation:** 0
+- **Context:** 0
+
+## Cost
+
+- **LLM Calls:** 49
+- **Total Tokens:** 465,539
+- **Total Cost:** $2.0949
+
+### Per-Signature Breakdown
+
+| Signature | Cost | Tokens | Calls | Duration |
+|-----------|------|--------|-------|----------|
+| defect_detection | $0.6527 | 143,866 | 15 | 57.3s |
+| supply_chain | $0.6527 | 143,866 | 15 | 52.0s |
+| doc_review | $0.5567 | 130,388 | 13 | 47.1s |
+| scope_identification | $0.1706 | 38,052 | 5 | 65.7s |
+| summarization | $0.0622 | 9,367 | 1 | 19.1s |
+
+## Issues
+
+### 🟠 High (1)
+
+#### checkMFA errors silently treated as MFA-required in OpenID
+
+**Location:** `peaks/svc/authenticator-v1/state/auth.bearer.1.openid.go:42`
+**Category:** bug
+
+Distinguish ErrMultiFactorAuthEnabled from infrastructure errors in checkMFA 
+result, as auth.basic.go does.
+
+**Suggestion:**
+Use errors.Is() to specifically check for 
+authenticator.ErrMultiFactorAuthEnabled instead of treating all non-nil errors 
+as MFA-required
+
+---
+
+## Recommendation
+
+**REQUEST_CHANGES**. The OpenID `checkMFA` error handling bug 
+(auth.bearer.1.openid.go:42) is high severity — any infrastructure error from 
+the MFA check will silently present as an MFA challenge instead of propagating 
+the error. Must use `errors.Is(err, authenticator.ErrMultiFactorAuthEnabled)` as
+done in the BasicAuth path. No OpenID-specific test coverage for MFA flow exists
+to catch this.
+
