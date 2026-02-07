@@ -25,7 +25,6 @@ class SignatureConfig(BaseModel):
 SIGNATURE_NAMES = {
     "code_and_doc_review",
     "supply_chain",
-    "domain_analysis",
     "scope_identification",
     "deduplication",
     "summarization",

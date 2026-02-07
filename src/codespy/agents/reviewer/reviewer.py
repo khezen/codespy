@@ -11,7 +11,6 @@ from codespy.tools.git import GitClient, get_client, ChangedFile, MergeRequest
 from codespy.agents.reviewer.models import Issue, SignatureStatsResult, ReviewResult
 from codespy.agents.reviewer.modules import (
     CodeAndDocReviewer,
-    DomainExpert,
     IssueDeduplicator,
     ScopeIdentifier,
     SupplyChainAuditor,
@@ -69,7 +68,6 @@ class ReviewPipeline(dspy.Module):
         self.scope_identifier = ScopeIdentifier()
         self.supply_chain_auditor = SupplyChainAuditor()
         self.code_and_doc_reviewer = CodeAndDocReviewer()
-        self.domain_expert = DomainExpert()
         self.deduplicator = IssueDeduplicator()
 
     def _verify_model_access(self) -> None:
@@ -129,9 +127,8 @@ class ReviewPipeline(dspy.Module):
         exec_pairs = [
             (self.code_and_doc_reviewer, {"scopes": scopes, "repo_path": repo_path}),
             (self.supply_chain_auditor, {"scopes": scopes, "repo_path": repo_path}),
-            (self.domain_expert, {"scopes": scopes, "repo_path": repo_path}),
         ]
-        module_names = ["code_and_doc_reviewer", "supply_chain_auditor", "domain_expert"]
+        module_names = ["code_and_doc_reviewer", "supply_chain_auditor"]
 
         logger.info(f"Running review modules in parallel: {', '.join(module_names)}...")
         # Execute in parallel with error handling

@@ -68,8 +68,8 @@ gitlab:
 # codespy uses a tiered model approach to balance review quality and cost:
 #
 #   Smart (default_model): Used for core analysis — defect detection, supply
-#     chain, scope identification, doc review, domain analysis. Requires strong
-#     reasoning. Recommended: claude-opus-4-6 or equivalent.
+#     chain, scope identification, doc review. Requires strong reasoning.
+#     Recommended: claude-opus-4-6 or equivalent.
 #
 #   Mid-tier (extraction_model + deduplication): Used for structured field
 #     extraction (TwoStepAdapter) and issue deduplication. Needs accuracy but
@@ -123,15 +123,6 @@ signatures:
     max_context_size: null               # CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS
     temperature: null                    # CODE_AND_DOC_REVIEW_TEMPERATURE
-
-  # Domain Expert signature
-  domain_analysis:
-    enabled: false                       # DOMAIN_ANALYSIS_ENABLED
-    max_iters: null                      # DOMAIN_ANALYSIS_MAX_ITERS
-    model: null                          # DOMAIN_ANALYSIS_MODEL (Haiku 4.5)
-    max_context_size: null               # DOMAIN_ANALYSIS_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # DOMAIN_ANALYSIS_MAX_REASONING_TOKENS
-    temperature: null                    # DOMAIN_ANALYSIS_TEMPERATURE
 
   # Scope Identifier signature
   scope_identification:
