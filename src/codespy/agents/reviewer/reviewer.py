@@ -198,7 +198,7 @@ class ReviewPipeline(dspy.Module):
             recommendation = "NEEDS_DISCUSSION" if all_issues else "APPROVE"
         # Collect per-signature statistics
         signature_stats_list = self._collect_signature_stats()
-        
+
         return ReviewResult(
             mr_number=mr.number,
             mr_title=mr.title,
@@ -217,13 +217,13 @@ class ReviewPipeline(dspy.Module):
 
     def _collect_signature_stats(self) -> list[SignatureStatsResult]:
         """Collect statistics from all signatures that executed.
-        
+
         Returns:
             List of SignatureStatsResult for each signature that ran
         """
         stats_list: list[SignatureStatsResult] = []
         all_signature_stats = self.cost_tracker.get_all_signature_stats()
-        
+
         for signature_name, stats in all_signature_stats.items():
             stats_list.append(SignatureStatsResult(
                 name=signature_name,
@@ -232,5 +232,5 @@ class ReviewPipeline(dspy.Module):
                 call_count=stats.call_count,
                 duration_seconds=stats.duration_seconds,
             ))
-        
+
         return stats_list
