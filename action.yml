@@ -26,7 +26,7 @@ inputs:
     default: ''
   
   post-comment:
-    description: 'Post review as a GitHub PR comment'
+    description: 'Post review as a Git platform PR/MR comment'
     required: false
     default: 'true'
   
@@ -109,27 +109,22 @@ inputs:
   scope-identification-model:
     description: 'Model for scope identification (empty = use default)'
     required: false
-    default: ''
   
   scope-identification-max-iters:
     description: 'Max iterations for scope identification'
     required: false
-    default: ''
   
   scope-identification-max-context-size:
     description: 'Max context size for scope identification'
     required: false
-    default: ''
   
   scope-identification-max-reasoning-tokens:
     description: 'Max reasoning tokens for scope identification'
     required: false
-    default: ''
   
   scope-identification-temperature:
     description: 'Temperature for scope identification'
     required: false
-    default: ''
   
   # ==========================================
   # SIGNATURE: code_and_doc_review
@@ -142,27 +137,22 @@ inputs:
   code-and-doc-review-model:
     description: 'Model for code and doc review (empty = use default)'
     required: false
-    default: ''
   
   code-and-doc-review-max-iters:
     description: 'Max iterations for code and doc review'
     required: false
-    default: ''
   
   code-and-doc-review-max-context-size:
     description: 'Max context size for code and doc review'
     required: false
-    default: ''
   
   code-and-doc-review-max-reasoning-tokens:
     description: 'Max reasoning tokens for code and doc review'
     required: false
-    default: ''
   
   code-and-doc-review-temperature:
     description: 'Temperature for code and doc review'
     required: false
-    default: ''
   
   # ==========================================
   # SIGNATURE: supply_chain
@@ -175,27 +165,27 @@ inputs:
   supply-chain-model:
     description: 'Model for supply chain security (empty = use default)'
     required: false
-    default: ''
   
   supply-chain-max-iters:
     description: 'Max iterations for supply chain security'
     required: false
-    default: ''
   
   supply-chain-max-context-size:
     description: 'Max context size for supply chain security'
     required: false
-    default: ''
   
   supply-chain-max-reasoning-tokens:
     description: 'Max reasoning tokens for supply chain security'
     required: false
-    default: ''
   
   supply-chain-temperature:
     description: 'Temperature for supply chain security'
     required: false
-    default: ''
+  
+  supply-chain-scan-unchanged:
+    description: 'Scan all artifacts/manifests even if not modified in the PR (default: only scan changed)'
+    required: false
+    default: 'false'
   
   # ==========================================
   # SIGNATURE: deduplication
@@ -208,27 +198,22 @@ inputs:
   deduplication-model:
     description: 'Model for deduplication (empty = use default)'
     required: false
-    default: ''
   
   deduplication-max-iters:
     description: 'Max iterations for deduplication'
     required: false
-    default: ''
   
   deduplication-max-context-size:
     description: 'Max context size for deduplication'
     required: false
-    default: ''
   
   deduplication-max-reasoning-tokens:
     description: 'Max reasoning tokens for deduplication'
     required: false
-    default: ''
   
   deduplication-temperature:
     description: 'Temperature for deduplication'
     required: false
-    default: ''
   
   # ==========================================
   # SIGNATURE: summarization
@@ -241,27 +226,26 @@ inputs:
   summarization-model:
     description: 'Model for summarization (empty = use default)'
     required: false
-    default: ''
   
   summarization-max-iters:
     description: 'Max iterations for summarization'
     required: false
-    default: ''
   
   summarization-max-context-size:
     description: 'Max context size for summarization'
     required: false
-    default: ''
   
   summarization-max-reasoning-tokens:
     description: 'Max reasoning tokens for summarization'
     required: false
-    default: ''
   
   summarization-temperature:
     description: 'Temperature for summarization'
     required: false
-    default: ''
+  
+  excluded-directories:
+    description: 'JSON array of directories to exclude from review (e.g., ["vendor", "dist"])'
+    required: false
   
   fail-on-critical:
     description: 'Fail the action if critical issues are found'
@@ -298,6 +282,8 @@ runs:
           echo "url=${{ inputs.pr-url }}" >> $GITHUB_OUTPUT
         elif [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "pull_request_target" ]; then
           echo "url=${{ github.event.pull_request.html_url }}" >> $GITHUB_OUTPUT
+        elif [ "${{ github.event_name }}" = "issue_comment" ]; then
+          echo "url=${{ github.event.issue.pull_request.html_url }}" >> $GITHUB_OUTPUT
         else
           echo "::error::No PR URL provided and not running in PR context. Please provide pr-url input."
           exit 1
@@ -353,7 +339,7 @@ runs:
         SUPPLY_CHAIN_MAX_CONTEXT_SIZE: ${{ inputs.supply-chain-max-context-size }}
         SUPPLY_CHAIN_MAX_REASONING_TOKENS: ${{ inputs.supply-chain-max-reasoning-tokens }}
         SUPPLY_CHAIN_TEMPERATURE: ${{ inputs.supply-chain-temperature }}
-        
+        SUPPLY_CHAIN_SCAN_UNCHANGED: ${{ inputs.supply-chain-scan-unchanged }}
         
         # Deduplication signature
         DEDUPLICATION_ENABLED: ${{ inputs.deduplication-enabled }}
@@ -374,6 +360,8 @@ runs:
         # Other settings
         EXCLUDED_DIRECTORIES: ${{ inputs.excluded-directories }}
       run: |
+        set -eo pipefail
+        
         # Build docker run arguments - add all env vars that are set
         DOCKER_ARGS="--rm"
         
@@ -419,6 +407,7 @@ runs:
         [ -n "$SUPPLY_CHAIN_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_CONTEXT_SIZE"
         [ -n "$SUPPLY_CHAIN_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_REASONING_TOKENS"
         [ -n "$SUPPLY_CHAIN_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_TEMPERATURE"
+        [ -n "$SUPPLY_CHAIN_SCAN_UNCHANGED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_SCAN_UNCHANGED"
         
         # Deduplication
         [ -n "$DEDUPLICATION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEDUPLICATION_ENABLED"
@@ -443,14 +432,11 @@ runs:
         CMD_ARGS="review ${{ steps.pr-url.outputs.url }}"
         CMD_ARGS="$CMD_ARGS --output ${{ inputs.output-format }}"
         
-        # Add context flag
-        if [ "${{ inputs.with-context }}" = "false" ]; then
-          CMD_ARGS="$CMD_ARGS --no-with-context"
-        fi
-        
-        # Add GitHub comment flag
+        # Add git comment flag
         if [ "${{ inputs.post-comment }}" = "true" ]; then
-          CMD_ARGS="$CMD_ARGS --github-comment"
+          CMD_ARGS="$CMD_ARGS --git-comment"
+        else
+          CMD_ARGS="$CMD_ARGS --no-git-comment"
         fi
         
         # Create output file for capturing review
@@ -464,10 +450,11 @@ runs:
         # Extract issue counts from output
         REVIEW_OUTPUT=$(cat "$OUTPUT_FILE")
         
-        # Parse issue counts (basic grep for markdown format)
-        TOTAL_ISSUES=$(echo "$REVIEW_OUTPUT" | grep -oP 'Total Issues:\*\*\s*\K\d+' || echo "0")
-        CRITICAL_COUNT=$(echo "$REVIEW_OUTPUT" | grep -oP 'Critical:\*\*\s*\K\d+' || echo "0")
-        HIGH_COUNT=$(echo "$REVIEW_OUTPUT" | grep -oP 'High:\*\*\s*\K\d+' || echo "0")
+        # Parse issue counts from markdown output
+        # Matches lines like: - **Total Issues:** 5
+        TOTAL_ISSUES=$(echo "$REVIEW_OUTPUT" | grep -oP '\*\*Total Issues:\*\*\s+\K\d+' || echo "0")
+        CRITICAL_COUNT=$(echo "$REVIEW_OUTPUT" | grep -oP '\*\*Critical:\*\*\s+\K\d+' || echo "0")
+        HIGH_COUNT=$(echo "$REVIEW_OUTPUT" | grep -oP '\*\*High:\*\*\s+\K\d+' || echo "0")
         
         # Set outputs
         echo "issues-count=$TOTAL_ISSUES" >> $GITHUB_OUTPUT
