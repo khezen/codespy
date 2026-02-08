@@ -298,6 +298,8 @@ runs:
           echo "url=${{ inputs.pr-url }}" >> $GITHUB_OUTPUT
         elif [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "pull_request_target" ]; then
           echo "url=${{ github.event.pull_request.html_url }}" >> $GITHUB_OUTPUT
+        elif [ "${{ github.event_name }}" = "issue_comment" ]; then
+          echo "url=${{ github.event.issue.pull_request.html_url }}" >> $GITHUB_OUTPUT
         else
           echo "::error::No PR URL provided and not running in PR context. Please provide pr-url input."
           exit 1

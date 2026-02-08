@@ -196,12 +196,43 @@ docker run --rm \
   -e GITHUB_TOKEN=$GITHUB_TOKEN \
   -e DEFAULT_MODEL=claude-opus-4-6 \
   -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
-  ghcr.io/khezen/codespy:0.1.0 review https://github.com/owner/repo/pull/123
+  ghcr.io/khezen/codespy:0.2.1 review https://github.com/owner/repo/pull/123
 ```
 
 ### GitHub Action
 
 Add CodeSpy to your repository for automatic PR reviews:
+
+**Trigger on `@codespy review` comment:**
+
+```yaml
+# .github/workflows/codespy-review.yml
+name: CodeSpy Code Review
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  review:
+    # Only run on PR comments containing '@codespy review'
+    if: |
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@codespy review')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Run CodeSpy Review
+        uses: khezen/codespy@v1
+        with:
+          model: 'claude-opus-4-6'
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+**Trigger automatically on every PR:**
 
 ```yaml
 # .github/workflows/codespy-review.yml
