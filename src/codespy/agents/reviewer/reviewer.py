@@ -1,5 +1,6 @@
 """Main review pipeline that orchestrates all review modules."""
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -100,6 +101,40 @@ class ReviewPipeline(dspy.Module):
         owner_path = mr.repo_owner.replace("/", "_")
         return cache_dir / owner_path / mr.repo_name
 
+    async def _run_review_modules(
+        self,
+        scopes: list,
+        repo_path: Path,
+        module_names: list[str],
+    ) -> list[Issue]:
+        """Run review modules concurrently in a single event loop.
+
+        Uses asyncio.gather instead of dspy.Parallel to avoid the
+        multi-thread + multi-event-loop conflict that causes
+        'cannot schedule new futures after shutdown' errors.
+
+        Args:
+            scopes: Identified scopes with changed files
+            repo_path: Path to the cloned repository
+            module_names: Names of modules (for error logging)
+
+        Returns:
+            Aggregated list of issues from all modules
+        """
+        tasks = [
+            self.code_and_doc_reviewer.aforward(scopes=scopes, repo_path=repo_path),
+            self.supply_chain_auditor.aforward(scopes=scopes, repo_path=repo_path),
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        all_issues: list[Issue] = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"{module_names[i]} failed: {result}")
+            elif result is not None:
+                all_issues.extend(result)
+        return all_issues
+
     def forward(self, mr_url: str, verify_model: bool = True) -> ReviewResult:
         """Run the complete review pipeline on a merge request."""
         self.cost_tracker.reset()
@@ -122,28 +157,13 @@ class ReviewPipeline(dspy.Module):
                 if manifest.dependencies_changed:
                     logger.info(f"    Dependencies changed: Yes")
 
-        # Build list of review modules (they check signature enabled status internally)
-        all_issues: list[Issue] = []
-        exec_pairs = [
-            (self.code_and_doc_reviewer, {"scopes": scopes, "repo_path": repo_path}),
-            (self.supply_chain_auditor, {"scopes": scopes, "repo_path": repo_path}),
-        ]
+        # Run review modules concurrently via asyncio.gather
         module_names = ["code_and_doc_reviewer", "supply_chain_auditor"]
-
-        logger.info(f"Running review modules in parallel: {', '.join(module_names)}...")
-        # Execute in parallel with error handling
-        if exec_pairs:
-            parallel = dspy.Parallel(num_threads=len(exec_pairs), return_failed_examples=True, provide_traceback=True)
-            results, failed_examples, exceptions = parallel(exec_pairs)
-            # Log any failures
-            for i, (failed, exc) in enumerate(zip(failed_examples, exceptions)):
-                if failed is not None and exc is not None:
-                    logger.error(f"{module_names[i]} failed: {exc}")
-            # Aggregate successful results
-            for result in results:
-                if result is not None:
-                    all_issues.extend(result)
-            logger.info(f"Found {len(all_issues)} issues before deduplication")
+        logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
+        all_issues = asyncio.run(
+            self._run_review_modules(scopes, repo_path, module_names)
+        )
+        logger.info(f"Found {len(all_issues)} issues before deduplication")
 
         # Deduplicate issues across reviewers (deduplicator checks if enabled internally)
         if len(all_issues) > 1:
