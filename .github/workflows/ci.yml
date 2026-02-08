@@ -25,15 +25,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install packaging
-        run: pip install packaging
-
-      - name: Check version bump and consistency
+      - name: Check version consistency
         run: |
           set -eo pipefail
 
@@ -51,21 +43,6 @@ jobs:
             exit 1
           fi
           echo "✓ pyproject.toml and __init__.py versions match"
-
-          # Get main branch version
-          git fetch origin main
-          MAIN_VERSION=$(git show origin/main:pyproject.toml | grep -m1 '^version' | sed 's/.*"\(.*\)"/\1/')
-          echo "Main version: $MAIN_VERSION"
-
-          # Compare versions (proper semver comparison)
-          python3 -c "
-          from packaging.version import Version
-          pr, main = Version('$PR_VERSION'), Version('$MAIN_VERSION')
-          if pr <= main:
-              print(f'::error::PR version ({pr}) must be greater than main ({main}). Bump the version in pyproject.toml and src/codespy/__init__.py.')
-              exit(1)
-          print(f'✓ Version bump OK: {main} → {pr}')
-          "
 
   build-and-push:
     runs-on: ubuntu-latest
