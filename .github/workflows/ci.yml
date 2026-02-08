@@ -16,6 +16,57 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install packaging
+        run: pip install packaging
+
+      - name: Check version bump and consistency
+        run: |
+          set -eo pipefail
+
+          # Extract PR branch version from pyproject.toml
+          PR_VERSION=$(grep -m1 '^version' pyproject.toml | sed 's/.*"\(.*\)"/\1/')
+          echo "PR version (pyproject.toml): $PR_VERSION"
+
+          # Extract PR branch version from __init__.py
+          INIT_VERSION=$(grep -oP '__version__\s*=\s*"\K[^"]+' src/codespy/__init__.py)
+          echo "PR version (__init__.py):    $INIT_VERSION"
+
+          # Check consistency between pyproject.toml and __init__.py
+          if [ "$PR_VERSION" != "$INIT_VERSION" ]; then
+            echo "::error::Version mismatch: pyproject.toml=$PR_VERSION vs __init__.py=$INIT_VERSION. Keep them in sync."
+            exit 1
+          fi
+          echo "✓ pyproject.toml and __init__.py versions match"
+
+          # Get main branch version
+          git fetch origin main
+          MAIN_VERSION=$(git show origin/main:pyproject.toml | grep -m1 '^version' | sed 's/.*"\(.*\)"/\1/')
+          echo "Main version: $MAIN_VERSION"
+
+          # Compare versions (proper semver comparison)
+          python3 -c "
+          from packaging.version import Version
+          pr, main = Version('$PR_VERSION'), Version('$MAIN_VERSION')
+          if pr <= main:
+              print(f'::error::PR version ({pr}) must be greater than main ({main}). Bump the version in pyproject.toml and src/codespy/__init__.py.')
+              exit(1)
+          print(f'✓ Version bump OK: {main} → {pr}')
+          "
+
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
