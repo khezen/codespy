@@ -330,32 +330,23 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def sync_llm_settings(self) -> "Settings":
-        """Sync LLM settings between nested and flat fields."""
-        # Sync from nested to flat
-        if self.llm.openai_api_key:
-            self.openai_api_key = self.llm.openai_api_key
-        if self.llm.anthropic_api_key:
-            self.anthropic_api_key = self.llm.anthropic_api_key
-        if self.llm.gemini_api_key:
-            self.gemini_api_key = self.llm.gemini_api_key
-        if self.llm.aws_region:
-            self.aws_region = self.llm.aws_region
-        if self.llm.aws_access_key_id:
-            self.aws_access_key_id = self.llm.aws_access_key_id
-        if self.llm.aws_secret_access_key:
-            self.aws_secret_access_key = self.llm.aws_secret_access_key
+        """Sync LLM settings between nested and flat fields.
 
-        # Sync from flat to nested
-        if self.openai_api_key and not self.llm.openai_api_key:
-            self.llm.openai_api_key = self.openai_api_key
-        if self.anthropic_api_key and not self.llm.anthropic_api_key:
-            self.llm.anthropic_api_key = self.anthropic_api_key
-        if self.gemini_api_key and not self.llm.gemini_api_key:
-            self.llm.gemini_api_key = self.gemini_api_key
-
-        # Sync prompt caching setting
-        self.enable_prompt_caching = self.llm.enable_prompt_caching
-
+        Delegates to LLMConfig.sync_from_flat which enforces:
+        env vars (flat fields from pydantic-settings) > YAML/nested > defaults.
+        """
+        merged = self.llm.sync_from_flat(
+            openai_api_key=self.openai_api_key,
+            anthropic_api_key=self.anthropic_api_key,
+            gemini_api_key=self.gemini_api_key,
+            aws_region=self.aws_region,
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key=self.aws_secret_access_key,
+        )
+        # Propagate merged values back to flat fields
+        for field, value in merged.items():
+            if value is not None:
+                setattr(self, field, value)
         return self
 
     @model_validator(mode="after")

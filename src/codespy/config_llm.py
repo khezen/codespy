@@ -269,3 +269,42 @@ class LLMConfig(BaseModel):
 
     # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
     enable_prompt_caching: bool = True
+
+    def sync_from_flat(
+        self,
+        *,
+        openai_api_key: str | None = None,
+        anthropic_api_key: str | None = None,
+        gemini_api_key: str | None = None,
+        aws_region: str | None = None,
+        aws_access_key_id: str | None = None,
+        aws_secret_access_key: str | None = None,
+    ) -> dict[str, object]:
+        """Sync flat settings into this LLMConfig and return values to propagate back.
+
+        Priority: flat fields (from env vars via pydantic-settings) > nested defaults.
+        Returns dict of field values that should be set on the parent Settings.
+        """
+        # Step 1: Flat → nested (env vars win over nested defaults)
+        if openai_api_key:
+            self.openai_api_key = openai_api_key
+        if anthropic_api_key:
+            self.anthropic_api_key = anthropic_api_key
+        if gemini_api_key:
+            self.gemini_api_key = gemini_api_key
+        if aws_region:
+            self.aws_region = aws_region
+        if aws_access_key_id:
+            self.aws_access_key_id = aws_access_key_id
+        if aws_secret_access_key:
+            self.aws_secret_access_key = aws_secret_access_key
+
+        # Step 2: Return merged values (nested fills gaps where flat is not set)
+        return {
+            "openai_api_key": openai_api_key or self.openai_api_key,
+            "anthropic_api_key": anthropic_api_key or self.anthropic_api_key,
+            "gemini_api_key": gemini_api_key or self.gemini_api_key,
+            "aws_access_key_id": aws_access_key_id or self.aws_access_key_id,
+            "aws_secret_access_key": aws_secret_access_key or self.aws_secret_access_key,
+            "enable_prompt_caching": self.enable_prompt_caching,
+        }
