@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
-from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, restore_repo_paths
+from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, _strip_prefix, restore_repo_paths
 from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
@@ -241,19 +241,6 @@ class SupplyChainAuditor(dspy.Module):
 
         return tools, contexts
 
-    @staticmethod
-    def _strip_prefix(path: str, prefix: str) -> str:
-        """Strip a scope subroot prefix from a path to make it scope-relative."""
-        if prefix == "." or not prefix:
-            return path
-        normalized = prefix.rstrip("/") + "/"
-        if path.startswith(normalized):
-            return path[len(normalized):]
-        if path == prefix:
-            import os
-            return os.path.basename(path)
-        return path
-
     async def aforward(self, scopes: Sequence[ScopeResult], repo_path: Path) -> list[Issue]:
         """Analyze scopes for supply chain security vulnerabilities and return issues.
 
@@ -300,9 +287,9 @@ class SupplyChainAuditor(dspy.Module):
 
                 # Convert manifest paths to scope-relative
                 if should_scan_manifest:
-                    manifest_path = self._strip_prefix(manifest.manifest_path, scope.subroot)
+                    manifest_path = _strip_prefix(manifest.manifest_path, scope.subroot)
                     lock_file_path = (
-                        self._strip_prefix(manifest.lock_file_path, scope.subroot)
+                        _strip_prefix(manifest.lock_file_path, scope.subroot)
                         if manifest.lock_file_path
                         else ""
                     )
