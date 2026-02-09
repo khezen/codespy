@@ -203,7 +203,7 @@ docker run --rm \
 
 Add CodeSpy to your repository for automatic PR reviews:
 
-**Trigger on `@codespy review` comment:**
+**Trigger on `/codespy review` comment:**
 
 ```yaml
 # .github/workflows/codespy-review.yml
@@ -215,10 +215,10 @@ on:
 
 jobs:
   review:
-    # Only run on PR comments containing '@codespy review'
+    # Only run on PR comments containing '/codespy review'
     if: |
       github.event.issue.pull_request &&
-      contains(github.event.comment.body, '@codespy review')
+      contains(github.event.comment.body, '/codespy review')
     runs-on: ubuntu-latest
     permissions:
       contents: read

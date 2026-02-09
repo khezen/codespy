@@ -47,13 +47,13 @@ jobs:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 
   # ============================================================
-  # JOB 2: On-demand review via '@codespy review' PR comment
+  # JOB 2: On-demand review via '/codespy review' PR comment
   # ============================================================
   review-on-demand:
     name: AI Code Review (On-Demand)
     if: |
       github.event.issue.pull_request &&
-      contains(github.event.comment.body, '@codespy review')
+      contains(github.event.comment.body, '/codespy review')
     runs-on: ubuntu-latest
     steps:
       - name: Acknowledge
