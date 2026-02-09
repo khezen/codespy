@@ -138,8 +138,6 @@ class SupplyChainAuditor(dspy.Module):
     the scope. OSV tools (no filesystem root) are shared across scopes.
     """
 
-    category = IssueCategory.SECURITY
-
     def __init__(self) -> None:
         """Initialize the security auditor."""
         super().__init__()
@@ -316,7 +314,7 @@ class SupplyChainAuditor(dspy.Module):
                             manifest_path=manifest_path,
                             lock_file_path=lock_file_path,
                             package_manager=package_manager,
-                            category=self.category,
+                            category=IssueCategory.SECURITY,
                         )
                     issues = [
                         issue for issue in result.issues
