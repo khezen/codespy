@@ -108,9 +108,6 @@ class SupplyChainSecuritySignature(dspy.Signature):
     - CWE ID if applicable
     """
 
-    scope_subroot: str = dspy.InputField(
-        desc="Scope root indicator. Always '.' since tools are already rooted at scope directory."
-    )
     manifest_path: str = dspy.InputField(
         desc="Path to manifest file relative to scope root (e.g., package.json, go.mod). Empty string if none."
     )
@@ -310,7 +307,6 @@ class SupplyChainAuditor(dspy.Module):
                     # Track supply_chain signature costs separately
                     async with SignatureContext("supply_chain", self._cost_tracker):
                         result = await supply_chain_agent.acall(
-                            scope_subroot=".",
                             manifest_path=manifest_path,
                             lock_file_path=lock_file_path,
                             package_manager=package_manager,
