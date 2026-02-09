@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
-from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE
+from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, resolve_scope_root, strip_prefix, restore_repo_paths
 from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
@@ -22,8 +22,11 @@ class SupplyChainSecuritySignature(dspy.Signature):
     You are a busy Principal Engineer reviewing supply chain security. Focus on critical risks only.
     Be extremely terse. Use imperative mood.
     You have access to:
-    - Filesystem tools to read files and explore the codebase
+    - Filesystem tools to read files and explore the scope (rooted at scope directory)
     - OSV (Open Source Vulnerabilities) tools to query real vulnerability data
+
+    All file paths are relative to the scope root directory (the current tool root).
+    Tools are restricted to this scope — you cannot access files outside it.
 
     You will analyze TWO types of supply chain security concerns:
 
@@ -31,7 +34,7 @@ class SupplyChainSecuritySignature(dspy.Signature):
 
     FIRST, search for Dockerfiles in the scope using filesystem tools:
     - Use get_tree or list_directory to find Dockerfile, Dockerfile.*, *.Dockerfile, Containerfile
-    - Common locations: scope root, docker/, build/, .docker/ directories
+    - Common locations: root (""), docker/, build/, .docker/ directories
     - Once found, use read_file to get the contents
 
     For each Dockerfile found, check for:
@@ -51,11 +54,12 @@ class SupplyChainSecuritySignature(dspy.Signature):
     - description: ≤25 words, imperative tone, no filler ("Fix X", "Pin Y").
     - No polite or conversational language ("I suggest", "Please consider", "Great").
     - Do not populate code_snippet—use line numbers instead.
+    - File paths in issues must be relative to the scope root.
 
     ## 2. DEPENDENCY SECURITY (package manifests)
 
     If manifest info is provided:
-    1. Use read_file to read the manifest file at manifest_path
+    1. Use read_file to read the manifest file at manifest_path (relative to scope root)
     2. Extract ALL dependencies with their names and versions
     3. Use OSV tools to scan dependencies for vulnerabilities
     4. Only report vulnerabilities actually found by OSV queries
@@ -104,14 +108,11 @@ class SupplyChainSecuritySignature(dspy.Signature):
     - CWE ID if applicable
     """
 
-    scope_subroot: str = dspy.InputField(
-        desc="Path to scope root relative to repo root. Search here for Dockerfiles."
-    )
     manifest_path: str = dspy.InputField(
-        desc="Path to manifest file (e.g., package.json, go.mod). Empty string if none."
+        desc="Path to manifest file relative to scope root (e.g., package.json, go.mod). Empty string if none."
     )
     lock_file_path: str = dspy.InputField(
-        desc="Path to lock file (e.g., package-lock.json, go.sum). Empty string if none."
+        desc="Path to lock file relative to scope root (e.g., package-lock.json, go.sum). Empty string if none."
     )
     package_manager: str = dspy.InputField(
         desc="Package manager name (e.g., npm, pip, go). Empty string if no manifest."
@@ -121,14 +122,18 @@ class SupplyChainSecuritySignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Verified supply chain issues only. Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none."
+        desc="Verified supply chain issues only. Titles <10 words. Descriptions ≤25 words, imperative. "
+        "File paths must be relative to scope root. Empty list if none."
     )
 
 
 class SupplyChainAuditor(dspy.Module):
-    """Analyzes supply chain security (Dockerfiles and dependencies) using DSPy."""
+    """Analyzes supply chain security (Dockerfiles and dependencies) using DSPy.
 
-    category = IssueCategory.SECURITY
+    MCP tools are scope-restricted: for each scope, filesystem/parser tools are
+    rooted at repo_path/scope.subroot so the agent cannot access files outside
+    the scope. OSV tools (no filesystem root) are shared across scopes.
+    """
 
     def __init__(self) -> None:
         """Initialize the security auditor."""
@@ -142,22 +147,30 @@ class SupplyChainAuditor(dspy.Module):
         Returns True if any scope has dependency changes or Dockerfile modifications.
         Avoids spinning up MCP servers when there's nothing to audit.
         """
+        return any(self._scope_needs_analysis(s) for s in scopes)
+
+    def _scope_needs_analysis(self, scope: ScopeResult) -> bool:
+        """Check if a specific scope has supply-chain-relevant changes.
+
+        Returns True if the scope has dependency changes or Dockerfile modifications.
+        """
         scan_unchanged = self._settings.get_scan_unchanged("supply_chain")
-        for scope in scopes:
-            if scope.package_manifest:
-                if scan_unchanged or scope.package_manifest.dependencies_changed:
-                    return True
-            for cf in scope.changed_files:
-                fname = cf.filename.rsplit("/", 1)[-1].lower()
-                if "dockerfile" in fname or fname == "containerfile":
-                    return True
+        if scope.package_manifest:
+            if scan_unchanged or scope.package_manifest.dependencies_changed:
+                return True
+        for cf in scope.changed_files:
+            fname = cf.filename.rsplit("/", 1)[-1].lower()
+            if "dockerfile" in fname or fname == "containerfile":
+                return True
         return False
 
-    async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
-        """Create DSPy tools from filesystem, parser, and OSV MCP servers.
+    async def _create_scoped_tools(
+        self, scope_root: Path
+    ) -> tuple[list[Any], list[Any]]:
+        """Create scope-restricted DSPy tools from filesystem and parser MCP servers.
 
         Args:
-            repo_path: Path to the repository root
+            scope_root: Path to the scope root directory (repo_path / scope.subroot)
 
         Returns:
             Tuple of (tools, contexts) for cleanup
@@ -165,13 +178,13 @@ class SupplyChainAuditor(dspy.Module):
         tools: list[Any] = []
         contexts: list[Any] = []
         tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
-        repo_path_str = str(repo_path)
+        scope_root_str = str(scope_root)
         caller = "supply_chain_auditor"
 
         # Add filesystem tools for reading files and exploring structure
         tools.extend(await connect_mcp_server(
             tools_dir / "filesystem" / "server.py",
-            [repo_path_str],
+            [scope_root_str],
             contexts,
             caller,
         ))
@@ -179,7 +192,7 @@ class SupplyChainAuditor(dspy.Module):
         # Add tree-sitter tools for parsing code structure
         tools.extend(await connect_mcp_server(
             tools_dir / "parsers" / "treesitter" / "server.py",
-            [repo_path_str],
+            [scope_root_str],
             contexts,
             caller,
         ))
@@ -187,12 +200,24 @@ class SupplyChainAuditor(dspy.Module):
         # Add ripgrep tools for searching code patterns
         tools.extend(await connect_mcp_server(
             tools_dir / "parsers" / "ripgrep" / "server.py",
-            [repo_path_str],
+            [scope_root_str],
             contexts,
             caller,
         ))
 
-        # Add OSV tools for querying real vulnerability data
+        return tools, contexts
+
+    async def _create_osv_tools(self) -> tuple[list[Any], list[Any]]:
+        """Create OSV tools (no filesystem root, can be shared).
+
+        Returns:
+            Tuple of (tools, contexts) for cleanup
+        """
+        tools: list[Any] = []
+        contexts: list[Any] = []
+        tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
+        caller = "supply_chain_auditor"
+
         tools.extend(await connect_mcp_server(
             tools_dir / "cyber" / "osv" / "server.py",
             [],
@@ -204,6 +229,11 @@ class SupplyChainAuditor(dspy.Module):
 
     async def aforward(self, scopes: Sequence[ScopeResult], repo_path: Path) -> list[Issue]:
         """Analyze scopes for supply chain security vulnerabilities and return issues.
+
+        For each scope, filesystem/parser tools are created rooted at
+        repo_path/scope.subroot so the agent can only access files within the
+        scope boundary. OSV tools are shared across scopes since they don't
+        access the filesystem.
 
         Args:
             scopes: The scopes containing changed files to analyze
@@ -223,30 +253,53 @@ class SupplyChainAuditor(dspy.Module):
             return []
 
         all_issues: list[Issue] = []
-        tools, contexts = await self._create_mcp_tools(repo_path)
-
         supply_chain_max_iters = self._settings.get_max_iters("supply_chain")
-        supply_chain_agent = dspy.ReAct(
-            signature=SupplyChainSecuritySignature,
-            tools=tools,
-            max_iters=supply_chain_max_iters,
-        )
+
+        # Create OSV tools once (shared across scopes, no filesystem root)
+        osv_tools, osv_contexts = await self._create_osv_tools()
 
         try:
             for scope in scopes:
+                # Skip scopes with no supply-chain-relevant changes
+                if not self._scope_needs_analysis(scope):
+                    continue
+
                 # Check if we should scan unchanged manifests
                 scan_unchanged = self._settings.get_scan_unchanged("supply_chain")
 
                 # Get manifest info (skip if unchanged and scan_unchanged=False)
                 manifest = scope.package_manifest
                 should_scan_manifest = manifest and (scan_unchanged or manifest.dependencies_changed)
-                manifest_path = manifest.manifest_path if should_scan_manifest else ""
-                lock_file_path = (manifest.lock_file_path or "") if should_scan_manifest else ""
-                package_manager = manifest.package_manager if should_scan_manifest else ""
-                if manifest and not should_scan_manifest:
-                    logger.debug(f"Skipping unchanged manifest: {manifest.manifest_path}")
-                # Run supply chain analysis — agent will search for Dockerfiles itself
+
+                # Convert manifest paths to scope-relative
+                if should_scan_manifest:
+                    manifest_path = strip_prefix(manifest.manifest_path, scope.subroot)
+                    lock_file_path = (
+                        strip_prefix(manifest.lock_file_path, scope.subroot)
+                        if manifest.lock_file_path
+                        else ""
+                    )
+                    package_manager = manifest.package_manager
+                else:
+                    manifest_path = ""
+                    lock_file_path = ""
+                    package_manager = ""
+                    if manifest:
+                        logger.debug(f"Skipping unchanged manifest: {manifest.manifest_path}")
+
+                # Scope-restrict filesystem/parser tools to the scope's subroot
+                scope_root = resolve_scope_root(repo_path, scope.subroot)
+                scoped_tools, scoped_contexts = await self._create_scoped_tools(scope_root)
+
                 try:
+                    # Combine scoped filesystem tools with shared OSV tools
+                    all_tools = scoped_tools + osv_tools
+                    supply_chain_agent = dspy.ReAct(
+                        signature=SupplyChainSecuritySignature,
+                        tools=all_tools,
+                        max_iters=supply_chain_max_iters,
+                    )
+
                     logger.debug(
                         f"Analyzing supply chain in scope {scope.subroot}: "
                         f"manifest={bool(manifest_path)}"
@@ -254,22 +307,26 @@ class SupplyChainAuditor(dspy.Module):
                     # Track supply_chain signature costs separately
                     async with SignatureContext("supply_chain", self._cost_tracker):
                         result = await supply_chain_agent.acall(
-                            scope_subroot=scope.subroot,
                             manifest_path=manifest_path,
                             lock_file_path=lock_file_path,
                             package_manager=package_manager,
-                            category=self.category,
+                            category=IssueCategory.SECURITY,
                         )
                     issues = [
                         issue for issue in result.issues
                         if issue.confidence >= MIN_CONFIDENCE
                     ]
+                    # Restore repo-root-relative paths in reported issues
+                    restore_repo_paths(issues, scope.subroot)
                     all_issues.extend(issues)
                     logger.debug(f"  Supply chain security in scope {scope.subroot}: {len(issues)} issues")
                 except Exception as e:
                     logger.error(f"Error analyzing supply chain in scope {scope.subroot}: {e}")
+                finally:
+                    await cleanup_mcp_contexts(scoped_contexts)
         finally:
-            await cleanup_mcp_contexts(contexts)
+            await cleanup_mcp_contexts(osv_contexts)
+
         logger.info(f"Security audit found {len(all_issues)} issues")
         return all_issues
 

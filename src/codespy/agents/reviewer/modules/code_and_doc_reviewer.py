@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
-from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE
+from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, make_scope_relative, resolve_scope_root, restore_repo_paths
 from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
@@ -21,16 +21,16 @@ class CodeAndDocReviewSignature(dspy.Signature):
 
     You are a busy Principal Engineer with very little time.
     Be extremely terse. Use imperative mood ("Fix X", not "You should fix X").
-    You have tools to explore the repository filesystem, search for text, and analyze code.
-    All file paths are relative to the repository root.
+    You have tools to explore the scope's filesystem, search for text, and analyze code.
+    All file paths are relative to the scope root directory (the current tool root).
+    Tools are restricted to this scope — you cannot access files outside it.
 
     ═══════════════════════════════════════════════════════════════════════════════
     PHASE 1 — READ DOCUMENTATION (MANDATORY FIRST STEP)
     ═══════════════════════════════════════════════════════════════════════════════
 
     Use read_file to read the README at the scope root:
-    - Path: {scope.subroot}/readme.md OR {scope.subroot}/README.md
-    - If scope.subroot is "peaks/svc/authenticator-v1", read "peaks/svc/authenticator-v1/readme.md"
+    - Path: readme.md OR README.md (paths are relative to scope root)
     - This file provides essential context about the scope's purpose, API contracts,
       configuration, and expected behavior. Use it to inform BOTH documentation
       review AND defect detection.
@@ -126,7 +126,7 @@ class CodeAndDocReviewSignature(dspy.Signature):
     OUTPUT RULES
     ═══════════════════════════════════════════════════════════════════════════════
 
-    - Set category to "bug", "security", or "documentation" per issue
+    - Set category to one of the values provided in the categories input
     - For security issues, include cwe_id where applicable
     - Reference files by name and line number only — never copy source code into issues
     - Do not repeat patch content in reasoning steps. Keep each reasoning step to 1-2 sentences
@@ -138,12 +138,17 @@ class CodeAndDocReviewSignature(dspy.Signature):
 
     scope: ScopeResult = dspy.InputField(
         desc="Scope with changed files. Has: subroot, scope_type, "
-        "changed_files (filename + patch - analyze patch first), language, package_manifest."
+        "changed_files (filename + patch - analyze patch first), language, package_manifest. "
+        "File paths in changed_files are relative to the scope root (tool root)."
+    )
+    categories: list[IssueCategory] = dspy.InputField(
+        desc="Allowed issue categories. Use only these values for the 'category' field on each issue."
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Verified defects and documentation issues. Set category to 'bug', 'security', or 'documentation' per issue. "
-        "Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none."
+        desc="Verified defects and documentation issues. Category must be one of the provided categories. "
+        "Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none. "
+        "File paths must be relative to scope root."
     )
 
 
@@ -152,6 +157,9 @@ class CodeAndDocReviewer(dspy.Module):
 
     Merges the responsibilities of DefectDetector and DocumentationReviewer
     to share MCP tool overhead and README context across both concerns.
+
+    MCP tools are scope-restricted: for each scope, tools are rooted at
+    repo_path/scope.subroot so the agent cannot access files outside the scope.
     """
 
     def __init__(self) -> None:
@@ -160,11 +168,11 @@ class CodeAndDocReviewer(dspy.Module):
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
 
-    async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
-        """Create DSPy tools from MCP servers.
+    async def _create_mcp_tools(self, scope_root: Path) -> tuple[list[Any], list[Any]]:
+        """Create DSPy tools from MCP servers, rooted at scope directory.
 
         Args:
-            repo_path: Path to the repository root
+            scope_root: Path to the scope root directory (repo_path / scope.subroot)
 
         Returns:
             Tuple of (tools list, contexts list for cleanup)
@@ -172,24 +180,24 @@ class CodeAndDocReviewer(dspy.Module):
         tools: list[Any] = []
         contexts: list[Any] = []
         tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
-        repo_path_str = str(repo_path)
+        scope_root_str = str(scope_root)
         caller = "code_and_doc_reviewer"
         # Filesystem tools: read_file, list_directory, get_tree, file_exists, get_file_info
         tools.extend(
             await connect_mcp_server(
-                tools_dir / "filesystem" / "server.py", [repo_path_str], contexts, caller
+                tools_dir / "filesystem" / "server.py", [scope_root_str], contexts, caller
             )
         )
         # Ripgrep tools: search_literal, find_function_usages, find_type_usages, etc.
         tools.extend(
             await connect_mcp_server(
-                tools_dir / "parsers" / "ripgrep" / "server.py", [repo_path_str], contexts, caller
+                tools_dir / "parsers" / "ripgrep" / "server.py", [scope_root_str], contexts, caller
             )
         )
         # Treesitter tools: find_function_definitions, find_function_calls, etc.
         tools.extend(
             await connect_mcp_server(
-                tools_dir / "parsers" / "treesitter" / "server.py", [repo_path_str], contexts, caller
+                tools_dir / "parsers" / "treesitter" / "server.py", [scope_root_str], contexts, caller
             )
         )
         return tools, contexts
@@ -199,9 +207,13 @@ class CodeAndDocReviewer(dspy.Module):
     ) -> list[Issue]:
         """Analyze scopes for code defects and documentation issues.
 
+        For each scope, MCP tools are created rooted at repo_path/scope.subroot
+        so the agent can only access files within the scope boundary. This prevents
+        unnecessary out-of-scope tool calls that waste tokens and cost.
+
         Args:
             scopes: List of identified scopes with their changed files
-            repo_path: Path to the cloned repository (used for MCP tool initialization)
+            repo_path: Path to the cloned repository
 
         Returns:
             List of issues (bugs, security, documentation) found across all scopes
@@ -216,46 +228,53 @@ class CodeAndDocReviewer(dspy.Module):
             return []
 
         all_issues: list[Issue] = []
-        tools, contexts = await self._create_mcp_tools(repo_path)
+        max_iters = self._settings.get_max_iters("code_and_doc_review")
 
-        try:
-            max_iters = self._settings.get_max_iters("code_and_doc_review")
-            agent = dspy.ReAct(
-                signature=CodeAndDocReviewSignature,
-                tools=tools,
-                max_iters=max_iters,
-            )
+        total_files = sum(len(s.changed_files) for s in changed_scopes)
+        logger.info(
+            f"Reviewing code and docs for {len(changed_scopes)} scopes "
+            f"({total_files} changed files)..."
+        )
 
-            total_files = sum(len(s.changed_files) for s in changed_scopes)
-            logger.info(
-                f"Reviewing code and docs for {len(changed_scopes)} scopes "
-                f"({total_files} changed files)..."
-            )
-
-            for scope in changed_scopes:
-                try:
-                    logger.info(
-                        f"  Reviewing scope {scope.subroot} "
-                        f"({len(scope.changed_files)} files)"
+        for scope in changed_scopes:
+            # Scope-restrict MCP tools to the scope's subroot directory
+            scope_root = resolve_scope_root(repo_path, scope.subroot)
+            tools, contexts = await self._create_mcp_tools(scope_root)
+            try:
+                agent = dspy.ReAct(
+                    signature=CodeAndDocReviewSignature,
+                    tools=tools,
+                    max_iters=max_iters,
+                )
+                # Create scope-relative copy so file paths match the scoped tool root
+                scoped = make_scope_relative(scope)
+                logger.info(
+                    f"  Reviewing scope {scope.subroot} "
+                    f"({len(scope.changed_files)} files)"
+                )
+                async with SignatureContext("code_and_doc_review", self._cost_tracker):
+                    result = await agent.acall(
+                        scope=scoped,
+                        categories=[IssueCategory.BUG, IssueCategory.SECURITY, IssueCategory.DOCUMENTATION],
                     )
-                    async with SignatureContext("code_and_doc_review", self._cost_tracker):
-                        result = await agent.acall(scope=scope)
 
-                    issues = [
-                        issue for issue in (result.issues or [])
-                        if issue.confidence >= MIN_CONFIDENCE
-                    ]
-                    all_issues.extend(issues)
-                    logger.debug(
-                        f"  Scope {scope.subroot}: {len(issues)} issues"
-                    )
-                except Exception as e:
-                    logger.error(f"Review failed for scope {scope.subroot}: {e}")
+                issues = [
+                    issue for issue in (result.issues or [])
+                    if issue.confidence >= MIN_CONFIDENCE
+                ]
+                # Restore repo-root-relative paths in reported issues
+                restore_repo_paths(issues, scope.subroot)
+                all_issues.extend(issues)
+                logger.debug(
+                    f"  Scope {scope.subroot}: {len(issues)} issues"
+                )
+            except Exception as e:
+                logger.error(f"Review failed for scope {scope.subroot}: {e}")
+            finally:
+                await cleanup_mcp_contexts(contexts)
 
-            logger.info(f"Code and doc review found {len(all_issues)} issues")
-            return all_issues
-        finally:
-            await cleanup_mcp_contexts(contexts)
+        logger.info(f"Code and doc review found {len(all_issues)} issues")
+        return all_issues
 
     def forward(
         self, scopes: Sequence[ScopeResult], repo_path: Path
