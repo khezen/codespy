@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from codespy.tools.git.models import ChangedFile
@@ -90,6 +91,19 @@ def strip_prefix(path: str, prefix: str) -> str:
     return path
 
 
+def resolve_scope_root(repo_path: Path, subroot: str) -> Path:
+    """Resolve the absolute path for a scope root directory.
+
+    Args:
+        repo_path: Path to the repository root
+        subroot: Scope subroot relative to repo root (e.g., "packages/auth" or ".")
+
+    Returns:
+        repo_path unchanged if subroot is ".", otherwise repo_path / subroot
+    """
+    return repo_path if subroot == "." else repo_path / subroot
+
+
 def make_scope_relative(scope: ScopeResult) -> ScopeResult:
     """Create a copy of a ScopeResult with file paths relative to scope.subroot.
 
@@ -104,7 +118,7 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
         New ScopeResult with scope-relative file paths in changed_files.
         The subroot is set to "." since paths are now relative to it.
     """
-    from codespy.agents.reviewer.models import ScopeResult as SR
+    from codespy.agents.reviewer.models import PackageManifest, ScopeResult as SR
 
     if scope.subroot == ".":
         return scope  # Already at repo root, no transformation needed
@@ -128,8 +142,6 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
     # Adjust manifest paths too
     manifest = None
     if scope.package_manifest:
-        from codespy.agents.reviewer.models import PackageManifest
-
         manifest = PackageManifest(
             manifest_path=strip_prefix(scope.package_manifest.manifest_path, scope.subroot),
             lock_file_path=(

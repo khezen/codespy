@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
-from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, strip_prefix, restore_repo_paths
+from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, resolve_scope_root, strip_prefix, restore_repo_paths
 from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
@@ -152,16 +152,7 @@ class SupplyChainAuditor(dspy.Module):
         Returns True if any scope has dependency changes or Dockerfile modifications.
         Avoids spinning up MCP servers when there's nothing to audit.
         """
-        scan_unchanged = self._settings.get_scan_unchanged("supply_chain")
-        for scope in scopes:
-            if scope.package_manifest:
-                if scan_unchanged or scope.package_manifest.dependencies_changed:
-                    return True
-            for cf in scope.changed_files:
-                fname = cf.filename.rsplit("/", 1)[-1].lower()
-                if "dockerfile" in fname or fname == "containerfile":
-                    return True
-        return False
+        return any(self._scope_needs_analysis(s) for s in scopes)
 
     def _scope_needs_analysis(self, scope: ScopeResult) -> bool:
         """Check if a specific scope has supply-chain-relevant changes.
@@ -302,7 +293,7 @@ class SupplyChainAuditor(dspy.Module):
                         logger.debug(f"Skipping unchanged manifest: {manifest.manifest_path}")
 
                 # Scope-restrict filesystem/parser tools to the scope's subroot
-                scope_root = repo_path if scope.subroot == "." else repo_path / scope.subroot
+                scope_root = resolve_scope_root(repo_path, scope.subroot)
                 scoped_tools, scoped_contexts = await self._create_scoped_tools(scope_root)
 
                 try:

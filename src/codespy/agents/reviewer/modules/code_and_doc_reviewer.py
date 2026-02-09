@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
-from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, make_scope_relative, restore_repo_paths
+from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, make_scope_relative, resolve_scope_root, restore_repo_paths
 from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
@@ -126,7 +126,7 @@ class CodeAndDocReviewSignature(dspy.Signature):
     OUTPUT RULES
     ═══════════════════════════════════════════════════════════════════════════════
 
-    - Set category to "bug", "security", or "documentation" per issue
+    - Set category to one of the values provided in the categories input
     - For security issues, include cwe_id where applicable
     - Reference files by name and line number only — never copy source code into issues
     - Do not repeat patch content in reasoning steps. Keep each reasoning step to 1-2 sentences
@@ -141,9 +141,12 @@ class CodeAndDocReviewSignature(dspy.Signature):
         "changed_files (filename + patch - analyze patch first), language, package_manifest. "
         "File paths in changed_files are relative to the scope root (tool root)."
     )
+    categories: list[IssueCategory] = dspy.InputField(
+        desc="Allowed issue categories. Use only these values for the 'category' field on each issue."
+    )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Verified defects and documentation issues. Set category to 'bug', 'security', or 'documentation' per issue. "
+        desc="Verified defects and documentation issues. Category must be one of the provided categories. "
         "Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none. "
         "File paths must be relative to scope root."
     )
@@ -235,7 +238,7 @@ class CodeAndDocReviewer(dspy.Module):
 
         for scope in changed_scopes:
             # Scope-restrict MCP tools to the scope's subroot directory
-            scope_root = repo_path if scope.subroot == "." else repo_path / scope.subroot
+            scope_root = resolve_scope_root(repo_path, scope.subroot)
             tools, contexts = await self._create_mcp_tools(scope_root)
             try:
                 agent = dspy.ReAct(
@@ -250,7 +253,10 @@ class CodeAndDocReviewer(dspy.Module):
                     f"({len(scope.changed_files)} files)"
                 )
                 async with SignatureContext("code_and_doc_review", self._cost_tracker):
-                    result = await agent.acall(scope=scoped)
+                    result = await agent.acall(
+                        scope=scoped,
+                        categories=[IssueCategory.BUG, IssueCategory.SECURITY, IssueCategory.DOCUMENTATION],
+                    )
 
                 issues = [
                     issue for issue in (result.issues or [])
