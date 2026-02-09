@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
-from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, _strip_prefix, restore_repo_paths
+from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, strip_prefix, restore_repo_paths
 from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
@@ -287,9 +287,9 @@ class SupplyChainAuditor(dspy.Module):
 
                 # Convert manifest paths to scope-relative
                 if should_scan_manifest:
-                    manifest_path = _strip_prefix(manifest.manifest_path, scope.subroot)
+                    manifest_path = strip_prefix(manifest.manifest_path, scope.subroot)
                     lock_file_path = (
-                        _strip_prefix(manifest.lock_file_path, scope.subroot)
+                        strip_prefix(manifest.lock_file_path, scope.subroot)
                         if manifest.lock_file_path
                         else ""
                     )

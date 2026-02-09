@@ -67,7 +67,7 @@ def get_language(file: ChangedFile) -> str:
     return EXTENSION_TO_LANGUAGE.get(file.extension, "Unknown")
 
 
-def _strip_prefix(path: str, prefix: str) -> str:
+def strip_prefix(path: str, prefix: str) -> str:
     """Strip a directory prefix from a file path.
 
     Args:
@@ -111,13 +111,13 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
 
     relative_files = [
         ChangedFile(
-            filename=_strip_prefix(f.filename, scope.subroot),
+            filename=strip_prefix(f.filename, scope.subroot),
             status=f.status,
             additions=f.additions,
             deletions=f.deletions,
             patch=f.patch,
             previous_filename=(
-                _strip_prefix(f.previous_filename, scope.subroot)
+                strip_prefix(f.previous_filename, scope.subroot)
                 if f.previous_filename
                 else None
             ),
@@ -131,9 +131,9 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
         from codespy.agents.reviewer.models import PackageManifest
 
         manifest = PackageManifest(
-            manifest_path=_strip_prefix(scope.package_manifest.manifest_path, scope.subroot),
+            manifest_path=strip_prefix(scope.package_manifest.manifest_path, scope.subroot),
             lock_file_path=(
-                _strip_prefix(scope.package_manifest.lock_file_path, scope.subroot)
+                strip_prefix(scope.package_manifest.lock_file_path, scope.subroot)
                 if scope.package_manifest.lock_file_path
                 else None
             ),
