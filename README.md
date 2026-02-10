@@ -102,12 +102,19 @@ docker build -t codespy .
 git clone https://github.com/khezen/codespy.git
 cd codespy
 
+# Install Deno (required for dspy.RLM's sandboxed Python REPL)
+curl -fsSL https://deno.land/install.sh | sh
+# Restart your shell after installing, then verify:
+deno --version
+
 # Install dependencies
 poetry install
 
 # Or install only production dependencies
 poetry install --only main
 ```
+
+> **Note:** [Deno](https://deno.land/) is a runtime dependency required by DSPy's RLM module for its Pyodide WASM sandbox. The Docker image includes Deno automatically.
 
 ---
 

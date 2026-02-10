@@ -156,10 +156,10 @@ class ScopeIdentifierSignature(dspy.Signature):
 
 
 class ScopeIdentifier(dspy.Module):
-    """Agentic scope identifier using ReAct pattern with MCP tools.
+    """Agentic scope identifier using RLM (Recursive Language Model) with MCP tools.
 
-    This module uses an LLM agent to explore the repository structure
-    and identify logical code scopes for focused code review.
+    This module uses an LLM agent with a sandboxed Python REPL to explore
+    the repository structure and identify logical code scopes for focused code review.
     """
 
     def __init__(self) -> None:
@@ -221,11 +221,11 @@ class ScopeIdentifier(dspy.Module):
             temperature = self._settings.get_temperature("scope_identification")
             max_reasoning = self._settings.get_max_reasoning_tokens("scope_identification")
             
-            # Create ReAct agent
-            agent = dspy.ReAct(
+            # Create RLM agent (Recursive Language Model with sandboxed REPL)
+            agent = dspy.RLM(
                 signature=ScopeIdentifierSignature,
                 tools=tools,
-                max_iters=max_iters,
+                max_iterations=max_iters,
             )
             logger.info(f"Identifying scopes for {len(changed_file_paths)} changed files...")
             # Track scope_identification signature costs

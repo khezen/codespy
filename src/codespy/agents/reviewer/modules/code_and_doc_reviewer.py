@@ -241,10 +241,10 @@ class CodeAndDocReviewer(dspy.Module):
             scope_root = resolve_scope_root(repo_path, scope.subroot)
             tools, contexts = await self._create_mcp_tools(scope_root)
             try:
-                agent = dspy.ReAct(
+                agent = dspy.RLM(
                     signature=CodeAndDocReviewSignature,
                     tools=tools,
-                    max_iters=max_iters,
+                    max_iterations=max_iters,
                 )
                 # Create scope-relative copy so file paths match the scoped tool root
                 scoped = make_scope_relative(scope)

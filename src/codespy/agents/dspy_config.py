@@ -23,7 +23,7 @@ def configure_dspy(settings: Settings) -> None:
     - Memory caching for LLM responses
 
     TwoStepAdapter decouples reasoning quality from format compliance,
-    solving ChatAdapter parsing failures with ReAct agents.
+    solving ChatAdapter parsing failures with RLM agents.
 
     Args:
         settings: Application settings containing model and API key configuration.
@@ -73,7 +73,7 @@ def configure_dspy(settings: Settings) -> None:
 
     dspy.settings.configure(
         lm=lm,
-        adapter=TwoStepAdapter(extraction_lm),  # TwoStepAdapter solves ChatAdapter parsing failures
+        adapter=TwoStepAdapter(extraction_lm),  # TwoStepAdapter solves ChatAdapter parsing failures with RLM agents
     )
 
     # Enable memory-only caching for LLM calls (no disk caching)

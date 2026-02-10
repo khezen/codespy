@@ -294,10 +294,10 @@ class SupplyChainAuditor(dspy.Module):
                 try:
                     # Combine scoped filesystem tools with shared OSV tools
                     all_tools = scoped_tools + osv_tools
-                    supply_chain_agent = dspy.ReAct(
+                    supply_chain_agent = dspy.RLM(
                         signature=SupplyChainSecuritySignature,
                         tools=all_tools,
-                        max_iters=supply_chain_max_iters,
+                        max_iterations=supply_chain_max_iters,
                     )
 
                     logger.debug(

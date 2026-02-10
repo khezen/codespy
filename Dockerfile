@@ -27,10 +27,14 @@ FROM python:3.11-alpine
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Install runtime dependencies (including Deno for dspy.RLM's Pyodide WASM sandbox)
 RUN apk add --no-cache \
     git \
     ripgrep \
+    curl \
+    unzip \
+    gcompat \
+    && curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh \
     && adduser -D -u 1000 codespy
 
 # Copy installed packages from builder
