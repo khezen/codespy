@@ -5,13 +5,7 @@
 <h1 align="center">Code<a href="https://github.com/khezen/codespy">Spy</a></h1>
 
 <p align="center">
-  <strong>Automated code reviews for teams who care about correctness.</strong>
-</p>
-<p align="center">
   An open-source AI reviewer that catches bugs, improves code quality, and integrates directly into your PR workflow, without sacrificing control or security.
-</p>
-<p align="center">
-  <i>"Fast feedback. No black box. No vendor lock-in."</i>
 </p>
 
 <p align="center">
@@ -28,6 +22,37 @@
     <img src="https://img.shields.io/github/issues/khezen/codespy">
   </a>
 </p>
+
+---
+
+## Table of Contents
+
+- [Why CodeSpy?](#why-codespy)
+- [Features](#features)
+- [Installation](#installation)
+  - [Using pip](#using-pip)
+  - [Using Homebrew (macOS/Linux)](#using-homebrew-macoslinux)
+  - [Using Docker](#using-docker)
+  - [Using Poetry (for development)](#using-poetry-for-development)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+  - [Command Line](#command-line)
+  - [Using Docker](#using-docker-1)
+  - [GitHub Action](#github-action)
+- [Configuration](#configuration)
+  - [Setup](#setup)
+  - [Git Platform Tokens](#git-platform-tokens)
+  - [LLM Provider](#llm-provider)
+  - [Advanced Configuration (YAML)](#advanced-configuration-yaml)
+  - [Recommended Model Strategy](#recommended-model-strategy)
+- [Output](#output)
+  - [Markdown (default)](#markdown-default)
+  - [GitHub/GitLab Review Comments](#githubgitlab-review-comments)
+- [Architecture](#architecture)
+- [DSPy Signatures](#dspy-signatures)
+- [Supported Languages](#supported-languages)
+- [Development](#development)
+- [License](#license)
 
 ---
 
