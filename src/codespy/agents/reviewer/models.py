@@ -22,6 +22,7 @@ class IssueCategory(str, Enum):
     SECURITY = "security"
     BUG = "bug"
     DOCUMENTATION = "documentation"
+    SMELL = "smell"
 
 
 class ScopeType(str, Enum):
@@ -182,6 +183,11 @@ class ReviewResult(BaseModel):
         """Get all documentation issues."""
         return [i for i in self.issues if i.category == IssueCategory.DOCUMENTATION]
 
+    @property
+    def smell_issues(self) -> list[Issue]:
+        """Get all code smell issues."""
+        return [i for i in self.issues if i.category == IssueCategory.SMELL]
+
     def issues_by_severity(self) -> dict[IssueSeverity, list[Issue]]:
         """Group issues by severity."""
         result: dict[IssueSeverity, list[Issue]] = {s: [] for s in IssueSeverity}
@@ -217,6 +223,7 @@ class ReviewResult(BaseModel):
             f"- **Security:** {len(self.security_issues)}",
             f"- **Bugs:** {len(self.bug_issues)}",
             f"- **Documentation:** {len(self.documentation_issues)}",
+            f"- **Smells:** {len(self.smell_issues)}",
             "",
         ])
 

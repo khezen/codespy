@@ -84,7 +84,6 @@ class CodeAndDocReviewSignature(dspy.Signature):
     - Memory safety issues: verify unsafe memory operations
 
     DO NOT report:
-    - Style issues or minor improvements
     - Hypothetical vulnerabilities without evidence
     - "Could be vulnerable if..." scenarios
 
@@ -121,6 +120,63 @@ class CodeAndDocReviewSignature(dspy.Signature):
     CLI COMMANDS & FLAGS:
     - New commands/flags → add to CLI reference
     - Removed/renamed flags → search docs for old names
+
+    ── C. CODE SMELLS (category = "smell") ───────────────────────────────────────
+
+    Code smells signal deeper structural rot even when tests pass. Focus on
+    semantics, intent clarity, and whether the code "makes sense" to a reader.
+
+    VERIFICATION WORKFLOW for smells:
+    1. Review the patch for suspicious names, parameter lists, or control flow
+    2. Use find_function_definitions to check function signatures and body length
+    3. Use find_function_calls / find_callers to verify usage patterns
+    4. Use search_literal to find related constants, sibling implementations, etc.
+    5. Only report smells you can CONFIRM with evidence from the tools
+
+    ── C1. UNCOMMUNICATIVE NAMES (Semantic Naming) ──
+
+    - Variables MUST be nouns describing the data they hold.
+      Flag: data, info, item, rs, list1, temp, val, x in non-trivial contexts.
+      Compare the variable name against its type or source to verify mismatch.
+    - Functions MUST start with a verb indicating the action.
+      Flag: user(), process(), handle() with no object. Suggest: calculateUserTax(), fetchActiveUsers().
+    - Booleans MUST read as predicates (answer a yes/no question).
+      Flag: valid, flag, status, ready. Suggest: isEmailFormatValid, hasPermission, shouldRetry.
+    - Side-effect mismatch: a function named getName() that also writes to a database,
+      or getData() that deletes records. Use find_function_definitions to read the body.
+
+    ── C2. PRIMITIVE OBSESSION (Data Clumps) ──
+
+    - Flag functions taking 3+ related primitive parameters that travel together.
+      Example: (string zip, string city, string street) → suggest an Address struct/class.
+    - Use find_function_definitions to inspect parameter lists.
+    - Look for groups of variables that always appear together in function signatures.
+    - Suggest creating a Data Class, Struct, or named type.
+
+    ── C3. MENTAL GYMNASTICS (Complexity) ──
+
+    - Double negatives: if (!isNotReady) → suggest isReady = !isNotReady as named boolean.
+    - Nested ternary operators: flag any ternary inside another ternary.
+    - Lines with >2 logical operators (&&, ||, !): suggest extracting to a named boolean.
+    - Magic numbers: raw numeric literals (86400, 3600, 1024) in logic → suggest named constants
+      (SECONDS_IN_A_DAY, SECONDS_IN_AN_HOUR, BYTES_PER_KB).
+    - Deeply nested if/else (3+ levels, "Pyramid of Doom") → suggest guard clauses / early returns.
+    - Large switch/if-elif chains (5+ branches) → suggest polymorphism or strategy pattern.
+    - Mutually exclusive booleans (is_red, is_blue, is_green on same entity) → suggest Enum or Union type.
+    - Functions longer than 25 lines → suggest extracting sub-functions.
+
+    ── C4. SPECULATIVE GENERALITY (YAGNI) ──
+
+    - Abstract classes or interfaces with only a single implementation.
+      Use find_function_usages or find_callers to verify single-implementation.
+    - Names referencing future features: processDataForFutureV2Api(), handleLegacyAndNewFormat().
+    - Unused parameters accepted "for future use."
+    - Suggest stripping back to make current intent clear and simple.
+
+    DO NOT report:
+    - Language-idiomatic patterns (e.g., single-letter loop vars i, j, k are fine)
+    - Conventional short names in tight scopes (e.g., err, ctx, db, tx in Go)
+    - Test file naming or test helper naming
 
     ═══════════════════════════════════════════════════════════════════════════════
     OUTPUT RULES
@@ -255,7 +311,7 @@ class CodeAndDocReviewer(dspy.Module):
                 async with SignatureContext("code_and_doc_review", self._cost_tracker):
                     result = await agent.acall(
                         scope=scoped,
-                        categories=[IssueCategory.BUG, IssueCategory.SECURITY, IssueCategory.DOCUMENTATION],
+                        categories=[IssueCategory.BUG, IssueCategory.SECURITY, IssueCategory.DOCUMENTATION, IssueCategory.SMELL],
                     )
 
                 issues = [

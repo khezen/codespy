@@ -93,9 +93,9 @@ gitlab:
 # These apply to all signatures unless overridden per-signature
 default_model: claude-opus-4-6                  # DEFAULT_MODEL
 extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model)
-default_max_iters: 10                           # DEFAULT_MAX_ITERS
-default_max_context_size: 50000                 # DEFAULT_MAX_CONTEXT_SIZE
-default_max_reasoning_tokens: 4000              # DEFAULT_MAX_REASONING_TOKENS (limits LLM reasoning verbosity)
+default_max_iters: 20                           # DEFAULT_MAX_ITERS
+default_max_context_size: 100000                 # DEFAULT_MAX_CONTEXT_SIZE
+default_max_reasoning_tokens: 12000              # DEFAULT_MAX_REASONING_TOKENS (limits LLM reasoning verbosity)
 default_temperature: 0                          # DEFAULT_TEMPERATURE (lower = more deterministic output)
 
 # Global LLM reliability settings
@@ -154,7 +154,7 @@ signatures:
 # ============================================================================
 output_format: markdown                  # OUTPUT_FORMAT (markdown | json)
 output_stdout: true                      # OUTPUT_STDOUT (enable stdout output)
-output_git: false                         # OUTPUT_GIT (post review to GitHub PR or GitLab MR)
+output_git: true                         # OUTPUT_GIT (post review to GitHub PR or GitLab MR)
 cache_dir: ~/.cache/codespy              # CACHE_DIR
 
 # ============================================================================
