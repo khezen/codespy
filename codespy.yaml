@@ -5,8 +5,8 @@
 # - Flat values: <KEY> (e.g., OUTPUT_FORMAT=json, DEFAULT_MODEL=gpt-5)
 # - Signature values: <SIGNATURE>_<KEY>
 #   Examples:
-#     DEFECT_REVIEW_MAX_ITERS=15
-#     SMELL_REVIEW_ENABLED=false
+#     DEFECT_MAX_ITERS=15
+#     SMELL_ENABLED=false
 #     SUPPLY_CHAIN_MODEL=gpt-4-turbo
 #
 # Priority: Environment Variables > YAML Config > Defaults
@@ -116,40 +116,40 @@ signatures:
     # When false (default): only scans artifacts/manifests that were modified in the MR
 
   # Defect Detector signature (bugs, logic errors, removed defensive code, security vulnerabilities)
-  defect_review:
-    enabled: true                        # DEFECT_REVIEW_ENABLED
-    max_iters: null                      # DEFECT_REVIEW_MAX_ITERS
-    model: null                          # DEFECT_REVIEW_MODEL
-    max_context_size: null               # DEFECT_REVIEW_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # DEFECT_REVIEW_MAX_REASONING_TOKENS
-    temperature: null                    # DEFECT_REVIEW_TEMPERATURE
+  defect:
+    enabled: true                        # DEFECT_ENABLED
+    max_iters: null                      # DEFECT_MAX_ITERS
+    model: null                          # DEFECT_MODEL
+    max_context_size: null               # DEFECT_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # DEFECT_MAX_REASONING_TOKENS
+    temperature: null                    # DEFECT_TEMPERATURE
 
   # Documentation Reviewer signature (stale/wrong documentation)
-  doc_review:
-    enabled: true                        # DOC_REVIEW_ENABLED
-    max_iters: null                      # DOC_REVIEW_MAX_ITERS
-    model: null                          # DOC_REVIEW_MODEL
-    max_context_size: null               # DOC_REVIEW_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # DOC_REVIEW_MAX_REASONING_TOKENS
-    temperature: null                    # DOC_REVIEW_TEMPERATURE
+  doc:
+    enabled: true                        # DOC_ENABLED
+    max_iters: null                      # DOC_MAX_ITERS
+    model: null                          # DOC_MODEL
+    max_context_size: null               # DOC_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # DOC_MAX_REASONING_TOKENS
+    temperature: null                    # DOC_TEMPERATURE
 
   # Smell Detector signature (code smells, naming, complexity, YAGNI)
-  smell_review:
-    enabled: true                        # SMELL_REVIEW_ENABLED
-    max_iters: null                      # SMELL_REVIEW_MAX_ITERS
-    model: null                          # SMELL_REVIEW_MODEL
-    max_context_size: null               # SMELL_REVIEW_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # SMELL_REVIEW_MAX_REASONING_TOKENS
-    temperature: null                    # SMELL_REVIEW_TEMPERATURE
+  smell:
+    enabled: true                        # SMELL_ENABLED
+    max_iters: null                      # SMELL_MAX_ITERS
+    model: null                          # SMELL_MODEL
+    max_context_size: null               # SMELL_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # SMELL_MAX_REASONING_TOKENS
+    temperature: null                    # SMELL_TEMPERATURE
 
   # Scope Identifier signature
-  scope_identification:
-    enabled: true                        # SCOPE_IDENTIFICATION_ENABLED
-    max_iters: null                      # SCOPE_IDENTIFICATION_MAX_ITERS
-    model: null                          # SCOPE_IDENTIFICATION_MODEL (Sonnet 4.5)
-    max_context_size: null               # SCOPE_IDENTIFICATION_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS
-    temperature: null                    # SCOPE_IDENTIFICATION_TEMPERATURE
+  scope:
+    enabled: true                        # SCOPE_ENABLED
+    max_iters: null                      # SCOPE_MAX_ITERS
+    model: null                          # SCOPE_MODEL
+    max_context_size: null               # SCOPE_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # SCOPE_MAX_REASONING_TOKENS
+    temperature: null                    # SCOPE_TEMPERATURE
 
   # Deduplicator signature
   deduplication:

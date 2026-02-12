@@ -159,8 +159,8 @@ class SmellDetector(dspy.Module):
         Returns:
             List of code smell issues found across all scopes
         """
-        if not self._settings.is_signature_enabled("smell_review"):
-            logger.debug("Skipping smell_review: disabled")
+        if not self._settings.is_signature_enabled("smell"):
+            logger.debug("Skipping smell: disabled")
             return []
 
         changed_scopes = [s for s in scopes if s.has_changes and s.changed_files]
@@ -169,7 +169,7 @@ class SmellDetector(dspy.Module):
             return []
 
         all_issues: list[Issue] = []
-        max_iters = self._settings.get_max_iters("smell_review")
+        max_iters = self._settings.get_max_iters("smell")
 
         total_files = sum(len(s.changed_files) for s in changed_scopes)
         logger.info(
@@ -191,7 +191,7 @@ class SmellDetector(dspy.Module):
                     f"  Smell detection: scope {scope.subroot} "
                     f"({len(scope.changed_files)} files)"
                 )
-                async with SignatureContext("smell_review", self._cost_tracker):
+                async with SignatureContext("smell", self._cost_tracker):
                     result = await agent.acall(
                         scope=scoped,
                         categories=[IssueCategory.SMELL],

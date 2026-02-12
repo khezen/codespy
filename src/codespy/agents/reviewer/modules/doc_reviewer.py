@@ -151,8 +151,8 @@ class DocReviewer(dspy.Module):
         Returns:
             List of documentation issues found across all scopes
         """
-        if not self._settings.is_signature_enabled("doc_review"):
-            logger.debug("Skipping doc_review: disabled")
+        if not self._settings.is_signature_enabled("doc"):
+            logger.debug("Skipping doc: disabled")
             return []
 
         changed_scopes = [s for s in scopes if s.has_changes and s.changed_files]
@@ -161,7 +161,7 @@ class DocReviewer(dspy.Module):
             return []
 
         all_issues: list[Issue] = []
-        max_iters = self._settings.get_max_iters("doc_review")
+        max_iters = self._settings.get_max_iters("doc")
 
         total_files = sum(len(s.changed_files) for s in changed_scopes)
         logger.info(
@@ -183,7 +183,7 @@ class DocReviewer(dspy.Module):
                     f"  Doc review: scope {scope.subroot} "
                     f"({len(scope.changed_files)} files)"
                 )
-                async with SignatureContext("doc_review", self._cost_tracker):
+                async with SignatureContext("doc", self._cost_tracker):
                     result = await agent.acall(
                         scope=scoped,
                         categories=[IssueCategory.DOCUMENTATION],

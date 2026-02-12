@@ -120,7 +120,7 @@ jobs:
 #         default-temperature: '0.1'
 #
 #         # Per-signature overrides
-#         code-and-doc-review-max-iters: '10'
+#         defect-max-iters: '10'
 #
 #         # Disable specific signatures
 #         supply-chain-enabled: 'false'

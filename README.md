@@ -415,7 +415,7 @@ export DEFAULT_MODEL=claude-opus-4-6
 export DEFAULT_MAX_ITERS=20
 
 # Per-signature settings (use signature name, not module name)
-export CODE_AND_DOC_REVIEW_MODEL=claude-sonnet-4-5-20250929
+export DEFECT_MODEL=claude-sonnet-4-5-20250929
 
 # Output settings
 export OUTPUT_STDOUT=false
@@ -571,10 +571,10 @@ output_git: true
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
 │  │              Parallel Review Modules                       │     │
-│  │  ┌──────────────┐  ┌──────────────────────────────────┐    │     │
-│  │  │Supply Chain  │  │     Code & Doc Reviewer          │    │     │
-│  │  │  Auditor     │  │  (defects + documentation)       │    │     │
-│  │  └──────────────┘  └──────────────────────────────────┘    │     │
+│  │  ┌──────────────┐ ┌────────┐ ┌─────┐ ┌───────┐            │     │
+│  │  │Supply Chain  │ │ Defect │ │ Doc │ │ Smell │            │     │
+│  │  │  Auditor     │ │Detector│ │     │ │       │            │     │
+│  │  └──────────────┘ └────────┘ └─────┘ └───────┘            │     │
 │  └──────────────────────────┬─────────────────────────────────┘     │
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
@@ -617,10 +617,10 @@ The review is powered by DSPy signatures that structure the LLM's analysis:
 
 | Signature | Config Key | Description |
 |-----------|------------|-------------|
-| **ScopeIdentifierSignature** | `scope_identification` | Identifies code scopes (frontend, backend, infra, microservice in mono repo, etc...) |
-| **DefectDetectorSignature** | `defect_review` | Detects verified bugs, removed defensive code, and security vulnerabilities |
-| **DocReviewSignature** | `doc_review` | Detects stale or wrong documentation caused by code changes |
-| **SmellDetectorSignature** | `smell_review` | Detects code smells — naming, complexity, data clumps, YAGNI |
+| **ScopeIdentifierSignature** | `scope` | Identifies code scopes (frontend, backend, infra, microservice in mono repo, etc...) |
+| **DefectDetectorSignature** | `defect` | Detects verified bugs, removed defensive code, and security vulnerabilities |
+| **DocReviewSignature** | `doc` | Detects stale or wrong documentation caused by code changes |
+| **SmellDetectorSignature** | `smell` | Detects code smells — naming, complexity, data clumps, YAGNI |
 | **SupplyChainSecuritySignature** | `supply_chain` | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
 | **IssueDeduplicationSignature** | `deduplication` | LLM-powered deduplication of issues across reviewers |
 | **MRSummarySignature** | `summarization` | Generates summary, quality assessment, and recommendation |
