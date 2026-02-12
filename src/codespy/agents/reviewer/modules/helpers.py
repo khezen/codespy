@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from codespy.tools.git.models import ChangedFile
+from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 from codespy.agents.reviewer.models import Issue
 
 if TYPE_CHECKING:
@@ -164,6 +165,41 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
         changed_files=relative_files,
         reason=scope.reason,
     )
+
+
+async def create_mcp_tools(scope_root: Path, caller: str) -> tuple[list[Any], list[Any]]:
+    """Create DSPy tools from MCP servers, rooted at scope directory.
+
+    Args:
+        scope_root: Path to the scope root directory (repo_path / scope.subroot)
+        caller: Identifier for the calling module (for logging)
+
+    Returns:
+        Tuple of (tools list, contexts list for cleanup)
+    """
+    tools: list[Any] = []
+    contexts: list[Any] = []
+    tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
+    scope_root_str = str(scope_root)
+    # Filesystem tools: read_file, list_directory, get_tree, file_exists, get_file_info
+    tools.extend(
+        await connect_mcp_server(
+            tools_dir / "filesystem" / "server.py", [scope_root_str], contexts, caller
+        )
+    )
+    # Ripgrep tools: search_literal, find_function_usages, find_type_usages, etc.
+    tools.extend(
+        await connect_mcp_server(
+            tools_dir / "parsers" / "ripgrep" / "server.py", [scope_root_str], contexts, caller
+        )
+    )
+    # Treesitter tools: find_function_definitions, find_function_calls, etc.
+    tools.extend(
+        await connect_mcp_server(
+            tools_dir / "parsers" / "treesitter" / "server.py", [scope_root_str], contexts, caller
+        )
+    )
+    return tools, contexts
 
 
 def restore_repo_paths(issues: list[Issue], subroot: str) -> None:

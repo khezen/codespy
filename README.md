@@ -615,7 +615,9 @@ The review is powered by DSPy signatures that structure the LLM's analysis:
 | Signature | Config Key | Description |
 |-----------|------------|-------------|
 | **ScopeIdentifierSignature** | `scope_identification` | Identifies code scopes (frontend, backend, infra, microservice in mono repo, etc...) |
-| **CodeAndDocReviewSignature** | `code_and_doc_review` | Detects verified bugs, security vulnerabilities, and stale/wrong documentation in a single pass |
+| **BugDetectorSignature** | `bug_review` | Detects verified bugs and security vulnerabilities |
+| **DocReviewSignature** | `doc_review` | Detects stale or wrong documentation caused by code changes |
+| **SmellDetectorSignature** | `smell_review` | Detects code smells — naming, complexity, data clumps, YAGNI |
 | **SupplyChainSecuritySignature** | `supply_chain` | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
 | **IssueDeduplicationSignature** | `deduplication` | LLM-powered deduplication of issues across reviewers |
 | **MRSummarySignature** | `summarization` | Generates summary, quality assessment, and recommendation |

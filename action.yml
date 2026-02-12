@@ -127,31 +127,87 @@ inputs:
     required: false
   
   # ==========================================
-  # SIGNATURE: code_and_doc_review
+  # SIGNATURE: bug_review
   # ==========================================
-  code-and-doc-review-enabled:
-    description: 'Enable code and doc review signature (bugs, security vulnerabilities, and documentation)'
+  bug-review-enabled:
+    description: 'Enable bug detection signature (bugs and security vulnerabilities)'
     required: false
     default: 'true'
   
-  code-and-doc-review-model:
-    description: 'Model for code and doc review (empty = use default)'
+  bug-review-model:
+    description: 'Model for bug detection (empty = use default)'
     required: false
   
-  code-and-doc-review-max-iters:
-    description: 'Max iterations for code and doc review'
+  bug-review-max-iters:
+    description: 'Max iterations for bug detection'
     required: false
   
-  code-and-doc-review-max-context-size:
-    description: 'Max context size for code and doc review'
+  bug-review-max-context-size:
+    description: 'Max context size for bug detection'
     required: false
   
-  code-and-doc-review-max-reasoning-tokens:
-    description: 'Max reasoning tokens for code and doc review'
+  bug-review-max-reasoning-tokens:
+    description: 'Max reasoning tokens for bug detection'
     required: false
   
-  code-and-doc-review-temperature:
-    description: 'Temperature for code and doc review'
+  bug-review-temperature:
+    description: 'Temperature for bug detection'
+    required: false
+  
+  # ==========================================
+  # SIGNATURE: doc_review
+  # ==========================================
+  doc-review-enabled:
+    description: 'Enable documentation review signature (stale/wrong documentation)'
+    required: false
+    default: 'true'
+  
+  doc-review-model:
+    description: 'Model for doc review (empty = use default)'
+    required: false
+  
+  doc-review-max-iters:
+    description: 'Max iterations for doc review'
+    required: false
+  
+  doc-review-max-context-size:
+    description: 'Max context size for doc review'
+    required: false
+  
+  doc-review-max-reasoning-tokens:
+    description: 'Max reasoning tokens for doc review'
+    required: false
+  
+  doc-review-temperature:
+    description: 'Temperature for doc review'
+    required: false
+  
+  # ==========================================
+  # SIGNATURE: smell_review
+  # ==========================================
+  smell-review-enabled:
+    description: 'Enable code smell detection signature (naming, complexity, YAGNI)'
+    required: false
+    default: 'true'
+  
+  smell-review-model:
+    description: 'Model for smell detection (empty = use default)'
+    required: false
+  
+  smell-review-max-iters:
+    description: 'Max iterations for smell detection'
+    required: false
+  
+  smell-review-max-context-size:
+    description: 'Max context size for smell detection'
+    required: false
+  
+  smell-review-max-reasoning-tokens:
+    description: 'Max reasoning tokens for smell detection'
+    required: false
+  
+  smell-review-temperature:
+    description: 'Temperature for smell detection'
     required: false
   
   # ==========================================
@@ -324,13 +380,29 @@ runs:
         SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS: ${{ inputs.scope-identification-max-reasoning-tokens }}
         SCOPE_IDENTIFICATION_TEMPERATURE: ${{ inputs.scope-identification-temperature }}
         
-        # Code and doc review signature
-        CODE_AND_DOC_REVIEW_ENABLED: ${{ inputs.code-and-doc-review-enabled }}
-        CODE_AND_DOC_REVIEW_MODEL: ${{ inputs.code-and-doc-review-model }}
-        CODE_AND_DOC_REVIEW_MAX_ITERS: ${{ inputs.code-and-doc-review-max-iters }}
-        CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.code-and-doc-review-max-context-size }}
-        CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.code-and-doc-review-max-reasoning-tokens }}
-        CODE_AND_DOC_REVIEW_TEMPERATURE: ${{ inputs.code-and-doc-review-temperature }}
+        # Bug review signature
+        BUG_REVIEW_ENABLED: ${{ inputs.bug-review-enabled }}
+        BUG_REVIEW_MODEL: ${{ inputs.bug-review-model }}
+        BUG_REVIEW_MAX_ITERS: ${{ inputs.bug-review-max-iters }}
+        BUG_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.bug-review-max-context-size }}
+        BUG_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.bug-review-max-reasoning-tokens }}
+        BUG_REVIEW_TEMPERATURE: ${{ inputs.bug-review-temperature }}
+        
+        # Doc review signature
+        DOC_REVIEW_ENABLED: ${{ inputs.doc-review-enabled }}
+        DOC_REVIEW_MODEL: ${{ inputs.doc-review-model }}
+        DOC_REVIEW_MAX_ITERS: ${{ inputs.doc-review-max-iters }}
+        DOC_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.doc-review-max-context-size }}
+        DOC_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.doc-review-max-reasoning-tokens }}
+        DOC_REVIEW_TEMPERATURE: ${{ inputs.doc-review-temperature }}
+        
+        # Smell review signature
+        SMELL_REVIEW_ENABLED: ${{ inputs.smell-review-enabled }}
+        SMELL_REVIEW_MODEL: ${{ inputs.smell-review-model }}
+        SMELL_REVIEW_MAX_ITERS: ${{ inputs.smell-review-max-iters }}
+        SMELL_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.smell-review-max-context-size }}
+        SMELL_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.smell-review-max-reasoning-tokens }}
+        SMELL_REVIEW_TEMPERATURE: ${{ inputs.smell-review-temperature }}
         
         # Supply chain signature
         SUPPLY_CHAIN_ENABLED: ${{ inputs.supply-chain-enabled }}
@@ -392,13 +464,29 @@ runs:
         [ -n "$SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS"
         [ -n "$SCOPE_IDENTIFICATION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_TEMPERATURE"
         
-        # Code and doc review
-        [ -n "$CODE_AND_DOC_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_ENABLED"
-        [ -n "$CODE_AND_DOC_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MODEL"
-        [ -n "$CODE_AND_DOC_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MAX_ITERS"
-        [ -n "$CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE"
-        [ -n "$CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS"
-        [ -n "$CODE_AND_DOC_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_TEMPERATURE"
+        # Bug review
+        [ -n "$BUG_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_REVIEW_ENABLED"
+        [ -n "$BUG_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_REVIEW_MODEL"
+        [ -n "$BUG_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_REVIEW_MAX_ITERS"
+        [ -n "$BUG_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_REVIEW_MAX_CONTEXT_SIZE"
+        [ -n "$BUG_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_REVIEW_MAX_REASONING_TOKENS"
+        [ -n "$BUG_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_REVIEW_TEMPERATURE"
+        
+        # Doc review
+        [ -n "$DOC_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_ENABLED"
+        [ -n "$DOC_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_MODEL"
+        [ -n "$DOC_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_MAX_ITERS"
+        [ -n "$DOC_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_MAX_CONTEXT_SIZE"
+        [ -n "$DOC_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_MAX_REASONING_TOKENS"
+        [ -n "$DOC_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_TEMPERATURE"
+        
+        # Smell review
+        [ -n "$SMELL_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SMELL_REVIEW_ENABLED"
+        [ -n "$SMELL_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SMELL_REVIEW_MODEL"
+        [ -n "$SMELL_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SMELL_REVIEW_MAX_ITERS"
+        [ -n "$SMELL_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SMELL_REVIEW_MAX_CONTEXT_SIZE"
+        [ -n "$SMELL_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SMELL_REVIEW_MAX_REASONING_TOKENS"
+        [ -n "$SMELL_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SMELL_REVIEW_TEMPERATURE"
         
         # Supply chain
         [ -n "$SUPPLY_CHAIN_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_ENABLED"

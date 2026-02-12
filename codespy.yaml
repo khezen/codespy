@@ -5,8 +5,8 @@
 # - Flat values: <KEY> (e.g., OUTPUT_FORMAT=json, DEFAULT_MODEL=gpt-5)
 # - Signature values: <SIGNATURE>_<KEY>
 #   Examples:
-#     CODE_AND_DOC_REVIEW_MAX_ITERS=15
-#     CODE_AND_DOC_REVIEW_ENABLED=false
+#     BUG_REVIEW_MAX_ITERS=15
+#     SMELL_REVIEW_ENABLED=false
 #     SUPPLY_CHAIN_MODEL=gpt-4-turbo
 #
 # Priority: Environment Variables > YAML Config > Defaults
@@ -94,8 +94,8 @@ gitlab:
 default_model: claude-opus-4-6                  # DEFAULT_MODEL
 extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model)
 default_max_iters: 20                           # DEFAULT_MAX_ITERS
-default_max_context_size: 100000                 # DEFAULT_MAX_CONTEXT_SIZE
-default_max_reasoning_tokens: 12000              # DEFAULT_MAX_REASONING_TOKENS (limits LLM reasoning verbosity)
+default_max_context_size: 50000                # DEFAULT_MAX_CONTEXT_SIZE
+default_max_reasoning_tokens: 4000             # DEFAULT_MAX_REASONING_TOKENS (limits LLM reasoning verbosity)
 default_temperature: 0                          # DEFAULT_TEMPERATURE (lower = more deterministic output)
 
 # Global LLM reliability settings
@@ -115,14 +115,32 @@ signatures:
     # When true: scans ALL artifacts (Dockerfiles, etc.) and manifests
     # When false (default): only scans artifacts/manifests that were modified in the MR
 
-  # Code & Doc Reviewer signature (bugs, logic errors, security vulnerabilities, and documentation)
-  code_and_doc_review:
-    enabled: true                        # CODE_AND_DOC_REVIEW_ENABLED
-    max_iters: null                      # CODE_AND_DOC_REVIEW_MAX_ITERS
-    model: null                          # CODE_AND_DOC_REVIEW_MODEL
-    max_context_size: null               # CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS
-    temperature: null                    # CODE_AND_DOC_REVIEW_TEMPERATURE
+  # Bug Detector signature (bugs, logic errors, security vulnerabilities)
+  bug_review:
+    enabled: true                        # BUG_REVIEW_ENABLED
+    max_iters: null                      # BUG_REVIEW_MAX_ITERS
+    model: null                          # BUG_REVIEW_MODEL
+    max_context_size: null               # BUG_REVIEW_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # BUG_REVIEW_MAX_REASONING_TOKENS
+    temperature: null                    # BUG_REVIEW_TEMPERATURE
+
+  # Documentation Reviewer signature (stale/wrong documentation)
+  doc_review:
+    enabled: true                        # DOC_REVIEW_ENABLED
+    max_iters: null                      # DOC_REVIEW_MAX_ITERS
+    model: null                          # DOC_REVIEW_MODEL
+    max_context_size: null               # DOC_REVIEW_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # DOC_REVIEW_MAX_REASONING_TOKENS
+    temperature: null                    # DOC_REVIEW_TEMPERATURE
+
+  # Smell Detector signature (code smells, naming, complexity, YAGNI)
+  smell_review:
+    enabled: true                        # SMELL_REVIEW_ENABLED
+    max_iters: null                      # SMELL_REVIEW_MAX_ITERS
+    model: null                          # SMELL_REVIEW_MODEL
+    max_context_size: null               # SMELL_REVIEW_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # SMELL_REVIEW_MAX_REASONING_TOKENS
+    temperature: null                    # SMELL_REVIEW_TEMPERATURE
 
   # Scope Identifier signature
   scope_identification:
