@@ -5,7 +5,7 @@
 # - Flat values: <KEY> (e.g., OUTPUT_FORMAT=json, DEFAULT_MODEL=gpt-5)
 # - Signature values: <SIGNATURE>_<KEY>
 #   Examples:
-#     BUG_REVIEW_MAX_ITERS=15
+#     DEFECT_REVIEW_MAX_ITERS=15
 #     SMELL_REVIEW_ENABLED=false
 #     SUPPLY_CHAIN_MODEL=gpt-4-turbo
 #
@@ -115,14 +115,14 @@ signatures:
     # When true: scans ALL artifacts (Dockerfiles, etc.) and manifests
     # When false (default): only scans artifacts/manifests that were modified in the MR
 
-  # Bug Detector signature (bugs, logic errors, security vulnerabilities)
-  bug_review:
-    enabled: true                        # BUG_REVIEW_ENABLED
-    max_iters: null                      # BUG_REVIEW_MAX_ITERS
-    model: null                          # BUG_REVIEW_MODEL
-    max_context_size: null               # BUG_REVIEW_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # BUG_REVIEW_MAX_REASONING_TOKENS
-    temperature: null                    # BUG_REVIEW_TEMPERATURE
+  # Defect Detector signature (bugs, logic errors, removed defensive code, security vulnerabilities)
+  defect_review:
+    enabled: true                        # DEFECT_REVIEW_ENABLED
+    max_iters: null                      # DEFECT_REVIEW_MAX_ITERS
+    model: null                          # DEFECT_REVIEW_MODEL
+    max_context_size: null               # DEFECT_REVIEW_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # DEFECT_REVIEW_MAX_REASONING_TOKENS
+    temperature: null                    # DEFECT_REVIEW_TEMPERATURE
 
   # Documentation Reviewer signature (stale/wrong documentation)
   doc_review:

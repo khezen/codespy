@@ -23,7 +23,7 @@ class SignatureConfig(BaseModel):
 
 # Known signature names for env var routing
 SIGNATURE_NAMES = {
-    "bug_review",
+    "defect_review",
     "doc_review",
     "smell_review",
     "supply_chain",
@@ -61,7 +61,7 @@ def apply_signature_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     """Apply environment variable overrides to config for signature settings.
 
     Handles signature settings with pattern:
-    - BUG_REVIEW_MAX_ITERS -> signatures.bug_review.max_iters
+    - DEFECT_REVIEW_MAX_ITERS -> signatures.defect_review.max_iters
     - SUPPLY_CHAIN_ENABLED -> signatures.supply_chain.enabled
 
     Top-level settings (DEFAULT_MODEL, AWS_REGION, etc.) are handled directly

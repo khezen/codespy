@@ -11,7 +11,7 @@ from codespy.config import Settings, get_settings
 from codespy.tools.git import GitClient, get_client, ChangedFile, MergeRequest
 from codespy.agents.reviewer.models import Issue, SignatureStatsResult, ReviewResult
 from codespy.agents.reviewer.modules import (
-    BugDetector,
+    DefectDetector,
     DocReviewer,
     IssueDeduplicator,
     ScopeIdentifier,
@@ -69,7 +69,7 @@ class ReviewPipeline(dspy.Module):
 
         # Initialize all modules - they internally check if their signatures are enabled
         self.scope_identifier = ScopeIdentifier()
-        self.bug_detector = BugDetector()
+        self.defect_detector = DefectDetector()
         self.doc_reviewer = DocReviewer()
         self.smell_detector = SmellDetector()
         self.supply_chain_auditor = SupplyChainAuditor()
@@ -126,7 +126,7 @@ class ReviewPipeline(dspy.Module):
             Aggregated list of issues from all modules
         """
         tasks = [
-            self.bug_detector.aforward(scopes=scopes, repo_path=repo_path),
+            self.defect_detector.aforward(scopes=scopes, repo_path=repo_path),
             self.doc_reviewer.aforward(scopes=scopes, repo_path=repo_path),
             self.smell_detector.aforward(scopes=scopes, repo_path=repo_path),
             self.supply_chain_auditor.aforward(scopes=scopes, repo_path=repo_path),
@@ -164,7 +164,7 @@ class ReviewPipeline(dspy.Module):
                     logger.info(f"    Dependencies changed: Yes")
 
         # Run review modules concurrently via asyncio.gather
-        module_names = ["bug_detector", "doc_reviewer", "smell_detector", "supply_chain_auditor"]
+        module_names = ["defect_detector", "doc_reviewer", "smell_detector", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
         all_issues = asyncio.run(
             self._run_review_modules(scopes, repo_path, module_names)

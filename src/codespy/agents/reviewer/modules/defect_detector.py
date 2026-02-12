@@ -22,7 +22,7 @@ from codespy.tools.mcp_utils import cleanup_mcp_contexts
 logger = logging.getLogger(__name__)
 
 
-class BugDetectorSignature(dspy.Signature):
+class DefectDetectorSignature(dspy.Signature):
     """Detect VERIFIED code defects and security vulnerabilities in a scope.
 
     You are a busy Principal Engineer with very little time.
@@ -56,6 +56,15 @@ class BugDetectorSignature(dspy.Signature):
     - DO NOT report "might be", "could be", "possibly", "may cause" issues
     - If you cannot point to the EXACT defective code with evidence, do NOT report it
     - Quality over quantity: prefer 0 reports over 1 speculative report
+
+    EXCEPTION — REMOVED DEFENSIVE CODE (always report):
+    - If a guard (bounds check, null/nil/undefined check, Math.max/min, default
+      value, clamp, error catch, try/catch, fallback, sanitization) existed in the
+      removed lines (-) of the patch and is absent from the added lines (+),
+      report it as a bug. The guard's prior existence is sufficient evidence —
+      removal shifts risk to the caller and must be justified.
+    - Use read_file or search_literal to confirm the guard was not relocated
+      elsewhere in the same function/file. If it was moved, do not report.
 
     VERIFICATION WORKFLOW:
     1. Review each changed file's patch — the diff shows what changed
@@ -120,18 +129,18 @@ class BugDetectorSignature(dspy.Signature):
     )
 
 
-class BugDetector(dspy.Module):
+class DefectDetector(dspy.Module):
     """Detects code defects and security vulnerabilities.
 
-    Focuses exclusively on bugs and security issues, using MCP tools
-    to verify each finding before reporting.
+    Focuses exclusively on bugs, removed defensive code, and security issues,
+    using MCP tools to verify each finding before reporting.
 
     MCP tools are scope-restricted: for each scope, tools are rooted at
     repo_path/scope.subroot so the agent cannot access files outside the scope.
     """
 
     def __init__(self) -> None:
-        """Initialize the bug detector."""
+        """Initialize the defect detector."""
         super().__init__()
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
@@ -148,39 +157,39 @@ class BugDetector(dspy.Module):
         Returns:
             List of bug and security issues found across all scopes
         """
-        if not self._settings.is_signature_enabled("bug_review"):
-            logger.debug("Skipping bug_review: disabled")
+        if not self._settings.is_signature_enabled("defect_review"):
+            logger.debug("Skipping defect_review: disabled")
             return []
 
         changed_scopes = [s for s in scopes if s.has_changes and s.changed_files]
         if not changed_scopes:
-            logger.info("No scopes with changes for bug detection")
+            logger.info("No scopes with changes for defect detection")
             return []
 
         all_issues: list[Issue] = []
-        max_iters = self._settings.get_max_iters("bug_review")
+        max_iters = self._settings.get_max_iters("defect_review")
 
         total_files = sum(len(s.changed_files) for s in changed_scopes)
         logger.info(
-            f"Bug detection for {len(changed_scopes)} scopes "
+            f"Defect detection for {len(changed_scopes)} scopes "
             f"({total_files} changed files)..."
         )
 
         for scope in changed_scopes:
             scope_root = resolve_scope_root(repo_path, scope.subroot)
-            tools, contexts = await create_mcp_tools(scope_root, "bug_detector")
+            tools, contexts = await create_mcp_tools(scope_root, "defect_detector")
             try:
                 agent = dspy.ReAct(
-                    signature=BugDetectorSignature,
+                    signature=DefectDetectorSignature,
                     tools=tools,
                     max_iters=max_iters,
                 )
                 scoped = make_scope_relative(scope)
                 logger.info(
-                    f"  Bug detection: scope {scope.subroot} "
+                    f"  Defect detection: scope {scope.subroot} "
                     f"({len(scope.changed_files)} files)"
                 )
-                async with SignatureContext("bug_review", self._cost_tracker):
+                async with SignatureContext("defect_review", self._cost_tracker):
                     result = await agent.acall(
                         scope=scoped,
                         categories=[IssueCategory.BUG, IssueCategory.SECURITY],
@@ -193,14 +202,14 @@ class BugDetector(dspy.Module):
                 restore_repo_paths(issues, scope.subroot)
                 all_issues.extend(issues)
                 logger.debug(
-                    f"  Scope {scope.subroot}: {len(issues)} bug/security issues"
+                    f"  Scope {scope.subroot}: {len(issues)} defect issues"
                 )
             except Exception as e:
-                logger.error(f"Bug detection failed for scope {scope.subroot}: {e}")
+                logger.error(f"Defect detection failed for scope {scope.subroot}: {e}")
             finally:
                 await cleanup_mcp_contexts(contexts)
 
-        logger.info(f"Bug detection found {len(all_issues)} issues")
+        logger.info(f"Defect detection found {len(all_issues)} issues")
         return all_issues
 
     def forward(

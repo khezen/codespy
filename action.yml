@@ -127,31 +127,31 @@ inputs:
     required: false
   
   # ==========================================
-  # SIGNATURE: bug_review
+  # SIGNATURE: defect_review
   # ==========================================
-  bug-review-enabled:
-    description: 'Enable bug detection signature (bugs and security vulnerabilities)'
+  defect-review-enabled:
+    description: 'Enable defect detection signature (bugs, removed defensive code, security vulnerabilities)'
     required: false
     default: 'true'
   
-  bug-review-model:
-    description: 'Model for bug detection (empty = use default)'
+  defect-review-model:
+    description: 'Model for defect detection (empty = use default)'
     required: false
   
-  bug-review-max-iters:
-    description: 'Max iterations for bug detection'
+  defect-review-max-iters:
+    description: 'Max iterations for defect detection'
     required: false
   
-  bug-review-max-context-size:
-    description: 'Max context size for bug detection'
+  defect-review-max-context-size:
+    description: 'Max context size for defect detection'
     required: false
   
-  bug-review-max-reasoning-tokens:
-    description: 'Max reasoning tokens for bug detection'
+  defect-review-max-reasoning-tokens:
+    description: 'Max reasoning tokens for defect detection'
     required: false
   
-  bug-review-temperature:
-    description: 'Temperature for bug detection'
+  defect-review-temperature:
+    description: 'Temperature for defect detection'
     required: false
   
   # ==========================================
@@ -380,13 +380,13 @@ runs:
         SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS: ${{ inputs.scope-identification-max-reasoning-tokens }}
         SCOPE_IDENTIFICATION_TEMPERATURE: ${{ inputs.scope-identification-temperature }}
         
-        # Bug review signature
-        BUG_REVIEW_ENABLED: ${{ inputs.bug-review-enabled }}
-        BUG_REVIEW_MODEL: ${{ inputs.bug-review-model }}
-        BUG_REVIEW_MAX_ITERS: ${{ inputs.bug-review-max-iters }}
-        BUG_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.bug-review-max-context-size }}
-        BUG_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.bug-review-max-reasoning-tokens }}
-        BUG_REVIEW_TEMPERATURE: ${{ inputs.bug-review-temperature }}
+        # Defect review signature
+        DEFECT_REVIEW_ENABLED: ${{ inputs.defect-review-enabled }}
+        DEFECT_REVIEW_MODEL: ${{ inputs.defect-review-model }}
+        DEFECT_REVIEW_MAX_ITERS: ${{ inputs.defect-review-max-iters }}
+        DEFECT_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.defect-review-max-context-size }}
+        DEFECT_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.defect-review-max-reasoning-tokens }}
+        DEFECT_REVIEW_TEMPERATURE: ${{ inputs.defect-review-temperature }}
         
         # Doc review signature
         DOC_REVIEW_ENABLED: ${{ inputs.doc-review-enabled }}
@@ -464,13 +464,13 @@ runs:
         [ -n "$SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS"
         [ -n "$SCOPE_IDENTIFICATION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_TEMPERATURE"
         
-        # Bug review
-        [ -n "$BUG_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_REVIEW_ENABLED"
-        [ -n "$BUG_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_REVIEW_MODEL"
-        [ -n "$BUG_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_REVIEW_MAX_ITERS"
-        [ -n "$BUG_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_REVIEW_MAX_CONTEXT_SIZE"
-        [ -n "$BUG_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_REVIEW_MAX_REASONING_TOKENS"
-        [ -n "$BUG_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e BUG_REVIEW_TEMPERATURE"
+        # Defect review
+        [ -n "$DEFECT_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_REVIEW_ENABLED"
+        [ -n "$DEFECT_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_REVIEW_MODEL"
+        [ -n "$DEFECT_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_REVIEW_MAX_ITERS"
+        [ -n "$DEFECT_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_REVIEW_MAX_CONTEXT_SIZE"
+        [ -n "$DEFECT_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_REVIEW_MAX_REASONING_TOKENS"
+        [ -n "$DEFECT_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_REVIEW_TEMPERATURE"
         
         # Doc review
         [ -n "$DOC_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REVIEW_ENABLED"

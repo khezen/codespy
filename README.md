@@ -27,6 +27,7 @@
 
 ## Table of Contents
 
+- [Table of Contents](#table-of-contents)
 - [Why CodeSpy?](#why-codespy)
 - [Features](#features)
 - [Installation](#installation)
@@ -42,6 +43,8 @@
 - [Configuration](#configuration)
   - [Setup](#setup)
   - [Git Platform Tokens](#git-platform-tokens)
+    - [GitHub Token](#github-token)
+    - [GitLab Token](#gitlab-token)
   - [LLM Provider](#llm-provider)
   - [Advanced Configuration (YAML)](#advanced-configuration-yaml)
   - [Recommended Model Strategy](#recommended-model-strategy)
@@ -615,7 +618,7 @@ The review is powered by DSPy signatures that structure the LLM's analysis:
 | Signature | Config Key | Description |
 |-----------|------------|-------------|
 | **ScopeIdentifierSignature** | `scope_identification` | Identifies code scopes (frontend, backend, infra, microservice in mono repo, etc...) |
-| **BugDetectorSignature** | `bug_review` | Detects verified bugs and security vulnerabilities |
+| **DefectDetectorSignature** | `defect_review` | Detects verified bugs, removed defensive code, and security vulnerabilities |
 | **DocReviewSignature** | `doc_review` | Detects stale or wrong documentation caused by code changes |
 | **SmellDetectorSignature** | `smell_review` | Detects code smells — naming, complexity, data clumps, YAGNI |
 | **SupplyChainSecuritySignature** | `supply_chain` | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
