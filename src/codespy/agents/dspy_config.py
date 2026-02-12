@@ -99,6 +99,21 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
     Returns:
         Tuple of (success, message)
     """
+    # Configure LiteLLM environment variables before verification
+    if settings.openai_api_key:
+        litellm.openai_key = settings.openai_api_key
+    if settings.anthropic_api_key:
+        litellm.anthropic_key = settings.anthropic_api_key
+    
+    # Set up AWS credentials for Bedrock models
+    import os
+    if settings.aws_region:
+        os.environ["AWS_REGION_NAME"] = settings.aws_region
+    if settings.aws_access_key_id:
+        os.environ["AWS_ACCESS_KEY_ID"] = settings.aws_access_key_id
+    if settings.aws_secret_access_key:
+        os.environ["AWS_SECRET_ACCESS_KEY"] = settings.aws_secret_access_key
+    
     # Collect all unique models from config
     models_to_check: set[str] = {settings.default_model}
     
