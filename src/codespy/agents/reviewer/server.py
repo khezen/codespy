@@ -47,16 +47,13 @@ def _do_local_review(repo_path: str, base_ref: str, output_format: str) -> str:
     """Synchronous local review — runs in thread pool."""
     import json
 
-    from codespy.tools.git.local_diff import build_mr_from_diff
+    from codespy.agents.reviewer.models import LocalReviewConfig
 
     repo = Path(repo_path).resolve()
-    mr = build_mr_from_diff(repo, base_ref=base_ref, include_uncommitted=False)
-
-    if not mr.changed_files:
-        return f"No changes found between {base_ref} and HEAD in {repo_path}"
+    config = LocalReviewConfig(repo_path=repo, base_ref=base_ref, uncommitted=False)
 
     pipeline = _get_pipeline()
-    result = pipeline(mr=mr, repo_path=repo, verify_model=True)
+    result = pipeline(config)
 
     if output_format == "json":
         return json.dumps(result.to_json_dict(), indent=2)
@@ -67,16 +64,13 @@ def _do_uncommitted_review(repo_path: str, output_format: str) -> str:
     """Synchronous uncommitted review — runs in thread pool."""
     import json
 
-    from codespy.tools.git.local_diff import build_mr_from_diff
+    from codespy.agents.reviewer.models import LocalReviewConfig
 
     repo = Path(repo_path).resolve()
-    mr = build_mr_from_diff(repo, include_uncommitted=True)
-
-    if not mr.changed_files:
-        return f"No uncommitted changes found in {repo_path}"
+    config = LocalReviewConfig(repo_path=repo, uncommitted=True)
 
     pipeline = _get_pipeline()
-    result = pipeline(mr=mr, repo_path=repo, verify_model=True)
+    result = pipeline(config)
 
     if output_format == "json":
         return json.dumps(result.to_json_dict(), indent=2)
@@ -87,8 +81,12 @@ def _do_pr_review(mr_url: str, output_format: str) -> str:
     """Synchronous PR review — runs in thread pool."""
     import json
 
+    from codespy.agents.reviewer.models import RemoteReviewConfig
+
+    config = RemoteReviewConfig(url=mr_url)
+
     pipeline = _get_pipeline()
-    result = pipeline(mr_url=mr_url, verify_model=True)
+    result = pipeline(config)
 
     if output_format == "json":
         return json.dumps(result.to_json_dict(), indent=2)

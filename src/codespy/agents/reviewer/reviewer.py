@@ -9,7 +9,15 @@ import dspy  # type: ignore[import-untyped]
 from codespy.agents import SignatureContext, configure_dspy, get_cost_tracker, verify_model_access
 from codespy.config import Settings, get_settings
 from codespy.tools.git import GitClient, get_client, ChangedFile, MergeRequest
-from codespy.agents.reviewer.models import Issue, SignatureStatsResult, ReviewResult
+from codespy.tools.git.local_diff import build_mr_from_diff
+from codespy.agents.reviewer.models import (
+    Issue,
+    SignatureStatsResult,
+    ReviewResult,
+    ReviewConfig,
+    RemoteReviewConfig,
+    LocalReviewConfig,
+)
 from codespy.agents.reviewer.modules import (
     CodeAndDocReviewer,
     IssueDeduplicator,
@@ -135,41 +143,50 @@ class ReviewPipeline(dspy.Module):
                 all_issues.extend(result)
         return all_issues
 
-    def forward(
-        self,
-        mr_url: str | None = None,
-        verify_model: bool = True,
-        mr: MergeRequest | None = None,
-        repo_path: Path | None = None,
-    ) -> ReviewResult:
-        """Run the complete review pipeline on a merge request.
+    def _build_local_mr(self, config: LocalReviewConfig) -> MergeRequest:
+        """Build a MergeRequest from local git changes.
+        
+        Args:
+            config: Local review configuration
+            
+        Returns:
+            MergeRequest object built from local git changes
+        """
+        logger.info(f"Building MR from local changes in {config.repo_path}...")
+        return build_mr_from_diff(
+            repo_path=config.repo_path,
+            base_ref=config.base_ref,
+            include_uncommitted=config.uncommitted
+        )
 
-        Can be called in two modes:
-        1. Remote: forward(mr_url="https://github.com/...") — fetches MR from platform
-        2. Local:  forward(mr=<MergeRequest>, repo_path=<Path>) — uses pre-built MR
+    def forward(self, config: ReviewConfig) -> ReviewResult:
+        """Run the complete review pipeline.
 
         Args:
-            mr_url: URL of a GitHub PR or GitLab MR (remote mode)
-            verify_model: Whether to verify LLM model access before review
-            mr: Pre-built MergeRequest object (local mode)
-            repo_path: Path to the local repository (local mode)
+            config: Review configuration (RemoteReviewConfig or LocalReviewConfig)
+
+        Returns:
+            ReviewResult with issues, summary, costs, etc.
         """
         self.cost_tracker.reset()
+        
+        # Always verify model access
+        self._verify_model_access()
 
-        if mr is not None and repo_path is not None:
-            # Local mode: MR and repo path provided directly
-            logger.info(f"Starting local review: {mr.title} ({len(mr.changed_files)} files)")
-            repo_path = Path(repo_path).resolve()
-        elif mr_url is not None:
+        # Determine mode and fetch/build MR accordingly
+        if isinstance(config, RemoteReviewConfig):
             # Remote mode: fetch from GitHub/GitLab
-            logger.info(f"Starting review of {mr_url}")
-            mr = self._fetch_mr(mr_url)
+            logger.info(f"Starting review of {config.url}")
+            mr = self._fetch_mr(config.url)
             repo_path = self._get_repo_path(mr)
+        elif isinstance(config, LocalReviewConfig):
+            # Local mode: build MR from local git changes
+            mode = "uncommitted changes" if config.uncommitted else f"changes vs {config.base_ref}"
+            logger.info(f"Starting local review: {mode} in {config.repo_path}")
+            mr = self._build_local_mr(config)
+            repo_path = config.repo_path.resolve()
         else:
-            raise ValueError("Either mr_url or (mr + repo_path) must be provided")
-
-        if verify_model:
-            self._verify_model_access()
+            raise ValueError(f"Invalid config type: {type(config)}")
 
         # Identify scopes (the module internally checks if signature is enabled)
         logger.info("Identifying code scopes...")
