@@ -204,7 +204,100 @@ codespy config --config path/to/config.yaml
 
 # Show version
 codespy --version
+
+# Review local git changes (no GitHub/GitLab needed)
+codespy review-local                    # Review current dir vs main
+codespy review-local /path/to/repo      # Review specific repo
+codespy review-local --base develop     # Compare against develop
+codespy review-local --base origin/main # Compare against origin/main
+codespy review-local --base HEAD~5      # Compare against 5 commits back
+
+# Review uncommitted changes (staged + unstaged)
+codespy review-uncommitted              # Review current dir
+codespy review-uncommitted /path/to/repo
+codespy review-uncommitted --output json
 ```
+
+### IDE Integration (MCP Server)
+
+CodeSpy can run as an MCP (Model Context Protocol) server for integration with AI coding assistants like Cline, enabling code reviews directly from your editor without leaving your workflow.
+
+```bash
+# Start the MCP server
+codespy serve
+
+# Use a custom config file
+codespy serve --config path/to/config.yaml
+```
+
+**Environment Variables for Local & MCP Reviews:**
+
+For local CLI commands (`review-local`, `review-uncommitted`) and MCP server, set these environment variables:
+
+```bash
+# Required: LLM Provider (choose one)
+
+# Option 1: Anthropic
+export DEFAULT_MODEL=claude-opus-4-6
+export ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
+
+# Option 2: AWS Bedrock
+export DEFAULT_MODEL=bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+export AWS_REGION=us-east-1
+export AWS_ACCESS_KEY_ID=xxxxxxxxxxxxxxxxxxxx
+export AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxx
+
+# Option 3: OpenAI
+export DEFAULT_MODEL=gpt-4
+export OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
+
+# Optional: Customize review behavior
+export DEFAULT_MAX_ITERS=20
+export CODE_AND_DOC_REVIEW_MODEL=claude-sonnet-4-5-20250929
+```
+
+**Configure your IDE** (example for Cline in VS Code):
+
+Add to `cline_mcp_settings.json`:
+```json
+{
+  "mcpServers": {
+    "codespy-reviewer": {
+      "command": "codespy",
+      "args": ["serve"],
+      "env": {
+        "DEFAULT_MODEL": "claude-opus-4-6",
+        "ANTHROPIC_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
+
+Or for AWS Bedrock:
+```json
+{
+  "mcpServers": {
+    "codespy-reviewer": {
+      "command": "codespy",
+      "args": ["serve"],
+      "env": {
+        "DEFAULT_MODEL": "bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "AWS_REGION": "eu-west-1",
+        "AWS_ACCESS_KEY_ID": "your-access-key",
+        "AWS_SECRET_ACCESS_KEY": "your-secret-key"
+      }
+    }
+  }
+}
+```
+
+**Available MCP Tools:**
+- `review_local_changes(repo_path, base_ref)` — Review branch changes vs base (e.g., vs `main`)
+- `review_uncommitted(repo_path)` — Review staged + unstaged working tree changes
+- `review_pr(mr_url)` — Review a GitHub PR or GitLab MR by URL
+
+Then ask your AI assistant: *"Review my local changes"* or *"Review uncommitted work in /path/to/repo"*
 
 ### Using Docker
 
@@ -542,6 +635,14 @@ output_git: true
 ---
 
 ## Architecture
+
+CodeSpy supports **three review approaches**:
+
+1. **Remote PR/MR Review** (`review` command) — Fetches PR/MR from GitHub/GitLab, clones repo, runs review
+2. **Local CLI Review** (`review-local`, `review-uncommitted` commands) — Reviews local git changes directly, no platform needed
+3. **MCP Server** (`serve` command) — Exposes review tools to IDE assistants via Model Context Protocol
+
+### Remote PR/MR Review
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐

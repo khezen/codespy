@@ -135,14 +135,41 @@ class ReviewPipeline(dspy.Module):
                 all_issues.extend(result)
         return all_issues
 
-    def forward(self, mr_url: str, verify_model: bool = True) -> ReviewResult:
-        """Run the complete review pipeline on a merge request."""
+    def forward(
+        self,
+        mr_url: str | None = None,
+        verify_model: bool = True,
+        mr: MergeRequest | None = None,
+        repo_path: Path | None = None,
+    ) -> ReviewResult:
+        """Run the complete review pipeline on a merge request.
+
+        Can be called in two modes:
+        1. Remote: forward(mr_url="https://github.com/...") — fetches MR from platform
+        2. Local:  forward(mr=<MergeRequest>, repo_path=<Path>) — uses pre-built MR
+
+        Args:
+            mr_url: URL of a GitHub PR or GitLab MR (remote mode)
+            verify_model: Whether to verify LLM model access before review
+            mr: Pre-built MergeRequest object (local mode)
+            repo_path: Path to the local repository (local mode)
+        """
         self.cost_tracker.reset()
-        logger.info(f"Starting review of {mr_url}")
+
+        if mr is not None and repo_path is not None:
+            # Local mode: MR and repo path provided directly
+            logger.info(f"Starting local review: {mr.title} ({len(mr.changed_files)} files)")
+            repo_path = Path(repo_path).resolve()
+        elif mr_url is not None:
+            # Remote mode: fetch from GitHub/GitLab
+            logger.info(f"Starting review of {mr_url}")
+            mr = self._fetch_mr(mr_url)
+            repo_path = self._get_repo_path(mr)
+        else:
+            raise ValueError("Either mr_url or (mr + repo_path) must be provided")
+
         if verify_model:
             self._verify_model_access()
-        mr = self._fetch_mr(mr_url)
-        repo_path = self._get_repo_path(mr)
 
         # Identify scopes (the module internally checks if signature is enabled)
         logger.info("Identifying code scopes...")

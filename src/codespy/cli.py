@@ -239,6 +239,338 @@ def review(
 
 
 @app.command()
+def review_local(
+    repo_path: Annotated[
+        str | None,
+        typer.Argument(
+            help="Path to git repository (defaults to current directory)",
+        ),
+    ] = None,
+    base_ref: Annotated[
+        str,
+        typer.Option(
+            "--base",
+            "-b",
+            help="Base git ref to diff against (e.g., 'main', 'develop', 'origin/main', 'HEAD~5')",
+        ),
+    ] = "main",
+    config_file: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            "-f",
+            help="Path to a YAML config file (overrides default config locations).",
+        ),
+    ] = None,
+    output: Annotated[
+        str,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output format: markdown or json",
+        ),
+    ] = "markdown",
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            "-m",
+            help="LLM model to use (overrides DEFAULT_MODEL env var)",
+        ),
+    ] = None,
+) -> None:
+    """Review local git changes (current branch vs base) without GitHub/GitLab.
+
+    Reviews committed changes on your current branch compared to a base ref
+    (e.g., main, develop). No remote platform needed - works with any local repo.
+
+    Examples:
+        codespy review-local                    # Review current dir vs main
+        codespy review-local /path/to/repo      # Review specific repo
+        codespy review-local --base develop     # Compare against develop
+        codespy review-local --base origin/main # Compare against origin/main
+        codespy review-local --base HEAD~5      # Compare against 5 commits back
+        codespy review-local --output json      # Output as JSON
+    """
+    import os
+    from pathlib import Path
+
+    # Set up logging with timestamps
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        handlers=[RichHandler(console=console, show_time=True, show_path=False)],
+    )
+
+    try:
+        settings = get_settings(config_file=config_file)
+    except FileNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    # Override settings if provided via CLI
+    if model:
+        settings.default_model = model
+    if output:
+        settings.output_format = output  # type: ignore
+
+    # Resolve repo path
+    repo = Path(repo_path if repo_path else os.getcwd()).resolve()
+    
+    if not repo.exists():
+        console.print(f"[red]Error:[/red] Directory does not exist: {repo}")
+        raise typer.Exit(1)
+    
+    if not (repo / ".git").exists():
+        console.print(f"[red]Error:[/red] Not a git repository: {repo}")
+        raise typer.Exit(1)
+
+    console.print(
+        Panel(
+            f"[bold blue]Reviewing local changes[/bold blue]\n"
+            f"[bold]Repository:[/bold] {repo}\n"
+            f"[bold]Base ref:[/bold] {base_ref}\n"
+            f"[bold]Model:[/bold] {settings.default_model}\n"
+            f"[bold]Output:[/bold] {settings.output_format}",
+            title="codespy review-local",
+        )
+    )
+
+    try:
+        from codespy.agents.reviewer.reviewer import ReviewPipeline
+        from codespy.agents import verify_model_access
+        from codespy.tools.git.local_diff import build_mr_from_diff
+
+        # Verify model access
+        console.print("[dim]Verifying model access...[/dim]")
+        success, message = verify_model_access(settings)
+        if success:
+            console.print(f"[bold]Model:[/bold] [green]verified[/green] [dim]({settings.default_model})[/dim]")
+        else:
+            console.print(f"[red]Error:[/red] {message}")
+            raise typer.Exit(1)
+
+        # Build MergeRequest from local diff
+        console.print(f"[dim]Building diff: HEAD vs {base_ref}...[/dim]")
+        mr = build_mr_from_diff(repo, base_ref=base_ref, include_uncommitted=False)
+
+        if not mr.changed_files:
+            console.print(f"[yellow]No changes found between {base_ref} and HEAD[/yellow]")
+            raise typer.Exit(0)
+
+        console.print(f"[dim]Found {len(mr.changed_files)} changed files[/dim]")
+
+        # Run review pipeline
+        pipeline = ReviewPipeline(settings)
+        result = pipeline(mr=mr, repo_path=repo, verify_model=False)
+
+        # Show cost summary
+        if result.llm_calls > 0:
+            cost_str = f"${result.total_cost:.4f}" if result.total_cost > 0 else "N/A"
+            console.print(
+                Panel(
+                    f"[bold]LLM Calls:[/bold] {result.llm_calls}\n"
+                    f"[bold]Total Tokens:[/bold] {result.total_tokens:,}\n"
+                    f"[bold]Total Cost:[/bold] {cost_str}",
+                    title="Cost Summary",
+                )
+            )
+
+        # Output results
+        from codespy.agents.reviewer.reporters import StdoutReporter
+        stdout_reporter = StdoutReporter(format=settings.output_format, console=console)
+        stdout_reporter.report(result)
+
+    except Exception as e:
+        console.print(f"[red]Error during review:[/red] {e}")
+        logging.exception("Review failed")
+        raise typer.Exit(1)
+
+
+@app.command()
+def review_uncommitted(
+    repo_path: Annotated[
+        str | None,
+        typer.Argument(
+            help="Path to git repository (defaults to current directory)",
+        ),
+    ] = None,
+    config_file: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            "-f",
+            help="Path to a YAML config file (overrides default config locations).",
+        ),
+    ] = None,
+    output: Annotated[
+        str,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output format: markdown or json",
+        ),
+    ] = "markdown",
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            "-m",
+            help="LLM model to use (overrides DEFAULT_MODEL env var)",
+        ),
+    ] = None,
+) -> None:
+    """Review uncommitted changes (staged + unstaged) in working tree.
+
+    Reviews all modifications in your working tree that haven't been committed yet.
+    Useful for checking your work before committing.
+
+    Examples:
+        codespy review-uncommitted              # Review current dir
+        codespy review-uncommitted /path/to/repo
+        codespy review-uncommitted --output json
+    """
+    import os
+    from pathlib import Path
+
+    # Set up logging with timestamps
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        handlers=[RichHandler(console=console, show_time=True, show_path=False)],
+    )
+
+    try:
+        settings = get_settings(config_file=config_file)
+    except FileNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    # Override settings if provided via CLI
+    if model:
+        settings.default_model = model
+    if output:
+        settings.output_format = output  # type: ignore
+
+    # Resolve repo path
+    repo = Path(repo_path if repo_path else os.getcwd()).resolve()
+    
+    if not repo.exists():
+        console.print(f"[red]Error:[/red] Directory does not exist: {repo}")
+        raise typer.Exit(1)
+    
+    if not (repo / ".git").exists():
+        console.print(f"[red]Error:[/red] Not a git repository: {repo}")
+        raise typer.Exit(1)
+
+    console.print(
+        Panel(
+            f"[bold blue]Reviewing uncommitted changes[/bold blue]\n"
+            f"[bold]Repository:[/bold] {repo}\n"
+            f"[bold]Model:[/bold] {settings.default_model}\n"
+            f"[bold]Output:[/bold] {settings.output_format}",
+            title="codespy review-uncommitted",
+        )
+    )
+
+    try:
+        from codespy.agents.reviewer.reviewer import ReviewPipeline
+        from codespy.agents import verify_model_access
+        from codespy.tools.git.local_diff import build_mr_from_diff
+
+        # Verify model access
+        console.print("[dim]Verifying model access...[/dim]")
+        success, message = verify_model_access(settings)
+        if success:
+            console.print(f"[bold]Model:[/bold] [green]verified[/green] [dim]({settings.default_model})[/dim]")
+        else:
+            console.print(f"[red]Error:[/red] {message}")
+            raise typer.Exit(1)
+
+        # Build MergeRequest from uncommitted changes
+        console.print("[dim]Building diff: working tree vs HEAD...[/dim]")
+        mr = build_mr_from_diff(repo, include_uncommitted=True)
+
+        if not mr.changed_files:
+            console.print("[yellow]No uncommitted changes found[/yellow]")
+            raise typer.Exit(0)
+
+        console.print(f"[dim]Found {len(mr.changed_files)} changed files[/dim]")
+
+        # Run review pipeline
+        pipeline = ReviewPipeline(settings)
+        result = pipeline(mr=mr, repo_path=repo, verify_model=False)
+
+        # Show cost summary
+        if result.llm_calls > 0:
+            cost_str = f"${result.total_cost:.4f}" if result.total_cost > 0 else "N/A"
+            console.print(
+                Panel(
+                    f"[bold]LLM Calls:[/bold] {result.llm_calls}\n"
+                    f"[bold]Total Tokens:[/bold] {result.total_tokens:,}\n"
+                    f"[bold]Total Cost:[/bold] {cost_str}",
+                    title="Cost Summary",
+                )
+            )
+
+        # Output results
+        from codespy.agents.reviewer.reporters import StdoutReporter
+        stdout_reporter = StdoutReporter(format=settings.output_format, console=console)
+        stdout_reporter.report(result)
+
+    except Exception as e:
+        console.print(f"[red]Error during review:[/red] {e}")
+        logging.exception("Review failed")
+        raise typer.Exit(1)
+
+
+@app.command()
+def serve(
+    config_file: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            "-f",
+            help="Path to a YAML config file (overrides default config locations).",
+        ),
+    ] = None,
+) -> None:
+    """Start the codespy MCP server for IDE integration.
+
+    Runs an MCP (Model Context Protocol) server over stdin/stdout that exposes
+    code review tools. Configure your IDE (e.g., VS Code with Cline) to connect
+    to this server, then review local changes or remote PRs without leaving
+    your editor.
+
+    Available tools:
+        review_local_changes  — Review local git changes (branch vs base)
+        review_uncommitted    — Review uncommitted working tree changes
+        review_pr             — Review a GitHub PR or GitLab MR by URL
+
+    Examples:
+        codespy serve
+        codespy serve --config path/to/config.yaml
+
+    MCP config for Cline (cline_mcp_settings.json):
+        {
+          "mcpServers": {
+            "codespy-reviewer": {
+              "command": "codespy",
+              "args": ["serve"]
+            }
+          }
+        }
+    """
+    # Load settings before starting (validates config file exists)
+    if config_file is not None:
+        import os
+        os.environ["CODESPY_CONFIG_FILE"] = config_file
+
+    from codespy.agents.reviewer.server import run_server
+    run_server()
+
+
+@app.command()
 def config(
     config_file: Annotated[
         str | None,
