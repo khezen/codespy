@@ -1,6 +1,5 @@
 """Command-line interface for codespy."""
 
-import logging
 from typing import Annotated
 
 import typer
@@ -14,6 +13,7 @@ from codespy.config_git import get_github_token_source, get_gitlab_token_source
 # Import command functions from submodules
 from codespy.cli_remote import review
 from codespy.cli_local import review_local, review_uncommitted
+from codespy.cli_mcp_server import serve
 
 app = typer.Typer(
     name="codespy",
@@ -27,6 +27,7 @@ console = Console()
 app.command(name="review")(review)
 app.command(name="review-local")(review_local)
 app.command(name="review-uncommitted")(review_uncommitted)
+app.command(name="serve")(serve)
 
 
 def version_callback(value: bool) -> None:
@@ -51,51 +52,6 @@ def main(
 ) -> None:
     """codespy - Code review agent powered by DSPy."""
     pass
-
-
-@app.command()
-def serve(
-    config_file: Annotated[
-        str | None,
-        typer.Option(
-            "--config",
-            "-f",
-            help="Path to a YAML config file (overrides default config locations).",
-        ),
-    ] = None,
-) -> None:
-    """Start the codespy MCP server for IDE integration.
-
-    Runs an MCP (Model Context Protocol) server over stdin/stdout that exposes
-    code review tools. Configure your IDE (e.g., VS Code with Cline) to connect
-    to this server, then review local changes or remote PRs without leaving
-    your editor.
-
-    Available tools:
-        review_local_changes  — Review local git changes (branch vs base)
-        review_uncommitted    — Review uncommitted working tree changes
-        review_pr             — Review a GitHub PR or GitLab MR by URL
-
-    Examples:
-        codespy serve
-        codespy serve --config path/to/config.yaml
-
-    MCP config for Cline (cline_mcp_settings.json):
-        {
-          "mcpServers": {
-            "codespy-reviewer": {
-              "command": "codespy",
-              "args": ["serve"]
-            }
-          }
-        }
-    """
-    if config_file is not None:
-        import os
-        os.environ["CODESPY_CONFIG_FILE"] = config_file
-
-    from codespy.agents.reviewer.server import run_server
-    run_server()
 
 
 @app.command()
