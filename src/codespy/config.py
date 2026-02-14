@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     signatures: dict[str, SignatureConfig] = Field(default_factory=dict)
 
     # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
-    default_model: str = "claude-opus-4-6"
+    default_model: str = "anthropic/claude-opus-4-6"
     extraction_model: str | None = None  # For TwoStepAdapter field extraction (falls back to default_model)
     default_max_iters: int = 3
     default_max_context_size: int = 50000

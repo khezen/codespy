@@ -179,7 +179,7 @@ async def review_pr(
         return f"Review failed: {e}"
 
 
-def run_server() -> None:
+def run_server(settings: Settings | None = None) -> None:
     """Start the MCP server (called from CLI or __main__)."""
     global _settings
 
@@ -194,7 +194,7 @@ def run_server() -> None:
         stream=sys.stderr,
     )
 
-    _settings = Settings()
+    _settings = settings if settings is not None else Settings()
     logger.info(f"codespy-reviewer MCP server starting (model: {_settings.default_model})")
     mcp.run()
 

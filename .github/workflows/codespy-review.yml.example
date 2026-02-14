@@ -38,10 +38,10 @@ jobs:
           #   🧠 Smart tier  — core analysis & reasoning
           #   ⚡ Mid-tier    — field extraction & deduplication
           #   💰 Cheap tier  — summarization
-          model: 'claude-opus-4-6'
-          extraction-model: 'claude-sonnet-4-5-20250929'
-          deduplication-model: 'claude-sonnet-4-5-20250929'
-          summarization-model: 'claude-haiku-4-5-20251001'
+          model: 'anthropic/claude-opus-4-6'
+          extraction-model: 'anthropic/claude-sonnet-4-5-20250929'
+          deduplication-model: 'anthropic/claude-sonnet-4-5-20250929'
+          summarization-model: 'anthropic/claude-haiku-4-5-20251001'
 
           # Required: Provide your LLM API key (use GitHub Secrets!)
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -70,10 +70,10 @@ jobs:
       - name: Run CodeSpy Review
         uses: khezen/codespy@main
         with:
-          model: 'claude-opus-4-6'
-          extraction-model: 'claude-sonnet-4-5-20250929'
-          deduplication-model: 'claude-sonnet-4-5-20250929'
-          summarization-model: 'claude-haiku-4-5-20251001'
+          model: 'anthropic/claude-opus-4-6'
+          extraction-model: 'anthropic/claude-sonnet-4-5-20250929'
+          deduplication-model: 'anthropic/claude-sonnet-4-5-20250929'
+          summarization-model: 'anthropic/claude-haiku-4-5-20251001'
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           pr-url: ${{ github.event.issue.pull_request.html_url }}
 
@@ -86,7 +86,7 @@ jobs:
 #     - name: Run CodeSpy Review
 #       uses: khezen/codespy@main
 #       with:
-#         model: 'gpt-5'
+#         model: 'openai/gpt-5'
 #         openai-api-key: ${{ secrets.OPENAI_API_KEY }}
 
 # --- Using AWS Bedrock ---
@@ -112,7 +112,7 @@ jobs:
 #     - name: Run CodeSpy Review
 #       uses: khezen/codespy@main
 #       with:
-#         model: 'claude-opus-4-6'
+#         model: 'anthropic/claude-opus-4-6'
 #         anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 #
 #         # Global defaults
@@ -130,7 +130,7 @@ jobs:
 #     - name: Run CodeSpy Review
 #       uses: khezen/codespy@main
 #       with:
-#         model: 'claude-opus-4-6'
+#         model: 'anthropic/claude-opus-4-6'
 #         anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 #         fail-on-critical: 'true'
 
@@ -139,7 +139,7 @@ jobs:
 #       id: codespy
 #       uses: khezen/codespy@main
 #       with:
-#         model: 'claude-opus-4-6'
+#         model: 'anthropic/claude-opus-4-6'
 #         anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 #         fail-on-critical: 'false'
 #
