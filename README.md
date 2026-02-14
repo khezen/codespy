@@ -27,6 +27,7 @@
 
 ## Table of Contents
 
+- [Table of Contents](#table-of-contents)
 - [Why CodeSpy?](#why-codespy)
 - [Features](#features)
 - [Installation](#installation)
@@ -37,11 +38,14 @@
 - [Quick Start](#quick-start)
 - [Usage](#usage)
   - [Command Line](#command-line)
+  - [IDE Integration (MCP Server)](#ide-integration-mcp-server)
   - [Using Docker](#using-docker-1)
   - [GitHub Action](#github-action)
 - [Configuration](#configuration)
   - [Setup](#setup)
   - [Git Platform Tokens](#git-platform-tokens)
+    - [GitHub Token](#github-token)
+    - [GitLab Token](#gitlab-token)
   - [LLM Provider](#llm-provider)
   - [Advanced Configuration (YAML)](#advanced-configuration-yaml)
   - [Recommended Model Strategy](#recommended-model-strategy)
@@ -52,6 +56,7 @@
 - [DSPy Signatures](#dspy-signatures)
 - [Supported Languages](#supported-languages)
 - [Development](#development)
+- [Contributors](#contributors)
 - [License](#license)
 
 ---
@@ -230,32 +235,6 @@ codespy serve
 codespy serve --config path/to/config.yaml
 ```
 
-**Environment Variables for Local & MCP Reviews:**
-
-For local CLI commands (`review-local`, `review-uncommitted`) and MCP server, set these environment variables:
-
-```bash
-# Required: LLM Provider (choose one)
-
-# Option 1: Anthropic
-export DEFAULT_MODEL=claude-opus-4-6
-export ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
-
-# Option 2: AWS Bedrock
-export DEFAULT_MODEL=bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
-export AWS_REGION=us-east-1
-export AWS_ACCESS_KEY_ID=xxxxxxxxxxxxxxxxxxxx
-export AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxx
-
-# Option 3: OpenAI
-export DEFAULT_MODEL=gpt-4
-export OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
-
-# Optional: Customize review behavior
-export DEFAULT_MAX_ITERS=20
-export CODE_AND_DOC_REVIEW_MODEL=claude-sonnet-4-5-20250929
-```
-
 **Configure your IDE** (example for Cline in VS Code):
 
 Add to `cline_mcp_settings.json`:
@@ -266,7 +245,7 @@ Add to `cline_mcp_settings.json`:
       "command": "codespy",
       "args": ["serve"],
       "env": {
-        "DEFAULT_MODEL": "claude-opus-4-6",
+        "DEFAULT_MODEL": "anthropic/claude-opus-4-6",
         "ANTHROPIC_API_KEY": "your-key-here"
       }
     }
@@ -282,8 +261,8 @@ Or for AWS Bedrock:
       "command": "codespy",
       "args": ["serve"],
       "env": {
-        "DEFAULT_MODEL": "bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        "AWS_REGION": "eu-west-1",
+        "DEFAULT_MODEL": "bedrock/us.anthropic.claude-opus-4-6-v1",
+        "AWS_REGION": "us-east-1",
         "AWS_ACCESS_KEY_ID": "your-access-key",
         "AWS_SECRET_ACCESS_KEY": "your-secret-key"
       }
@@ -636,14 +615,6 @@ output_git: true
 
 ## Architecture
 
-CodeSpy supports **three review approaches**:
-
-1. **Remote PR/MR Review** (`review` command) — Fetches PR/MR from GitHub/GitLab, clones repo, runs review
-2. **Local CLI Review** (`review-local`, `review-uncommitted` commands) — Reviews local git changes directly, no platform needed
-3. **MCP Server** (`serve` command) — Exposes review tools to IDE assistants via Model Context Protocol
-
-### Remote PR/MR Review
-
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                           codespy CLI                               │
@@ -766,6 +737,12 @@ poetry run codespy review https://github.com/owner/repo/pull/123
 poetry run ruff check src/
 poetry run mypy src/
 ```
+
+---
+
+## Contributors
+* @khezen
+* @pranavsriram8
 
 ---
 
