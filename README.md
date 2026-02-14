@@ -94,6 +94,8 @@ Built for **engineering teams that care about correctness, security, and control
 - 🤖 **Model Agnostic** - Works with OpenAI, AWS Bedrock, Anthropic, Ollama, and more via LiteLLM
 - 🐳 **Docker Ready** - Run locally or in the cloud with Docker
 - <img src="assets/GitHub_Invertocat_Black.svg" height="20" alt="GitHub"> <img src="assets/gitlab-logo-500-rgb.png" height="20" alt="GitLab"> **GitHub & GitLab**  - Works with both platforms, auto-detects from URL
+- 🖥️ **Local Reviews** - Review local git changes without GitHub/GitLab — diff against any branch, ref, or review uncommitted work
+- 🧩 **MCP Server** - IDE integration via Model Context Protocol — trigger reviews from AI coding assistants like Cline without leaving your editor
 - 🔌 **GitHub Action** - One-line integration for automatic PR reviews
 
 
