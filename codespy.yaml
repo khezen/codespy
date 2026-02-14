@@ -2,12 +2,12 @@
 #
 # ENVIRONMENT VARIABLE OVERRIDES:
 # All settings can be overridden via environment variables.
-# - Flat values: <KEY> (e.g., OUTPUT_FORMAT=json, DEFAULT_MODEL=gpt-5)
+# - Flat values: <KEY> (e.g., OUTPUT_FORMAT=json, DEFAULT_MODEL=openai/gpt-5)
 # - Signature values: <SIGNATURE>_<KEY>
 #   Examples:
 #     CODE_AND_DOC_REVIEW_MAX_ITERS=15
 #     CODE_AND_DOC_REVIEW_ENABLED=false
-#     SUPPLY_CHAIN_MODEL=gpt-4-turbo
+#     SUPPLY_CHAIN_MODEL=openai/gpt-4-turbo
 #
 # Priority: Environment Variables > YAML Config > Defaults
 
@@ -69,29 +69,29 @@ gitlab:
 #
 #   Smart (default_model): Used for core analysis — defect detection, supply
 #     chain, scope identification, doc review. Requires strong reasoning.
-#     Recommended: claude-opus-4-6 or equivalent.
+#     Recommended: anthropic/claude-opus-4-6 or equivalent.
 #
 #   Mid-tier (extraction_model + deduplication): Used for structured field
 #     extraction (TwoStepAdapter) and issue deduplication. Needs accuracy but
-#     not deep reasoning. Recommended: claude-sonnet-4-5-20250929 or equivalent.
+#     not deep reasoning. Recommended: anthropic/claude-sonnet-4-5-20250929 or equivalent.
 #
 #   Cheap (summarization): Used for PR summary generation. Simple synthesis
-#     task. Recommended: claude-haiku-4-5-20251001 or equivalent.
+#     task. Recommended: anthropic/claude-haiku-4-5-20251001 or equivalent.
 #
 # By default, all models fall back to default_model. Override extraction_model,
 # deduplication model, and summarization model for cost optimization:
 #
-#   default_model: claude-opus-4-6
-#   extraction_model: claude-sonnet-4-5-20250929
+#   default_model: anthropic/claude-opus-4-6
+#   extraction_model: anthropic/claude-sonnet-4-5-20250929
 #   signatures:
 #     deduplication:
-#       model: claude-sonnet-4-5-20250929
+#       model: anthropic/claude-sonnet-4-5-20250929
 #     summarization:
-#       model: claude-haiku-4-5-20251001
+#       model: anthropic/claude-haiku-4-5-20251001
 # ============================================================================
 
 # These apply to all signatures unless overridden per-signature
-default_model: claude-opus-4-6                  # DEFAULT_MODEL
+default_model: anthropic/claude-opus-4-6        # DEFAULT_MODEL
 extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model)
 default_max_iters: 10                           # DEFAULT_MAX_ITERS
 default_max_context_size: 50000                 # DEFAULT_MAX_CONTEXT_SIZE

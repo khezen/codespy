@@ -152,7 +152,7 @@ export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx  # For GitHub
 export GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx  # For GitLab
 
 # 2. Set your LLM provider (example with Anthropic)
-export DEFAULT_MODEL=claude-opus-4-6
+export DEFAULT_MODEL=anthropic/claude-opus-4-6
 export ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
 
 # 3. Review a PR or MR!
@@ -186,7 +186,7 @@ codespy review https://gitlab.mycompany.com/team/project/-/merge_requests/123
 codespy review https://github.com/owner/repo/pull/123 --output json
 
 # Use a specific model
-codespy review https://github.com/owner/repo/pull/123 --model claude-opus-4-6
+codespy review https://github.com/owner/repo/pull/123 --model anthropic/claude-opus-4-6
 
 # Use a custom config file
 codespy review https://github.com/owner/repo/pull/123 --config path/to/config.yaml
@@ -284,14 +284,14 @@ Then ask your AI assistant: *"Review my local changes"* or *"Review uncommitted 
 # With docker run (using GHCR image)
 docker run --rm \
   -e GITHUB_TOKEN=$GITHUB_TOKEN \
-  -e DEFAULT_MODEL=claude-opus-4-6 \
+  -e DEFAULT_MODEL=anthropic/claude-opus-4-6 \
   -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
   ghcr.io/khezen/codespy:latest review https://github.com/owner/repo/pull/123
 
 # Or use a specific version
 docker run --rm \
   -e GITHUB_TOKEN=$GITHUB_TOKEN \
-  -e DEFAULT_MODEL=claude-opus-4-6 \
+  -e DEFAULT_MODEL=anthropic/claude-opus-4-6 \
   -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
   ghcr.io/khezen/codespy:0.2.1 review https://github.com/owner/repo/pull/123
 ```
@@ -325,7 +325,7 @@ jobs:
       - name: Run CodeSpy Review
         uses: khezen/codespy@v1
         with:
-          model: 'claude-opus-4-6'
+          model: 'anthropic/claude-opus-4-6'
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
@@ -350,7 +350,7 @@ jobs:
       - name: Run CodeSpy Review
         uses: khezen/codespy@v1
         with:
-          model: 'claude-opus-4-6'
+          model: 'anthropic/claude-opus-4-6'
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
@@ -426,7 +426,7 @@ codespy auto-discovers credentials for all providers:
 
 **Anthropic** (auto-discovers from `$ANTHROPIC_API_KEY`, `~/.config/anthropic/`, `~/.anthropic/`):
 ```bash
-DEFAULT_MODEL=claude-opus-4-6
+DEFAULT_MODEL=anthropic/claude-opus-4-6
 # Optional - set explicitly or let codespy auto-discover:
 # ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
 ```
@@ -442,7 +442,7 @@ AWS_REGION=us-east-1
 
 **OpenAI** (auto-discovers from `$OPENAI_API_KEY`, `~/.config/openai/`, `~/.openai/`):
 ```bash
-DEFAULT_MODEL=gpt-5
+DEFAULT_MODEL=openai/gpt-5
 # Optional - set explicitly or let codespy auto-discover:
 # OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
 ```
@@ -480,11 +480,11 @@ Override YAML settings via environment variables using `_` separator:
 
 ```bash
 # Default settings
-export DEFAULT_MODEL=claude-opus-4-6
+export DEFAULT_MODEL=anthropic/claude-opus-4-6
 export DEFAULT_MAX_ITERS=20
 
 # Per-signature settings (use signature name, not module name)
-export CODE_AND_DOC_REVIEW_MODEL=claude-sonnet-4-5-20250929
+export CODE_AND_DOC_REVIEW_MODEL=anthropic/claude-sonnet-4-5-20250929
 
 # Output settings
 export OUTPUT_STDOUT=false
@@ -499,32 +499,32 @@ codespy uses a tiered model approach to balance review quality and cost:
 
 | Tier | Role | Default | Recommended Model | Used By |
 |------|------|---------|-------------------|---------|
-| 🧠 **Smart** | Core analysis & reasoning | `DEFAULT_MODEL` | `claude-opus-4-6` | Code & doc review, supply chain, scope identification |
-| ⚡ **Mid-tier** | Extraction & deduplication | Falls back to `DEFAULT_MODEL` | `claude-sonnet-4-5-20250929` | TwoStepAdapter field extraction, issue deduplication |
-| 💰 **Cheap** | Summarization | Falls back to `DEFAULT_MODEL` | `claude-haiku-4-5-20251001` | PR summary generation |
+| 🧠 **Smart** | Core analysis & reasoning | `DEFAULT_MODEL` | `anthropic/claude-opus-4-6` | Code & doc review, supply chain, scope identification |
+| ⚡ **Mid-tier** | Extraction & deduplication | Falls back to `DEFAULT_MODEL` | `anthropic/claude-sonnet-4-5-20250929` | TwoStepAdapter field extraction, issue deduplication |
+| 💰 **Cheap** | Summarization | Falls back to `DEFAULT_MODEL` | `anthropic/claude-haiku-4-5-20251001` | PR summary generation |
 
-By default, **all models use `DEFAULT_MODEL`** (`claude-opus-4-6`). This works out of the box — just set your API credentials and go.
+By default, **all models use `DEFAULT_MODEL`** (`anthropic/claude-opus-4-6`). This works out of the box — just set your API credentials and go.
 
 To optimize costs, override the mid-tier and cheap models:
 
 ```bash
 # .env or environment variables
-DEFAULT_MODEL=claude-opus-4-6                    # Smart tier (default)
-EXTRACTION_MODEL=claude-sonnet-4-5-20250929      # Mid-tier: field extraction
-DEDUPLICATION_MODEL=claude-sonnet-4-5-20250929   # Mid-tier: issue deduplication
-SUMMARIZATION_MODEL=claude-haiku-4-5-20251001    # Cheap tier: PR summary
+DEFAULT_MODEL=anthropic/claude-opus-4-6                    # Smart tier (default)
+EXTRACTION_MODEL=anthropic/claude-sonnet-4-5-20250929      # Mid-tier: field extraction
+DEDUPLICATION_MODEL=anthropic/claude-sonnet-4-5-20250929   # Mid-tier: issue deduplication
+SUMMARIZATION_MODEL=anthropic/claude-haiku-4-5-20251001    # Cheap tier: PR summary
 ```
 
 Or in `codespy.yaml`:
 
 ```yaml
-default_model: claude-opus-4-6
-extraction_model: claude-sonnet-4-5-20250929
+default_model: anthropic/claude-opus-4-6
+extraction_model: anthropic/claude-sonnet-4-5-20250929
 signatures:
   deduplication:
-    model: claude-sonnet-4-5-20250929
+    model: anthropic/claude-sonnet-4-5-20250929
   summarization:
-    model: claude-haiku-4-5-20251001
+    model: anthropic/claude-haiku-4-5-20251001
 ```
 
 ---
@@ -538,7 +538,7 @@ signatures:
 
 **PR:** [owner/repo#123](https://github.com/owner/repo/pull/123)
 **Reviewed at:** 2024-01-15 10:30 UTC
-**Model:** claude-opus-4-6
+**Model:** anthropic/claude-opus-4-6
 
 ## Summary
 
