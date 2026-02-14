@@ -19,11 +19,10 @@ from codespy.agents.reviewer.models import (
     LocalReviewConfig,
 )
 from codespy.agents.reviewer.modules import (
-    DefectDetector,
+    CodeReviewer,
     DocReviewer,
     IssueDeduplicator,
     ScopeIdentifier,
-    SmellDetector,
     SupplyChainAuditor,
 )
 
@@ -77,9 +76,8 @@ class ReviewPipeline(dspy.Module):
 
         # Initialize all modules - they internally check if their signatures are enabled
         self.scope_identifier = ScopeIdentifier()
-        self.defect_detector = DefectDetector()
+        self.code_reviewer = CodeReviewer()
         self.doc_reviewer = DocReviewer()
-        self.smell_detector = SmellDetector()
         self.supply_chain_auditor = SupplyChainAuditor()
         self.deduplicator = IssueDeduplicator()
 
@@ -134,9 +132,8 @@ class ReviewPipeline(dspy.Module):
             Aggregated list of issues from all modules
         """
         tasks = [
-            self.defect_detector.aforward(scopes=scopes, repo_path=repo_path),
+            self.code_reviewer.aforward(scopes=scopes, repo_path=repo_path),
             self.doc_reviewer.aforward(scopes=scopes, repo_path=repo_path),
-            self.smell_detector.aforward(scopes=scopes, repo_path=repo_path),
             self.supply_chain_auditor.aforward(scopes=scopes, repo_path=repo_path),
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -208,7 +205,7 @@ class ReviewPipeline(dspy.Module):
                     logger.info(f"    Dependencies changed: Yes")
 
         # Run review modules concurrently via asyncio.gather
-        module_names = ["defect_detector", "doc_reviewer", "smell_detector", "supply_chain_auditor"]
+        module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
         all_issues = asyncio.run(
             self._run_review_modules(scopes, repo_path, module_names)

@@ -486,7 +486,7 @@ export DEFAULT_MODEL=anthropic/claude-opus-4-6
 export DEFAULT_MAX_ITERS=20
 
 # Per-signature settings (use signature name, not module name)
-export DEFECT_MODEL=anthropic/claude-sonnet-4-5-20250929
+export CODE_REVIEW_MODEL=anthropic/claude-sonnet-4-5-20250929
 
 # Output settings
 export OUTPUT_STDOUT=false
@@ -642,10 +642,12 @@ output_git: true
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
 │  │              Parallel Review Modules                       │     │
-│  │  ┌──────────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │     │
-│  │  │ Supply Chain │ │  Defect  │ │   Doc    │ │  Smell   │   │     │
-│  │  │   Auditor    │ │ Detector │ │ Reviewer │ │ Detector │   │     │
-│  │  └──────────────┘ └──────────┘ └──────────┘ └──────────┘   │     │
+│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────┐            │     │
+│  │  │ Supply Chain │ │ Code         │ │   Doc    │            │     │
+│  │  │   Auditor    │ │ Reviewer     │ │ Reviewer │            │     │
+│  │  │              │ │ (bug+sec+    │ │          │            │     │
+│  │  │              │ │  smell)      │ │          │            │     │
+│  │  └──────────────┘ └──────────────┘ └──────────┘            │     │
 │  └──────────────────────────┬─────────────────────────────────┘     │
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
@@ -689,9 +691,8 @@ The review is powered by DSPy signatures that structure the LLM's analysis:
 | Signature | Config Key | Description |
 |-----------|------------|-------------|
 | **ScopeIdentifierSignature** | `scope` | Identifies code scopes (frontend, backend, infra, microservice in mono repo, etc...) |
-| **DefectDetectorSignature** | `defect` | Detects verified bugs, removed defensive code, and security vulnerabilities |
+| **CodeReviewSignature** | `code_review` | Detects verified bugs, security vulnerabilities, removed defensive code, and code smells |
 | **DocReviewSignature** | `doc` | Detects stale or wrong documentation caused by code changes |
-| **SmellDetectorSignature** | `smell` | Detects code smells — naming, complexity, data clumps, YAGNI |
 | **SupplyChainSecuritySignature** | `supply_chain` | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
 | **IssueDeduplicationSignature** | `deduplication` | LLM-powered deduplication of issues across reviewers |
 | **MRSummarySignature** | `summarization` | Generates summary, quality assessment, and recommendation |

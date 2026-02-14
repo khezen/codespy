@@ -5,8 +5,8 @@
 # - Flat values: <KEY> (e.g., OUTPUT_FORMAT=json, DEFAULT_MODEL=openai/gpt-5)
 # - Signature values: <SIGNATURE>_<KEY>
 #   Examples:
-#     DEFECT_MAX_ITERS=15
-#     SMELL_ENABLED=false
+#     CODE_REVIEW_MAX_ITERS=15
+#     CODE_REVIEW_ENABLED=false
 #     SUPPLY_CHAIN_MODEL=openai/gpt-4-turbo
 #
 # Priority: Environment Variables > YAML Config > Defaults
@@ -115,14 +115,15 @@ signatures:
     # When true: scans ALL artifacts (Dockerfiles, etc.) and manifests
     # When false (default): only scans artifacts/manifests that were modified in the MR
 
-  # Defect Detector signature (bugs, logic errors, removed defensive code, security vulnerabilities)
-  defect:
-    enabled: true                        # DEFECT_ENABLED
-    max_iters: null                      # DEFECT_MAX_ITERS
-    model: null                          # DEFECT_MODEL
-    max_context_size: null               # DEFECT_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # DEFECT_MAX_REASONING_TOKENS
-    temperature: null                    # DEFECT_TEMPERATURE
+  # Code Reviewer signature (bugs, security, removed defensive code, code smells)
+  # Merges defect detection and smell detection into a single agent pass per scope
+  code_review:
+    enabled: true                        # CODE_REVIEW_ENABLED
+    max_iters: null                      # CODE_REVIEW_MAX_ITERS
+    model: null                          # CODE_REVIEW_MODEL
+    max_context_size: null               # CODE_REVIEW_MAX_CONTEXT_SIZE
+    max_reasoning_tokens: null           # CODE_REVIEW_MAX_REASONING_TOKENS
+    temperature: null                    # CODE_REVIEW_TEMPERATURE
 
   # Documentation Reviewer signature (stale/wrong documentation)
   doc:
@@ -132,15 +133,6 @@ signatures:
     max_context_size: null               # DOC_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # DOC_MAX_REASONING_TOKENS
     temperature: null                    # DOC_TEMPERATURE
-
-  # Smell Detector signature (code smells, naming, complexity, YAGNI)
-  smell:
-    enabled: true                        # SMELL_ENABLED
-    max_iters: null                      # SMELL_MAX_ITERS
-    model: null                          # SMELL_MODEL
-    max_context_size: null               # SMELL_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # SMELL_MAX_REASONING_TOKENS
-    temperature: null                    # SMELL_TEMPERATURE
 
   # Scope Identifier signature
   scope:

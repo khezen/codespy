@@ -1,4 +1,4 @@
-"""Code defect and security vulnerability detection module."""
+"""Unified code review module — defects, security, and code smells."""
 
 import asyncio
 import logging
@@ -22,8 +22,8 @@ from codespy.tools.mcp_utils import cleanup_mcp_contexts
 logger = logging.getLogger(__name__)
 
 
-class DefectDetectorSignature(dspy.Signature):
-    """Detect VERIFIED code defects and security vulnerabilities in a scope.
+class CodeReviewSignature(dspy.Signature):
+    """Detect VERIFIED code defects, security vulnerabilities, and code smells.
 
     You are a busy Principal Engineer with very little time.
     Be extremely terse. Use imperative mood ("Fix X", not "You should fix X").
@@ -38,45 +38,36 @@ class DefectDetectorSignature(dspy.Signature):
     Use read_file to read the README at the scope root:
     - Path: readme.md OR README.md (paths are relative to scope root)
     - This file provides essential context about the scope's purpose, API contracts,
-      configuration, and expected behavior. Use it to inform defect detection.
+      configuration, and expected behavior.
 
-    If README doesn't exist at scope root, search for alternative documentation files
-    (e.g., docs/, documentation/, README.rst) using get_tree or file_exists.
+    If README doesn't exist, search for alternative documentation files
+    (e.g., docs/, README.rst) using get_tree or file_exists.
 
     ═══════════════════════════════════════════════════════════════════════════════
-    PHASE 2 — ANALYZE CHANGES FOR DEFECTS
+    PHASE 2 — ANALYZE CHANGES (PRIORITY ORDER)
     ═══════════════════════════════════════════════════════════════════════════════
 
-    Using the README context and the patches in scope.changed_files, look for:
+    Review each changed file's patch. Prioritize bugs and security first, then smells.
 
     CRITICAL RULES:
-    - ONLY report defects you can VERIFY using the available tools
-    - Before reporting any defect, USE the tools to verify your assumptions
-    - DO NOT speculate about potential issues you cannot verify
-    - DO NOT report "might be", "could be", "possibly", "may cause" issues
+    - ONLY report issues you can VERIFY using the available tools
+    - Before reporting, USE the tools to verify your assumptions
+    - DO NOT speculate — no "might be", "could be", "possibly" issues
     - If you cannot point to the EXACT defective code with evidence, do NOT report it
     - Quality over quantity: prefer 0 reports over 1 speculative report
 
-    EXCEPTION — REMOVED DEFENSIVE CODE (always report):
-    - If a guard (bounds check, null/nil/undefined check, Math.max/min, default
-      value, clamp, error catch, try/catch, fallback, sanitization) existed in the
-      removed lines (-) of the patch and is absent from the added lines (+),
-      report it as a bug. The guard's prior existence is sufficient evidence —
-      removal shifts risk to the caller and must be justified.
-    - Use read_file or search_literal to confirm the guard was not relocated
-      elsewhere in the same function/file. If it was moved, do not report.
-
-    VERIFICATION WORKFLOW:
+    VERIFICATION WORKFLOW (shared across all categories):
     1. Review each changed file's patch — the diff shows what changed
-    2. For suspected defects that need verification beyond the patch:
+    2. For suspected issues that need verification beyond the patch:
        - Use find_function_definitions to check function signatures and implementations
        - Use find_function_calls to understand how functions are called and trace data flow
        - Use find_function_usages/find_callers to trace usage patterns
-       - Use search_literal to find related patterns (sanitization, encoding, validation)
+       - Use search_literal to find related patterns (sanitization, validation, naming)
        - Use read_file ONLY if you need broader context not visible in the patch
     3. Only report issues that are CONFIRMED by your verification
 
-    BUGS & LOGIC ERRORS (category = "bug"):
+    ─── A. BUGS & LOGIC ERRORS (category = "bug") ───────────────────────────────
+
     - Logic errors: verify the condition is actually incorrect by checking related code
     - Null/undefined references: verify the check is actually missing
     - Resource leaks: verify there's no cleanup in finally/defer/close methods
@@ -84,20 +75,45 @@ class DefectDetectorSignature(dspy.Signature):
     - Type mismatches: verify types by checking definitions
     - Off-by-one errors: verify by understanding the data structure bounds
 
-    SECURITY VULNERABILITIES (category = "security"):
-    - Injection attacks (SQL, command, XSS): verify input reaches dangerous sink without sanitization
-    - Authentication/authorization issues: verify auth check is actually missing
+    REMOVED DEFENSIVE CODE (always report as "bug"):
+    If a guard (bounds check, null check, Math.max/min, default value, try/catch,
+    sanitization) existed in removed lines (-) and is absent from added lines (+),
+    report it. Use read_file or search_literal to confirm the guard was not relocated
+    elsewhere in the same function/file. If it was moved, do not report.
+
+    ─── B. SECURITY VULNERABILITIES (category = "security") ─────────────────────
+
+    - Injection (SQL, command, XSS): verify input reaches dangerous sink unsanitized
+    - Authentication/authorization: verify auth check is actually missing
     - Sensitive data exposure: verify data is actually exposed, not just accessed
-    - Insecure cryptographic practices: verify the actual algorithm used
-    - Security misconfigurations: verify by checking actual config values
-    - Input validation issues: verify input is not validated
+    - Insecure crypto: verify the actual algorithm used
     - Path traversal: verify path input is not sanitized
     - Race conditions: verify shared state access without synchronization
-    - Memory safety issues: verify unsafe memory operations
 
-    DO NOT report:
-    - Hypothetical vulnerabilities without evidence
-    - "Could be vulnerable if..." scenarios
+    ─── C. CODE SMELLS (category = "smell") ──────────────────────────────────────
+
+    UNCOMMUNICATIVE NAMES:
+    - Variables not describing data they hold (data, info, item, temp, val)
+    - Functions not starting with a verb (user(), process())
+    - Booleans not reading as predicates (valid, flag → isValid, hasPermission)
+    - Side-effect mismatch: getName() that writes to DB
+
+    PRIMITIVE OBSESSION:
+    - 3+ related primitive params traveling together → suggest struct/class
+
+    COMPLEXITY:
+    - Double negatives, nested ternaries, >2 logical operators per condition
+    - Magic numbers in logic → suggest named constants
+    - 3+ nesting levels → suggest guard clauses/early returns
+    - 5+ switch/if-elif branches → suggest polymorphism
+
+    YAGNI:
+    - Abstract class/interface with single implementation (verify with find_callers)
+    - Unused parameters accepted "for future use"
+
+    DO NOT report as smells:
+    - Idiomatic short names (i, j, k, err, ctx, db, tx)
+    - Test file naming conventions
 
     ═══════════════════════════════════════════════════════════════════════════════
     OUTPUT RULES
@@ -106,10 +122,10 @@ class DefectDetectorSignature(dspy.Signature):
     - Set category to one of the values provided in the categories input
     - For security issues, include cwe_id where applicable
     - Reference files by name and line number only — never copy source code into issues
-    - Do not repeat patch content in reasoning steps. Keep each reasoning step to 1-2 sentences
+    - Do not repeat patch content in reasoning steps. Keep each step to 1-2 sentences
     - Empty list if no issues found. No approval text ("LGTM", "looks good")
-    - description: ≤25 words, imperative tone, no filler ("Fix X", "Update Y section")
-    - No polite or conversational language ("I suggest", "Please consider", "Great")
+    - description: ≤25 words, imperative tone, no filler ("Fix X", "Rename Y to Z")
+    - No polite or conversational language
     - Do not populate code_snippet — use line numbers instead
     """
 
@@ -123,24 +139,24 @@ class DefectDetectorSignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Verified defects. Category must be one of the provided categories. "
+        desc="Verified issues. Category must be one of the provided categories. "
         "Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none. "
         "File paths must be relative to scope root."
     )
 
 
-class DefectDetector(dspy.Module):
-    """Detects code defects and security vulnerabilities.
+class CodeReviewer(dspy.Module):
+    """Unified code reviewer — defects, security, and smells in a single pass.
 
-    Focuses exclusively on bugs, removed defensive code, and security issues,
-    using MCP tools to verify each finding before reporting.
+    Merges DefectDetector and SmellDetector into one agent to avoid redundant
+    README reads, tool sessions, and input token costs per scope.
 
     MCP tools are scope-restricted: for each scope, tools are rooted at
     repo_path/scope.subroot so the agent cannot access files outside the scope.
     """
 
     def __init__(self) -> None:
-        """Initialize the defect detector."""
+        """Initialize the code reviewer."""
         super().__init__()
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
@@ -148,51 +164,57 @@ class DefectDetector(dspy.Module):
     async def aforward(
         self, scopes: Sequence[ScopeResult], repo_path: Path
     ) -> list[Issue]:
-        """Analyze scopes for code defects and security vulnerabilities.
+        """Analyze scopes for defects, security issues, and code smells.
 
         Args:
             scopes: List of identified scopes with their changed files
             repo_path: Path to the cloned repository
 
         Returns:
-            List of bug and security issues found across all scopes
+            List of bug, security, and smell issues found across all scopes
         """
-        if not self._settings.is_signature_enabled("defect"):
-            logger.debug("Skipping defect: disabled")
+        if not self._settings.is_signature_enabled("code_review"):
+            logger.debug("Skipping code_review: disabled")
             return []
+
+        # Determine which categories are active
+        categories: list[IssueCategory] = []
+        categories.append(IssueCategory.BUG)
+        categories.append(IssueCategory.SECURITY)
+        categories.append(IssueCategory.SMELL)
 
         changed_scopes = [s for s in scopes if s.has_changes and s.changed_files]
         if not changed_scopes:
-            logger.info("No scopes with changes for defect detection")
+            logger.info("No scopes with changes for code review")
             return []
 
         all_issues: list[Issue] = []
-        max_iters = self._settings.get_max_iters("defect")
+        max_iters = self._settings.get_max_iters("code_review")
 
         total_files = sum(len(s.changed_files) for s in changed_scopes)
         logger.info(
-            f"Defect detection for {len(changed_scopes)} scopes "
+            f"Code review for {len(changed_scopes)} scopes "
             f"({total_files} changed files)..."
         )
 
         for scope in changed_scopes:
             scope_root = resolve_scope_root(repo_path, scope.subroot)
-            tools, contexts = await create_mcp_tools(scope_root, "defect_detector")
+            tools, contexts = await create_mcp_tools(scope_root, "code_reviewer")
             try:
                 agent = dspy.ReAct(
-                    signature=DefectDetectorSignature,
+                    signature=CodeReviewSignature,
                     tools=tools,
                     max_iters=max_iters,
                 )
                 scoped = make_scope_relative(scope)
                 logger.info(
-                    f"  Defect detection: scope {scope.subroot} "
+                    f"  Code review: scope {scope.subroot} "
                     f"({len(scope.changed_files)} files)"
                 )
-                async with SignatureContext("defect", self._cost_tracker):
+                async with SignatureContext("code_review", self._cost_tracker):
                     result = await agent.acall(
                         scope=scoped,
-                        categories=[IssueCategory.BUG, IssueCategory.SECURITY],
+                        categories=categories,
                     )
 
                 issues = [
@@ -202,26 +224,26 @@ class DefectDetector(dspy.Module):
                 restore_repo_paths(issues, scope.subroot)
                 all_issues.extend(issues)
                 logger.debug(
-                    f"  Scope {scope.subroot}: {len(issues)} defect issues"
+                    f"  Scope {scope.subroot}: {len(issues)} code review issues"
                 )
             except Exception as e:
-                logger.error(f"Defect detection failed for scope {scope.subroot}: {e}")
+                logger.error(f"Code review failed for scope {scope.subroot}: {e}")
             finally:
                 await cleanup_mcp_contexts(contexts)
 
-        logger.info(f"Defect detection found {len(all_issues)} issues")
+        logger.info(f"Code review found {len(all_issues)} issues")
         return all_issues
 
     def forward(
         self, scopes: Sequence[ScopeResult], repo_path: Path
     ) -> list[Issue]:
-        """Analyze scopes for defects (sync wrapper).
+        """Analyze scopes for code issues (sync wrapper).
 
         Args:
             scopes: List of identified scopes with their changed files
             repo_path: Path to the cloned repository
 
         Returns:
-            List of bug and security issues found across all scopes
+            List of bug, security, and smell issues found across all scopes
         """
         return asyncio.run(self.aforward(scopes, repo_path))
