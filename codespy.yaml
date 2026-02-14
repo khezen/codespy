@@ -93,9 +93,9 @@ gitlab:
 # These apply to all signatures unless overridden per-signature
 default_model: anthropic/claude-opus-4-6        # DEFAULT_MODEL
 extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model)
-default_max_iters: 20                           # DEFAULT_MAX_ITERS
-default_max_context_size: 50000                # DEFAULT_MAX_CONTEXT_SIZE
-default_max_reasoning_tokens: 4000             # DEFAULT_MAX_REASONING_TOKENS (limits LLM reasoning verbosity)
+default_max_iters: 40                           # DEFAULT_MAX_ITERS
+default_max_context_size: 100000                # DEFAULT_MAX_CONTEXT_SIZE
+default_max_reasoning_tokens: 8000             # DEFAULT_MAX_REASONING_TOKENS (limits LLM reasoning verbosity)
 default_temperature: 0                          # DEFAULT_TEMPERATURE (lower = more deterministic output)
 
 # Global LLM reliability settings

@@ -44,29 +44,24 @@ class CodeReviewSignature(dspy.Signature):
     (e.g., docs/, README.rst) using get_tree or file_exists.
 
     ═══════════════════════════════════════════════════════════════════════════════
-    PHASE 2 — ANALYZE CHANGES (PRIORITY ORDER)
+    PHASE 2 — ANALYZE CHANGES
     ═══════════════════════════════════════════════════════════════════════════════
 
-    Review each changed file's patch. Prioritize bugs and security first, then smells.
+    Review each changed file's patch. For each file, check ALL categories (A, B, C)
+    before moving to the next file.
 
-    CRITICAL RULES:
-    - ONLY report issues you can VERIFY using the available tools
-    - Before reporting, USE the tools to verify your assumptions
-    - DO NOT speculate — no "might be", "could be", "possibly" issues
-    - If you cannot point to the EXACT defective code with evidence, do NOT report it
-    - Quality over quantity: prefer 0 reports over 1 speculative report
-
-    VERIFICATION WORKFLOW (shared across all categories):
-    1. Review each changed file's patch — the diff shows what changed
-    2. For suspected issues that need verification beyond the patch:
-       - Use find_function_definitions to check function signatures and implementations
-       - Use find_function_calls to understand how functions are called and trace data flow
-       - Use find_function_usages/find_callers to trace usage patterns
-       - Use search_literal to find related patterns (sanitization, validation, naming)
-       - Use read_file ONLY if you need broader context not visible in the patch
-    3. Only report issues that are CONFIRMED by your verification
+    TOOLS AVAILABLE:
+    - find_function_definitions: check function signatures and implementations
+    - find_function_calls: understand how functions are called, trace data flow
+    - find_function_usages / find_callers: trace usage patterns
+    - search_literal: find related patterns (sanitization, validation, naming)
+    - read_file: broader context not visible in the patch (use sparingly)
 
     ─── A. BUGS & LOGIC ERRORS (category = "bug") ───────────────────────────────
+
+    EVIDENCE STANDARD: STRICT — you must VERIFY with tools before reporting.
+    DO NOT speculate. No "might be", "could be", "possibly" issues.
+    If you cannot point to the EXACT defective code with evidence, do NOT report.
 
     - Logic errors: verify the condition is actually incorrect by checking related code
     - Null/undefined references: verify the check is actually missing
@@ -83,6 +78,9 @@ class CodeReviewSignature(dspy.Signature):
 
     ─── B. SECURITY VULNERABILITIES (category = "security") ─────────────────────
 
+    EVIDENCE STANDARD: STRICT — you must VERIFY with tools before reporting.
+    DO NOT speculate. Trace data flow from source to sink.
+
     - Injection (SQL, command, XSS): verify input reaches dangerous sink unsanitized
     - Authentication/authorization: verify auth check is actually missing
     - Sensitive data exposure: verify data is actually exposed, not just accessed
@@ -92,6 +90,12 @@ class CodeReviewSignature(dspy.Signature):
 
     ─── C. CODE SMELLS (category = "smell") ──────────────────────────────────────
 
+    EVIDENCE STANDARD: OBSERVATIONAL — the patch or function signature IS the evidence.
+    A function with 5 primitive parameters IS a smell — no further verification needed.
+    A variable named "data" IS a smell — the name itself is the evidence.
+    Use tools to confirm if needed (e.g., find_function_definitions for param lists),
+    but the structural pattern visible in the patch is sufficient to report.
+
     UNCOMMUNICATIVE NAMES:
     - Variables not describing data they hold (data, info, item, temp, val)
     - Functions not starting with a verb (user(), process())
@@ -99,7 +103,9 @@ class CodeReviewSignature(dspy.Signature):
     - Side-effect mismatch: getName() that writes to DB
 
     PRIMITIVE OBSESSION:
-    - 3+ related primitive params traveling together → suggest struct/class
+    - Functions taking 3+ related primitive parameters that travel together
+      Example: (string zip, string city, string street) → suggest Address struct/class
+    - Use find_function_definitions to inspect parameter lists if not visible in patch
 
     COMPLEXITY:
     - Double negatives, nested ternaries, >2 logical operators per condition
