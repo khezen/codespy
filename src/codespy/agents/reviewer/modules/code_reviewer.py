@@ -32,19 +32,7 @@ class CodeReviewSignature(dspy.Signature):
     Tools are restricted to this scope — you cannot access files outside it.
 
     ═══════════════════════════════════════════════════════════════════════════════
-    PHASE 1 — READ DOCUMENTATION (MANDATORY FIRST STEP)
-    ═══════════════════════════════════════════════════════════════════════════════
-
-    Use read_file to read the README at the scope root:
-    - Path: readme.md OR README.md (paths are relative to scope root)
-    - This file provides essential context about the scope's purpose, API contracts,
-      configuration, and expected behavior.
-
-    If README doesn't exist, search for alternative documentation files
-    (e.g., docs/, README.rst) using get_tree or file_exists.
-
-    ═══════════════════════════════════════════════════════════════════════════════
-    PHASE 2 — ANALYZE CHANGES
+    ANALYZE CHANGES
     ═══════════════════════════════════════════════════════════════════════════════
 
     Review each changed file's patch. For each file, check ALL categories (A, B, C)
@@ -55,7 +43,7 @@ class CodeReviewSignature(dspy.Signature):
     - find_function_calls: understand how functions are called, trace data flow
     - find_function_usages / find_callers: trace usage patterns
     - search_literal: find related patterns (sanitization, validation, naming)
-    - read_file: broader context not visible in the patch (use sparingly)
+    - read_file:broader context not visible in the patch (use sparingly)
 
     ─── A. BUGS & LOGIC ERRORS (category = "bug") ───────────────────────────────
 
