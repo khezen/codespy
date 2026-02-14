@@ -12,13 +12,13 @@ inputs:
     default: ${{ github.token }}
   
   model:
-    description: 'Default LLM model to use (e.g., claude-sonnet-4-5-20250929, gpt-5, bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0)'
+    description: 'Default LLM model to use (e.g., anthropic/claude-sonnet-4-5-20250929, openai/gpt-5, bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0)'
     required: true
   
   extraction-model:
     description: 'Model for field extraction (smaller model recommended)'
     required: false
-    default: 'claude-haiku-4-5-20251001'
+    default: 'anthropic/claude-haiku-4-5-20251001'
   
   pr-url:
     description: 'URL of the pull request to review. Defaults to the current PR context.'

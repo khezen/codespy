@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -319,3 +320,21 @@ class ReviewResult(BaseModel):
     def to_json_dict(self) -> dict:
         """Convert to a JSON-serializable dictionary."""
         return self.model_dump(mode="json")
+
+
+class RemoteReviewConfig(BaseModel):
+    """Configuration for reviewing a remote PR/MR from GitHub or GitLab."""
+
+    url: str = Field(description="URL of the GitHub PR or GitLab MR to review")
+
+
+class LocalReviewConfig(BaseModel):
+    """Configuration for reviewing local git changes without a remote platform."""
+
+    repo_path: Path = Field(description="Path to the git repository")
+    base_ref: str = Field(default="main", description="Base git ref to compare against (e.g., 'main', 'develop', 'HEAD~5')")
+    uncommitted: bool = Field(default=False, description="If True, review uncommitted changes (working tree vs HEAD)")
+
+
+# Union type for review configuration
+ReviewConfig = RemoteReviewConfig | LocalReviewConfig

@@ -38,6 +38,7 @@
 - [Quick Start](#quick-start)
 - [Usage](#usage)
   - [Command Line](#command-line)
+  - [IDE Integration (MCP Server)](#ide-integration-mcp-server)
   - [Using Docker](#using-docker-1)
   - [GitHub Action](#github-action)
 - [Configuration](#configuration)
@@ -55,6 +56,41 @@
 - [DSPy Signatures](#dspy-signatures)
 - [Supported Languages](#supported-languages)
 - [Development](#development)
+- [Contributors](#contributors)
+- [License](#license)
+>>>>>>> main
+- [Table of Contents](#table-of-contents)
+- [Why CodeSpy?](#why-codespy)
+- [Features](#features)
+- [Installation](#installation)
+  - [Using pip](#using-pip)
+  - [Using Homebrew (macOS/Linux)](#using-homebrew-macoslinux)
+  - [Using Docker](#using-docker)
+  - [Using Poetry (for development)](#using-poetry-for-development)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+  - [Command Line](#command-line)
+  - [IDE Integration (MCP Server)](#ide-integration-mcp-server)
+  - [Using Docker](#using-docker-1)
+  - [GitHub Action](#github-action)
+- [Configuration](#configuration)
+  - [Setup](#setup)
+  - [Git Platform Tokens](#git-platform-tokens)
+    - [GitHub Token](#github-token)
+    - [GitLab Token](#gitlab-token)
+  - [LLM Provider](#llm-provider)
+  - [Advanced Configuration (YAML)](#advanced-configuration-yaml)
+  - [Recommended Model Strategy](#recommended-model-strategy)
+- [Output](#output)
+  - [Markdown (default)](#markdown-default)
+  - [GitHub/GitLab Review Comments](#githubgitlab-review-comments)
+- [Architecture](#architecture)
+- [DSPy Signatures](#dspy-signatures)
+- [Supported Languages](#supported-languages)
+- [Development](#development)
+- [Contributors](#contributors)
+- [License](#license)
+>>>>>>> main
 - [License](#license)
 
 ---
@@ -92,6 +128,8 @@ Built for **engineering teams that care about correctness, security, and control
 - 🤖 **Model Agnostic** - Works with OpenAI, AWS Bedrock, Anthropic, Ollama, and more via LiteLLM
 - 🐳 **Docker Ready** - Run locally or in the cloud with Docker
 - <img src="assets/GitHub_Invertocat_Black.svg" height="20" alt="GitHub"> <img src="assets/gitlab-logo-500-rgb.png" height="20" alt="GitLab"> **GitHub & GitLab**  - Works with both platforms, auto-detects from URL
+- 🖥️ **Local Reviews** - Review local git changes without GitHub/GitLab — diff against any branch, ref, or review uncommitted work
+- 🧩 **MCP Server** - IDE integration via Model Context Protocol — trigger reviews from AI coding assistants like Cline without leaving your editor
 - 🔌 **GitHub Action** - One-line integration for automatic PR reviews
 
 
@@ -150,7 +188,7 @@ export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx  # For GitHub
 export GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx  # For GitLab
 
 # 2. Set your LLM provider (example with Anthropic)
-export DEFAULT_MODEL=claude-opus-4-6
+export DEFAULT_MODEL=anthropic/claude-opus-4-6
 export ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
 
 # 3. Review a PR or MR!
@@ -184,7 +222,7 @@ codespy review https://gitlab.mycompany.com/team/project/-/merge_requests/123
 codespy review https://github.com/owner/repo/pull/123 --output json
 
 # Use a specific model
-codespy review https://github.com/owner/repo/pull/123 --model claude-opus-4-6
+codespy review https://github.com/owner/repo/pull/123 --model anthropic/claude-opus-4-6
 
 # Use a custom config file
 codespy review https://github.com/owner/repo/pull/123 --config path/to/config.yaml
@@ -207,7 +245,74 @@ codespy config --config path/to/config.yaml
 
 # Show version
 codespy --version
+
+# Review local git changes (no GitHub/GitLab needed)
+codespy review-local                    # Review current dir vs main
+codespy review-local /path/to/repo      # Review specific repo
+codespy review-local --base develop     # Compare against develop
+codespy review-local --base origin/main # Compare against origin/main
+codespy review-local --base HEAD~5      # Compare against 5 commits back
+
+# Review uncommitted changes (staged + unstaged)
+codespy review-uncommitted              # Review current dir
+codespy review-uncommitted /path/to/repo
+codespy review-uncommitted --output json
 ```
+
+### IDE Integration (MCP Server)
+
+CodeSpy can run as an MCP (Model Context Protocol) server for integration with AI coding assistants like Cline, enabling code reviews directly from your editor without leaving your workflow.
+
+```bash
+# Start the MCP server
+codespy serve
+
+# Use a custom config file
+codespy serve --config path/to/config.yaml
+```
+
+**Configure your IDE** (example for Cline in VS Code):
+
+Add to `cline_mcp_settings.json`:
+```json
+{
+  "mcpServers": {
+    "codespy-reviewer": {
+      "command": "codespy",
+      "args": ["serve"],
+      "env": {
+        "DEFAULT_MODEL": "anthropic/claude-opus-4-6",
+        "ANTHROPIC_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
+
+Or for AWS Bedrock:
+```json
+{
+  "mcpServers": {
+    "codespy-reviewer": {
+      "command": "codespy",
+      "args": ["serve"],
+      "env": {
+        "DEFAULT_MODEL": "bedrock/us.anthropic.claude-opus-4-6-v1",
+        "AWS_REGION": "us-east-1",
+        "AWS_ACCESS_KEY_ID": "your-access-key",
+        "AWS_SECRET_ACCESS_KEY": "your-secret-key"
+      }
+    }
+  }
+}
+```
+
+**Available MCP Tools:**
+- `review_local_changes(repo_path, base_ref)` — Review branch changes vs base (e.g., vs `main`)
+- `review_uncommitted(repo_path)` — Review staged + unstaged working tree changes
+- `review_pr(mr_url)` — Review a GitHub PR or GitLab MR by URL
+
+Then ask your AI assistant: *"Review my local changes"* or *"Review uncommitted work in /path/to/repo"*
 
 ### Using Docker
 
@@ -215,14 +320,14 @@ codespy --version
 # With docker run (using GHCR image)
 docker run --rm \
   -e GITHUB_TOKEN=$GITHUB_TOKEN \
-  -e DEFAULT_MODEL=claude-opus-4-6 \
+  -e DEFAULT_MODEL=anthropic/claude-opus-4-6 \
   -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
   ghcr.io/khezen/codespy:latest review https://github.com/owner/repo/pull/123
 
 # Or use a specific version
 docker run --rm \
   -e GITHUB_TOKEN=$GITHUB_TOKEN \
-  -e DEFAULT_MODEL=claude-opus-4-6 \
+  -e DEFAULT_MODEL=anthropic/claude-opus-4-6 \
   -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
   ghcr.io/khezen/codespy:0.2.1 review https://github.com/owner/repo/pull/123
 ```
@@ -256,7 +361,7 @@ jobs:
       - name: Run CodeSpy Review
         uses: khezen/codespy@v1
         with:
-          model: 'claude-opus-4-6'
+          model: 'anthropic/claude-opus-4-6'
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
@@ -281,7 +386,7 @@ jobs:
       - name: Run CodeSpy Review
         uses: khezen/codespy@v1
         with:
-          model: 'claude-opus-4-6'
+          model: 'anthropic/claude-opus-4-6'
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
@@ -357,7 +462,7 @@ codespy auto-discovers credentials for all providers:
 
 **Anthropic** (auto-discovers from `$ANTHROPIC_API_KEY`, `~/.config/anthropic/`, `~/.anthropic/`):
 ```bash
-DEFAULT_MODEL=claude-opus-4-6
+DEFAULT_MODEL=anthropic/claude-opus-4-6
 # Optional - set explicitly or let codespy auto-discover:
 # ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
 ```
@@ -373,7 +478,7 @@ AWS_REGION=us-east-1
 
 **OpenAI** (auto-discovers from `$OPENAI_API_KEY`, `~/.config/openai/`, `~/.openai/`):
 ```bash
-DEFAULT_MODEL=gpt-5
+DEFAULT_MODEL=openai/gpt-5
 # Optional - set explicitly or let codespy auto-discover:
 # OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
 ```
@@ -411,11 +516,11 @@ Override YAML settings via environment variables using `_` separator:
 
 ```bash
 # Default settings
-export DEFAULT_MODEL=claude-opus-4-6
+export DEFAULT_MODEL=anthropic/claude-opus-4-6
 export DEFAULT_MAX_ITERS=20
 
 # Per-signature settings (use signature name, not module name)
-export DEFECT_MODEL=claude-sonnet-4-5-20250929
+export DEFECT_MODEL=anthropic/claude-sonnet-4-5-20250929
 
 # Output settings
 export OUTPUT_STDOUT=false
@@ -430,32 +535,32 @@ codespy uses a tiered model approach to balance review quality and cost:
 
 | Tier | Role | Default | Recommended Model | Used By |
 |------|------|---------|-------------------|---------|
-| 🧠 **Smart** | Core analysis & reasoning | `DEFAULT_MODEL` | `claude-opus-4-6` | Code & doc review, supply chain, scope identification |
-| ⚡ **Mid-tier** | Extraction & deduplication | Falls back to `DEFAULT_MODEL` | `claude-sonnet-4-5-20250929` | TwoStepAdapter field extraction, issue deduplication |
-| 💰 **Cheap** | Summarization | Falls back to `DEFAULT_MODEL` | `claude-haiku-4-5-20251001` | PR summary generation |
+| 🧠 **Smart** | Core analysis & reasoning | `DEFAULT_MODEL` | `anthropic/claude-opus-4-6` | Code & doc review, supply chain, scope identification |
+| ⚡ **Mid-tier** | Extraction & deduplication | Falls back to `DEFAULT_MODEL` | `anthropic/claude-sonnet-4-5-20250929` | TwoStepAdapter field extraction, issue deduplication |
+| 💰 **Cheap** | Summarization | Falls back to `DEFAULT_MODEL` | `anthropic/claude-haiku-4-5-20251001` | PR summary generation |
 
-By default, **all models use `DEFAULT_MODEL`** (`claude-opus-4-6`). This works out of the box — just set your API credentials and go.
+By default, **all models use `DEFAULT_MODEL`** (`anthropic/claude-opus-4-6`). This works out of the box — just set your API credentials and go.
 
 To optimize costs, override the mid-tier and cheap models:
 
 ```bash
 # .env or environment variables
-DEFAULT_MODEL=claude-opus-4-6                    # Smart tier (default)
-EXTRACTION_MODEL=claude-sonnet-4-5-20250929      # Mid-tier: field extraction
-DEDUPLICATION_MODEL=claude-sonnet-4-5-20250929   # Mid-tier: issue deduplication
-SUMMARIZATION_MODEL=claude-haiku-4-5-20251001    # Cheap tier: PR summary
+DEFAULT_MODEL=anthropic/claude-opus-4-6                    # Smart tier (default)
+EXTRACTION_MODEL=anthropic/claude-sonnet-4-5-20250929      # Mid-tier: field extraction
+DEDUPLICATION_MODEL=anthropic/claude-sonnet-4-5-20250929   # Mid-tier: issue deduplication
+SUMMARIZATION_MODEL=anthropic/claude-haiku-4-5-20251001    # Cheap tier: PR summary
 ```
 
 Or in `codespy.yaml`:
 
 ```yaml
-default_model: claude-opus-4-6
-extraction_model: claude-sonnet-4-5-20250929
+default_model: anthropic/claude-opus-4-6
+extraction_model: anthropic/claude-sonnet-4-5-20250929
 signatures:
   deduplication:
-    model: claude-sonnet-4-5-20250929
+    model: anthropic/claude-sonnet-4-5-20250929
   summarization:
-    model: claude-haiku-4-5-20251001
+    model: anthropic/claude-haiku-4-5-20251001
 ```
 
 ---
@@ -469,7 +574,7 @@ signatures:
 
 **PR:** [owner/repo#123](https://github.com/owner/repo/pull/123)
 **Reviewed at:** 2024-01-15 10:30 UTC
-**Model:** claude-opus-4-6
+**Model:** anthropic/claude-opus-4-6
 
 ## Summary
 
@@ -670,6 +775,12 @@ poetry run codespy review https://github.com/owner/repo/pull/123
 poetry run ruff check src/
 poetry run mypy src/
 ```
+
+---
+
+## Contributors
+* @khezen
+* @pranavsriram8
 
 ---
 
