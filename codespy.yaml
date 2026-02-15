@@ -67,8 +67,8 @@ gitlab:
 # ============================================================================
 # codespy uses a tiered model approach to balance review quality and cost:
 #
-#   Smart (default_model): Used for core analysis — defect detection, supply
-#     chain, scope identification, doc review. Requires strong reasoning.
+#   Smart (default_model): Used for core analysis — code review (bugs, security,
+#     smells), supply chain, scope identification, doc review. Requires strong reasoning.
 #     Recommended: anthropic/claude-opus-4-6 or equivalent.
 #
 #   Mid-tier (extraction_model + deduplication): Used for structured field
@@ -116,7 +116,7 @@ signatures:
     # When false (default): only scans artifacts/manifests that were modified in the MR
 
   # Code Reviewer signature (bugs, security, removed defensive code, code smells)
-  # Merges defect detection and smell detection into a single agent pass per scope
+  # Unified code review: bugs, security vulnerabilities, and code smells in a single agent pass per scope
   code_review:
     enabled: true                        # CODE_REVIEW_ENABLED
     max_iters: null                      # CODE_REVIEW_MAX_ITERS

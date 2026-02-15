@@ -108,7 +108,7 @@ class Issue(BaseModel):
 class SignatureStatsResult(BaseModel):
     """Statistics for a single signature's execution during review."""
 
-    name: str = Field(description="Signature name (e.g., defect, doc, smell, scope, supply_chain)")
+    name: str = Field(description="Signature name (e.g., code_review, doc, scope, supply_chain, deduplication, summarization)")
     cost: float = Field(default=0.0, description="Cost in USD for this signature")
     tokens: int = Field(default=0, description="Tokens used by this signature")
     call_count: int = Field(default=0, description="Number of LLM calls made by this signature")

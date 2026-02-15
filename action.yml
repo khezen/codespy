@@ -127,31 +127,31 @@ inputs:
     required: false
   
   # ==========================================
-  # SIGNATURE: defect
+  # SIGNATURE: code_review
   # ==========================================
-  defect-enabled:
-    description: 'Enable defect detection signature (bugs, removed defensive code, security vulnerabilities)'
+  code-review-enabled:
+    description: 'Enable code review signature (bugs, security vulnerabilities, code smells)'
     required: false
     default: 'true'
   
-  defect-model:
-    description: 'Model for defect detection (empty = use default)'
+  code-review-model:
+    description: 'Model for code review (empty = use default)'
     required: false
   
-  defect-max-iters:
-    description: 'Max iterations for defect detection'
+  code-review-max-iters:
+    description: 'Max iterations for code review'
     required: false
   
-  defect-max-context-size:
-    description: 'Max context size for defect detection'
+  code-review-max-context-size:
+    description: 'Max context size for code review'
     required: false
   
-  defect-max-reasoning-tokens:
-    description: 'Max reasoning tokens for defect detection'
+  code-review-max-reasoning-tokens:
+    description: 'Max reasoning tokens for code review'
     required: false
   
-  defect-temperature:
-    description: 'Temperature for defect detection'
+  code-review-temperature:
+    description: 'Temperature for code review'
     required: false
   
   # ==========================================
@@ -180,34 +180,6 @@ inputs:
   
   doc-temperature:
     description: 'Temperature for doc review'
-    required: false
-  
-  # ==========================================
-  # SIGNATURE: smell
-  # ==========================================
-  smell-enabled:
-    description: 'Enable code smell detection signature (naming, complexity, YAGNI)'
-    required: false
-    default: 'true'
-  
-  smell-model:
-    description: 'Model for smell detection (empty = use default)'
-    required: false
-  
-  smell-max-iters:
-    description: 'Max iterations for smell detection'
-    required: false
-  
-  smell-max-context-size:
-    description: 'Max context size for smell detection'
-    required: false
-  
-  smell-max-reasoning-tokens:
-    description: 'Max reasoning tokens for smell detection'
-    required: false
-  
-  smell-temperature:
-    description: 'Temperature for smell detection'
     required: false
   
   # ==========================================
@@ -380,13 +352,13 @@ runs:
         SCOPE_MAX_REASONING_TOKENS: ${{ inputs.scope-max-reasoning-tokens }}
         SCOPE_TEMPERATURE: ${{ inputs.scope-temperature }}
         
-        # Defect review signature
-        DEFECT_ENABLED: ${{ inputs.defect-enabled }}
-        DEFECT_MODEL: ${{ inputs.defect-model }}
-        DEFECT_MAX_ITERS: ${{ inputs.defect-max-iters }}
-        DEFECT_MAX_CONTEXT_SIZE: ${{ inputs.defect-max-context-size }}
-        DEFECT_MAX_REASONING_TOKENS: ${{ inputs.defect-max-reasoning-tokens }}
-        DEFECT_TEMPERATURE: ${{ inputs.defect-temperature }}
+        # Code review signature
+        CODE_REVIEW_ENABLED: ${{ inputs.code-review-enabled }}
+        CODE_REVIEW_MODEL: ${{ inputs.code-review-model }}
+        CODE_REVIEW_MAX_ITERS: ${{ inputs.code-review-max-iters }}
+        CODE_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.code-review-max-context-size }}
+        CODE_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.code-review-max-reasoning-tokens }}
+        CODE_REVIEW_TEMPERATURE: ${{ inputs.code-review-temperature }}
         
         # Doc review signature
         DOC_ENABLED: ${{ inputs.doc-enabled }}
@@ -395,14 +367,6 @@ runs:
         DOC_MAX_CONTEXT_SIZE: ${{ inputs.doc-max-context-size }}
         DOC_MAX_REASONING_TOKENS: ${{ inputs.doc-max-reasoning-tokens }}
         DOC_TEMPERATURE: ${{ inputs.doc-temperature }}
-        
-        # Smell review signature
-        SMELL_ENABLED: ${{ inputs.smell-enabled }}
-        SMELL_MODEL: ${{ inputs.smell-model }}
-        SMELL_MAX_ITERS: ${{ inputs.smell-max-iters }}
-        SMELL_MAX_CONTEXT_SIZE: ${{ inputs.smell-max-context-size }}
-        SMELL_MAX_REASONING_TOKENS: ${{ inputs.smell-max-reasoning-tokens }}
-        SMELL_TEMPERATURE: ${{ inputs.smell-temperature }}
         
         # Supply chain signature
         SUPPLY_CHAIN_ENABLED: ${{ inputs.supply-chain-enabled }}
@@ -464,13 +428,13 @@ runs:
         [ -n "$SCOPE_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MAX_REASONING_TOKENS"
         [ -n "$SCOPE_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_TEMPERATURE"
         
-        # Defect review
-        [ -n "$DEFECT_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_ENABLED"
-        [ -n "$DEFECT_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_MODEL"
-        [ -n "$DEFECT_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_MAX_ITERS"
-        [ -n "$DEFECT_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_MAX_CONTEXT_SIZE"
-        [ -n "$DEFECT_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_MAX_REASONING_TOKENS"
-        [ -n "$DEFECT_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFECT_TEMPERATURE"
+        # Code review
+        [ -n "$CODE_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_ENABLED"
+        [ -n "$CODE_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MODEL"
+        [ -n "$CODE_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_ITERS"
+        [ -n "$CODE_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_CONTEXT_SIZE"
+        [ -n "$CODE_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_REASONING_TOKENS"
+        [ -n "$CODE_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_TEMPERATURE"
         
         # Doc review
         [ -n "$DOC_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_ENABLED"
@@ -479,14 +443,6 @@ runs:
         [ -n "$DOC_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MAX_CONTEXT_SIZE"
         [ -n "$DOC_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MAX_REASONING_TOKENS"
         [ -n "$DOC_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_TEMPERATURE"
-        
-        # Smell review
-        [ -n "$SMELL_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SMELL_ENABLED"
-        [ -n "$SMELL_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SMELL_MODEL"
-        [ -n "$SMELL_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SMELL_MAX_ITERS"
-        [ -n "$SMELL_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SMELL_MAX_CONTEXT_SIZE"
-        [ -n "$SMELL_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SMELL_MAX_REASONING_TOKENS"
-        [ -n "$SMELL_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SMELL_TEMPERATURE"
         
         # Supply chain
         [ -n "$SUPPLY_CHAIN_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_ENABLED"
