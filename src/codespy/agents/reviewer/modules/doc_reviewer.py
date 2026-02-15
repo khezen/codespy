@@ -9,128 +9,90 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
+from codespy.agents.reviewer.modules.doc_extractor import extract_documentation
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
-    create_mcp_tools,
     make_scope_relative,
     resolve_scope_root,
     restore_repo_paths,
 )
 from codespy.config import get_settings
-from codespy.tools.mcp_utils import cleanup_mcp_contexts
 
 logger = logging.getLogger(__name__)
 
 
 class DocReviewSignature(dspy.Signature):
-    """Detect stale or wrong documentation caused by code changes in a scope.
+    """Detect stale or wrong documentation caused by code changes.
 
-    You are a busy Principal Engineer with very little time.
-    Be extremely terse. Use imperative mood ("Update X", not "You should update X").
-    You have tools to explore the scope's filesystem, search for text, and analyze code.
-    All file paths are relative to the scope root directory (the current tool root).
-    Tools are restricted to this scope — you cannot access files outside it.
+    You are a busy Principal Engineer. Be extremely terse.
+    Use imperative mood ("Update X", not "You should update X").
 
-    ═══════════════════════════════════════════════════════════════════════════════
-    PHASE 1 — READ DOCUMENTATION (MANDATORY FIRST STEP)
-    ═══════════════════════════════════════════════════════════════════════════════
+    You are given:
+    1. Code patches showing what changed
+    2. Current documentation content (README, .env.example, docs/, etc.)
 
-    Use read_file to read the README at the scope root:
-    - Path: readme.md OR README.md (paths are relative to scope root)
-    - This file is the primary documentation artifact. You MUST read it in full
-      before reviewing any changes so you understand what is documented.
+    Your job: identify documentation that is now WRONG or MISSING because of the
+    code changes. Cross-reference the patches against the documentation.
 
-    Also search for additional documentation:
-    - Use get_tree or file_exists to check for docs/, documentation/, CHANGELOG,
-      API docs, .env.example, or any other prose files.
-    - Read any doc files that are relevant to the changed code.
+    CHECK FOR:
 
-    ═══════════════════════════════════════════════════════════════════════════════
-    PHASE 2 — CROSS-REFERENCE CHANGES AGAINST DOCUMENTATION
-    ═══════════════════════════════════════════════════════════════════════════════
-
-    For each changed file's patch, check whether the change invalidates or
-    requires updates to existing documentation. Use search_literal to find
-    occurrences of old names, values, or patterns in doc files.
-
-    HTTP/API CHANGES (CRITICAL — high miss rate):
-    - Content-Type changes → check documented examples
-    - HTTP status code changes → update all references
-    - Response body structure changes → verify documented examples match
-    - New response fields → ensure documented
-    - Search docs for endpoint paths to find all examples
+    HTTP/API CHANGES:
+    - Content-Type, status codes, response body changes → check documented examples
+    - New/removed endpoints → update docs
 
     FUNCTION/METHOD SIGNATURE CHANGES:
     - Parameters added/removed/renamed → check if docs reference old signatures
-    - Return type changes → update all examples
-    - New public functions → ensure documented if scope has doc conventions
+    - Return type changes → update examples
 
     CONFIGURATION & ENVIRONMENT VARIABLES:
     - New config fields → check README Configuration section or .env.example
-    - Removed/renamed fields → search docs for old field names
+    - Removed/renamed fields → find old names in documentation
     - Default value changes → verify docs reflect new defaults
-
-    ERROR TYPES & CODES:
-    - New/removed error types → check error documentation
-    - Error behavior changes (error → success) → BREAKING, must document
-    - HTTP status code semantics change → update API docs
-
-    DATA MODELS & STRUCTS:
-    - New/removed fields in request/response structs → update API examples
-    - Field type changes → update examples
 
     CLI COMMANDS & FLAGS:
     - New commands/flags → add to CLI reference
-    - Removed/renamed flags → search docs for old names
+    - Removed/renamed flags → find old names in documentation
 
-    VERIFICATION WORKFLOW:
-    1. Read the patch to understand what changed in code
-    2. Use search_literal to find references to changed identifiers in doc files
-    3. Use read_file to verify the doc content is actually stale
-    4. Only report when you have CONFIRMED the documentation is wrong or missing
+    DATA MODELS:
+    - New/removed fields in structs → update API examples
 
     DO NOT report:
     - Missing documentation for internal/private functions
     - Style preferences in documentation
     - Documentation that is correct but could be "better"
+    - Issues unrelated to the code changes in the patches
 
-    ═══════════════════════════════════════════════════════════════════════════════
-    OUTPUT RULES
-    ═══════════════════════════════════════════════════════════════════════════════
-
-    - Set category to "documentation" (the only allowed category)
-    - Reference files by name and line number only — never copy source code into issues
-    - Do not repeat patch content in reasoning steps. Keep each reasoning step to 1-2 sentences
-    - Empty list if no issues found. No approval text ("LGTM", "looks good")
-    - description: ≤25 words, imperative tone, no filler ("Update X section", "Add Y to README")
-    - No polite or conversational language ("I suggest", "Please consider", "Great")
-    - Do not populate code_snippet — use line numbers instead
+    OUTPUT RULES:
+    - Set category to "documentation"
+    - description: ≤25 words, imperative tone ("Update X section", "Add Y to README")
+    - Empty list if documentation is up to date. No approval text ("LGTM", "looks good")
+    - No polite or conversational language
     """
 
-    scope: ScopeResult = dspy.InputField(
-        desc="Scope with changed files. Has: subroot, scope_type, "
-        "changed_files (filename + patch - analyze patch first), language, package_manifest. "
-        "File paths in changed_files are relative to the scope root (tool root)."
+    patches: str = dspy.InputField(
+        desc="Code patches (diffs) showing what changed in this scope. "
+        "Each patch is prefixed with the filename."
+    )
+    documentation: str = dspy.InputField(
+        desc="Current documentation content for this scope. "
+        "Each file is prefixed with === filename ===."
     )
     categories: list[IssueCategory] = dspy.InputField(
-        desc="Allowed issue categories. Use only these values for the 'category' field on each issue."
+        desc="Allowed issue categories. Use only these values."
     )
 
     issues: list[Issue] = dspy.OutputField(
         desc="Documentation issues. Category must be 'documentation'. "
-        "Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none. "
-        "File paths must be relative to scope root."
+        "Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none."
     )
 
 
 class DocReviewer(dspy.Module):
     """Detects stale or wrong documentation caused by code changes.
 
-    Cross-references code changes against README, API docs, config docs,
-    and other prose files to find documentation that needs updating.
-
-    MCP tools are scope-restricted: for each scope, tools are rooted at
-    repo_path/scope.subroot so the agent cannot access files outside the scope.
+    Two-step approach per scope:
+    1. Deterministic extraction (single tree scan + file reads, no LLM)
+    2. DocReview (ChainOfThought, no tools): compares patches vs doc content
     """
 
     def __init__(self) -> None:
@@ -138,6 +100,14 @@ class DocReviewer(dspy.Module):
         super().__init__()
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
+
+    def _build_patches(self, scope: ScopeResult) -> str:
+        """Build compact patches representation."""
+        parts: list[str] = []
+        for f in scope.changed_files:
+            if f.patch:
+                parts.append(f"--- {f.filename} ---\n{f.patch}")
+        return "\n\n".join(parts)
 
     async def aforward(
         self, scopes: Sequence[ScopeResult], repo_path: Path
@@ -161,7 +131,6 @@ class DocReviewer(dspy.Module):
             return []
 
         all_issues: list[Issue] = []
-        max_iters = self._settings.get_max_iters("doc")
 
         total_files = sum(len(s.changed_files) for s in changed_scopes)
         logger.info(
@@ -171,21 +140,39 @@ class DocReviewer(dspy.Module):
 
         for scope in changed_scopes:
             scope_root = resolve_scope_root(repo_path, scope.subroot)
-            tools, contexts = await create_mcp_tools(scope_root, "doc_reviewer")
+
+            # Step 1: Extract documentation (deterministic — no LLM)
+            logger.info(f"  Doc extraction: scope {scope.subroot}")
             try:
-                agent = dspy.ReAct(
-                    signature=DocReviewSignature,
-                    tools=tools,
-                    max_iters=max_iters,
+                documentation = extract_documentation(scope_root)
+            except Exception as e:
+                logger.error(f"Doc extraction failed for scope {scope.subroot}: {e}")
+                documentation = ""
+
+            if not documentation.strip():
+                logger.debug(
+                    f"  No documentation found in {scope.subroot}, skipping doc review"
                 )
-                scoped = make_scope_relative(scope)
+                continue
+
+            # Step 2: Review docs vs patches (ChainOfThought, no tools)
+            scoped = make_scope_relative(scope)
+            patches = self._build_patches(scoped)
+            if not patches:
+                logger.debug(f"  No patches in {scope.subroot}, skipping doc review")
+                continue
+
+            try:
+                reviewer = dspy.ChainOfThought(DocReviewSignature)
                 logger.info(
                     f"  Doc review: scope {scope.subroot} "
                     f"({len(scope.changed_files)} files)"
                 )
                 async with SignatureContext("doc", self._cost_tracker):
-                    result = await agent.acall(
-                        scope=scoped,
+                    result = await asyncio.to_thread(
+                        reviewer,
+                        patches=patches,
+                        documentation=documentation,
                         categories=[IssueCategory.DOCUMENTATION],
                     )
 
@@ -200,8 +187,6 @@ class DocReviewer(dspy.Module):
                 )
             except Exception as e:
                 logger.error(f"Doc review failed for scope {scope.subroot}: {e}")
-            finally:
-                await cleanup_mcp_contexts(contexts)
 
         logger.info(f"Doc review found {len(all_issues)} issues")
         return all_issues

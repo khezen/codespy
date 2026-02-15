@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 import dspy  # type: ignore[import-untyped]
 
@@ -11,13 +11,12 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
-    create_mcp_tools,
     make_scope_relative,
     resolve_scope_root,
     restore_repo_paths,
 )
 from codespy.config import get_settings
-from codespy.tools.mcp_utils import cleanup_mcp_contexts
+from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +154,30 @@ class CodeReviewer(dspy.Module):
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
 
+    async def _create_tools(
+        self, scope_root: Path
+    ) -> tuple[list[Any], list[Any]]:
+        """Create scope-restricted tools: filesystem + ripgrep + treesitter."""
+        tools: list[Any] = []
+        contexts: list[Any] = []
+        tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
+        scope_root_str = str(scope_root)
+        caller = "code_reviewer"
+
+        tools.extend(await connect_mcp_server(
+            tools_dir / "filesystem" / "server.py",
+            [scope_root_str], contexts, caller,
+        ))
+        tools.extend(await connect_mcp_server(
+            tools_dir / "parsers" / "ripgrep" / "server.py",
+            [scope_root_str], contexts, caller,
+        ))
+        tools.extend(await connect_mcp_server(
+            tools_dir / "parsers" / "treesitter" / "server.py",
+            [scope_root_str], contexts, caller,
+        ))
+        return tools, contexts
+
     async def aforward(
         self, scopes: Sequence[ScopeResult], repo_path: Path
     ) -> list[Issue]:
@@ -193,7 +216,7 @@ class CodeReviewer(dspy.Module):
 
         for scope in changed_scopes:
             scope_root = resolve_scope_root(repo_path, scope.subroot)
-            tools, contexts = await create_mcp_tools(scope_root, "code_reviewer")
+            tools, contexts = await self._create_tools(scope_root)
             try:
                 agent = dspy.ReAct(
                     signature=CodeReviewSignature,

@@ -125,10 +125,10 @@ signatures:
     max_reasoning_tokens: null           # CODE_REVIEW_MAX_REASONING_TOKENS
     temperature: null                    # CODE_REVIEW_TEMPERATURE
 
-  # Documentation Reviewer signature (stale/wrong documentation)
+  # Documentation Reviewer signature (compares patches against extracted documentation)
+  # Note: doc extraction is now deterministic (no LLM) — see doc_extractor.py
   doc:
     enabled: true                        # DOC_ENABLED
-    max_iters: null                      # DOC_MAX_ITERS
     model: null                          # DOC_MODEL
     max_context_size: null               # DOC_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # DOC_MAX_REASONING_TOKENS
