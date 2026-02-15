@@ -120,43 +120,24 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
     """
     from codespy.agents.reviewer.models import PackageManifest, ScopeResult as SR
 
+    def _annotate(f: ChangedFile) -> ChangedFile:
+        """Replace patch with annotated version (line-numbered)."""
+        return f.model_copy(update={"patch": f.annotated_patch or f.patch})
+
     if scope.subroot == ".":
         # Still need to annotate patches even at repo root
-        annotated_files = [
-            ChangedFile(
-                filename=f.filename,
-                status=f.status,
-                additions=f.additions,
-                deletions=f.deletions,
-                patch=f.annotated_patch if f.annotated_patch is not None else f.patch,
-                previous_filename=f.previous_filename,
-            )
-            for f in scope.changed_files
-        ]
-        return SR(
-            subroot=".",
-            scope_type=scope.scope_type,
-            has_changes=scope.has_changes,
-            is_dependency=scope.is_dependency,
-            confidence=scope.confidence,
-            language=scope.language,
-            package_manifest=scope.package_manifest,
-            changed_files=annotated_files,
-            reason=scope.reason,
+        return scope.model_copy(
+            update={"changed_files": [_annotate(f) for f in scope.changed_files]}
         )
     relative_files = [
-        ChangedFile(
-            filename=strip_prefix(f.filename, scope.subroot),
-            status=f.status,
-            additions=f.additions,
-            deletions=f.deletions,
-            patch=f.annotated_patch if f.annotated_patch is not None else f.patch,
-            previous_filename=(
+        _annotate(f).model_copy(update={
+            "filename": strip_prefix(f.filename, scope.subroot),
+            "previous_filename": (
                 strip_prefix(f.previous_filename, scope.subroot)
                 if f.previous_filename
                 else None
             ),
-        )
+        })
         for f in scope.changed_files
     ]
     # Adjust manifest paths too
