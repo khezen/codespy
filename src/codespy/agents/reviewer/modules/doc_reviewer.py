@@ -15,6 +15,7 @@ from codespy.agents.reviewer.modules.helpers import (
     make_scope_relative,
     resolve_scope_root,
     restore_repo_paths,
+    validate_issue_lines,
 )
 from codespy.config import get_settings
 
@@ -61,6 +62,12 @@ class DocReviewSignature(dspy.Signature):
     - Style preferences in documentation
     - Documentation that is correct but could be "better"
     - Issues unrelated to the code changes in the patches
+
+    LINE NUMBER ANNOTATIONS:
+    Each patch line is prefixed with its NEW-file line number:
+      L{n}: context or added line     (n = line number in new file)
+           -removed line              (no number — line does not exist in new file)
+    Use EXACTLY the L{n} numbers for line_start and line_end in reported issues.
 
     OUTPUT RULES:
     - Set category to "documentation"
@@ -172,6 +179,7 @@ class DocReviewer(dspy.Module):
                     if issue.confidence >= MIN_CONFIDENCE
                 ]
                 restore_repo_paths(issues, scope.subroot)
+                validate_issue_lines(issues, scope.changed_files)
                 all_issues.extend(issues)
                 logger.debug(
                     f"  Scope {scope.subroot}: {len(issues)} doc issues"

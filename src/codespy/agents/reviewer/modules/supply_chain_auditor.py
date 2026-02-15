@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
-from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, resolve_scope_root, strip_prefix, restore_repo_paths
+from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, resolve_scope_root, strip_prefix, restore_repo_paths, validate_issue_lines
 from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
@@ -318,6 +318,7 @@ class SupplyChainAuditor(dspy.Module):
                     ]
                     # Restore repo-root-relative paths in reported issues
                     restore_repo_paths(issues, scope.subroot)
+                    validate_issue_lines(issues, scope.changed_files)
                     all_issues.extend(issues)
                     logger.debug(f"  Supply chain security in scope {scope.subroot}: {len(issues)} issues")
                 except Exception as e:

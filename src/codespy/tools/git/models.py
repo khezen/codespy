@@ -188,6 +188,64 @@ class ChangedFile(BaseModel):
 
         return valid_lines
 
+    @property
+    def annotated_patch(self) -> str | None:
+        """Return the unified diff patch with new-file line numbers prefixed.
+
+        Each context line and addition line is prefixed with ``L{n}:`` where *n*
+        is the corresponding line number in the **new** version of the file.
+        Deletion lines keep their original ``-`` prefix without a line number
+        (they don't exist in the new file).  Hunk headers are passed through
+        unchanged.
+
+        Example output::
+
+            @@ -10,5 +10,6 @@
+            L10:  context line
+                 -removed line
+            L11: +added line
+            L12: +another added line
+            L13:  context line
+
+        Returns:
+            Annotated patch string, or ``None`` if the file has no patch.
+        """
+        if not self.patch:
+            return None
+
+        annotated_lines: list[str] = []
+        current_new_line = 0
+
+        for line in self.patch.split("\n"):
+            # Hunk header — pass through as-is
+            if line.startswith("@@"):
+                match = re.search(r"\+(\d+)", line)
+                if match:
+                    current_new_line = int(match.group(1))
+                annotated_lines.append(line)
+                continue
+
+            if not current_new_line:
+                annotated_lines.append(line)
+                continue
+
+            # Context line (unchanged) — prefix with line number
+            if line.startswith(" "):
+                annotated_lines.append(f"L{current_new_line}:{line}")
+                current_new_line += 1
+            # Addition line — prefix with line number
+            elif line.startswith("+"):
+                annotated_lines.append(f"L{current_new_line}:{line}")
+                current_new_line += 1
+            # Deletion line — no line number (not in new file), indent to align
+            elif line.startswith("-"):
+                annotated_lines.append(f"     {line}")
+            # Other lines (e.g. "\ No newline at end of file")
+            else:
+                annotated_lines.append(line)
+
+        return "\n".join(annotated_lines)
+
     def is_line_in_diff(self, line_number: int) -> bool:
         """Check if a line number is valid for inline comments.
         

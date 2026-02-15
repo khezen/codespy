@@ -14,6 +14,7 @@ from codespy.agents.reviewer.modules.helpers import (
     make_scope_relative,
     resolve_scope_root,
     restore_repo_paths,
+    validate_issue_lines,
 )
 from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -107,6 +108,19 @@ class CodeReviewSignature(dspy.Signature):
     DO NOT report as smells:
     - Idiomatic short names (i, j, k, err, ctx, db, tx)
     - Test file naming conventions
+
+    ═══════════════════════════════════════════════════════════════════════════════
+    LINE NUMBER ANNOTATIONS
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    Each patch line is prefixed with its NEW-file line number:
+      L{n}: context or added line     (n = line number in new file)
+           -removed line              (no number — line does not exist in new file)
+
+    Use EXACTLY the L{n} numbers for line_start and line_end in reported issues.
+    Do NOT guess or compute line numbers from hunk headers — read them from the
+    prefix. For multi-line issues, set line_start to the first L{n} and line_end
+    to the last L{n} that covers the issue.
 
     ═══════════════════════════════════════════════════════════════════════════════
     OUTPUT RULES
@@ -239,6 +253,7 @@ class CodeReviewer(dspy.Module):
                     if issue.confidence >= MIN_CONFIDENCE
                 ]
                 restore_repo_paths(issues, scope.subroot)
+                validate_issue_lines(issues, scope.changed_files)
                 all_issues.extend(issues)
                 logger.debug(
                     f"  Scope {scope.subroot}: {len(issues)} code review issues"
