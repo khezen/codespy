@@ -124,23 +124,18 @@ class DocReviewer(dspy.Module):
         if not self._settings.is_signature_enabled("doc"):
             logger.debug("Skipping doc: disabled")
             return []
-
         changed_scopes = [s for s in scopes if s.has_changes and s.changed_files]
         if not changed_scopes:
             logger.info("No scopes with changes for doc review")
             return []
-
         all_issues: list[Issue] = []
-
         total_files = sum(len(s.changed_files) for s in changed_scopes)
         logger.info(
             f"Doc review for {len(changed_scopes)} scopes "
             f"({total_files} changed files)..."
         )
-
         for scope in changed_scopes:
             scope_root = resolve_scope_root(repo_path, scope.subroot)
-
             # Step 1: Extract documentation (deterministic — no LLM)
             logger.info(f"  Doc extraction: scope {scope.subroot}")
             try:
@@ -148,20 +143,17 @@ class DocReviewer(dspy.Module):
             except Exception as e:
                 logger.error(f"Doc extraction failed for scope {scope.subroot}: {e}")
                 documentation = ""
-
             if not documentation.strip():
                 logger.debug(
                     f"  No documentation found in {scope.subroot}, skipping doc review"
                 )
                 continue
-
             # Step 2: Review docs vs patches (ChainOfThought, no tools)
             scoped = make_scope_relative(scope)
             patches = self._build_patches(scoped)
             if not patches:
                 logger.debug(f"  No patches in {scope.subroot}, skipping doc review")
                 continue
-
             try:
                 reviewer = dspy.ChainOfThought(DocReviewSignature)
                 logger.info(
@@ -175,7 +167,6 @@ class DocReviewer(dspy.Module):
                         documentation=documentation,
                         categories=[IssueCategory.DOCUMENTATION],
                     )
-
                 issues = [
                     issue for issue in (result.issues or [])
                     if issue.confidence >= MIN_CONFIDENCE
