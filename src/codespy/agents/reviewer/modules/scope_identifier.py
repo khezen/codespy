@@ -198,8 +198,8 @@ class ScopeIdentifier(dspy.Module):
             return []
         
         # Check if signature is enabled
-        if not self._settings.is_signature_enabled("scope_identification"):
-            logger.warning("scope_identification is disabled - using fallback single scope")
+        if not self._settings.is_signature_enabled("scope"):
+            logger.warning("scope is disabled - using fallback single scope")
             return [ScopeResult(
                 subroot=".",
                 scope_type=ScopeType.APPLICATION,
@@ -217,9 +217,9 @@ class ScopeIdentifier(dspy.Module):
         changed_files_map: dict[str, ChangedFile] = {f.filename: f for f in reviewable_files}
         try:
             # Get per-signature config
-            max_iters = self._settings.get_max_iters("scope_identification")
-            temperature = self._settings.get_temperature("scope_identification")
-            max_reasoning = self._settings.get_max_reasoning_tokens("scope_identification")
+            max_iters = self._settings.get_max_iters("scope")
+            temperature = self._settings.get_temperature("scope")
+            max_reasoning = self._settings.get_max_reasoning_tokens("scope")
             
             # Create ReAct agent
             agent = dspy.ReAct(
@@ -228,8 +228,8 @@ class ScopeIdentifier(dspy.Module):
                 max_iters=max_iters,
             )
             logger.info(f"Identifying scopes for {len(changed_file_paths)} changed files...")
-            # Track scope_identification signature costs
-            async with SignatureContext("scope_identification", self._cost_tracker):
+            # Track scope signature costs
+            async with SignatureContext("scope", self._cost_tracker):
                 result = await agent.acall(
                     changed_files=changed_file_paths,
                     repo_owner=mr.repo_owner,

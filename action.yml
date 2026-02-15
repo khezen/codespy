@@ -99,59 +99,87 @@ inputs:
     default: 'true'
   
   # ==========================================
-  # SIGNATURE: scope_identification
+  # SIGNATURE: scope
   # ==========================================
-  scope-identification-enabled:
+  scope-enabled:
     description: 'Enable scope identification signature'
     required: false
     default: 'true'
   
-  scope-identification-model:
+  scope-model:
     description: 'Model for scope identification (empty = use default)'
     required: false
   
-  scope-identification-max-iters:
+  scope-max-iters:
     description: 'Max iterations for scope identification'
     required: false
   
-  scope-identification-max-context-size:
+  scope-max-context-size:
     description: 'Max context size for scope identification'
     required: false
   
-  scope-identification-max-reasoning-tokens:
+  scope-max-reasoning-tokens:
     description: 'Max reasoning tokens for scope identification'
     required: false
   
-  scope-identification-temperature:
+  scope-temperature:
     description: 'Temperature for scope identification'
     required: false
   
   # ==========================================
-  # SIGNATURE: code_and_doc_review
+  # SIGNATURE: code_review
   # ==========================================
-  code-and-doc-review-enabled:
-    description: 'Enable code and doc review signature (bugs, security vulnerabilities, and documentation)'
+  code-review-enabled:
+    description: 'Enable code review signature (bugs, security vulnerabilities, code smells)'
     required: false
     default: 'true'
   
-  code-and-doc-review-model:
-    description: 'Model for code and doc review (empty = use default)'
+  code-review-model:
+    description: 'Model for code review (empty = use default)'
     required: false
   
-  code-and-doc-review-max-iters:
-    description: 'Max iterations for code and doc review'
+  code-review-max-iters:
+    description: 'Max iterations for code review'
     required: false
   
-  code-and-doc-review-max-context-size:
-    description: 'Max context size for code and doc review'
+  code-review-max-context-size:
+    description: 'Max context size for code review'
     required: false
   
-  code-and-doc-review-max-reasoning-tokens:
-    description: 'Max reasoning tokens for code and doc review'
+  code-review-max-reasoning-tokens:
+    description: 'Max reasoning tokens for code review'
     required: false
   
-  code-and-doc-review-temperature:
-    description: 'Temperature for code and doc review'
+  code-review-temperature:
+    description: 'Temperature for code review'
+    required: false
+  
+  # ==========================================
+  # SIGNATURE: doc
+  # ==========================================
+  doc-enabled:
+    description: 'Enable documentation review signature (stale/wrong documentation)'
+    required: false
+    default: 'true'
+  
+  doc-model:
+    description: 'Model for doc review (empty = use default)'
+    required: false
+  
+  doc-max-iters:
+    description: 'Max iterations for doc review'
+    required: false
+  
+  doc-max-context-size:
+    description: 'Max context size for doc review'
+    required: false
+  
+  doc-max-reasoning-tokens:
+    description: 'Max reasoning tokens for doc review'
+    required: false
+  
+  doc-temperature:
+    description: 'Temperature for doc review'
     required: false
   
   # ==========================================
@@ -317,20 +345,28 @@ runs:
         ENABLE_PROMPT_CACHING: ${{ inputs.enable-prompt-caching }}
         
         # Scope identification signature
-        SCOPE_IDENTIFICATION_ENABLED: ${{ inputs.scope-identification-enabled }}
-        SCOPE_IDENTIFICATION_MODEL: ${{ inputs.scope-identification-model }}
-        SCOPE_IDENTIFICATION_MAX_ITERS: ${{ inputs.scope-identification-max-iters }}
-        SCOPE_IDENTIFICATION_MAX_CONTEXT_SIZE: ${{ inputs.scope-identification-max-context-size }}
-        SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS: ${{ inputs.scope-identification-max-reasoning-tokens }}
-        SCOPE_IDENTIFICATION_TEMPERATURE: ${{ inputs.scope-identification-temperature }}
+        SCOPE_ENABLED: ${{ inputs.scope-enabled }}
+        SCOPE_MODEL: ${{ inputs.scope-model }}
+        SCOPE_MAX_ITERS: ${{ inputs.scope-max-iters }}
+        SCOPE_MAX_CONTEXT_SIZE: ${{ inputs.scope-max-context-size }}
+        SCOPE_MAX_REASONING_TOKENS: ${{ inputs.scope-max-reasoning-tokens }}
+        SCOPE_TEMPERATURE: ${{ inputs.scope-temperature }}
         
-        # Code and doc review signature
-        CODE_AND_DOC_REVIEW_ENABLED: ${{ inputs.code-and-doc-review-enabled }}
-        CODE_AND_DOC_REVIEW_MODEL: ${{ inputs.code-and-doc-review-model }}
-        CODE_AND_DOC_REVIEW_MAX_ITERS: ${{ inputs.code-and-doc-review-max-iters }}
-        CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.code-and-doc-review-max-context-size }}
-        CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.code-and-doc-review-max-reasoning-tokens }}
-        CODE_AND_DOC_REVIEW_TEMPERATURE: ${{ inputs.code-and-doc-review-temperature }}
+        # Code review signature
+        CODE_REVIEW_ENABLED: ${{ inputs.code-review-enabled }}
+        CODE_REVIEW_MODEL: ${{ inputs.code-review-model }}
+        CODE_REVIEW_MAX_ITERS: ${{ inputs.code-review-max-iters }}
+        CODE_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.code-review-max-context-size }}
+        CODE_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.code-review-max-reasoning-tokens }}
+        CODE_REVIEW_TEMPERATURE: ${{ inputs.code-review-temperature }}
+        
+        # Doc review signature
+        DOC_ENABLED: ${{ inputs.doc-enabled }}
+        DOC_MODEL: ${{ inputs.doc-model }}
+        DOC_MAX_ITERS: ${{ inputs.doc-max-iters }}
+        DOC_MAX_CONTEXT_SIZE: ${{ inputs.doc-max-context-size }}
+        DOC_MAX_REASONING_TOKENS: ${{ inputs.doc-max-reasoning-tokens }}
+        DOC_TEMPERATURE: ${{ inputs.doc-temperature }}
         
         # Supply chain signature
         SUPPLY_CHAIN_ENABLED: ${{ inputs.supply-chain-enabled }}
@@ -385,20 +421,28 @@ runs:
         [ -n "$ENABLE_PROMPT_CACHING" ] && DOCKER_ARGS="$DOCKER_ARGS -e ENABLE_PROMPT_CACHING"
         
         # Scope identification
-        [ -n "$SCOPE_IDENTIFICATION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_ENABLED"
-        [ -n "$SCOPE_IDENTIFICATION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_MODEL"
-        [ -n "$SCOPE_IDENTIFICATION_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_MAX_ITERS"
-        [ -n "$SCOPE_IDENTIFICATION_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_MAX_CONTEXT_SIZE"
-        [ -n "$SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_MAX_REASONING_TOKENS"
-        [ -n "$SCOPE_IDENTIFICATION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_IDENTIFICATION_TEMPERATURE"
+        [ -n "$SCOPE_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_ENABLED"
+        [ -n "$SCOPE_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MODEL"
+        [ -n "$SCOPE_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MAX_ITERS"
+        [ -n "$SCOPE_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MAX_CONTEXT_SIZE"
+        [ -n "$SCOPE_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MAX_REASONING_TOKENS"
+        [ -n "$SCOPE_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_TEMPERATURE"
         
-        # Code and doc review
-        [ -n "$CODE_AND_DOC_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_ENABLED"
-        [ -n "$CODE_AND_DOC_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MODEL"
-        [ -n "$CODE_AND_DOC_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MAX_ITERS"
-        [ -n "$CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MAX_CONTEXT_SIZE"
-        [ -n "$CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_MAX_REASONING_TOKENS"
-        [ -n "$CODE_AND_DOC_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_AND_DOC_REVIEW_TEMPERATURE"
+        # Code review
+        [ -n "$CODE_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_ENABLED"
+        [ -n "$CODE_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MODEL"
+        [ -n "$CODE_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_ITERS"
+        [ -n "$CODE_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_CONTEXT_SIZE"
+        [ -n "$CODE_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_REASONING_TOKENS"
+        [ -n "$CODE_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_TEMPERATURE"
+        
+        # Doc review
+        [ -n "$DOC_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_ENABLED"
+        [ -n "$DOC_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MODEL"
+        [ -n "$DOC_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MAX_ITERS"
+        [ -n "$DOC_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MAX_CONTEXT_SIZE"
+        [ -n "$DOC_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MAX_REASONING_TOKENS"
+        [ -n "$DOC_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_TEMPERATURE"
         
         # Supply chain
         [ -n "$SUPPLY_CHAIN_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_ENABLED"

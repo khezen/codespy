@@ -122,7 +122,6 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
 
     if scope.subroot == ".":
         return scope  # Already at repo root, no transformation needed
-
     relative_files = [
         ChangedFile(
             filename=strip_prefix(f.filename, scope.subroot),
@@ -138,7 +137,6 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
         )
         for f in scope.changed_files
     ]
-
     # Adjust manifest paths too
     manifest = None
     if scope.package_manifest:
@@ -152,7 +150,6 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
             package_manager=scope.package_manifest.package_manager,
             dependencies_changed=scope.package_manifest.dependencies_changed,
         )
-
     return SR(
         subroot=".",
         scope_type=scope.scope_type,
@@ -178,12 +175,7 @@ def restore_repo_paths(issues: list[Issue], subroot: str) -> None:
     """
     if subroot == "." or not subroot:
         return
-
     prefix = subroot.rstrip("/") + "/"
     for issue in issues:
         if issue.filename and not issue.filename.startswith(prefix):
             issue.filename = prefix + issue.filename
-
-
-
-

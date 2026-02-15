@@ -23,6 +23,7 @@ class IssueCategory(str, Enum):
     SECURITY = "security"
     BUG = "bug"
     DOCUMENTATION = "documentation"
+    SMELL = "smell"
 
 
 class ScopeType(str, Enum):
@@ -107,7 +108,7 @@ class Issue(BaseModel):
 class SignatureStatsResult(BaseModel):
     """Statistics for a single signature's execution during review."""
 
-    name: str = Field(description="Signature name (e.g., code_and_doc_review, supply_chain)")
+    name: str = Field(description="Signature name (e.g., code_review, doc, scope, supply_chain, deduplication, summarization)")
     cost: float = Field(default=0.0, description="Cost in USD for this signature")
     tokens: int = Field(default=0, description="Tokens used by this signature")
     call_count: int = Field(default=0, description="Number of LLM calls made by this signature")
@@ -183,6 +184,11 @@ class ReviewResult(BaseModel):
         """Get all documentation issues."""
         return [i for i in self.issues if i.category == IssueCategory.DOCUMENTATION]
 
+    @property
+    def smell_issues(self) -> list[Issue]:
+        """Get all code smell issues."""
+        return [i for i in self.issues if i.category == IssueCategory.SMELL]
+
     def issues_by_severity(self) -> dict[IssueSeverity, list[Issue]]:
         """Group issues by severity."""
         result: dict[IssueSeverity, list[Issue]] = {s: [] for s in IssueSeverity}
@@ -218,6 +224,7 @@ class ReviewResult(BaseModel):
             f"- **Security:** {len(self.security_issues)}",
             f"- **Bugs:** {len(self.bug_issues)}",
             f"- **Documentation:** {len(self.documentation_issues)}",
+            f"- **Smells:** {len(self.smell_issues)}",
             "",
         ])
 
