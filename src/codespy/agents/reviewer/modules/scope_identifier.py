@@ -16,43 +16,12 @@ from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
 
+# ── Shared scope-detection documentation ──────────────────────────────────
+# Referenced by both ScopeIdentifierLocalSignature and ScopeIdentifierSignature
+# so the guidance is maintained in one place (DRY).
 
-class ScopeAssignment(BaseModel):
-    """LLM-friendly scope assignment with string file paths.
-    
-    This intermediate model is used for LLM output since the LLM can only
-    produce string file paths, not full ChangedFile objects with patches/content.
-    It gets converted to ScopeResult with proper ChangedFile objects after LLM call.
-    """
-
-    subroot: str = Field(description="Path relative to repo root (e.g., packages/auth)")
-    scope_type: ScopeType = Field(description="Type of scope (library, service, etc.)")
-    has_changes: bool = Field(
-        default=False, description="Whether this scope has changed files from PR"
-    )
-    is_dependency: bool = Field(
-        default=False, description="Whether this scope depends on a changed scope"
-    )
-    confidence: float = Field(
-        default=0.8, ge=0.0, le=1.0, description="Confidence score for scope identification"
-    )
-    language: str | None = Field(default=None, description="Primary language detected")
-    package_manifest: PackageManifest | None = Field(
-        default=None, description="Package manifest info if present"
-    )
-    changed_files: list[str] = Field(
-        default_factory=list, description="Changed file paths belonging to this scope"
-    )
-    reason: str = Field(description="Explanation for why this scope was identified")
-
-
-class ScopeIdentifierSignature(dspy.Signature):
-    """Identify code scopes in a repository for a merge request.
-
-    You have tools to clone the repository, explore its filesystem, and analyze code.
-    Your goal is to identify logical code boundaries (scopes) and assign each changed file to exactly one scope.
-
-    STEP 1 - ANALYZE CHANGED FILE PATHS (before cloning):
+_ANALYZE_CHANGED_FILES_DOC = """\
+STEP {step_analyze} - ANALYZE CHANGED FILE PATHS:
     The changed file paths are your MOST IMPORTANT signal for scope detection.
     1. Extract common directory prefixes from changed files to find candidate scopes
     2. Look for scope indicator patterns at ANY DEPTH in the path:
@@ -67,28 +36,21 @@ class ScopeIdentifierSignature(dspy.Signature):
          → Candidate scope: platform/packages/auth (the "packages/" pattern indicates library)
        - Files: company/backend/services/user-api/main.go
          → Candidate scope: company/backend/services/user-api
-    4. Group files by their longest common directory prefix that contains a scope indicator
+    4. Group files by their longest common directory prefix that contains a scope indicator"""
 
-    STEP 2 - CLONE THE REPOSITORY:
-    Clone using clone_repository tool:
-    1. Use the repo_owner, repo_name, and head_sha provided in the inputs
-    2. Clone to the target_repo_path provided
-    3. Derive sparse_paths from candidate scopes identified in STEP 1:
-       - Include each candidate scope directory
-       - Example: ["mono/svc/my-service-v1/", "libs/common/"]
-    4. Use depth=1 for fastest clone (single commit)
-
-    STEP 3 - VERIFY SCOPES WITH PACKAGE MANIFESTS:
-    For each candidate scope from STEP 1:
+_VERIFY_SCOPES_DOC = """\
+STEP {step_verify} - VERIFY SCOPES WITH PACKAGE MANIFESTS:
+    For each candidate scope from STEP {step_analyze}:
     1. Check if a package manifest exists at that path (go.mod, package.json, pyproject.toml, Cargo.toml, etc.)
     2. If found → CONFIRM that directory as the scope root
     3. If NOT found → Walk UP parent directories until you find a package manifest
        - Example: If candidate is mono/svc/my-service-v1/internal, check:
          * mono/svc/my-service-v1/internal/go.mod (not found)
          * mono/svc/my-service-v1/go.mod (FOUND → this is the scope)
-    4. The directory containing the package manifest is the authoritative scope root
+    4. The directory containing the package manifest is the authoritative scope root"""
 
-    SCOPE TYPE CLASSIFICATION:
+_SCOPE_CLASSIFICATION_DOC = """\
+SCOPE TYPE CLASSIFICATION:
     These patterns can appear at ANY NESTING DEPTH - not just at the repository root!
     - library: Shared code that others import
       * Patterns at any depth: */libs/*, */packages/*, */shared/*, */common/*, */core/*
@@ -120,9 +82,10 @@ class ScopeIdentifierSignature(dspy.Signature):
     - pyproject.toml (pip) with lock files: poetry.lock, uv.lock
     - go.mod (go) with lock file: go.sum
     - Cargo.toml (cargo) with lock file: Cargo.lock
-    - pom.xml (maven), build.gradle (gradle), composer.json (composer), Gemfile (bundler)
+    - pom.xml (maven), build.gradle (gradle), composer.json (composer), Gemfile (bundler)"""
 
-    CRITICAL RULES:
+_CRITICAL_RULES_DOC = """\
+CRITICAL RULES:
     1. EVERY changed file must be assigned to exactly ONE scope
     2. Don't create overlapping scopes (parent contains child)
     3. ALWAYS prefer the most specific scope - the deepest directory with a package manifest
@@ -135,8 +98,105 @@ class ScopeIdentifierSignature(dspy.Signature):
     6. Trust the file paths - if they contain svc/, services/, packages/ etc., that's a strong scope signal
 
     OUTPUT EFFICIENCY: Group files by common directory prefix in reasoning. Do not reason about each file path individually.
-    Keep each reasoning step to 1-2 sentences.
+    Keep each reasoning step to 1-2 sentences."""
+
+
+def _build_scope_docstring(*, intro: str, extra_steps: str = "", step_analyze: int = 1, step_verify: int = 2) -> str:
+    """Build a complete scope-identification docstring from shared blocks.
+
+    Args:
+        intro: Opening paragraph specific to local or remote mode.
+        extra_steps: Additional steps inserted between ANALYZE and VERIFY (e.g. clone step).
+        step_analyze: Number label for the "Analyze changed files" step.
+        step_verify: Number label for the "Verify scopes" step.
     """
+    parts = [
+        intro,
+        _ANALYZE_CHANGED_FILES_DOC.format(step_analyze=step_analyze),
+    ]
+    if extra_steps:
+        parts.append(extra_steps)
+    parts.extend([
+        _VERIFY_SCOPES_DOC.format(step_verify=step_verify, step_analyze=step_analyze),
+        _SCOPE_CLASSIFICATION_DOC,
+        _CRITICAL_RULES_DOC,
+    ])
+    return "\n\n    ".join(parts)
+
+
+class ScopeAssignment(BaseModel):
+    """LLM-friendly scope assignment with string file paths.
+    
+    This intermediate model is used for LLM output since the LLM can only
+    produce string file paths, not full ChangedFile objects with patches/content.
+    It gets converted to ScopeResult with proper ChangedFile objects after LLM call.
+    """
+
+    subroot: str = Field(description="Path relative to repo root (e.g., packages/auth)")
+    scope_type: ScopeType = Field(description="Type of scope (library, service, etc.)")
+    has_changes: bool = Field(
+        default=False, description="Whether this scope has changed files from PR"
+    )
+    is_dependency: bool = Field(
+        default=False, description="Whether this scope depends on a changed scope"
+    )
+    confidence: float = Field(
+        default=0.8, ge=0.0, le=1.0, description="Confidence score for scope identification"
+    )
+    language: str | None = Field(default=None, description="Primary language detected")
+    package_manifest: PackageManifest | None = Field(
+        default=None, description="Package manifest info if present"
+    )
+    changed_files: list[str] = Field(
+        default_factory=list, description="Changed file paths belonging to this scope"
+    )
+    reason: str = Field(description="Explanation for why this scope was identified")
+
+
+class ScopeIdentifierLocalSignature(dspy.Signature):
+    __doc__ = _build_scope_docstring(
+        intro="""\
+Identify code scopes in a local repository.
+
+    The repository is already present at the target_repo_path. You have tools to explore its filesystem and analyze code.
+    Your goal is to identify logical code boundaries (scopes) and assign each changed file to exactly one scope.""",
+        step_analyze=1,
+        step_verify=2,
+    )
+
+    changed_files: list[str] = dspy.InputField(
+        desc="List of changed file paths from the MR."
+    )
+    target_repo_path: str = dspy.InputField(
+        desc="Absolute path to the repository (already present locally)."
+    )
+    mr_title: str = dspy.InputField(desc="MR title for additional context")
+    mr_description: str = dspy.InputField(desc="MR description for additional context")
+
+    scopes: list[ScopeAssignment] = dspy.OutputField(
+        desc="Identified scopes. Every changed file must appear in exactly one scope. Use concise reasons (<2 sentences)."
+    )
+
+
+class ScopeIdentifierSignature(dspy.Signature):
+    __doc__ = _build_scope_docstring(
+        intro="""\
+Identify code scopes in a repository for a merge request.
+
+    You have tools to clone the repository, explore its filesystem, and analyze code.
+    Your goal is to identify logical code boundaries (scopes) and assign each changed file to exactly one scope.""",
+        extra_steps="""\
+STEP 2 - CLONE THE REPOSITORY:
+    Clone using clone_repository tool:
+    1. Use the repo_owner, repo_name, and head_sha provided in the inputs
+    2. Clone to the target_repo_path provided
+    3. Derive sparse_paths from candidate scopes identified in STEP 1:
+       - Include each candidate scope directory
+       - Example: ["mono/svc/my-service-v1/", "libs/common/"]
+    4. Use depth=1 for fastest clone (single commit)""",
+        step_analyze=1,
+        step_verify=3,
+    )
 
     changed_files: list[str] = dspy.InputField(
         desc="List of changed file paths from the MR. Use these to derive sparse_paths for efficient cloning."
@@ -149,7 +209,7 @@ class ScopeIdentifierSignature(dspy.Signature):
     )
     mr_title: str = dspy.InputField(desc="MR title for additional context")
     mr_description: str = dspy.InputField(desc="MR description for additional context")
-    
+
     scopes: list[ScopeAssignment] = dspy.OutputField(
         desc="Identified scopes. Every changed file must appear in exactly one scope. Use concise reasons (<2 sentences)."
     )
@@ -168,35 +228,64 @@ class ScopeIdentifier(dspy.Module):
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
 
-    async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
-        """Create DSPy tools from MCP servers."""
+    async def _create_mcp_tools(
+        self, repo_path: Path, is_local: bool = False,
+    ) -> tuple[list[Any], list[Any]]:
+        """Create DSPy tools from MCP servers.
+
+        Args:
+            repo_path: Path to the repository
+            is_local: If True, skip git tools (repo already present locally)
+        """
         tools: list[Any] = []
         contexts: list[Any] = []
         tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
         repo_path_str = str(repo_path)
         caller = "scope_identifier"
-        tools.extend(await connect_mcp_server(tools_dir / "filesystem" / "server.py", [repo_path_str], contexts, caller))
-        tools.extend(await connect_mcp_server(tools_dir / "parsers" / "ripgrep" / "server.py", [repo_path_str], contexts, caller))
-        tools.extend(await connect_mcp_server(tools_dir / "parsers" / "treesitter" / "server.py", [repo_path_str], contexts, caller))
-        tools.extend(await connect_mcp_server(tools_dir / "git" / "server.py", [], contexts, caller))
+        fs_server = tools_dir / "filesystem" / "server.py"
+        rg_server = tools_dir / "parsers" / "ripgrep" / "server.py"
+        ts_server = tools_dir / "parsers" / "treesitter" / "server.py"
+        tools.extend(await connect_mcp_server(
+            fs_server, [repo_path_str], contexts, caller,
+        ))
+        tools.extend(await connect_mcp_server(
+            rg_server, [repo_path_str], contexts, caller,
+        ))
+        tools.extend(await connect_mcp_server(
+            ts_server, [repo_path_str], contexts, caller,
+        ))
+        # Skip git tools for local reviews - repo is already present
+        if not is_local:
+            git_server = tools_dir / "git" / "server.py"
+            tools.extend(await connect_mcp_server(
+                git_server, [], contexts, caller,
+            ))
         return tools, contexts
 
-    async def aforward(self, mr: MergeRequest, repo_path: Path) -> list[ScopeResult]:
-        """Identify scopes in the repository for the given MR."""
+    async def aforward(
+        self, mr: MergeRequest, repo_path: Path, is_local: bool = False,
+    ) -> list[ScopeResult]:
+        """Identify scopes in the repository for the given MR.
+
+        Args:
+            mr: MergeRequest object with changed files
+            repo_path: Path to the repository
+            is_local: If True, repo is already present locally (skip clone)
+        """
         # Get excluded directories from settings
         excluded_dirs = self._settings.excluded_directories
-        
+
         # Filter out binary, lock files, minified files, excluded directories, etc.
         reviewable_files = [f for f in mr.changed_files if should_review_file(f, excluded_dirs)]
         excluded_count = len(mr.changed_files) - len(reviewable_files)
         if excluded_count > 0:
             excluded_files = [f.filename for f in mr.changed_files if not should_review_file(f, excluded_dirs)]
             logger.info(f"Excluded {excluded_count} non-reviewable files: {excluded_files[:10]}{'...' if len(excluded_files) > 10 else ''}")
-        
+
         if not reviewable_files:
             logger.warning("No reviewable files in MR - all files are binary, lock files, or in excluded directories")
             return []
-        
+
         # Check if signature is enabled
         if not self._settings.is_signature_enabled("scope"):
             logger.warning("scope is disabled - using fallback single scope")
@@ -211,7 +300,7 @@ class ScopeIdentifier(dspy.Module):
                 changed_files=reviewable_files,
                 reason="Scope identification disabled - fallback to single scope",
             )]
-        tools, contexts = await self._create_mcp_tools(repo_path)
+        tools, contexts = await self._create_mcp_tools(repo_path, is_local=is_local)
         changed_file_paths = [f.filename for f in reviewable_files]
         # Build map from filename to ChangedFile for post-processing
         changed_files_map: dict[str, ChangedFile] = {f.filename: f for f in reviewable_files}
@@ -220,25 +309,41 @@ class ScopeIdentifier(dspy.Module):
             max_iters = self._settings.get_max_iters("scope")
             temperature = self._settings.get_temperature("scope")
             max_reasoning = self._settings.get_max_reasoning_tokens("scope")
-            
+
+            # Use appropriate signature based on local/remote mode
+            signature = ScopeIdentifierLocalSignature if is_local else ScopeIdentifierSignature
+
             # Create ReAct agent
             agent = dspy.ReAct(
-                signature=ScopeIdentifierSignature,
+                signature=signature,
                 tools=tools,
                 max_iters=max_iters,
             )
-            logger.info(f"Identifying scopes for {len(changed_file_paths)} changed files...")
+
+            mode = "local" if is_local else "remote"
+            n_files = len(changed_file_paths)
+            logger.info(f"Identifying scopes for {n_files} changed files ({mode} mode)...")
+
             # Track scope signature costs
             async with SignatureContext("scope", self._cost_tracker):
-                result = await agent.acall(
-                    changed_files=changed_file_paths,
-                    repo_owner=mr.repo_owner,
-                    repo_name=mr.repo_name,
-                    head_sha=mr.head_sha,
-                    target_repo_path=str(repo_path),
-                    mr_title=mr.title or "No title",
-                    mr_description=mr.body or "No description",
-                )
+                # Build inputs based on signature type
+                if is_local:
+                    result = await agent.acall(
+                        changed_files=changed_file_paths,
+                        target_repo_path=str(repo_path),
+                        mr_title=mr.title or "No title",
+                        mr_description=mr.body or "No description",
+                    )
+                else:
+                    result = await agent.acall(
+                        changed_files=changed_file_paths,
+                        repo_owner=mr.repo_owner,
+                        repo_name=mr.repo_name,
+                        head_sha=mr.head_sha,
+                        target_repo_path=str(repo_path),
+                        mr_title=mr.title or "No title",
+                        mr_description=mr.body or "No description",
+                    )
             scope_assignments: list[ScopeAssignment] = result.scopes
             # Ensure we got valid scopes
             if not scope_assignments:
@@ -266,8 +371,8 @@ class ScopeIdentifier(dspy.Module):
         return scopes
 
     def _convert_assignments_to_results(
-        self, 
-        assignments: list[ScopeAssignment], 
+        self,
+        assignments: list[ScopeAssignment],
         changed_files_map: dict[str, ChangedFile]
     ) -> list[ScopeResult]:
         """Convert LLM scope assignments to ScopeResults with proper ChangedFile objects.
@@ -301,6 +406,14 @@ class ScopeIdentifier(dspy.Module):
             ))
         return results
 
-    def forward(self, mr: MergeRequest, repo_path: Path) -> list[ScopeResult]:
-        """Identify scopes (sync wrapper)."""
-        return asyncio.run(self.aforward(mr, repo_path))
+    def forward(
+        self, mr: MergeRequest, repo_path: Path, is_local: bool = False,
+    ) -> list[ScopeResult]:
+        """Identify scopes (sync wrapper).
+
+        Args:
+            mr: MergeRequest object with changed files
+            repo_path: Path to the repository
+            is_local: If True, repo already present locally (skip clone)
+        """
+        return asyncio.run(self.aforward(mr, repo_path, is_local=is_local))

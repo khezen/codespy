@@ -7,16 +7,13 @@ from pathlib import Path
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, configure_dspy, get_cost_tracker, verify_model_access
-from codespy.config import Settings, get_settings
-from codespy.tools.git import GitClient, get_client, ChangedFile, MergeRequest
-from codespy.tools.git.local_diff import build_mr_from_diff
 from codespy.agents.reviewer.models import (
     Issue,
-    SignatureStatsResult,
-    ReviewResult,
-    ReviewConfig,
-    RemoteReviewConfig,
     LocalReviewConfig,
+    RemoteReviewConfig,
+    ReviewConfig,
+    ReviewResult,
+    SignatureStatsResult,
 )
 from codespy.agents.reviewer.modules import (
     CodeReviewer,
@@ -25,6 +22,9 @@ from codespy.agents.reviewer.modules import (
     ScopeIdentifier,
     SupplyChainAuditor,
 )
+from codespy.config import Settings, get_settings
+from codespy.tools.git import ChangedFile, GitClient, MergeRequest, get_client
+from codespy.tools.git.local_diff import build_mr_from_diff
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +172,7 @@ class ReviewPipeline(dspy.Module):
             ReviewResult with issues, summary, costs, etc.
         """
         self.cost_tracker.reset()
-        
+
         # Always verify model access
         self._verify_model_access()
 
@@ -192,17 +192,20 @@ class ReviewPipeline(dspy.Module):
             raise ValueError(f"Invalid config type: {type(config)}")
 
         # Identify scopes (the module internally checks if signature is enabled)
+        # For local reviews, pass is_local=True to skip git clone operations
+        is_local_review = isinstance(config, LocalReviewConfig)
         logger.info("Identifying code scopes...")
-        scopes = self.scope_identifier(mr, repo_path)
+        scopes = self.scope_identifier(mr, repo_path, is_local=is_local_review)
         for scope in scopes:
-            logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
+            n = len(scope.changed_files)
+            logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {n} files")
             if scope.package_manifest:
                 manifest = scope.package_manifest
                 logger.info(f"    Manifest: {manifest.manifest_path} ({manifest.package_manager})")
                 if manifest.lock_file_path:
                     logger.info(f"    Lock file: {manifest.lock_file_path}")
                 if manifest.dependencies_changed:
-                    logger.info(f"    Dependencies changed: Yes")
+                    logger.info("    Dependencies changed: Yes")
 
         # Run review modules concurrently via asyncio.gather
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]

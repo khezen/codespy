@@ -690,7 +690,8 @@ The review is powered by DSPy signatures that structure the LLM's analysis:
 
 | Signature | Config Key | Description |
 |-----------|------------|-------------|
-| **ScopeIdentifierSignature** | `scope` | Identifies code scopes (frontend, backend, infra, microservice in mono repo, etc...) |
+| **ScopeIdentifierSignature** | `scope` | Identifies code scopes for remote PR/MR reviews — clones the repository via git tools then explores the filesystem to detect scopes |
+| **ScopeIdentifierLocalSignature** | `scope` | Local variant used by `review-local` / `review-uncommitted` — skips git clone (repo already present) and only receives `target_repo_path`. Selected automatically when `ReviewPipeline` receives a `LocalReviewConfig` |
 | **CodeReviewSignature** | `code_review` | Detects verified bugs, security vulnerabilities, removed defensive code, and code smells |
 | **DocReviewSignature** | `doc` | Detects stale or wrong documentation caused by code changes |
 | **SupplyChainSecuritySignature** | `supply_chain` | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
