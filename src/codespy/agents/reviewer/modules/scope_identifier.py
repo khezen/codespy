@@ -69,14 +69,18 @@ class ScopeIdentifierSignature(dspy.Signature):
          → Candidate scope: company/backend/services/user-api
     4. Group files by their longest common directory prefix that contains a scope indicator
 
-    STEP 2 - CLONE THE REPOSITORY:
-    Clone using clone_repository tool:
-    1. Use the repo_owner, repo_name, and head_sha provided in the inputs
-    2. Clone to the target_repo_path provided
-    3. Derive sparse_paths from candidate scopes identified in STEP 1:
-       - Include each candidate scope directory
-       - Example: ["mono/svc/my-service-v1/", "libs/common/"]
-    4. Use depth=1 for fastest clone (single commit)
+    STEP 2 - ACCESS THE REPOSITORY:
+    - If is_local is True:
+      The repository is ALREADY available at target_repo_path. Do NOT clone.
+      Skip directly to STEP 3 and use filesystem tools to explore the repo.
+    - If is_local is False:
+      Clone using clone_repository tool:
+      1. Use the repo_owner, repo_name, and head_sha provided in the inputs
+      2. Clone to the target_repo_path provided
+      3. Derive sparse_paths from candidate scopes identified in STEP 1:
+         - Include each candidate scope directory
+         - Example: ["mono/svc/my-service-v1/", "libs/common/"]
+      4. Use depth=1 for fastest clone (single commit)
 
     STEP 3 - VERIFY SCOPES WITH PACKAGE MANIFESTS:
     For each candidate scope from STEP 1:
@@ -141,14 +145,17 @@ class ScopeIdentifierSignature(dspy.Signature):
     changed_files: list[str] = dspy.InputField(
         desc="List of changed file paths from the MR. Use these to derive sparse_paths for efficient cloning."
     )
-    repo_owner: str = dspy.InputField(desc="Repository owner/namespace (e.g., 'facebook' or 'group/subgroup')")
-    repo_name: str = dspy.InputField(desc="Repository name (e.g., 'react')")
-    head_sha: str = dspy.InputField(desc="Git commit SHA to checkout")
+    repo_owner: str = dspy.InputField(desc="Repository owner/namespace (e.g., 'facebook' or 'group/subgroup'). Used for cloning (remote only).")
+    repo_name: str = dspy.InputField(desc="Repository name (e.g., 'react'). Used for cloning (remote only).")
+    head_sha: str = dspy.InputField(desc="Git commit SHA to checkout. Used for cloning (remote only).")
     target_repo_path: str = dspy.InputField(
-        desc="Absolute path where repository should be cloned. Clone here before exploring."
+        desc="Absolute path to the repository. For remote reviews, clone here. For local reviews, the repo is already here."
     )
     mr_title: str = dspy.InputField(desc="MR title for additional context")
     mr_description: str = dspy.InputField(desc="MR description for additional context")
+    is_local: bool = dspy.InputField(
+        desc="Whether the repository is already available locally at target_repo_path. If True, skip cloning and go directly to filesystem exploration."
+    )
     
     scopes: list[ScopeAssignment] = dspy.OutputField(
         desc="Identified scopes. Every changed file must appear in exactly one scope. Use concise reasons (<2 sentences)."
@@ -168,8 +175,13 @@ class ScopeIdentifier(dspy.Module):
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
 
-    async def _create_mcp_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
-        """Create DSPy tools from MCP servers."""
+    async def _create_mcp_tools(self, repo_path: Path, is_local: bool = False) -> tuple[list[Any], list[Any]]:
+        """Create DSPy tools from MCP servers.
+        
+        Args:
+            repo_path: Path to the repository root
+            is_local: If True, skip git server (repo already on disk, no cloning needed)
+        """
         tools: list[Any] = []
         contexts: list[Any] = []
         tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
@@ -178,11 +190,18 @@ class ScopeIdentifier(dspy.Module):
         tools.extend(await connect_mcp_server(tools_dir / "filesystem" / "server.py", [repo_path_str], contexts, caller))
         tools.extend(await connect_mcp_server(tools_dir / "parsers" / "ripgrep" / "server.py", [repo_path_str], contexts, caller))
         tools.extend(await connect_mcp_server(tools_dir / "parsers" / "treesitter" / "server.py", [repo_path_str], contexts, caller))
-        tools.extend(await connect_mcp_server(tools_dir / "git" / "server.py", [], contexts, caller))
+        if not is_local:
+            tools.extend(await connect_mcp_server(tools_dir / "git" / "server.py", [], contexts, caller))
         return tools, contexts
 
-    async def aforward(self, mr: MergeRequest, repo_path: Path) -> list[ScopeResult]:
-        """Identify scopes in the repository for the given MR."""
+    async def aforward(self, mr: MergeRequest, repo_path: Path, is_local: bool = False) -> list[ScopeResult]:
+        """Identify scopes in the repository for the given MR.
+        
+        Args:
+            mr: The merge request to analyze
+            repo_path: Path to the repository root
+            is_local: If True, repo is already on disk (skip cloning)
+        """
         # Get excluded directories from settings
         excluded_dirs = self._settings.excluded_directories
         
@@ -211,7 +230,7 @@ class ScopeIdentifier(dspy.Module):
                 changed_files=reviewable_files,
                 reason="Scope identification disabled - fallback to single scope",
             )]
-        tools, contexts = await self._create_mcp_tools(repo_path)
+        tools, contexts = await self._create_mcp_tools(repo_path, is_local=is_local)
         changed_file_paths = [f.filename for f in reviewable_files]
         # Build map from filename to ChangedFile for post-processing
         changed_files_map: dict[str, ChangedFile] = {f.filename: f for f in reviewable_files}
@@ -238,6 +257,7 @@ class ScopeIdentifier(dspy.Module):
                     target_repo_path=str(repo_path),
                     mr_title=mr.title or "No title",
                     mr_description=mr.body or "No description",
+                    is_local=is_local,
                 )
             scope_assignments: list[ScopeAssignment] = result.scopes
             # Ensure we got valid scopes
@@ -301,6 +321,6 @@ class ScopeIdentifier(dspy.Module):
             ))
         return results
 
-    def forward(self, mr: MergeRequest, repo_path: Path) -> list[ScopeResult]:
+    def forward(self, mr: MergeRequest, repo_path: Path, is_local: bool = False) -> list[ScopeResult]:
         """Identify scopes (sync wrapper)."""
-        return asyncio.run(self.aforward(mr, repo_path))
+        return asyncio.run(self.aforward(mr, repo_path, is_local=is_local))
