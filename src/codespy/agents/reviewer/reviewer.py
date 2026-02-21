@@ -192,8 +192,9 @@ class ReviewPipeline(dspy.Module):
             raise ValueError(f"Invalid config type: {type(config)}")
 
         # Identify scopes (the module internally checks if signature is enabled)
+        is_local = isinstance(config, LocalReviewConfig)
         logger.info("Identifying code scopes...")
-        scopes = self.scope_identifier(mr, repo_path)
+        scopes = self.scope_identifier(mr, repo_path, is_local=is_local)
         for scope in scopes:
             logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
             if scope.package_manifest:
