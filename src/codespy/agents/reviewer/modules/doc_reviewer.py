@@ -9,12 +9,14 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
+from codespy.agents.reviewer.modules.agentic_extractor import extract_agentic_content
 from codespy.agents.reviewer.modules.doc_extractor import extract_documentation
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
     make_scope_relative,
     resolve_scope_root,
     restore_repo_paths,
+    strip_prefix,
 )
 from codespy.config import get_settings
 
@@ -30,9 +32,12 @@ class DocReviewSignature(dspy.Signature):
     You are given:
     1. Code patches showing what changed
     2. Current documentation content (README, .env.example, docs/, etc.)
+    3. Optionally, agentic context (AI agent instruction/prompt/config files)
 
     Your job: identify documentation that is now WRONG or MISSING because of the
     code changes. Cross-reference the patches against the documentation.
+    If agentic_context is non-empty, also check whether code changes affect
+    AI agent behavior and whether agent instructions/prompts need updating.
 
     CHECK FOR:
 
@@ -79,6 +84,10 @@ class DocReviewSignature(dspy.Signature):
     )
     categories: list[IssueCategory] = dspy.InputField(
         desc="Allowed issue categories. Use only these values."
+    )
+    agentic_context: str = dspy.InputField(
+        desc="Content of AI agent instruction/prompt/config files found in this scope. "
+        "Empty string if none detected. Check if code changes make these stale."
     )
 
     issues: list[Issue] = dspy.OutputField(
@@ -156,16 +165,29 @@ class DocReviewer(dspy.Module):
                 continue
             try:
                 reviewer = dspy.ChainOfThought(DocReviewSignature)
-                logger.info(
-                    f"  Doc review: scope {scope.subroot} "
-                    f"({len(scope.changed_files)} files)"
-                )
+                # Extract agentic helper content for this scope
+                scope_relative_helpers = [
+                    strip_prefix(h, scope.subroot) for h in scope.agentic_helpers
+                ]
+                agentic_ctx = extract_agentic_content(scope_root, scope_relative_helpers)
+                if agentic_ctx:
+                    logger.info(
+                        f"  Doc review: scope {scope.subroot} "
+                        f"({len(scope.changed_files)} files, "
+                        f"{len(scope.agentic_helpers)} agentic helpers)"
+                    )
+                else:
+                    logger.info(
+                        f"  Doc review: scope {scope.subroot} "
+                        f"({len(scope.changed_files)} files)"
+                    )
                 async with SignatureContext("doc", self._cost_tracker):
                     result = await asyncio.to_thread(
                         reviewer,
                         patches=patches,
                         documentation=documentation,
                         categories=[IssueCategory.DOCUMENTATION],
+                        agentic_context=agentic_ctx,
                     )
                 issues = [
                     issue for issue in (result.issues or [])

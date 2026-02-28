@@ -9,11 +9,13 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
+from codespy.agents.reviewer.modules.agentic_extractor import extract_agentic_content
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
     make_scope_relative,
     resolve_scope_root,
     restore_repo_paths,
+    strip_prefix,
 )
 from codespy.config import get_settings
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -36,6 +38,12 @@ class CodeReviewSignature(dspy.Signature):
 
     Review each changed file's patch. For each file, check ALL categories (A, B, C)
     before moving to the next file.
+
+    AGENTIC CONTEXT: If agentic_context is non-empty, it contains AI agent
+    instruction/prompt/config files (e.g., claude.md, agent_config.yaml,
+    .clinerules/*.md) found in this scope. Use this as supporting context for
+    categories A, B, and C — it reveals the intended agent behavior, constraints,
+    and tool access patterns that may help you verify or dismiss findings.
 
     TOOLS AVAILABLE:
     - find_function_definitions: check function signatures and implementations
@@ -129,6 +137,11 @@ class CodeReviewSignature(dspy.Signature):
     )
     categories: list[IssueCategory] = dspy.InputField(
         desc="Allowed issue categories. Use only these values for the 'category' field on each issue."
+    )
+    agentic_context: str = dspy.InputField(
+        desc="Content of AI agent instruction/prompt/config files found in this scope "
+        "(e.g., claude.md, agent_config.yaml, .clinerules/*.md). "
+        "Empty string if none detected. Use as supporting context for all categories."
     )
 
     issues: list[Issue] = dspy.OutputField(
@@ -224,14 +237,28 @@ class CodeReviewer(dspy.Module):
                     max_iters=max_iters,
                 )
                 scoped = make_scope_relative(scope)
-                logger.info(
-                    f"  Code review: scope {scope.subroot} "
-                    f"({len(scope.changed_files)} files)"
-                )
+                # Extract agentic helper content for this scope
+                # agentic_helpers are repo-root-relative; strip subroot prefix for scope-relative paths
+                scope_relative_helpers = [
+                    strip_prefix(h, scope.subroot) for h in scope.agentic_helpers
+                ]
+                agentic_ctx = extract_agentic_content(scope_root, scope_relative_helpers)
+                if agentic_ctx:
+                    logger.info(
+                        f"  Code review: scope {scope.subroot} "
+                        f"({len(scope.changed_files)} files, "
+                        f"{len(scope.agentic_helpers)} agentic helpers)"
+                    )
+                else:
+                    logger.info(
+                        f"  Code review: scope {scope.subroot} "
+                        f"({len(scope.changed_files)} files)"
+                    )
                 async with SignatureContext("code_review", self._cost_tracker):
                     result = await agent.acall(
                         scope=scoped,
                         categories=categories,
+                        agentic_context=agentic_ctx,
                     )
 
                 issues = [

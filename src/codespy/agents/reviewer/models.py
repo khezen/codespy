@@ -72,6 +72,10 @@ class ScopeResult(BaseModel):
     changed_files: list[ChangedFile] = Field(
         default_factory=list, description="Changed files belonging to this scope"
     )
+    agentic_helpers: list[str] = Field(
+        default_factory=list,
+        description="Detected agentic helper file paths (AI agent prompts, instructions, configs) relative to repo root",
+    )
     reason: str = Field(description="Explanation for why this scope was identified")
 
     model_config = {"arbitrary_types_allowed": True}
