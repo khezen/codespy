@@ -27,7 +27,6 @@ SIGNATURE_NAMES = {
     "doc",
     "scope",
     "supply_chain",
-    "deduplication",
     "summarization",
 }
 

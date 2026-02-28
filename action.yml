@@ -216,34 +216,6 @@ inputs:
     default: 'false'
   
   # ==========================================
-  # SIGNATURE: deduplication
-  # ==========================================
-  deduplication-enabled:
-    description: 'Enable issue deduplication signature'
-    required: false
-    default: 'true'
-  
-  deduplication-model:
-    description: 'Model for deduplication (empty = use default)'
-    required: false
-  
-  deduplication-max-iters:
-    description: 'Max iterations for deduplication'
-    required: false
-  
-  deduplication-max-context-size:
-    description: 'Max context size for deduplication'
-    required: false
-  
-  deduplication-max-reasoning-tokens:
-    description: 'Max reasoning tokens for deduplication'
-    required: false
-  
-  deduplication-temperature:
-    description: 'Temperature for deduplication'
-    required: false
-  
-  # ==========================================
   # SIGNATURE: summarization
   # ==========================================
   summarization-enabled:
@@ -377,14 +349,6 @@ runs:
         SUPPLY_CHAIN_TEMPERATURE: ${{ inputs.supply-chain-temperature }}
         SUPPLY_CHAIN_SCAN_UNCHANGED: ${{ inputs.supply-chain-scan-unchanged }}
         
-        # Deduplication signature
-        DEDUPLICATION_ENABLED: ${{ inputs.deduplication-enabled }}
-        DEDUPLICATION_MODEL: ${{ inputs.deduplication-model }}
-        DEDUPLICATION_MAX_ITERS: ${{ inputs.deduplication-max-iters }}
-        DEDUPLICATION_MAX_CONTEXT_SIZE: ${{ inputs.deduplication-max-context-size }}
-        DEDUPLICATION_MAX_REASONING_TOKENS: ${{ inputs.deduplication-max-reasoning-tokens }}
-        DEDUPLICATION_TEMPERATURE: ${{ inputs.deduplication-temperature }}
-        
         # Summarization signature
         SUMMARIZATION_ENABLED: ${{ inputs.summarization-enabled }}
         SUMMARIZATION_MODEL: ${{ inputs.summarization-model }}
@@ -452,14 +416,6 @@ runs:
         [ -n "$SUPPLY_CHAIN_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_REASONING_TOKENS"
         [ -n "$SUPPLY_CHAIN_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_TEMPERATURE"
         [ -n "$SUPPLY_CHAIN_SCAN_UNCHANGED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_SCAN_UNCHANGED"
-        
-        # Deduplication
-        [ -n "$DEDUPLICATION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEDUPLICATION_ENABLED"
-        [ -n "$DEDUPLICATION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEDUPLICATION_MODEL"
-        [ -n "$DEDUPLICATION_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEDUPLICATION_MAX_ITERS"
-        [ -n "$DEDUPLICATION_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEDUPLICATION_MAX_CONTEXT_SIZE"
-        [ -n "$DEDUPLICATION_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEDUPLICATION_MAX_REASONING_TOKENS"
-        [ -n "$DEDUPLICATION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEDUPLICATION_TEMPERATURE"
         
         # Summarization
         [ -n "$SUMMARIZATION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_ENABLED"
