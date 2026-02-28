@@ -21,7 +21,6 @@ from codespy.agents.reviewer.models import (
 from codespy.agents.reviewer.modules import (
     CodeReviewer,
     DocReviewer,
-    IssueDeduplicator,
     ScopeIdentifier,
     SupplyChainAuditor,
 )
@@ -79,7 +78,6 @@ class ReviewPipeline(dspy.Module):
         self.code_reviewer = CodeReviewer()
         self.doc_reviewer = DocReviewer()
         self.supply_chain_auditor = SupplyChainAuditor()
-        self.deduplicator = IssueDeduplicator()
 
     def _verify_model_access(self) -> None:
         """Verify LLM model access."""
@@ -211,13 +209,8 @@ class ReviewPipeline(dspy.Module):
         all_issues = asyncio.run(
             self._run_review_modules(scopes, repo_path, module_names)
         )
-        logger.info(f"Found {len(all_issues)} issues before deduplication")
+        logger.info(f"Found {len(all_issues)} issues")
 
-        # Deduplicate issues across reviewers (deduplicator checks if enabled internally)
-        if len(all_issues) > 1:
-            logger.info("Deduplicating issues...")
-            all_issues = self.deduplicator(all_issues)
-            logger.info(f"After deduplication: {len(all_issues)} unique issues")
         # Collect in-scope files from identified scopes (excludes binaries, vendor, lock files, etc.)
         scoped_files = self._collect_scoped_files(scopes)
         logger.info(

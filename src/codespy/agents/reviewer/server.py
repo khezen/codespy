@@ -104,7 +104,7 @@ async def review_local_changes(
     No PR or remote platform required — works with any local git repository.
     Diffs the current HEAD against the base_ref to find changed files, then runs
     the full codespy review pipeline (scope identification, code & doc review,
-    supply chain audit, deduplication, and summarization).
+    supply chain audit, and summarization).
 
     Args:
         repo_path: Absolute path to the local git repository to review

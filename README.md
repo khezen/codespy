@@ -89,7 +89,6 @@ Built for **engineering teams that care about correctness, security, and control
 - 🐛 **Bug Detection** - Identifies logic errors, null references, resource leaks, edge cases
 - 📝 **Documentation Review** - Checks for missing docstrings, outdated comments, incomplete docs
 - 🔍 **Intelligent Scope Detection** - Automatically identifies code scopes (frontend, backend, infra, microservice in mono repo, etc...)
-- 🔄 **Smart Deduplication** - LLM-powered issue deduplication across reviewers
 - 💰 **Cost Tracking** - Track LLM calls, tokens, and costs per review
 - 🤖 **Model Agnostic** - Works with OpenAI, AWS Bedrock, Anthropic, Ollama, and more via LiteLLM
 - 🐳 **Docker Ready** - Run locally or in the cloud with Docker
@@ -502,7 +501,7 @@ codespy uses a tiered model approach to balance review quality and cost:
 | Tier | Role | Default | Recommended Model | Used By |
 |------|------|---------|-------------------|---------|
 | 🧠 **Smart** | Core analysis & reasoning | `DEFAULT_MODEL` | `anthropic/claude-opus-4-6` | Code & doc review, supply chain, scope identification |
-| ⚡ **Mid-tier** | Extraction & deduplication | Falls back to `DEFAULT_MODEL` | `anthropic/claude-sonnet-4-5-20250929` | TwoStepAdapter field extraction, issue deduplication |
+| ⚡ **Mid-tier** | Field extraction | Falls back to `DEFAULT_MODEL` | `anthropic/claude-sonnet-4-5-20250929` | TwoStepAdapter field extraction |
 | 💰 **Cheap** | Summarization | Falls back to `DEFAULT_MODEL` | `anthropic/claude-haiku-4-5-20251001` | PR summary generation |
 
 By default, **all models use `DEFAULT_MODEL`** (`anthropic/claude-opus-4-6`). This works out of the box — just set your API credentials and go.
@@ -513,7 +512,6 @@ To optimize costs, override the mid-tier and cheap models:
 # .env or environment variables
 DEFAULT_MODEL=anthropic/claude-opus-4-6                    # Smart tier (default)
 EXTRACTION_MODEL=anthropic/claude-sonnet-4-5-20250929      # Mid-tier: field extraction
-DEDUPLICATION_MODEL=anthropic/claude-sonnet-4-5-20250929   # Mid-tier: issue deduplication
 SUMMARIZATION_MODEL=anthropic/claude-haiku-4-5-20251001    # Cheap tier: PR summary
 ```
 
@@ -523,8 +521,6 @@ Or in `codespy.yaml`:
 default_model: anthropic/claude-opus-4-6
 extraction_model: anthropic/claude-sonnet-4-5-20250929
 signatures:
-  deduplication:
-    model: anthropic/claude-sonnet-4-5-20250929
   summarization:
     model: anthropic/claude-haiku-4-5-20251001
 ```
@@ -651,11 +647,6 @@ output_git: true
 │  └──────────────────────────┬─────────────────────────────────┘     │
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
-│  │                 Issue Deduplicator                         │     │
-│  │  (LLM-powered deduplication across reviewers)              │     │
-│  └──────────────────────────┬─────────────────────────────────┘     │
-│                             │                                       │
-│  ┌──────────────────────────▼─────────────────────────────────┐     │
 │  │                   PR Summarizer                            │     │
 │  │  (generates summary, quality assessment, recommendation)   │     │
 │  └────────────────────────────────────────────────────────────┘     │
@@ -694,7 +685,6 @@ The review is powered by DSPy signatures that structure the LLM's analysis:
 | **CodeReviewSignature** | `code_review` | Detects verified bugs, security vulnerabilities, removed defensive code, and code smells |
 | **DocReviewSignature** | `doc` | Detects stale or wrong documentation caused by code changes |
 | **SupplyChainSecuritySignature** | `supply_chain` | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
-| **IssueDeduplicationSignature** | `deduplication` | LLM-powered deduplication of issues across reviewers |
 | **MRSummarySignature** | `summarization` | Generates summary, quality assessment, and recommendation |
 
 ## Supported Languages

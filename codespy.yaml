@@ -71,21 +71,19 @@ gitlab:
 #     smells), supply chain, scope identification, doc review. Requires strong reasoning.
 #     Recommended: anthropic/claude-opus-4-6 or equivalent.
 #
-#   Mid-tier (extraction_model + deduplication): Used for structured field
-#     extraction (TwoStepAdapter) and issue deduplication. Needs accuracy but
-#     not deep reasoning. Recommended: anthropic/claude-sonnet-4-5-20250929 or equivalent.
+#   Mid-tier (extraction_model): Used for structured field
+#     extraction (TwoStepAdapter). Needs accuracy but not deep reasoning.
+#     Recommended: anthropic/claude-sonnet-4-5-20250929 or equivalent.
 #
 #   Cheap (summarization): Used for PR summary generation. Simple synthesis
 #     task. Recommended: anthropic/claude-haiku-4-5-20251001 or equivalent.
 #
-# By default, all models fall back to default_model. Override extraction_model,
-# deduplication model, and summarization model for cost optimization:
+# By default, all models fall back to default_model. Override extraction_model
+# and summarization model for cost optimization:
 #
 #   default_model: anthropic/claude-opus-4-6
 #   extraction_model: anthropic/claude-sonnet-4-5-20250929
 #   signatures:
-#     deduplication:
-#       model: anthropic/claude-sonnet-4-5-20250929
 #     summarization:
 #       model: anthropic/claude-haiku-4-5-20251001
 # ============================================================================
@@ -142,14 +140,6 @@ signatures:
     max_context_size: null               # SCOPE_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # SCOPE_MAX_REASONING_TOKENS
     temperature: null                    # SCOPE_TEMPERATURE
-
-  # Deduplicator signature
-  deduplication:
-    enabled: true                        # DEDUPLICATION_ENABLED
-    model: null                          # DEDUPLICATION_MODEL (falls back to default_model)
-    max_context_size: null               # DEDUPLICATION_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # DEDUPLICATION_MAX_REASONING_TOKENS
-    temperature: null                    # DEDUPLICATION_TEMPERATURE
 
   # Summarizer signature
   summarization:

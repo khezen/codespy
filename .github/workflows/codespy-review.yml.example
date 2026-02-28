@@ -36,11 +36,10 @@ jobs:
         with:
           # Recommended model strategy (see README):
           #   🧠 Smart tier  — core analysis & reasoning
-          #   ⚡ Mid-tier    — field extraction & deduplication
+          #   ⚡ Mid-tier    — field extraction
           #   💰 Cheap tier  — summarization
           model: 'anthropic/claude-opus-4-6'
           extraction-model: 'anthropic/claude-sonnet-4-5-20250929'
-          deduplication-model: 'anthropic/claude-sonnet-4-5-20250929'
           summarization-model: 'anthropic/claude-haiku-4-5-20251001'
 
           # Required: Provide your LLM API key (use GitHub Secrets!)
@@ -72,7 +71,6 @@ jobs:
         with:
           model: 'anthropic/claude-opus-4-6'
           extraction-model: 'anthropic/claude-sonnet-4-5-20250929'
-          deduplication-model: 'anthropic/claude-sonnet-4-5-20250929'
           summarization-model: 'anthropic/claude-haiku-4-5-20251001'
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           pr-url: ${{ github.event.issue.pull_request.html_url }}
@@ -95,7 +93,6 @@ jobs:
 #       with:
 #         model: 'bedrock/us.anthropic.claude-opus-4-6-v1'
 #         extraction-model: 'bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0'
-#         deduplication-model: 'bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 #         summarization-model: 'bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0'
 #         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
 #         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
