@@ -46,7 +46,7 @@ class MRSummarySignature(dspy.Signature):
     mr_title: str = dspy.InputField(desc="Title of the merge request")
     mr_description: str = dspy.InputField(desc="Description/body of the MR")
     changed_files: list[ChangedFile] = dspy.InputField(
-        desc="List of changed files with their status and line counts"
+        desc="In-scope reviewable files (excludes binaries, vendor, lock files, etc.) with status and line counts"
     )
     all_issues: list[Issue] = dspy.InputField(
         desc="All issues found during review"
@@ -218,6 +218,12 @@ class ReviewPipeline(dspy.Module):
             logger.info("Deduplicating issues...")
             all_issues = self.deduplicator(all_issues)
             logger.info(f"After deduplication: {len(all_issues)} unique issues")
+        # Collect in-scope files from identified scopes (excludes binaries, vendor, lock files, etc.)
+        scoped_files = self._collect_scoped_files(scopes)
+        logger.info(
+            f"Summary input: {len(scoped_files)} in-scope files "
+            f"(filtered from {len(mr.changed_files)} total)"
+        )
         # Generate summary, quality assessment, and recommendation
         if self.settings.is_signature_enabled("summarization"):
             logger.info("Generating MR summary...")
@@ -228,7 +234,7 @@ class ReviewPipeline(dspy.Module):
                     result = summarizer(
                         mr_title=mr.title,
                         mr_description=mr.body or "No description provided.",
-                        changed_files=mr.changed_files,
+                        changed_files=scoped_files,
                         all_issues=all_issues,
                     )
                 summary = result.summary
@@ -236,12 +242,12 @@ class ReviewPipeline(dspy.Module):
                 recommendation = result.recommendation
             except Exception as e:
                 logger.error(f"Failed to generate summary: {e}")
-                summary = f"Reviewed {len(mr.changed_files)} files with {len(all_issues)} issues."
+                summary = f"Reviewed {len(scoped_files)} files with {len(all_issues)} issues."
                 quality_assessment = "Unable to assess due to error."
                 recommendation = "NEEDS_DISCUSSION: Summary generation failed."
         else:
             logger.debug("Skipping summarization: disabled")
-            summary = f"Reviewed {len(mr.changed_files)} files with {len(all_issues)} issues."
+            summary = f"Reviewed {len(scoped_files)} files with {len(all_issues)} issues."
             quality_assessment = "Summarization disabled."
             recommendation = "NEEDS_DISCUSSION" if all_issues else "APPROVE"
         # Collect per-signature statistics
@@ -262,6 +268,29 @@ class ReviewPipeline(dspy.Module):
             llm_calls=self.cost_tracker.call_count,
             signature_stats=signature_stats_list,
         )
+
+    @staticmethod
+    def _collect_scoped_files(scopes: list) -> list[ChangedFile]:
+        """Collect de-duplicated changed files from identified scopes.
+
+        The scope identifier already filters out binaries, vendor directories,
+        lock files, etc. This method collects only the in-scope files so the
+        summarizer operates on the same focused set as the review modules.
+
+        Args:
+            scopes: Identified scopes from scope_identifier
+
+        Returns:
+            De-duplicated list of ChangedFile objects from all scopes
+        """
+        seen: set[str] = set()
+        scoped_files: list[ChangedFile] = []
+        for scope in scopes:
+            for f in scope.changed_files:
+                if f.filename not in seen:
+                    seen.add(f.filename)
+                    scoped_files.append(f)
+        return scoped_files
 
     def _collect_signature_stats(self) -> list[SignatureStatsResult]:
         """Collect statistics from all signatures that executed.
