@@ -30,6 +30,7 @@ _AGENTIC_FOLDER_PATTERNS: dict[str, set[str]] = {
     "instructions": {".md"},
     "tools": {".md"},
     ".clinerules": {".md"},
+    ".rules": {".md"},
     "config": {".json", ".yaml"},
 }
 
@@ -78,7 +79,7 @@ def _scan_tree(node: TreeNode, prefix: str = "") -> list[str]:
     return paths
 
 
-def detect_agentic_helpers(scope_root: Path) -> list[str]:
+def detect_agentic_contexts(scope_root: Path) -> list[str]:
     """Detect agentic helper files in a scope directory.
 
     Single tree scan at depth 3 to find AI agent prompts, instructions,

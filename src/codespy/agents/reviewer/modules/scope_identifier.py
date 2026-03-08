@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.reviewer.models import PackageManifest, ScopeResult, ScopeType
-from codespy.agents.reviewer.modules.agentic_extractor import detect_agentic_helpers
+from codespy.agents.reviewer.modules.agentic_extractor import detect_agentic_contexts
 from codespy.config import get_settings
 from codespy.tools.git.models import ChangedFile, MergeRequest, should_review_file
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -284,13 +284,13 @@ class ScopeIdentifier(dspy.Module):
         # Detect agentic helpers in each scope
         for scope in scopes:
             scope_root = repo_path if scope.subroot == "." else repo_path / scope.subroot
-            helpers = detect_agentic_helpers(scope_root)
+            helpers = detect_agentic_contexts(scope_root)
             if helpers:
                 # Store paths relative to repo root (prefix with subroot)
                 if scope.subroot == ".":
-                    scope.agentic_helpers = helpers
+                    scope.agentic_contexts = helpers
                 else:
-                    scope.agentic_helpers = [f"{scope.subroot}/{h}" for h in helpers]
+                    scope.agentic_contexts = [f"{scope.subroot}/{h}" for h in helpers]
 
         # Log results
         total_files = sum(len(s.changed_files) for s in scopes)

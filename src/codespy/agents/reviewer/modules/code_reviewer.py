@@ -238,16 +238,16 @@ class CodeReviewer(dspy.Module):
                 )
                 scoped = make_scope_relative(scope)
                 # Extract agentic helper content for this scope
-                # agentic_helpers are repo-root-relative; strip subroot prefix for scope-relative paths
+                # agentic_contexts are repo-root-relative; strip subroot prefix for scope-relative paths
                 scope_relative_helpers = [
-                    strip_prefix(h, scope.subroot) for h in scope.agentic_helpers
+                    strip_prefix(h, scope.subroot) for h in scope.agentic_contexts
                 ]
                 agentic_ctx = extract_agentic_content(scope_root, scope_relative_helpers)
                 if agentic_ctx:
                     logger.info(
                         f"  Code review: scope {scope.subroot} "
                         f"({len(scope.changed_files)} files, "
-                        f"{len(scope.agentic_helpers)} agentic helpers)"
+                        f"{len(scope.agentic_contexts)} agentic helpers)"
                     )
                 else:
                     logger.info(
