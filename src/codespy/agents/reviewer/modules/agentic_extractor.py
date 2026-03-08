@@ -1,4 +1,4 @@
-"""Deterministic agentic helper detector — finds AI agent prompts, instructions, and configs."""
+"""Deterministic agentic context detector — finds AI agent prompts, instructions, and configs."""
 
 import logging
 from pathlib import Path
@@ -8,7 +8,7 @@ from codespy.tools.filesystem.models import EntryType, TreeNode
 
 logger = logging.getLogger(__name__)
 
-# Single files at any depth that indicate agentic helpers (case-insensitive match).
+# Single files at any depth that indicate agentic contexts (case-insensitive match).
 _AGENTIC_SINGLE_FILES: set[str] = {
     "claude.md",
     "prompt.txt",
@@ -57,7 +57,7 @@ def _collect_folder_files(node: TreeNode, prefix: str, allowed_exts: set[str]) -
 
 
 def _scan_tree(node: TreeNode, prefix: str = "") -> list[str]:
-    """Recursively scan a tree for agentic helper files.
+    """Recursively scan a tree for agentic context files.
 
     Detects:
     - Single files matching _AGENTIC_SINGLE_FILES at any depth
@@ -80,7 +80,7 @@ def _scan_tree(node: TreeNode, prefix: str = "") -> list[str]:
 
 
 def detect_agentic_contexts(scope_root: Path) -> list[str]:
-    """Detect agentic helper files in a scope directory.
+    """Detect agentic context files in a scope directory.
 
     Single tree scan at depth 3 to find AI agent prompts, instructions,
     and configuration files.
@@ -89,7 +89,7 @@ def detect_agentic_contexts(scope_root: Path) -> list[str]:
         scope_root: Absolute path to the scope root directory.
 
     Returns:
-        List of relative file paths for detected agentic helpers.
+        List of relative file paths for detected agentic contexts.
     """
     try:
         fs = FileSystem(scope_root, create_if_missing=False)
@@ -101,17 +101,17 @@ def detect_agentic_contexts(scope_root: Path) -> list[str]:
     helpers = _scan_tree(tree)
 
     if helpers:
-        logger.info(f"Detected {len(helpers)} agentic helper(s) in {scope_root}: {helpers}")
+        logger.info(f"Detected {len(helpers)} agentic context(s) in {scope_root}: {helpers}")
 
     return sorted(helpers)
 
 
 def extract_agentic_content(scope_root: Path, helper_paths: list[str]) -> str:
-    """Read and concatenate agentic helper file contents.
+    """Read and concatenate agentic context file contents.
 
     Args:
         scope_root: Absolute path to the scope root directory.
-        helper_paths: List of relative paths to agentic helper files.
+        helper_paths: List of relative paths to agentic context files.
 
     Returns:
         Concatenated content with ``=== filename ===`` headers,
@@ -132,6 +132,6 @@ def extract_agentic_content(scope_root: Path, helper_paths: list[str]) -> str:
             content = fs.read_file(path)
             parts.append(f"=== {path} ===\n{content.content}")
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"Could not read agentic helper {path}: {e}")
+            logger.warning(f"Could not read agentic context {path}: {e}")
 
     return "\n\n".join(parts)

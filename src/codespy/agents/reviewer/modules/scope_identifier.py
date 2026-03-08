@@ -281,7 +281,7 @@ class ScopeIdentifier(dspy.Module):
             )]
         finally:
             await cleanup_mcp_contexts(contexts)
-        # Detect agentic helpers in each scope
+        # Detect agentic contexts in each scope
         for scope in scopes:
             scope_root = repo_path if scope.subroot == "." else repo_path / scope.subroot
             helpers = detect_agentic_contexts(scope_root)

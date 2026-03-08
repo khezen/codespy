@@ -237,7 +237,7 @@ class CodeReviewer(dspy.Module):
                     max_iters=max_iters,
                 )
                 scoped = make_scope_relative(scope)
-                # Extract agentic helper content for this scope
+                # Extract agentic context content for this scope
                 # agentic_contexts are repo-root-relative; strip subroot prefix for scope-relative paths
                 scope_relative_helpers = [
                     strip_prefix(h, scope.subroot) for h in scope.agentic_contexts
@@ -247,7 +247,7 @@ class CodeReviewer(dspy.Module):
                     logger.info(
                         f"  Code review: scope {scope.subroot} "
                         f"({len(scope.changed_files)} files, "
-                        f"{len(scope.agentic_contexts)} agentic helpers)"
+                        f"{len(scope.agentic_contexts)} agentic contexts)"
                     )
                 else:
                     logger.info(

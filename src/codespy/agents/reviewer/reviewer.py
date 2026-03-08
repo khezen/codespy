@@ -203,7 +203,7 @@ class ReviewPipeline(dspy.Module):
                 if manifest.dependencies_changed:
                     logger.info(f"    Dependencies changed: Yes")
             if scope.agentic_contexts:
-                logger.info(f"    Agentic helpers: {scope.agentic_contexts}")
+                logger.info(f"    agentic contexts: {scope.agentic_contexts}")
 
         # Run review modules concurrently via asyncio.gather
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]

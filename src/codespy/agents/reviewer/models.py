@@ -74,7 +74,7 @@ class ScopeResult(BaseModel):
     )
     agentic_contexts: list[str] = Field(
         default_factory=list,
-        description="Detected agentic helper file paths (AI agent prompts, instructions, configs) relative to repo root",
+        description="Detected agentic context file paths (AI agent prompts, instructions, configs) relative to repo root",
     )
     reason: str = Field(description="Explanation for why this scope was identified")
 

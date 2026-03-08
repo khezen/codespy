@@ -165,7 +165,7 @@ class DocReviewer(dspy.Module):
                 continue
             try:
                 reviewer = dspy.ChainOfThought(DocReviewSignature)
-                # Extract agentic helper content for this scope
+                # Extract agentic context content for this scope
                 scope_relative_helpers = [
                     strip_prefix(h, scope.subroot) for h in scope.agentic_contexts
                 ]
@@ -174,7 +174,7 @@ class DocReviewer(dspy.Module):
                     logger.info(
                         f"  Doc review: scope {scope.subroot} "
                         f"({len(scope.changed_files)} files, "
-                        f"{len(scope.agentic_contexts)} agentic helpers)"
+                        f"{len(scope.agentic_contexts)} agentic contexts)"
                     )
                 else:
                     logger.info(
