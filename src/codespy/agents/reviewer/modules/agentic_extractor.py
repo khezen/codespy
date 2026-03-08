@@ -46,13 +46,16 @@ def _is_agentic_folder(dir_name: str) -> set[str] | None:
 
 
 def _collect_folder_files(node: TreeNode, prefix: str, allowed_exts: set[str]) -> list[str]:
-    """Collect files from a folder node that match allowed extensions."""
+    """Recursively collect files from an agentic folder that match allowed extensions."""
     paths: list[str] = []
     for child in node.children:
         if child.entry_type == EntryType.FILE:
             suffix = Path(child.name).suffix.lower()
             if suffix in allowed_exts:
                 paths.append(f"{prefix}{child.name}")
+        elif child.entry_type == EntryType.DIRECTORY:
+            # Recurse into subdirectories within the agentic folder
+            paths.extend(_collect_folder_files(child, f"{prefix}{child.name}/", allowed_exts))
     return paths
 
 
@@ -97,7 +100,7 @@ def detect_agentic_contexts(scope_root: Path) -> list[str]:
         logger.debug(f"Cannot access scope root for agentic detection: {scope_root}")
         return []
 
-    tree = fs.get_tree(max_depth=3)
+    tree = fs.get_tree(max_depth=3, include_hidden=True)
     agentic_files = _scan_tree(tree)
 
     if agentic_files:
