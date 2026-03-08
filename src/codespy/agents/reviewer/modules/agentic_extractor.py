@@ -98,26 +98,26 @@ def detect_agentic_contexts(scope_root: Path) -> list[str]:
         return []
 
     tree = fs.get_tree(max_depth=3)
-    helpers = _scan_tree(tree)
+    agentic_files = _scan_tree(tree)
 
-    if helpers:
-        logger.info(f"Detected {len(helpers)} agentic context(s) in {scope_root}: {helpers}")
+    if agentic_files:
+        logger.info(f"Detected {len(agentic_files)} agentic context(s) in {scope_root}: {agentic_files}")
 
-    return sorted(helpers)
+    return sorted(agentic_files)
 
 
-def extract_agentic_content(scope_root: Path, helper_paths: list[str]) -> str:
+def extract_agentic_content(scope_root: Path, context_paths: list[str]) -> str:
     """Read and concatenate agentic context file contents.
 
     Args:
         scope_root: Absolute path to the scope root directory.
-        helper_paths: List of relative paths to agentic context files.
+        context_paths: List of relative paths to agentic context files.
 
     Returns:
         Concatenated content with ``=== filename ===`` headers,
         or empty string if no files or all reads fail.
     """
-    if not helper_paths:
+    if not context_paths:
         return ""
 
     try:
@@ -127,7 +127,7 @@ def extract_agentic_content(scope_root: Path, helper_paths: list[str]) -> str:
         return ""
 
     parts: list[str] = []
-    for path in helper_paths:
+    for path in context_paths:
         try:
             content = fs.read_file(path)
             parts.append(f"=== {path} ===\n{content.content}")

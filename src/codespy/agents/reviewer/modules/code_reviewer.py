@@ -239,10 +239,10 @@ class CodeReviewer(dspy.Module):
                 scoped = make_scope_relative(scope)
                 # Extract agentic context content for this scope
                 # agentic_contexts are repo-root-relative; strip subroot prefix for scope-relative paths
-                scope_relative_helpers = [
+                scope_relative_contexts = [
                     strip_prefix(h, scope.subroot) for h in scope.agentic_contexts
                 ]
-                agentic_ctx = extract_agentic_content(scope_root, scope_relative_helpers)
+                agentic_ctx = extract_agentic_content(scope_root, scope_relative_contexts)
                 if agentic_ctx:
                     logger.info(
                         f"  Code review: scope {scope.subroot} "

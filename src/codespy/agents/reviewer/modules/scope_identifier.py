@@ -284,13 +284,14 @@ class ScopeIdentifier(dspy.Module):
         # Detect agentic contexts in each scope
         for scope in scopes:
             scope_root = repo_path if scope.subroot == "." else repo_path / scope.subroot
-            helpers = detect_agentic_contexts(scope_root)
-            if helpers:
+            agentic_files = detect_agentic_contexts(scope_root)
+            if agentic_files:
                 # Store paths relative to repo root (prefix with subroot)
                 if scope.subroot == ".":
-                    scope.agentic_contexts = helpers
+                    scope.agentic_contexts = agentic_files
                 else:
-                    scope.agentic_contexts = [f"{scope.subroot}/{h}" for h in helpers]
+                    scope.agentic_contexts = [f"{scope.subroot}/{h}" for h in agentic_files]
+                logger.info(f"Found {len(scope.agentic_contexts)} agentic context(s) for scope '{scope.subroot}': {scope.agentic_contexts}")
 
         # Log results
         total_files = sum(len(s.changed_files) for s in scopes)
