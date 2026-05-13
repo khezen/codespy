@@ -1,0 +1,75 @@
+# Version control
+.git/
+.gitignore
+
+# Python cache & build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+MANIFEST
+wheels/
+share/python-wheels/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test & coverage
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Type checkers
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+
+# IDE & editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Project cache
+.cache/
+
+# CI/CD & GitHub Actions
+.github/
+
+# Assets (not needed at runtime)
+assets/
+
+# Homebrew formula
+Formula/
+
+# Docs & misc
+*.md
+!README.md
+LICENSE
+Makefile
