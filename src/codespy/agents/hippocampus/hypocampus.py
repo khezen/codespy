@@ -10,7 +10,6 @@ from codespy.agents.hippocampus.budget import (
     evict,
     format_inputs,
     format_trajectory,
-    truncate_trajectory,
 )
 from codespy.agents.hippocampus.context_map import ContextMap, ItemTag
 from codespy.agents.hippocampus.modules.cartographer import Cartographer
@@ -45,7 +44,7 @@ class Hypocampus(dspy.Module):
         self,
         module: dspy.Module,
         token_budget: int = 1024,
-        max_trajectory_tokens: int = 4096,
+        max_trajectory_tokens: int | None = None,
         freeze_after: int | None = None,
         question_field: str | None = None,
     ):
@@ -53,7 +52,10 @@ class Hypocampus(dspy.Module):
         Args:
             module: Any dspy.Module (ReAct, RLM, Predict, …) to wrap.
             token_budget: Maximum tokens kept in the context map.
-            max_trajectory_tokens: Maximum tokens from the trajectory fed to the Distiller.
+            max_trajectory_tokens: Token budget for the trajectory fed to the Distiller.
+                None (default) passes the full trajectory so the Distiller does all
+                compression. If set, step-aware head+tail bounding is applied (60 %
+                head / 40 % tail), preserving both setup and conclusions.
             freeze_after: Stop updating the map after this many calls (None = always update).
             question_field: Name of the input field that carries the task description.
                 If set, only that field is passed to the Distiller as the "question".
@@ -117,7 +119,7 @@ class Hypocampus(dspy.Module):
             question = str(inputs.get(self.question_field, ""))
         else:
             question = format_inputs(inputs)
-        trajectory = truncate_trajectory(format_trajectory(pred), self.max_trajectory_tokens)
+        trajectory = format_trajectory(pred, self.max_trajectory_tokens)
         distilled = self.distill(
             trajectory=trajectory,
             context_map=self.cmap,
