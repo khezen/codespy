@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-from typing import Literal
 
 import dspy
 
@@ -36,35 +35,52 @@ class Hypocampus(dspy.Module):
     understanding and the Cartographer edits the map — "caching understanding,
     not answers."
 
-    ## Update modes
+    ## Two independent controls
 
-    ``update_mode`` controls *when* reflection (Distiller → Cartographer → evict)
-    runs:
+    Reflection behaviour is governed by two orthogonal knobs:
 
-    - **``per_call``** (default) — reflect after every ``forward()``. The map
-      improves *within* the same task: call N+1 benefits from call N's insights.
-      Higher LLM cost (one reflection cycle per call).
+    1. **``max_reflects``** — maximum number of forward() calls that also reflect *online*
+       (in-episode warm-up). ``None`` (default) = no limit, reflect after every call.
+       ``0`` = never reflect online. ``N`` = reflect for the first N calls, buffer-only
+       thereafter.
 
-    - **``episode``** — ``forward()`` only *uses* the map and *buffers* each call's
-      trajectory. Reflection runs once when you call ``end_episode()``, consolidating
-      the whole episode into a single Distiller pass. Use this when you want a cheap,
-      holistic end-of-task reflection rather than incremental updates. The map is
-      static during the task (read-only) and updated only for *future* tasks.
+    2. **Calling ``end_episode()``** (or not) — whether to consolidate the buffered
+       episode into the map at the end. Every call is *always* buffered so
+       ``end_episode()`` is available regardless of the online setting.
 
-    ## Examples
+    Common patterns::
 
-    Online (per-call, default)::
-
+        # Classic per-call (default) — reflect after every call, no end consolidation
         mem = Hypocampus(agent)
-        pred = mem(task="summarise section 3")
+        pred = mem(task="…")
 
-    Batch reflection (episode)::
-
-        mem = Hypocampus(agent, update_mode="episode")
+        # Pure batch — no online reflection, one holistic pass at the end
+        mem = Hypocampus(agent, max_reflects=0)
         for task in tasks:
-            pred = mem(task=task)        # uses map; trajectories buffered
-        mem.end_episode()               # single end-of-episode reflection
+            pred = mem(task=task)
+        mem.end_episode()
 
+        # Hybrid — warm up online for the first 3 calls, then holistic consolidation
+        mem = Hypocampus(agent, max_reflects=3)
+        for task in tasks:
+            pred = mem(task=task)
+        mem.end_episode()
+
+        # Read-only (map never changes) — pure inference
+        mem = Hypocampus(agent, max_reflects=0)
+        pred = mem(task="…")    # no end_episode() call
+
+    ## Trajectory bounding (two-stage)
+
+    When ``max_trajectory_tokens`` is set:
+
+    - **Stage 1** (per call) — each trajectory is head+tail bounded at ``format_trajectory``
+      time. This keeps the buffer lightweight.
+    - **Stage 2** (``end_episode``) — the joined episode is head+tail bounded again, so
+      the combined result is guaranteed to fit the budget even if many calls are buffered.
+
+    With ``max_trajectory_tokens=None`` (default) both stages are no-ops and the Distiller
+    receives the full trajectory.
     """
 
     def __init__(
@@ -73,42 +89,35 @@ class Hypocampus(dspy.Module):
         token_budget: int = 1024,
         max_trajectory_tokens: int | None = None,
         max_input_tokens: int | None = None,
-        update_mode: Literal["per_call", "episode"] = "per_call",
+        max_reflects: int | None = None,
         question_field: str | None = None,
     ):
         """
         Args:
             module: Any dspy.Module (ReAct, RLM, Predict, …) to wrap.
             token_budget: Maximum tokens kept in the context map.
-            max_trajectory_tokens: Token budget for the trajectory fed to the Distiller.
-                None (default) passes the full trajectory so the Distiller does all
-                compression — recommended for most cases. Set a limit only as a safety
-                net against runaway trajectories that would exceed the Distiller model's
-                context window. When set, tie it to that window: keep it at roughly
-                ≤ 50 % of the context window to leave room for the Distiller prompt,
-                the current context map, the question, and the output (e.g. ~8192 for
-                a 128k model, ~4096 for smaller windows). It should be the dominant
-                share of the Distiller input. Step-aware head+tail bounding
-                (60 % head / 40 % tail) preserves both setup and conclusions.
-            max_input_tokens: Token budget for the serialized inputs used as the
-                Distiller "question" (only active when question_field is None).
-                None (default) = unbounded — suitable for most cases where inputs
-                are normal-sized task strings. Only set this when a large input field
-                (e.g. an RLM document dump) is serialized via the fallback path; in
-                that case ~1024 is a reasonable value, keeping it well below
-                max_trajectory_tokens and the model's context window. Head+tail
-                bounding is applied (60 % head / 40 % tail) so both the leading
-                instruction and any trailing intent survive. Ignored when
-                question_field is set.
-            update_mode: Controls when reflection (Distiller → Cartographer → evict)
-                runs. See class docstring for full details.
-                - "per_call" (default): reflect after every forward().
-                - "episode": buffer trajectories; call end_episode() to reflect once.
-            question_field: Name of the input field that carries the task description.
-                If set, only that field is passed to the Distiller as the "question".
-                If None, all input fields are serialized and head+tail bounded
-                (controlled by max_input_tokens). Set this explicitly whenever one
-                field cleanly captures the user's intent.
+            max_trajectory_tokens: Token budget for trajectories fed to the Distiller.
+                None (default) = full trajectory, Distiller does all compression —
+                recommended for most cases. When set, use ≤ ~50 % of the Distiller
+                model's context window (e.g. ~8192 for 128k, ~4096 for smaller).
+                Applied per call (stage 1) and again over the combined episode in
+                end_episode() (stage 2). Step-aware head+tail bounding (60 % head /
+                40 % tail) preserves both setup and conclusions.
+            max_input_tokens: Token budget for serialized inputs used as the Distiller
+                "question" (fallback path when question_field is None). None (default)
+                = unbounded. Set ~1024 only when a large input field (e.g. an RLM
+                document dump) is serialized; keep it well below max_trajectory_tokens.
+                Ignored when question_field is set.
+            max_reflects: Maximum number of forward() calls that also reflect online.
+                None (default): no limit — reflect after every call (classic online learning).
+                0: never reflect online — pure buffering until end_episode().
+                N: reflect online for the first N calls, buffer-only afterwards.
+                Every call is always buffered regardless of this setting, so
+                end_episode() is always available.
+            question_field: Name of the input field carrying the task description.
+                If set, only that field is used as the Distiller "question".
+                If None, all input fields are serialized (bounded by max_input_tokens).
+                Set this when one field cleanly captures user intent.
         """
         super().__init__()
 
@@ -133,11 +142,12 @@ class Hypocampus(dspy.Module):
         self.token_budget = token_budget
         self.max_trajectory_tokens = max_trajectory_tokens
         self.max_input_tokens = max_input_tokens
-        self.update_mode = update_mode
+        self.max_reflects = max_reflects
         self.question_field = question_field
         self.cmap = ContextMap()
         self.scores: dict[str, int] = {}
-        self._episode: list[tuple[dspy.Prediction, dict]] = []
+        self._episode: list[str] = []           # per-call bounded trajectory strings
+        self._episode_question: str | None = None  # derived from first buffered call
 
     @property
     def current_map_text(self) -> str:
@@ -145,51 +155,52 @@ class Hypocampus(dspy.Module):
 
     def forward(self, **kwargs) -> dspy.Prediction:
         pred = self.agent(context_map=self.cmap, **kwargs)
-        if self.update_mode == "per_call":
-            self.reflect(pred, kwargs)
-        else:  # "episode"
-            self._episode.append((pred, kwargs))
+        # Format once (stage-1 bounded); reused for both buffering and online reflect.
+        traj = format_trajectory(pred, self.max_trajectory_tokens)
+        self._episode.append(traj)
+        if self._episode_question is None:
+            self._episode_question = self._make_question(kwargs)
+        # Online reflection: None = no limit (always); N = for the first N calls.
+        if (self.max_reflects is None
+                or len(self._episode) <= self.max_reflects):
+            self._distill_and_apply(traj, self._make_question(kwargs))
         return pred
 
     def reflect(self, pred: dspy.Prediction, inputs: dict) -> None:
         """Run one distillation cycle over ``pred``'s trajectory and update the map.
 
-        Called automatically in ``per_call`` mode. Call manually when you want
-        fine-grained control (e.g. selectively reflect on specific calls).
+        For manual / selective reflection outside of the automatic per-call flow.
+        The trajectory is bounded by ``max_trajectory_tokens`` (stage 1).
         """
-        question = self._make_question(inputs)
-        trajectory = format_trajectory(pred, self.max_trajectory_tokens)
-        self._distill_and_apply(trajectory, question)
+        self._distill_and_apply(
+            format_trajectory(pred, self.max_trajectory_tokens),
+            self._make_question(inputs),
+        )
 
     def end_episode(self) -> None:
         """Consolidate the buffered episode into the map and clear the buffer.
 
-        Only meaningful in ``episode`` mode. A single Distiller pass sees the
-        entire episode's trajectories concatenated (head+tail bounded by
-        ``max_trajectory_tokens``). The question is derived from the first
-        buffered call. No-op if the buffer is empty.
+        A single Distiller pass sees all buffered trajectories joined with
+        ``=== Call k ===`` headers. If ``max_trajectory_tokens`` is set, the
+        combined text is head+tail bounded (stage 2) after per-call bounding
+        (stage 1) already applied at append time. The question is derived from
+        the first buffered call. No-op if the buffer is empty.
         """
         if not self._episode:
             return
-        # Build combined trajectory: each call separated by a call header.
-        # Individual trajectories are formatted without per-call bounding so
-        # the combined head+tail pass governs the final size.
-        parts = []
-        for i, (pred, _) in enumerate(self._episode):
-            parts.append(f"=== Call {i + 1} ===")
-            parts.append(format_trajectory(pred))
-        combined = "\n\n".join(parts)
+        combined = "\n\n".join(
+            f"=== Call {i + 1} ===\n{t}" for i, t in enumerate(self._episode)
+        )
         if self.max_trajectory_tokens is not None:
             combined = _head_tail_text(combined, self.max_trajectory_tokens)
-        # Derive question from the first buffered call
-        _, first_inputs = self._episode[0]
-        question = self._make_question(first_inputs)
-        self._distill_and_apply(combined, question)
+        self._distill_and_apply(combined, self._episode_question or "")
         self._episode.clear()
+        self._episode_question = None
 
     def reset_episode(self) -> None:
         """Discard the buffered episode without reflecting."""
         self._episode.clear()
+        self._episode_question = None
 
     # ------------------------------------------------------------------
     # Internals
