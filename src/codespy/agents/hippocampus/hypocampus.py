@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
 
 import dspy
 
@@ -24,14 +23,6 @@ def prepend_context_map(sig):
         type_=ContextMap,
     )
 
-@dataclass
-class StepResult:
-    diagnosis: str
-    reasoning: str
-    operations_applied: int
-    map_text: str
-
-
 class Hypocampus(dspy.Module):
     """Wraps a dspy.Module with a test-time-evolving context map.
 
@@ -45,6 +36,7 @@ class Hypocampus(dspy.Module):
         module: dspy.Module,
         token_budget: int = 1024,
         max_trajectory_tokens: int | None = None,
+        max_input_tokens: int | None = None,
         freeze_after: int | None = None,
         question_field: str | None = None,
     ):
@@ -54,8 +46,23 @@ class Hypocampus(dspy.Module):
             token_budget: Maximum tokens kept in the context map.
             max_trajectory_tokens: Token budget for the trajectory fed to the Distiller.
                 None (default) passes the full trajectory so the Distiller does all
-                compression. If set, step-aware head+tail bounding is applied (60 %
-                head / 40 % tail), preserving both setup and conclusions.
+                compression — Set a limit only as a safety net against runaway trajectories 
+                that would exceed the Distiller model's context window. When set, tie it 
+                to that window: keep it at roughly ≤ 50 % of the context window to leave 
+                room for the Distiller prompt, the current context map, the question, 
+                and the output (e.g. ~8192 for a 128k model, ~4096 for smaller windows). 
+                It should be the dominant share of the Distiller input. Step-aware
+                head+tail bounding (60 % head / 40 % tail) preserves both setup and
+                conclusions.
+            max_input_tokens: Token budget for the serialized inputs used as the
+                Distiller "question" (only active when question_field is None).
+                None (default) = unbounded — Only set this when a large input field
+                (e.g. an RLM document dump) is serialized via the fallback path; in
+                that case ~1024 is a reasonable value, keeping it well below
+                max_trajectory_tokens and the model's context window. Head+tail
+                bounding is applied (60 % head / 40 % tail) so both the leading
+                instruction and any trailing intent survive. Ignored when
+                question_field is set.
             freeze_after: Stop updating the map after this many calls (None = always update).
             question_field: Name of the input field that carries the task description.
                 If set, only that field is passed to the Distiller as the "question".
@@ -86,11 +93,11 @@ class Hypocampus(dspy.Module):
         self.cartograph = Cartographer()
         self.token_budget = token_budget
         self.max_trajectory_tokens = max_trajectory_tokens
+        self.max_input_tokens = max_input_tokens
         self.freeze_after = freeze_after
         self.question_field = question_field
         self.cmap = ContextMap()
         self.scores: dict[str, int] = {}
-        self.last_step: StepResult | None = None
         self._calls = 0
         self._frozen = False
 
@@ -118,7 +125,7 @@ class Hypocampus(dspy.Module):
         if self.question_field is not None:
             question = str(inputs.get(self.question_field, ""))
         else:
-            question = format_inputs(inputs)
+            question = format_inputs(inputs, self.max_input_tokens)
         trajectory = format_trajectory(pred, self.max_trajectory_tokens)
         distilled = self.distill(
             trajectory=trajectory,
@@ -157,9 +164,3 @@ class Hypocampus(dspy.Module):
         live = self.cmap.ids()
         self.scores = {k: v for k, v in self.scores.items() if k in live}
 
-        self.last_step = StepResult(
-            diagnosis=distilled.diagnosis,
-            reasoning=edits.reasoning,
-            operations_applied=len(ops),
-            map_text=self.cmap.render(),
-        )

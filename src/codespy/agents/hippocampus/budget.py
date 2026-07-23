@@ -6,7 +6,6 @@ import tiktoken
 from codespy.agents.hippocampus.context_map import ContextMap
 
 _ENCODING = tiktoken.get_encoding("o200k_base")
-_MAX_INPUT_FIELD_TOKENS = 256
 
 # Eviction priority — lower number = evict first
 _SECTION_EVICT_PRIORITY: dict[str, int] = {
@@ -30,29 +29,23 @@ def count_tokens(s: str) -> int:
 # Input serialisation (for the question field sent to the Distiller)
 # ---------------------------------------------------------------------------
 
-def format_inputs(kwargs: dict) -> str:
-    """Serialize call inputs (excluding context_map) for the distiller.
+def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
+    """Serialize call inputs (excluding context_map) for the Distiller question.
 
-    Each field value is truncated to _MAX_INPUT_FIELD_TOKENS so that large
-    RLM inputs (documents, file dumps) don't blow up the Distiller context.
+    All fields are included in full. If max_tokens is set, the joined result is
+    head+tail bounded via _head_tail_text so both the instruction and any
+    trailing intent survive. See Hypocampus.max_input_tokens for guidance on
+    when and how to set a limit.
     """
     parts: list[str] = []
     for k, v in kwargs.items():
         if k == "context_map":
             continue
-        text = str(v)
-        if count_tokens(text) > _MAX_INPUT_FIELD_TOKENS:
-            lines, kept, tokens = text.splitlines(keepends=True), [], 0
-            for line in lines:
-                lt = count_tokens(line)
-                if tokens + lt > _MAX_INPUT_FIELD_TOKENS:
-                    kept.append("... (truncated)")
-                    break
-                kept.append(line)
-                tokens += lt
-            text = "".join(kept)
-        parts.append(f"{k}: {text}")
-    return "\n".join(parts)
+        parts.append(f"{k}: {v}")
+    text = "\n".join(parts)
+    if max_tokens is None:
+        return text
+    return _head_tail_text(text, max_tokens)
 
 
 # ---------------------------------------------------------------------------

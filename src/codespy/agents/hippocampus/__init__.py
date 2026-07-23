@@ -9,7 +9,7 @@ from codespy.agents.hippocampus.context_map import (
 )
 from codespy.agents.hippocampus.modules.cartographer import Cartographer, CartographerSig
 from codespy.agents.hippocampus.modules.distiller import Distiller, DistillerSig
-from codespy.agents.hippocampus.hypocampus import Hypocampus, StepResult
+from codespy.agents.hippocampus.hypocampus import Hypocampus
 
 __all__ = [
     "CacheCandidate",
@@ -24,5 +24,4 @@ __all__ = [
     "OpType",
     "Hypocampus",
     "SectionName",
-    "StepResult",
 ]
