@@ -13,19 +13,13 @@ class DistillerSig(dspy.Signature):
     """You are an expert analyst reviewing an agent's execution trajectory
     after it interacted with a long external context to answer a question.
 
-    The context map prepended to the agent is a compact CACHE OF
-    UNDERSTANDING about the external context — not answers to specific
-    questions. It should accumulate structural knowledge that helps with
-    ANY future question on the same context, the way a human builds a
-    mental model after reading a document.
-
     ## Key Principle: Cache Understanding, Not Answers
 
-    The context map captures the agent's evolving understanding of the
-    context — NOT answers to specific questions. Think of it as the mental
-    model a human builds after reading a document: structure, key entities,
-    relationships, and global summaries that help with ANY question about
-    the content.
+    The context map prepended to the agent is a compact CACHE OF
+    UNDERSTANDING about the external context — NOT answers to specific
+    questions. Think of it as the mental model a human builds after reading
+    a document: structure, key entities, relationships, and global summaries
+    that help with ANY future question on the same context.
 
     ## Orientation vs. Question-Specific Work
 
@@ -43,7 +37,8 @@ class DistillerSig(dspy.Signature):
 
     ## Produce three outputs
 
-    1. DIAGNOSIS — Brief analysis of:
+    1. DIAGNOSIS — Brief (3-5 sentences; it feeds the next module's prompt,
+       so keep it terse) analysis of:
        - How many iterations the agent spent on orientation vs.
          question-specific work
        - Whether the agent re-discovered structural information that was
@@ -101,6 +96,10 @@ class DistillerSig(dspy.Signature):
        Do NOT abstract away exact numeric values, enum sets, output field
        names/types — these are domain constants and must remain precise.
 
+    Assign each candidate to one of these exact section names (they map
+    onto the context map schema): context_understanding, domain_constants,
+    context_roadmap, reusable_results, parsing_schema.
+
     The litmus test for every candidate: "Would a future agent asking a
     completely DIFFERENT question about this context benefit from knowing
     this?"
@@ -111,16 +110,17 @@ class DistillerSig(dspy.Signature):
     question: str = dspy.InputField(desc="The question the agent was answering.")
 
     diagnosis: str = dspy.OutputField(
-        desc="Brief analysis of orientation vs. question-specific work, whether "
-        "structural info was re-discovered that should have been cached, and what "
-        "transferable understanding the agent built."
+        desc="Brief (3-5 sentence) analysis of orientation vs. question-specific work, "
+        "whether structural info was re-discovered that should have been cached, and "
+        "what transferable understanding the agent built. Feeds the Cartographer prompt."
     )
     item_tags: dict[str, ItemTag] = dspy.OutputField(
         desc="Per-item-id tag for EVERY item currently in the context map. "
         "Keys must match existing item ids exactly."
     )
     cache_candidates: list[CacheCandidate] = dspy.OutputField(
-        desc="Candidate items to add. Each <= ~80 tokens; structural/transferable only."
+        desc="Candidate items to add. Each <= ~80 tokens; structural/transferable only. "
+        "Each candidate's `section` must be one of the five section names above."
     )
 
 
@@ -137,5 +137,5 @@ class Distiller(dspy.Module):
         super().__init__()
         self.predict = dspy.Predict(DistillerSig)
 
-    def forward(self, trajectory: str, context_map: str, question: str):
+    def forward(self, trajectory: str, context_map: ContextMap, question: str):
         return self.predict(trajectory=trajectory, context_map=context_map, question=question)

@@ -41,6 +41,24 @@ class CartographerSig(dspy.Signature):
     completely DIFFERENT question about this context benefit from knowing
     this?" If not, it probably isn't worth the budget.
 
+    ## How to use item_tags
+
+    The Distiller assigns each existing item a tag. Let it drive your ops:
+    - harmful / stale → DELETE the item (unless a corrected REPLACE is
+      clearly the better fix).
+    - helpful but verbose or redundant → REPLACE with a tighter version.
+    - helpful and already compact → leave it; don't spend an op.
+    - neutral → keep as-is; do not churn ops on neutral items.
+
+    ## Operation rules
+
+    Emit only well-formed operations that satisfy the schema:
+    - ADD: requires `section` (one of the five section names) and `content`.
+    - DELETE: requires `item_id`.
+    - REPLACE: requires `item_id` and `content`.
+    - Only reference `item_id`s that exist in the current map. Never invent
+      ids — new items get their ids assigned automatically on ADD.
+
     ## Value Priority (highest to lowest)
 
     1. context_understanding — entity/concept inventories (key actors,
