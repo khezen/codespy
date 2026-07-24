@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from datetime import datetime
 
 import dspy
 
@@ -12,10 +13,11 @@ from codespy.agents.hippocampus.budget import (
     format_trajectory,
 )
 from codespy.agents.hippocampus.context_map import ContextMap, ItemTag
+from codespy.agents.hippocampus.episode import Episode
+from codespy.agents.hippocampus.episode import load_episode as _load_episode
+from codespy.agents.hippocampus.episode import save_episode as _save_episode
 from codespy.agents.hippocampus.modules.cartographer import Cartographer
 from codespy.agents.hippocampus.modules.distiller import Distiller
-from codespy.agents.hippocampus.persistence import load_map as _load_map
-from codespy.agents.hippocampus.persistence import save_map as _save_map
 from codespy.tools.storage.base import Storage
 
 
@@ -149,8 +151,17 @@ class Hypocampus(dspy.Module):
         self.question_field = question_field
         self.cmap = ContextMap()
         self.scores: dict[str, int] = {}
-        self._episode: list[str] = []           # per-call bounded trajectory strings
-        self._episode_question: str | None = None  # derived from first buffered call
+        # Buffer of per-call bounded trajectory strings, cleared after end_episode().
+        self._episode_trajectories: list[str] = []
+        # Question derived from the first buffered call; used as Distiller input.
+        self._episode_question: str | None = None
+        # Identity of the wrapped module/signature for Episode metadata.
+        self._task_name: str = (
+            top_sig.__name__ if top_sig is not None else type(module).__name__
+        )
+        self._module_name: str = type(module).__name__
+        # The most recent consolidated Episode; set by end_episode(), None until then.
+        self.episode: Episode | None = None
 
     @property
     def current_map_text(self) -> str:
@@ -160,12 +171,12 @@ class Hypocampus(dspy.Module):
         pred = self.agent(context_map=self.cmap, **kwargs)
         # Format once (stage-1 bounded); reused for both buffering and online reflect.
         traj = format_trajectory(pred, self.max_trajectory_tokens)
-        self._episode.append(traj)
+        self._episode_trajectories.append(traj)
         if self._episode_question is None:
             self._episode_question = self._make_question(kwargs)
         # Online reflection: None = no limit (always); N = for the first N calls.
         if (self.max_reflects is None
-                or len(self._episode) <= self.max_reflects):
+                or len(self._episode_trajectories) <= self.max_reflects):
             self._distill_and_apply(traj, self._make_question(kwargs))
         return pred
 
@@ -185,7 +196,7 @@ class Hypocampus(dspy.Module):
         store: Storage | None = None,
         path: str | None = None,
     ) -> None:
-        """Consolidate the buffered episode into the map and clear the buffer.
+        """Consolidate the buffered trajectories into the map and record an Episode snapshot.
 
         A single Distiller pass sees all buffered trajectories joined with
         ``=== Call k ===`` headers. If ``max_trajectory_tokens`` is set, the
@@ -193,49 +204,69 @@ class Hypocampus(dspy.Module):
         (stage 1) already applied at append time. The question is derived from
         the first buffered call. No-op if the buffer is empty.
 
-        If both ``store`` and ``path`` are provided the updated map is
-        persisted after consolidation.  ``store`` may be a ``FileSystem`` or
-        an ``S3Client`` instance.
+        After consolidation ``self.episode`` is set to a new :class:`Episode`
+        containing the task/module identity and a deep-copy snapshot of the
+        updated context map.
+
+        If both ``store`` and ``path`` are provided the episode is persisted
+        via ``save_episode()`` after consolidation.  ``store`` may be a
+        ``FileSystem`` or an ``S3Client`` instance.
 
         Args:
-            store: Optional ``Storage`` backend to persist the map after the
-                episode (``FileSystem`` or ``S3Client``).
+            store: Optional ``Storage`` backend to persist the episode after
+                consolidation (``FileSystem`` or ``S3Client``).
             path: Destination path within the store.  Required when ``store``
                 is set.
 
         Raises:
-            IOError: If persistence is requested and the write fails.
+            OSError: If persistence is requested and the write fails.
         """
-        if not self._episode:
+        if not self._episode_trajectories:
             return
         combined = "\n\n".join(
-            f"=== Call {i + 1} ===\n{t}" for i, t in enumerate(self._episode)
+            f"=== Call {i + 1} ===\n{t}"
+            for i, t in enumerate(self._episode_trajectories)
         )
         if self.max_trajectory_tokens is not None:
             combined = _head_tail_text(combined, self.max_trajectory_tokens)
         self._distill_and_apply(combined, self._episode_question or "")
-        self._episode.clear()
+        # Record the consolidated episode as a snapshot of the updated map.
+        self.episode = Episode(
+            task=self._task_name,
+            module=self._module_name,
+            context_map=self.cmap.model_copy(deep=True),
+            timestamp=datetime.utcnow(),
+        )
+        self._episode_trajectories.clear()
         self._episode_question = None
         if store is not None and path is not None:
-            _save_map(store, path, self.cmap)
+            _save_episode(store, path, self.episode)
 
-    def save_map(self, store: Storage, path: str) -> None:
-        """Persist the current context map to ``path`` via ``store``.
+    def save_episode(self, store: Storage, path: str) -> None:
+        """Persist the current episode to ``path`` via ``store``.
 
         Args:
             store: Storage backend (``FileSystem`` or ``S3Client``).
             path: Destination path within the store.
 
         Raises:
-            IOError: If the write fails.
+            ValueError: If no episode has been consolidated yet (call
+                ``end_episode()`` first).
+            OSError: If the write fails.
         """
-        _save_map(store, path, self.cmap)
+        if self.episode is None:
+            raise ValueError(
+                "No episode to save — call end_episode() to consolidate first."
+            )
+        _save_episode(store, path, self.episode)
 
-    def load_map(self, store: Storage, path: str) -> None:
-        """Replace the current map with one loaded from ``path`` via ``store``.
+    def load_episode(self, store: Storage, path: str) -> None:
+        """Replace the current state with an episode loaded from ``path`` via ``store``.
 
-        Resets ``scores`` and clears the episode buffer since they belong to
-        the previous (now discarded) map.
+        Restores both ``self.episode`` and the live context map
+        (``self.cmap = episode.context_map``) so the agent resumes from the
+        persisted state. Also resets ``scores`` and clears the trajectory
+        buffer since they belong to the previous state.
 
         Args:
             store: Storage backend (``FileSystem`` or ``S3Client``).
@@ -243,16 +274,18 @@ class Hypocampus(dspy.Module):
 
         Raises:
             FileNotFoundError: If the path does not exist.
-            IOError: If reading or parsing fails.
+            OSError: If reading or parsing fails.
         """
-        self.cmap = _load_map(store, path)
+        ep = _load_episode(store, path)
+        self.episode = ep
+        self.cmap = ep.context_map
         self.scores = {}
-        self._episode.clear()
+        self._episode_trajectories.clear()
         self._episode_question = None
 
     def reset_episode(self) -> None:
-        """Discard the buffered episode without reflecting."""
-        self._episode.clear()
+        """Discard the buffered trajectories without reflecting."""
+        self._episode_trajectories.clear()
         self._episode_question = None
 
     # ------------------------------------------------------------------

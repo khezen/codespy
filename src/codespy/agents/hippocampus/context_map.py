@@ -77,15 +77,24 @@ class ContextMap(BaseModel):
     )
     domain_constants: list[Item] = Field(
         default_factory=list,
-        description="Exact parameters, formulas, thresholds, reference values, enum sets, and output field requirements",
+        description=(
+            "Exact parameters, formulas, thresholds, reference values, "
+            "enum sets, and output field requirements"
+        ),
     )
     parsing_schema: list[Item] = Field(
         default_factory=list,
-        description="How to parse and navigate the context's format: delimiters, boundary patterns, field structure",
+        description=(
+            "How to parse and navigate the context's format: "
+            "delimiters, boundary patterns, field structure"
+        ),
     )
     reusable_results: list[Item] = Field(
         default_factory=list,
-        description="Agent-derived aggregated outputs (counts, distributions, classifications) that multiple questions would need",
+        description=(
+            "Agent-derived aggregated outputs (counts, distributions, classifications) "
+            "that multiple questions would need"
+        ),
     )
     next_id: int = Field(default=1, exclude=True)
 
@@ -171,3 +180,20 @@ class ContextMap(BaseModel):
                 max_n = max(max_n, int(suffix))
         cm.next_id = max_n + 1
         return cm
+
+def _recompute_next_id(cmap: ContextMap) -> None:
+    """Recompute ``cmap.next_id`` from the highest numeric item-ID suffix (in-place).
+
+    After deserialisation the ``next_id`` counter is reset from the highest
+    numeric suffix found in any item ID (e.g. ``cu-00042`` → 42), so the
+    restored map can safely receive further ADD operations without collisions.
+
+    Args:
+        cmap: The context map to update in-place.
+    """
+    max_n = 0
+    for item in cmap.all_items():
+        suffix = item.id.rsplit("-", 1)[-1]
+        if suffix.isdigit():
+            max_n = max(max_n, int(suffix))
+    cmap.next_id = max_n + 1
