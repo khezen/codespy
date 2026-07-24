@@ -187,7 +187,7 @@ class ScopeIdentifier(dspy.Module):
         tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
         repo_path_str = str(repo_path)
         caller = "scope_identifier"
-        tools.extend(await connect_mcp_server(tools_dir / "filesystem" / "server.py", [repo_path_str], contexts, caller))
+        tools.extend(await connect_mcp_server(tools_dir / "storage" / "filesystem" / "server.py", [repo_path_str], contexts, caller))
         tools.extend(await connect_mcp_server(tools_dir / "parsers" / "ripgrep" / "server.py", [repo_path_str], contexts, caller))
         tools.extend(await connect_mcp_server(tools_dir / "parsers" / "treesitter" / "server.py", [repo_path_str], contexts, caller))
         if not is_local:

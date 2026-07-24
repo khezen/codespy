@@ -7,7 +7,7 @@ from functools import lru_cache
 
 from mcp.server.fastmcp import FastMCP
 
-from codespy.tools.aws.s3.client import S3Client
+from codespy.tools.storage.s3.client import S3Client
 
 logger = logging.getLogger(__name__)
 

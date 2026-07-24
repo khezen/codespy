@@ -4,8 +4,7 @@ import logging
 import re
 from pathlib import Path
 
-from codespy.tools.filesystem.client import FileSystem
-from codespy.tools.filesystem.models import EntryType, TreeNode
+from codespy.tools.storage import EntryType, FileSystem, TreeNode
 
 logger = logging.getLogger(__name__)
 

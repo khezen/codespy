@@ -14,9 +14,9 @@ from codespy.agents.hippocampus.budget import (
 from codespy.agents.hippocampus.context_map import ContextMap, ItemTag
 from codespy.agents.hippocampus.modules.cartographer import Cartographer
 from codespy.agents.hippocampus.modules.distiller import Distiller
-from codespy.agents.hippocampus.persistence import MapStore
 from codespy.agents.hippocampus.persistence import load_map as _load_map
 from codespy.agents.hippocampus.persistence import save_map as _save_map
+from codespy.tools.storage.base import Storage
 
 
 def prepend_context_map(sig):
@@ -182,7 +182,7 @@ class Hypocampus(dspy.Module):
 
     def end_episode(
         self,
-        store: MapStore | None = None,
+        store: Storage | None = None,
         path: str | None = None,
     ) -> None:
         """Consolidate the buffered episode into the map and clear the buffer.
@@ -198,7 +198,7 @@ class Hypocampus(dspy.Module):
         an ``S3Client`` instance.
 
         Args:
-            store: Optional storage backend to persist the map after the
+            store: Optional ``Storage`` backend to persist the map after the
                 episode (``FileSystem`` or ``S3Client``).
             path: Destination path within the store.  Required when ``store``
                 is set.
@@ -219,7 +219,7 @@ class Hypocampus(dspy.Module):
         if store is not None and path is not None:
             _save_map(store, path, self.cmap)
 
-    def save_map(self, store: MapStore, path: str) -> None:
+    def save_map(self, store: Storage, path: str) -> None:
         """Persist the current context map to ``path`` via ``store``.
 
         Args:
@@ -231,7 +231,7 @@ class Hypocampus(dspy.Module):
         """
         _save_map(store, path, self.cmap)
 
-    def load_map(self, store: MapStore, path: str) -> None:
+    def load_map(self, store: Storage, path: str) -> None:
         """Replace the current map with one loaded from ``path`` via ``store``.
 
         Resets ``scores`` and clears the episode buffer since they belong to

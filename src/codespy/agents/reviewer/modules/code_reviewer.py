@@ -165,7 +165,7 @@ class CodeReviewer(dspy.Module):
         caller = "code_reviewer"
 
         tools.extend(await connect_mcp_server(
-            tools_dir / "filesystem" / "server.py",
+            tools_dir / "storage" / "filesystem" / "server.py",
             [scope_root_str], contexts, caller,
         ))
         tools.extend(await connect_mcp_server(

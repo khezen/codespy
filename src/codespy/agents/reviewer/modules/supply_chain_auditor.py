@@ -183,7 +183,7 @@ class SupplyChainAuditor(dspy.Module):
 
         # Add filesystem tools for reading files and exploring structure
         tools.extend(await connect_mcp_server(
-            tools_dir / "filesystem" / "server.py",
+            tools_dir / "storage" / "filesystem" / "server.py",
             [scope_root_str],
             contexts,
             caller,

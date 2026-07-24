@@ -1,22 +1,26 @@
-"""FileSystem client for file operations."""
+"""FileSystem client for local filesystem operations."""
+
+from __future__ import annotations
 
 import logging
 from pathlib import Path
 
-from codespy.tools.filesystem.models import (
-    DirectoryEntry,
-    DirectoryListing,
+from codespy.tools.storage.base import Storage
+from codespy.tools.storage.models import (
+    Content,
+    Entry,
     EntryType,
-    FileContent,
-    FileInfo,
+    Info,
+    Listing,
+    OperationResult,
     TreeNode,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class FileSystem:
-    """Client for filesystem operations.
+class FileSystem(Storage):
+    """Local filesystem storage client.
 
     Provides secure file operations restricted to a root directory.
     """
@@ -41,8 +45,8 @@ class FileSystem:
         """Initialize the filesystem client.
 
         Args:
-            root: Root directory for all operations
-            create_if_missing: Create the root directory if it doesn't exist
+            root: Root directory for all operations.
+            create_if_missing: Create the root directory if it doesn't exist.
         """
         self.root = Path(root).resolve()
         if not self.root.exists():
@@ -58,20 +62,19 @@ class FileSystem:
         """Resolve a path relative to root, with security checks.
 
         Args:
-            path: Relative path
+            path: Relative path.
 
         Returns:
-            Absolute path
+            Absolute path.
 
         Raises:
-            ValueError: If path escapes root directory
+            ValueError: If path escapes root directory.
         """
         if not path or path == ".":
             return self.root
 
         resolved = (self.root / path).resolve()
 
-        # Security check: ensure path is within root
         try:
             resolved.relative_to(self.root)
         except ValueError:
@@ -79,57 +82,31 @@ class FileSystem:
 
         return resolved
 
+    # ------------------------------------------------------------------
+    # Read operations
+    # ------------------------------------------------------------------
+
     def exists(self, path: str = "") -> bool:
-        """Check if a path exists.
-
-        Args:
-            path: Relative path to check
-
-        Returns:
-            True if path exists
-        """
+        """Check if a path exists."""
         try:
             resolved = self._resolve_path(path)
             return resolved.exists()
         except ValueError:
             return False
 
-    def get_info(self, path: str = "") -> FileInfo:
-        """Get information about a file or directory.
-
-        Args:
-            path: Relative path
-
-        Returns:
-            FileInfo with metadata
-
-        Raises:
-            FileNotFoundError: If path does not exist
-        """
+    def get_info(self, path: str = "") -> Info:
+        """Get information about a file or directory."""
         resolved = self._resolve_path(path)
         if not resolved.exists():
             raise FileNotFoundError(f"Path not found: {path}")
-
-        return FileInfo.from_path(resolved, self.root)
+        return Info.from_path(resolved, self.root)
 
     def list_directory(
         self,
         path: str = "",
         include_hidden: bool = False,
-    ) -> DirectoryListing:
-        """List contents of a directory.
-
-        Args:
-            path: Relative path to directory
-            include_hidden: Whether to include hidden files (starting with .)
-
-        Returns:
-            DirectoryListing with entries
-
-        Raises:
-            FileNotFoundError: If path does not exist
-            NotADirectoryError: If path is not a directory
-        """
+    ) -> Listing:
+        """List contents of a directory."""
         resolved = self._resolve_path(path)
 
         if not resolved.exists():
@@ -137,13 +114,12 @@ class FileSystem:
         if not resolved.is_dir():
             raise NotADirectoryError(f"Not a directory: {path}")
 
-        entries: list[DirectoryEntry] = []
+        entries: list[Entry] = []
         total_files = 0
         total_directories = 0
 
         try:
             for entry in sorted(resolved.iterdir(), key=lambda x: (x.is_file(), x.name.lower())):
-                # Skip hidden files unless requested
                 if not include_hidden and entry.name.startswith("."):
                     continue
 
@@ -158,19 +134,13 @@ class FileSystem:
 
                 size = entry.stat().st_size if entry_type == EntryType.FILE else 0
 
-                entries.append(
-                    DirectoryEntry(
-                        name=entry.name,
-                        entry_type=entry_type,
-                        size=size,
-                    )
-                )
+                entries.append(Entry(name=entry.name, entry_type=entry_type, size=size))
         except PermissionError as e:
             logger.warning(f"Permission denied listing {path}: {e}")
 
         rel_path = str(resolved.relative_to(self.root)) if resolved != self.root else "."
 
-        return DirectoryListing(
+        return Listing(
             path=rel_path,
             entries=entries,
             total_files=total_files,
@@ -182,27 +152,14 @@ class FileSystem:
         path: str,
         max_bytes: int = 100_000,
         max_lines: int | None = None,
-    ) -> FileContent:
-        """Read contents of a file.
-
-        Args:
-            path: Relative path to file
-            max_bytes: Maximum bytes to read (default 100KB)
-            max_lines: Maximum lines to read (optional)
-
-        Returns:
-            FileContent with file data
-
-        Raises:
-            FileNotFoundError: If file does not exist
-            IsADirectoryError: If path is a directory
-        """
+    ) -> Content:
+        """Read contents of a file."""
         resolved = self._resolve_path(path)
 
         if not resolved.exists():
-            raise FileNotFoundError(f"File not found: {path}")
+            return Content(path=path, error=f"File not found: {path}")
         if resolved.is_dir():
-            raise IsADirectoryError(f"Cannot read directory: {path}")
+            return Content(path=path, error=f"Cannot read directory: {path}")
 
         file_size = resolved.stat().st_size
         truncated = False
@@ -210,20 +167,17 @@ class FileSystem:
         try:
             content = resolved.read_text(encoding="utf-8")
         except UnicodeDecodeError:
-            # Try with latin-1 for binary-ish files
             try:
                 content = resolved.read_text(encoding="latin-1")
             except Exception:
-                raise ValueError(f"Cannot read file as text: {path}")
+                return Content(path=path, error=f"Cannot read file as text: {path}", size=file_size)
 
         total_lines = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
 
-        # Truncate by bytes
         if len(content) > max_bytes:
             content = content[:max_bytes]
             truncated = True
 
-        # Truncate by lines
         if max_lines is not None:
             lines = content.split("\n")
             if len(lines) > max_lines:
@@ -232,7 +186,7 @@ class FileSystem:
 
         rel_path = str(resolved.relative_to(self.root))
 
-        return FileContent(
+        return Content(
             path=rel_path,
             content=content,
             size=file_size,
@@ -246,20 +200,7 @@ class FileSystem:
         max_depth: int = 3,
         include_hidden: bool = False,
     ) -> TreeNode:
-        """Get a tree representation of a directory.
-
-        Args:
-            path: Relative path to directory
-            max_depth: Maximum depth to traverse
-            include_hidden: Whether to include hidden files
-
-        Returns:
-            TreeNode representing the directory structure
-
-        Raises:
-            FileNotFoundError: If path does not exist
-            NotADirectoryError: If path is not a directory
-        """
+        """Get a tree representation of a directory."""
         resolved = self._resolve_path(path)
 
         if not resolved.exists():
@@ -276,17 +217,6 @@ class FileSystem:
         include_hidden: bool,
         current_depth: int,
     ) -> TreeNode:
-        """Recursively build a tree structure.
-
-        Args:
-            path: Current path
-            max_depth: Maximum depth
-            include_hidden: Include hidden files
-            current_depth: Current recursion depth
-
-        Returns:
-            TreeNode for this directory
-        """
         entry_type = EntryType.DIRECTORY if path.is_dir() else EntryType.FILE
         children: list[TreeNode] = []
 
@@ -296,48 +226,86 @@ class FileSystem:
                     path.iterdir(),
                     key=lambda x: (x.is_file(), x.name.lower()),
                 )
-
                 for entry in entries:
-                    # Skip hidden files
                     if not include_hidden and entry.name.startswith("."):
                         continue
-
-                    # Skip common uninteresting directories
                     if entry.is_dir() and entry.name in self.SKIP_DIRS:
                         continue
-
-                    child = self._build_tree(
-                        entry,
-                        max_depth,
-                        include_hidden,
-                        current_depth + 1,
-                    )
+                    child = self._build_tree(entry, max_depth, include_hidden, current_depth + 1)
                     children.append(child)
-
             except PermissionError:
                 pass
 
-        return TreeNode(
-            name=path.name or str(path),
-            entry_type=entry_type,
-            children=children,
-        )
+        return TreeNode(name=path.name or str(path), entry_type=entry_type, children=children)
 
-    def get_tree_string(
+    # ------------------------------------------------------------------
+    # Write operations
+    # ------------------------------------------------------------------
+
+    def write_file(
         self,
-        path: str = "",
-        max_depth: int = 3,
-        include_hidden: bool = False,
-    ) -> str:
-        """Get a string representation of the directory tree.
+        path: str,
+        content: str,
+        content_type: str = "text/plain",
+    ) -> OperationResult:
+        """Write text content to a file.
+
+        Creates parent directories as needed.
 
         Args:
-            path: Relative path to directory
-            max_depth: Maximum depth to traverse
-            include_hidden: Whether to include hidden files
+            path: Relative file path to write to.
+            content: Text content to write (UTF-8).
+            content_type: Ignored for local files; accepted for interface compatibility.
 
         Returns:
-            String representation of the tree
+            OperationResult indicating success or failure.
         """
-        tree = self.get_tree(path, max_depth, include_hidden)
-        return tree.to_string()
+        try:
+            resolved = self._resolve_path(path)
+        except ValueError as e:
+            return OperationResult(success=False, path=path, error=str(e))
+
+        if not path:
+            return OperationResult(success=False, path=path, error="Cannot write: path is empty")
+
+        try:
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            resolved.write_text(content, encoding="utf-8")
+            return OperationResult(
+                success=True,
+                path=str(resolved.relative_to(self.root)),
+                message=f"Written {len(content.encode('utf-8'))} bytes to {resolved}",
+            )
+        except Exception as e:
+            logger.error(f"write_file failed for {path!r}: {e}")
+            return OperationResult(success=False, path=path, error=str(e))
+
+    def delete_file(self, path: str) -> OperationResult:
+        """Delete a file.
+
+        Args:
+            path: Relative file path to delete.
+
+        Returns:
+            OperationResult indicating success or failure.
+        """
+        try:
+            resolved = self._resolve_path(path)
+        except ValueError as e:
+            return OperationResult(success=False, path=path, error=str(e))
+
+        if not resolved.exists():
+            return OperationResult(success=False, path=path, error=f"File not found: {path}")
+        if resolved.is_dir():
+            return OperationResult(success=False, path=path, error=f"Path is a directory: {path}")
+
+        try:
+            resolved.unlink()
+            return OperationResult(
+                success=True,
+                path=path,
+                message=f"Deleted {resolved}",
+            )
+        except Exception as e:
+            logger.error(f"delete_file failed for {path!r}: {e}")
+            return OperationResult(success=False, path=path, error=str(e))
