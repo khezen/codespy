@@ -14,6 +14,9 @@ from codespy.agents.hippocampus.budget import (
 from codespy.agents.hippocampus.context_map import ContextMap, ItemTag
 from codespy.agents.hippocampus.modules.cartographer import Cartographer
 from codespy.agents.hippocampus.modules.distiller import Distiller
+from codespy.agents.hippocampus.persistence import MapStore
+from codespy.agents.hippocampus.persistence import load_map as _load_map
+from codespy.agents.hippocampus.persistence import save_map as _save_map
 
 
 def prepend_context_map(sig):
@@ -177,7 +180,11 @@ class Hypocampus(dspy.Module):
             self._make_question(inputs),
         )
 
-    def end_episode(self) -> None:
+    def end_episode(
+        self,
+        store: MapStore | None = None,
+        path: str | None = None,
+    ) -> None:
         """Consolidate the buffered episode into the map and clear the buffer.
 
         A single Distiller pass sees all buffered trajectories joined with
@@ -185,6 +192,19 @@ class Hypocampus(dspy.Module):
         combined text is head+tail bounded (stage 2) after per-call bounding
         (stage 1) already applied at append time. The question is derived from
         the first buffered call. No-op if the buffer is empty.
+
+        If both ``store`` and ``path`` are provided the updated map is
+        persisted after consolidation.  ``store`` may be a ``FileSystem`` or
+        an ``S3Client`` instance.
+
+        Args:
+            store: Optional storage backend to persist the map after the
+                episode (``FileSystem`` or ``S3Client``).
+            path: Destination path within the store.  Required when ``store``
+                is set.
+
+        Raises:
+            IOError: If persistence is requested and the write fails.
         """
         if not self._episode:
             return
@@ -194,6 +214,39 @@ class Hypocampus(dspy.Module):
         if self.max_trajectory_tokens is not None:
             combined = _head_tail_text(combined, self.max_trajectory_tokens)
         self._distill_and_apply(combined, self._episode_question or "")
+        self._episode.clear()
+        self._episode_question = None
+        if store is not None and path is not None:
+            _save_map(store, path, self.cmap)
+
+    def save_map(self, store: MapStore, path: str) -> None:
+        """Persist the current context map to ``path`` via ``store``.
+
+        Args:
+            store: Storage backend (``FileSystem`` or ``S3Client``).
+            path: Destination path within the store.
+
+        Raises:
+            IOError: If the write fails.
+        """
+        _save_map(store, path, self.cmap)
+
+    def load_map(self, store: MapStore, path: str) -> None:
+        """Replace the current map with one loaded from ``path`` via ``store``.
+
+        Resets ``scores`` and clears the episode buffer since they belong to
+        the previous (now discarded) map.
+
+        Args:
+            store: Storage backend (``FileSystem`` or ``S3Client``).
+            path: Source path within the store.
+
+        Raises:
+            FileNotFoundError: If the path does not exist.
+            IOError: If reading or parsing fails.
+        """
+        self.cmap = _load_map(store, path)
+        self.scores = {}
         self._episode.clear()
         self._episode_question = None
 

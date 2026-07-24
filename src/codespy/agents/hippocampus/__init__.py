@@ -10,6 +10,7 @@ from codespy.agents.hippocampus.context_map import (
 from codespy.agents.hippocampus.modules.cartographer import Cartographer, CartographerSig
 from codespy.agents.hippocampus.modules.distiller import Distiller, DistillerSig
 from codespy.agents.hippocampus.hypocampus import Hypocampus
+from codespy.agents.hippocampus.persistence import MapStore
 
 __all__ = [
     "CacheCandidate",
@@ -18,10 +19,11 @@ __all__ = [
     "ContextMap",
     "Distiller",
     "DistillerSig",
+    "Hypocampus",
     "Item",
     "ItemTag",
+    "MapStore",
     "Operation",
     "OpType",
-    "Hypocampus",
     "SectionName",
 ]

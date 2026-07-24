@@ -144,3 +144,30 @@ class ContextMap(BaseModel):
             lst = cm.section(sec)
             lst[:] = [it for it in lst if it.id not in ids]
         return cm
+
+    def to_json(self) -> str:
+        """Serialize the map to a JSON string.
+
+        ``next_id`` is excluded from the output (it is a transient counter).
+        Use ``from_json()`` to reload — it recomputes ``next_id`` from the
+        item IDs present in the map so there are no collisions on subsequent
+        ADD operations.
+        """
+        return self.model_dump_json(indent=2)
+
+    @classmethod
+    def from_json(cls, text: str) -> ContextMap:
+        """Deserialize a map from a JSON string produced by ``to_json()``.
+
+        Recomputes ``next_id`` as one past the highest numeric suffix found
+        in any item ID (e.g. ``cu-00042`` → suffix 42), so the reloaded map
+        can safely receive further ADD operations without ID collisions.
+        """
+        cm = cls.model_validate_json(text)
+        max_n = 0
+        for it in cm.all_items():
+            suffix = it.id.rsplit("-", 1)[-1]
+            if suffix.isdigit():
+                max_n = max(max_n, int(suffix))
+        cm.next_id = max_n + 1
+        return cm
