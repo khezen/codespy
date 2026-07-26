@@ -27,6 +27,7 @@ from codespy.config_llm import (
     discover_gemini_api_key,
     discover_openai_api_key,
 )
+from codespy.config_memory import MemoryConfig, reset_memory_store
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ __all__ = [
     "GitHubConfig",
     "GitLabConfig",
     "SignatureConfig",
+    "MemoryConfig",
     "OutputFormat",
 ]
 
@@ -92,13 +94,14 @@ class Settings(BaseSettings):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     github: GitHubConfig = Field(default_factory=GitHubConfig)
     gitlab: GitLabConfig = Field(default_factory=GitLabConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
 
     # Flat signature configs (signature_name -> SignatureConfig)
     signatures: dict[str, SignatureConfig] = Field(default_factory=dict)
 
     # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
     default_model: str = "anthropic/claude-opus-4-6"
-    extraction_model: str | None = None  # For TwoStepAdapter field extraction (falls back to default_model)
+    extraction_model: str | None = None  # TwoStepAdapter extraction (falls back to default_model)
     default_max_iters: int = 3
     default_max_context_size: int = 50000
     default_max_reasoning_tokens: int = 8000  # Limit reasoning verbosity for adapter reliability
@@ -190,6 +193,42 @@ class Settings(BaseSettings):
         config = self.get_signature_config(signature_name)
         return config.scan_unchanged if config.scan_unchanged is not None else False
 
+    # Helper methods for per-signature memory config (Hippocampus)
+    def get_memory_enabled(self, signature_name: str) -> bool:
+        """Whether Hippocampus memory is enabled for a signature.
+
+        Per-signature ``memory.enabled`` overrides ``memory.default_enabled``.
+        """
+        config = self.get_signature_config(signature_name).memory
+        return config.enabled if config.enabled is not None else self.memory.default_enabled
+
+    def get_memory_max_reflects(self, signature_name: str) -> int | None:
+        """Get max_reflects for a signature's memory (signature-specific or default)."""
+        config = self.get_signature_config(signature_name).memory
+        return (
+            config.max_reflects
+            if config.max_reflects is not None
+            else self.memory.default_max_reflects
+        )
+
+    def get_memory_token_budget(self, signature_name: str) -> int:
+        """Get token_budget for a signature's memory (signature-specific or default)."""
+        config = self.get_signature_config(signature_name).memory
+        return (
+            config.token_budget
+            if config.token_budget is not None
+            else self.memory.default_token_budget
+        )
+
+    def get_memory_max_trajectory_tokens(self, signature_name: str) -> int | None:
+        """Get max_trajectory_tokens for a signature's memory (signature-specific or default)."""
+        config = self.get_signature_config(signature_name).memory
+        return (
+            config.max_trajectory_tokens
+            if config.max_trajectory_tokens is not None
+            else self.memory.default_max_trajectory_tokens
+        )
+
     def log_signature_configs(self) -> None:
         """Log all signature configurations."""
         logger.info("Signature configurations:")
@@ -198,7 +237,11 @@ class Settings(BaseSettings):
             model = sig_config.model or self.default_model
             max_iters = sig_config.max_iters or self.default_max_iters
             max_reasoning = sig_config.max_reasoning_tokens or self.default_max_reasoning_tokens
-            temp = sig_config.temperature if sig_config.temperature is not None else self.default_temperature
+            temp = (
+                sig_config.temperature
+                if sig_config.temperature is not None
+                else self.default_temperature
+            )
             logger.info(
                 f"  {sig_name}: {status}, model={model}, max_iters={max_iters}, "
                 f"max_reasoning_tokens={max_reasoning}, temperature={temp}"
@@ -450,6 +493,9 @@ def get_settings(config_file: str | None = None) -> Settings:
 def reload_settings(config_file: str | None = None) -> Settings:
     """Reload settings (useful after environment changes).
 
+    Also resets the cached Hippocampus memory store so a changed
+    ``memory`` configuration takes effect on next access.
+
     Args:
         config_file: Optional path to a YAML config file. If provided,
             uses that file instead of the default locations.
@@ -458,4 +504,5 @@ def reload_settings(config_file: str | None = None) -> Settings:
     if config_file is not None:
         _custom_config_path = config_file
     settings = Settings()
+    reset_memory_store()
     return settings

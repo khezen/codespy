@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 from datetime import datetime
 
@@ -74,6 +75,12 @@ class Hypocampus(dspy.Module):
         # Read-only (map never changes) — pure inference
         mem = Hypocampus(agent, max_reflects=0)
         pred = mem(task="…")    # no end_episode() call
+
+        # Async variants (for callers running inside an event loop, e.g.
+        # reviewer modules using `await agent.acall(...)`)
+        mem = Hypocampus(agent, max_reflects=0)
+        pred = await mem.acall(task="…")
+        await mem.aend_episode(store, dir)
 
     ## Trajectory bounding (two-stage)
 
@@ -169,7 +176,28 @@ class Hypocampus(dspy.Module):
 
     def forward(self, **kwargs) -> dspy.Prediction:
         pred = self.agent(context_map=self.cmap, **kwargs)
-        # Format once (stage-1 bounded); reused for both buffering and online reflect.
+        self._buffer_and_maybe_reflect(pred, kwargs)
+        return pred
+
+    async def aforward(self, **kwargs) -> dspy.Prediction:
+        """Async counterpart of :meth:`forward`.
+
+        Awaits the wrapped agent's ``acall`` instead of invoking it
+        synchronously — required when the caller is already inside a running
+        event loop (e.g. reviewer modules using ``await agent.acall(...)``).
+        The Distiller/Cartographer reflection pass is still synchronous under
+        the hood but is offloaded to a thread so it never blocks the loop.
+        """
+        pred = await self.agent.acall(context_map=self.cmap, **kwargs)
+        await asyncio.to_thread(self._buffer_and_maybe_reflect, pred, kwargs)
+        return pred
+
+    def _buffer_and_maybe_reflect(self, pred: dspy.Prediction, kwargs: dict) -> None:
+        """Shared post-call work for both ``forward`` and ``aforward``.
+
+        Buffers the (stage-1 bounded) trajectory and, depending on
+        ``max_reflects``, runs an online distill+apply pass immediately.
+        """
         traj = format_trajectory(pred, self.max_trajectory_tokens)
         self._episode_trajectories.append(traj)
         if self._episode_question is None:
@@ -178,7 +206,6 @@ class Hypocampus(dspy.Module):
         if (self.max_reflects is None
                 or len(self._episode_trajectories) <= self.max_reflects):
             self._distill_and_apply(traj, self._make_question(kwargs))
-        return pred
 
     def reflect(self, pred: dspy.Prediction, inputs: dict) -> None:
         """Run one distillation cycle over ``pred``'s trajectory and update the map.
@@ -191,10 +218,52 @@ class Hypocampus(dspy.Module):
             self._make_question(inputs),
         )
 
+    def _consolidate(self) -> str | None:
+        """Join buffered trajectories (stage-2 bounded) and distill+apply once.
+
+        Returns the combined trajectory text used for consolidation, or
+        ``None`` if the buffer is empty (no-op).
+        """
+        if not self._episode_trajectories:
+            return None
+        combined = "\n\n".join(
+            f"=== Call {i + 1} ===\n{t}"
+            for i, t in enumerate(self._episode_trajectories)
+        )
+        if self.max_trajectory_tokens is not None:
+            combined = _head_tail_text(combined, self.max_trajectory_tokens)
+        self._distill_and_apply(combined, self._episode_question or "")
+        return combined
+
+    def _finalize_episode(self) -> None:
+        """Record the consolidated Episode snapshot and clear the buffer."""
+        self.episode = Episode(
+            task=self._task_name,
+            module=self._module_name,
+            context_map=self.cmap.model_copy(deep=True),
+            timestamp=datetime.utcnow(),
+        )
+        self._episode_trajectories.clear()
+        self._episode_question = None
+
+    def _episode_file_path(self, dir: str) -> str:
+        """Build the full episode file path from a directory.
+
+        Prepends the ``episodes`` root and appends a timestamped filename
+        named after the wrapped task: ``episodes/<dir>/codespy-<task>-<ts>.json``.
+
+        Args:
+            dir: Directory identifying where this episode belongs (e.g. a
+                scope's ``/{repo}/{subroot}/`` path).
+        """
+        timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        trimmed = dir.strip("/")
+        return f"episodes/{trimmed}/codespy-{self._task_name}-{timestamp}.json"
+
     def end_episode(
         self,
         store: Storage | None = None,
-        path: str | None = None,
+        dir: str | None = None,
     ) -> None:
         """Consolidate the buffered trajectories into the map and record an Episode snapshot.
 
@@ -208,39 +277,44 @@ class Hypocampus(dspy.Module):
         containing the task/module identity and a deep-copy snapshot of the
         updated context map.
 
-        If both ``store`` and ``path`` are provided the episode is persisted
-        via ``save_episode()`` after consolidation.  ``store`` may be a
+        If both ``store`` and ``dir`` are provided the episode is persisted
+        via ``save_episode()`` after consolidation, at
+        ``episodes/<dir>/codespy-<task>-<timestamp>.json``. ``store`` may be a
         ``FileSystem`` or an ``S3Client`` instance.
 
         Args:
             store: Optional ``Storage`` backend to persist the episode after
                 consolidation (``FileSystem`` or ``S3Client``).
-            path: Destination path within the store.  Required when ``store``
-                is set.
+            dir: Directory identifying where this episode belongs (e.g. a
+                scope's path). Required when ``store`` is set.
 
         Raises:
             OSError: If persistence is requested and the write fails.
         """
-        if not self._episode_trajectories:
+        if self._consolidate() is None:
             return
-        combined = "\n\n".join(
-            f"=== Call {i + 1} ===\n{t}"
-            for i, t in enumerate(self._episode_trajectories)
-        )
-        if self.max_trajectory_tokens is not None:
-            combined = _head_tail_text(combined, self.max_trajectory_tokens)
-        self._distill_and_apply(combined, self._episode_question or "")
-        # Record the consolidated episode as a snapshot of the updated map.
-        self.episode = Episode(
-            task=self._task_name,
-            module=self._module_name,
-            context_map=self.cmap.model_copy(deep=True),
-            timestamp=datetime.utcnow(),
-        )
-        self._episode_trajectories.clear()
-        self._episode_question = None
-        if store is not None and path is not None:
-            _save_episode(store, path, self.episode)
+        self._finalize_episode()
+        if store is not None and dir is not None:
+            _save_episode(store, self._episode_file_path(dir), self.episode)
+
+    async def aend_episode(
+        self,
+        store: Storage | None = None,
+        dir: str | None = None,
+    ) -> None:
+        """Async counterpart of :meth:`end_episode`.
+
+        The (synchronous) Distiller/Cartographer consolidation pass and the
+        storage write are both offloaded to a thread so they never block the
+        caller's event loop.
+        """
+        combined = await asyncio.to_thread(self._consolidate)
+        if combined is None:
+            return
+        await asyncio.to_thread(self._finalize_episode)
+        if store is not None and dir is not None:
+            path = self._episode_file_path(dir)
+            await asyncio.to_thread(_save_episode, store, path, self.episode)
 
     def save_episode(self, store: Storage, path: str) -> None:
         """Persist the current episode to ``path`` via ``store``.

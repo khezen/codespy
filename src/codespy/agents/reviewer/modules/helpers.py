@@ -151,6 +151,7 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
             dependencies_changed=scope.package_manifest.dependencies_changed,
         )
     return SR(
+        repo=scope.repo,
         subroot=".",
         scope_type=scope.scope_type,
         has_changes=scope.has_changes,

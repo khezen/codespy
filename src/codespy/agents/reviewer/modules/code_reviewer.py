@@ -8,6 +8,7 @@ from typing import Any, Sequence
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
+from codespy.agents.hippocampus import Hypocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
@@ -16,6 +17,7 @@ from codespy.agents.reviewer.modules.helpers import (
     restore_repo_paths,
 )
 from codespy.config import get_settings
+from codespy.config_memory import get_memory_store
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -229,10 +231,25 @@ class CodeReviewer(dspy.Module):
                     f"({len(scope.changed_files)} files)"
                 )
                 async with SignatureContext("code_review", self._cost_tracker):
-                    result = await agent.acall(
-                        scope=scoped,
-                        categories=categories,
-                    )
+                    if self._settings.get_memory_enabled("code_review"):
+                        mem = Hypocampus(
+                            agent,
+                            token_budget=self._settings.get_memory_token_budget("code_review"),
+                            max_trajectory_tokens=self._settings.get_memory_max_trajectory_tokens(
+                                "code_review"
+                            ),
+                            max_reflects=self._settings.get_memory_max_reflects("code_review"),
+                        )
+                        result = await mem.aforward(
+                            scope=scoped,
+                            categories=categories,
+                        )
+                        await mem.aend_episode(get_memory_store(self._settings), scope.scope_path())
+                    else:
+                        result = await agent.acall(
+                            scope=scoped,
+                            categories=categories,
+                        )
 
                 issues = [
                     issue for issue in (result.issues or [])

@@ -54,6 +54,9 @@ from codespy.tools.git.models import ChangedFile
 class ScopeResult(BaseModel):
     """A detected scope/subroot in the repository."""
 
+    repo: str = Field(
+        default="", description="Repo identifier: 'owner/repo' (remote) or local dir name"
+    )
     subroot: str = Field(description="Path relative to repo root (e.g., packages/auth)")
     scope_type: ScopeType = Field(description="Type of scope (library, service, etc.)")
     has_changes: bool = Field(
@@ -75,6 +78,15 @@ class ScopeResult(BaseModel):
     reason: str = Field(description="Explanation for why this scope was identified")
 
     model_config = {"arbitrary_types_allowed": True}
+
+    def scope_path(self) -> str:
+        """Return the storage-relative path for this scope: ``/{repo}/{subroot}/``.
+
+        Used by Hippocampus memory as the base directory for episode files.
+        ``subroot == "."`` (repo root) is normalized to ``"root"``.
+        """
+        subroot = "root" if self.subroot in (".", "") else self.subroot.strip("/")
+        return f"/{self.repo}/{subroot}/"
 
 
 class Issue(BaseModel):

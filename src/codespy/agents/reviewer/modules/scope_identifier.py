@@ -9,8 +9,10 @@ import dspy  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
+from codespy.agents.hippocampus import Hypocampus
 from codespy.agents.reviewer.models import PackageManifest, ScopeResult, ScopeType
 from codespy.config import get_settings
+from codespy.config_memory import get_memory_store
 from codespy.tools.git.models import ChangedFile, MergeRequest, should_review_file
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
@@ -216,10 +218,15 @@ class ScopeIdentifier(dspy.Module):
             logger.warning("No reviewable files in MR - all files are binary, lock files, or in excluded directories")
             return []
         
+        # Repo identifier for this review, stamped onto every ScopeResult
+        # (used by Hippocampus memory to build the episode path).
+        repo = repo_path.resolve().name if is_local else mr.repo_full_name
+
         # Check if signature is enabled
         if not self._settings.is_signature_enabled("scope"):
             logger.warning("scope is disabled - using fallback single scope")
             return [ScopeResult(
+                repo=repo,
                 subroot=".",
                 scope_type=ScopeType.APPLICATION,
                 has_changes=True,
@@ -230,6 +237,7 @@ class ScopeIdentifier(dspy.Module):
                 changed_files=reviewable_files,
                 reason="Scope identification disabled - fallback to single scope",
             )]
+
         tools, contexts = await self._create_mcp_tools(repo_path, is_local=is_local)
         changed_file_paths = [f.filename for f in reviewable_files]
         # Build map from filename to ChangedFile for post-processing
@@ -249,25 +257,52 @@ class ScopeIdentifier(dspy.Module):
             logger.info(f"Identifying scopes for {len(changed_file_paths)} changed files...")
             # Track scope signature costs
             async with SignatureContext("scope", self._cost_tracker):
-                result = await agent.acall(
-                    changed_files=changed_file_paths,
-                    repo_owner=mr.repo_owner,
-                    repo_name=mr.repo_name,
-                    head_sha=mr.head_sha,
-                    target_repo_path=str(repo_path),
-                    mr_title=mr.title or "No title",
-                    mr_description=mr.body or "No description",
-                    is_local=is_local,
-                )
+                if self._settings.get_memory_enabled("scope"):
+                    mem = Hypocampus(
+                        agent,
+                        token_budget=self._settings.get_memory_token_budget("scope"),
+                        max_trajectory_tokens=self._settings.get_memory_max_trajectory_tokens(
+                            "scope"
+                        ),
+                        max_reflects=self._settings.get_memory_max_reflects("scope"),
+                        question_field="mr_title",
+                    )
+                    result = await mem.aforward(
+                        changed_files=changed_file_paths,
+                        repo_owner=mr.repo_owner,
+                        repo_name=mr.repo_name,
+                        head_sha=mr.head_sha,
+                        target_repo_path=str(repo_path),
+                        mr_title=mr.title or "No title",
+                        mr_description=mr.body or "No description",
+                        is_local=is_local,
+                    )
+                    # Repo-level episode: subroot "." (no scope object exists yet).
+                    dir_path = f"/{repo}/root/"
+                    await mem.aend_episode(get_memory_store(self._settings), dir_path)
+                else:
+                    result = await agent.acall(
+                        changed_files=changed_file_paths,
+                        repo_owner=mr.repo_owner,
+                        repo_name=mr.repo_name,
+                        head_sha=mr.head_sha,
+                        target_repo_path=str(repo_path),
+                        mr_title=mr.title or "No title",
+                        mr_description=mr.body or "No description",
+                        is_local=is_local,
+                    )
             scope_assignments: list[ScopeAssignment] = result.scopes
             # Ensure we got valid scopes
             if not scope_assignments:
                 raise ValueError("No scopes returned by agent")
             # Convert ScopeAssignment (with string paths) to ScopeResult (with ChangedFile objects)
-            scopes = self._convert_assignments_to_results(scope_assignments, changed_files_map)
+            scopes = self._convert_assignments_to_results(
+                scope_assignments, changed_files_map, repo
+            )
         except Exception as e:
             logger.error(f"Agent failed: {e}")
             scopes = [ScopeResult(
+                repo=repo,
                 subroot=".",
                 scope_type=ScopeType.APPLICATION,
                 has_changes=True,
@@ -286,16 +321,18 @@ class ScopeIdentifier(dspy.Module):
         return scopes
 
     def _convert_assignments_to_results(
-        self, 
-        assignments: list[ScopeAssignment], 
-        changed_files_map: dict[str, ChangedFile]
+        self,
+        assignments: list[ScopeAssignment],
+        changed_files_map: dict[str, ChangedFile],
+        repo: str,
     ) -> list[ScopeResult]:
         """Convert LLM scope assignments to ScopeResults with proper ChangedFile objects.
-        
+
         Args:
             assignments: Scope assignments from LLM with string file paths
             changed_files_map: Map from filename to ChangedFile object
-            
+            repo: Repo identifier stamped onto every ScopeResult (see ScopeResult.repo)
+
         Returns:
             List of ScopeResult with ChangedFile objects instead of strings
         """
@@ -309,6 +346,7 @@ class ScopeIdentifier(dspy.Module):
                 else:
                     logger.warning(f"File '{filepath}' from scope assignment not found in PR changed files")
             results.append(ScopeResult(
+                repo=repo,
                 subroot=assignment.subroot,
                 scope_type=assignment.scope_type,
                 has_changes=assignment.has_changes,

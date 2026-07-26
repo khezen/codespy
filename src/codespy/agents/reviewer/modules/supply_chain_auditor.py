@@ -8,9 +8,11 @@ from typing import Any, Sequence
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
+from codespy.agents.hippocampus import Hypocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, resolve_scope_root, strip_prefix, restore_repo_paths
 from codespy.config import get_settings
+from codespy.config_memory import get_memory_store
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -306,12 +308,37 @@ class SupplyChainAuditor(dspy.Module):
                     )
                     # Track supply_chain signature costs separately
                     async with SignatureContext("supply_chain", self._cost_tracker):
-                        result = await supply_chain_agent.acall(
-                            manifest_path=manifest_path,
-                            lock_file_path=lock_file_path,
-                            package_manager=package_manager,
-                            category=IssueCategory.SECURITY,
-                        )
+                        if self._settings.get_memory_enabled("supply_chain"):
+                            mem = Hypocampus(
+                                supply_chain_agent,
+                                token_budget=self._settings.get_memory_token_budget(
+                                    "supply_chain"
+                                ),
+                                max_trajectory_tokens=(
+                                    self._settings.get_memory_max_trajectory_tokens(
+                                        "supply_chain"
+                                    )
+                                ),
+                                max_reflects=self._settings.get_memory_max_reflects(
+                                    "supply_chain"
+                                ),
+                            )
+                            result = await mem.aforward(
+                                manifest_path=manifest_path,
+                                lock_file_path=lock_file_path,
+                                package_manager=package_manager,
+                                category=IssueCategory.SECURITY,
+                            )
+                            await mem.aend_episode(
+                                get_memory_store(self._settings), scope.scope_path()
+                            )
+                        else:
+                            result = await supply_chain_agent.acall(
+                                manifest_path=manifest_path,
+                                lock_file_path=lock_file_path,
+                                package_manager=package_manager,
+                                category=IssueCategory.SECURITY,
+                            )
                     issues = [
                         issue for issue in result.issues
                         if issue.confidence >= MIN_CONFIDENCE

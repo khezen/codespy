@@ -58,8 +58,37 @@ gitlab:
   auto_discover_token: true              # GITLAB_AUTO_DISCOVER_TOKEN (set to false to disable auto-discovery)
 
 # ============================================================================
+# MEMORY
+# ============================================================================
+# Hippocampus lets scope-based agents (scope, code_review, doc, supply_chain)
+# consolidate their run into a ContextMap and persist it as an Episode.
+# Save-only for now (no loading). Disabled by default per-signature — see
+# `memory:` blocks under each signature below.
+#
+# Episodes are written to:
+#   episodes/<repo>/<scope-subroot>/codespy-<task>-<timestamp>.json
+# under `root` (filesystem) or `s3_bucket` (s3).
+memory:
+  backend: filesystem                     # MEMORY_BACKEND (filesystem | s3)
+
+  # Filesystem backend
+  root: ~/.cache/codespy/memory           # MEMORY_ROOT
+
+  # S3 backend (used when backend: s3)
+  s3_bucket: null                         # MEMORY_S3_BUCKET
+  s3_region: null                         # MEMORY_S3_REGION (falls back to aws_region)
+  s3_endpoint_url: null                   # MEMORY_S3_ENDPOINT_URL (for MinIO/S3-compatible)
+
+  # Reflection defaults — overridable per-signature via signatures.<name>.memory
+  default_enabled: false                  # MEMORY_DEFAULT_ENABLED
+  default_max_reflects: 0                 # MEMORY_DEFAULT_MAX_REFLECTS (0 = reflect once at end_episode)
+  default_token_budget: 1024              # MEMORY_DEFAULT_TOKEN_BUDGET
+  default_max_trajectory_tokens: null     # MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS (null = full trajectory)
+
+# ============================================================================
 # SIGNATURES
 # ============================================================================
+
 # Each signature config supports: enabled, max_iters, model, max_context_size
 # Set to null to use defaults
 #
@@ -112,6 +141,11 @@ signatures:
     scan_unchanged: false                # SUPPLY_CHAIN_SCAN_UNCHANGED
     # When true: scans ALL artifacts (Dockerfiles, etc.) and manifests
     # When false (default): only scans artifacts/manifests that were modified in the MR
+    memory:
+      enabled: null                      # SUPPLY_CHAIN_MEMORY_ENABLED (null -> memory.default_enabled)
+      max_reflects: null                 # SUPPLY_CHAIN_MEMORY_MAX_REFLECTS
+      token_budget: null                 # SUPPLY_CHAIN_MEMORY_TOKEN_BUDGET
+      max_trajectory_tokens: null        # SUPPLY_CHAIN_MEMORY_MAX_TRAJECTORY_TOKENS
 
   # Code Reviewer signature (bugs, security, removed defensive code, code smells)
   # Unified code review: bugs, security vulnerabilities, and code smells in a single agent pass per scope
@@ -122,6 +156,11 @@ signatures:
     max_context_size: null               # CODE_REVIEW_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # CODE_REVIEW_MAX_REASONING_TOKENS
     temperature: null                    # CODE_REVIEW_TEMPERATURE
+    memory:
+      enabled: null                      # CODE_REVIEW_MEMORY_ENABLED (null -> memory.default_enabled)
+      max_reflects: null                 # CODE_REVIEW_MEMORY_MAX_REFLECTS
+      token_budget: null                 # CODE_REVIEW_MEMORY_TOKEN_BUDGET
+      max_trajectory_tokens: null        # CODE_REVIEW_MEMORY_MAX_TRAJECTORY_TOKENS
 
   # Documentation Reviewer signature (compares patches against extracted documentation)
   # Note: doc extraction is now deterministic (no LLM) — see doc_extractor.py
@@ -131,6 +170,11 @@ signatures:
     max_context_size: null               # DOC_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # DOC_MAX_REASONING_TOKENS
     temperature: null                    # DOC_TEMPERATURE
+    memory:
+      enabled: null                      # DOC_MEMORY_ENABLED (null -> memory.default_enabled)
+      max_reflects: null                 # DOC_MEMORY_MAX_REFLECTS
+      token_budget: null                 # DOC_MEMORY_TOKEN_BUDGET
+      max_trajectory_tokens: null        # DOC_MEMORY_MAX_TRAJECTORY_TOKENS
 
   # Scope Identifier signature
   scope:
@@ -140,6 +184,11 @@ signatures:
     max_context_size: null               # SCOPE_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # SCOPE_MAX_REASONING_TOKENS
     temperature: null                    # SCOPE_TEMPERATURE
+    memory:
+      enabled: null                      # SCOPE_MEMORY_ENABLED (null -> memory.default_enabled)
+      max_reflects: null                 # SCOPE_MEMORY_MAX_REFLECTS
+      token_budget: null                 # SCOPE_MEMORY_TOKEN_BUDGET
+      max_trajectory_tokens: null        # SCOPE_MEMORY_MAX_TRAJECTORY_TOKENS
 
   # Summarizer signature
   summarization:
@@ -148,6 +197,11 @@ signatures:
     max_context_size: null               # SUMMARIZATION_MAX_CONTEXT_SIZE
     max_reasoning_tokens: null           # SUMMARIZATION_MAX_REASONING_TOKENS
     temperature: null                    # SUMMARIZATION_TEMPERATURE
+    memory:
+      enabled: false                     # SUMMARIZATION_MEMORY_ENABLED — not wired (no tools/scope)
+      max_reflects: null                 # SUMMARIZATION_MEMORY_MAX_REFLECTS
+      token_budget: null                 # SUMMARIZATION_MEMORY_TOKEN_BUDGET
+      max_trajectory_tokens: null        # SUMMARIZATION_MEMORY_MAX_TRAJECTORY_TOKENS
 
 # ============================================================================
 # OUTPUT

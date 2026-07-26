@@ -8,6 +8,7 @@ from typing import Sequence
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
+from codespy.agents.hippocampus import Hypocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.doc_extractor import extract_documentation
 from codespy.agents.reviewer.modules.helpers import (
@@ -17,6 +18,7 @@ from codespy.agents.reviewer.modules.helpers import (
     restore_repo_paths,
 )
 from codespy.config import get_settings
+from codespy.config_memory import get_memory_store
 
 logger = logging.getLogger(__name__)
 
@@ -161,12 +163,28 @@ class DocReviewer(dspy.Module):
                     f"({len(scope.changed_files)} files)"
                 )
                 async with SignatureContext("doc", self._cost_tracker):
-                    result = await asyncio.to_thread(
-                        reviewer,
-                        patches=patches,
-                        documentation=documentation,
-                        categories=[IssueCategory.DOCUMENTATION],
-                    )
+                    if self._settings.get_memory_enabled("doc"):
+                        mem = Hypocampus(
+                            reviewer,
+                            token_budget=self._settings.get_memory_token_budget("doc"),
+                            max_trajectory_tokens=self._settings.get_memory_max_trajectory_tokens(
+                                "doc"
+                            ),
+                            max_reflects=self._settings.get_memory_max_reflects("doc"),
+                        )
+                        result = await mem.aforward(
+                            patches=patches,
+                            documentation=documentation,
+                            categories=[IssueCategory.DOCUMENTATION],
+                        )
+                        await mem.aend_episode(get_memory_store(self._settings), scope.scope_path())
+                    else:
+                        result = await asyncio.to_thread(
+                            reviewer,
+                            patches=patches,
+                            documentation=documentation,
+                            categories=[IssueCategory.DOCUMENTATION],
+                        )
                 issues = [
                     issue for issue in (result.issues or [])
                     if issue.confidence >= MIN_CONFIDENCE
