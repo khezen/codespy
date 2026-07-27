@@ -249,6 +249,7 @@ class CodeReviewer(dspy.Module):
                                 "code_review"
                             ),
                             max_reflects=self._settings.get_memory_max_reflects("code_review"),
+                            task_name="code_review",
                         )
                         result = await mem.aforward(
                             scope=scoped,

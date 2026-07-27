@@ -273,6 +273,7 @@ class ScopeIdentifier(dspy.Module):
                         # question_field makes max_question_tokens moot: the title
                         # alone is the question, so no inputs get serialized.
                         question_field="mr_title",
+                        task_name="scope",
                     )
                     result = await mem.aforward(
                         changed_files=changed_file_paths,

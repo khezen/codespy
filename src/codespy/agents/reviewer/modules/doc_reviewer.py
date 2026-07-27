@@ -179,6 +179,9 @@ class DocReviewer(dspy.Module):
                                 "doc"
                             ),
                             max_reflects=self._settings.get_memory_max_reflects("doc"),
+                            # ChainOfThought exposes no .signature, so the episode
+                            # identity must be given explicitly.
+                            task_name="doc",
                         )
                         result = await mem.aforward(
                             patches=patches,

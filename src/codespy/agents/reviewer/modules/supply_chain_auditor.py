@@ -332,6 +332,7 @@ class SupplyChainAuditor(dspy.Module):
                                 max_reflects=self._settings.get_memory_max_reflects(
                                     "supply_chain"
                                 ),
+                                task_name="supply_chain",
                             )
                             result = await mem.aforward(
                                 manifest_path=manifest_path,

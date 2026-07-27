@@ -122,6 +122,7 @@ class Hippocampus(dspy.Module):
         max_question_tokens: int | None = 2048,
         max_reflects: int | None = None,
         question_field: str | None = None,
+        task_name: str | None = None,
     ):
         """
         Args:
@@ -164,6 +165,14 @@ class Hippocampus(dspy.Module):
                 If set, only that field is used as the Distiller "question".
                 If None, all input fields are serialized (bounded by max_question_tokens).
                 Set this when one field cleanly captures user intent.
+            task_name: Identity recorded in ``Episode.task`` and used in the episode
+                filename. Pass the signature's snake_case name (``"doc"``,
+                ``"code_review"``, …) — the same key that drives config, LM
+                selection and cost attribution — so the episode path lines up with
+                the rest of the system. Inference is a last resort: only
+                ``dspy.ReAct``-style modules expose ``.signature``,
+                ``dspy.ChainOfThought`` does not, so the fallback would yield a
+                meaningless (and collision-prone) ``"ChainOfThought"``.
         """
         super().__init__()
 
@@ -203,8 +212,9 @@ class Hippocampus(dspy.Module):
         # Question derived from the first buffered call; used as Distiller input.
         self._episode_question: str | None = None
 
-        # Identity of the wrapped module/signature for Episode metadata.
-        self._task_name: str = (
+        # Identity of the wrapped module/signature for Episode metadata. An explicit
+        # task_name wins: inference only works for modules exposing .signature.
+        self._task_name: str = task_name or (
             top_sig.__name__ if top_sig is not None else type(module).__name__
         )
         self._module_name: str = type(module).__name__
