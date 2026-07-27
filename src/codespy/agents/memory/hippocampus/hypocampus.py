@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import uuid
 from datetime import datetime
 
 import dspy
@@ -247,16 +248,17 @@ class Hypocampus(dspy.Module):
     def _episode_file_path(self, dir: str) -> str:
         """Build the full episode file path from a directory.
 
-        Prepends the ``episodes`` root and appends a timestamped filename
-        named after the wrapped task: ``episodes/<dir>/codespy-<task>-<ts>.json``.
+        Prepends the ``episodes`` root and appends a hidden ``.codespy``
+        folder holding the episode file, named after the wrapped task and a
+        random UUID: ``episodes/<dir>/.codespy/<task>-<uuid>.json``.
 
         Args:
             dir: Directory identifying where this episode belongs (e.g. a
                 scope's ``/{repo}/{subroot}/`` path).
         """
-        timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        file_id = uuid.uuid4().hex
         trimmed = dir.strip("/")
-        return f"episodes/{trimmed}/codespy-{self._task_name}-{timestamp}.json"
+        return f"episodes/{trimmed}/.codespy/{self._task_name}-{file_id}.json"
 
     def end_episode(
         self,
@@ -277,7 +279,7 @@ class Hypocampus(dspy.Module):
 
         If both ``store`` and ``dir`` are provided the episode is persisted
         via ``save_episode()`` after consolidation, at
-        ``episodes/<dir>/codespy-<task>-<timestamp>.json``. ``store`` may be a
+        ``episodes/<dir>/.codespy/<task>-<uuid>.json``. ``store`` may be a
         ``FileSystem`` or an ``S3Client`` instance.
 
         Args:
