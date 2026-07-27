@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from codespy.agents.hippocampus.context_map import ContextMap, _recompute_next_id
+from codespy.agents.memory.hippocampus.context_map import ContextMap, _recompute_next_id
 from codespy.tools.storage.base import Storage
 
 

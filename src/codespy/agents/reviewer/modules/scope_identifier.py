@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.hippocampus import Hypocampus
+from codespy.agents.memory.hippocampus import Hypocampus
 from codespy.agents.reviewer.models import PackageManifest, ScopeResult, ScopeType
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store

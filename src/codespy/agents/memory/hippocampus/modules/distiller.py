@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dspy
 
-from codespy.agents.hippocampus.context_map import (
+from codespy.agents.memory.hippocampus.context_map import (
     CacheCandidate,
     ContextMap,
     ItemTag,

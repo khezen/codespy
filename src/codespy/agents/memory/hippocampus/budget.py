@@ -3,7 +3,7 @@ from __future__ import annotations
 import dspy
 import tiktoken
 
-from codespy.agents.hippocampus.context_map import ContextMap
+from codespy.agents.memory.hippocampus.context_map import ContextMap
 
 _ENCODING = tiktoken.get_encoding("o200k_base")
 

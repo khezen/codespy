@@ -6,19 +6,19 @@ from datetime import datetime
 
 import dspy
 
-from codespy.agents.hippocampus.budget import (
+from codespy.agents.memory.hippocampus.budget import (
     _head_tail_text,
     count_tokens,
     evict,
     format_inputs,
     format_trajectory,
 )
-from codespy.agents.hippocampus.context_map import ContextMap, ItemTag
-from codespy.agents.hippocampus.episode import Episode
-from codespy.agents.hippocampus.episode import load_episode as _load_episode
-from codespy.agents.hippocampus.episode import save_episode as _save_episode
-from codespy.agents.hippocampus.modules.cartographer import Cartographer
-from codespy.agents.hippocampus.modules.distiller import Distiller
+from codespy.agents.memory.hippocampus.context_map import ContextMap, ItemTag
+from codespy.agents.memory.hippocampus.episode import Episode
+from codespy.agents.memory.hippocampus.episode import load_episode as _load_episode
+from codespy.agents.memory.hippocampus.episode import save_episode as _save_episode
+from codespy.agents.memory.hippocampus.modules.cartographer import Cartographer
+from codespy.agents.memory.hippocampus.modules.distiller import Distiller
 from codespy.tools.storage.base import Storage
 
 
