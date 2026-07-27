@@ -160,8 +160,14 @@ class Hypocampus(dspy.Module):
         self.scores: dict[str, int] = {}
         # Buffer of per-call bounded trajectory strings, cleared after end_episode().
         self._episode_trajectories: list[str] = []
+        # Count of buffered trajectories already distilled online (via max_reflects).
+        # Used to skip a redundant consolidation distill in the single-call case,
+        # and to detect "everything was reflected online" so end_episode() still
+        # persists a snapshot even when nothing remains to consolidate.
+        self._reflected_count: int = 0
         # Question derived from the first buffered call; used as Distiller input.
         self._episode_question: str | None = None
+
         # Identity of the wrapped module/signature for Episode metadata.
         self._task_name: str = (
             top_sig.__name__ if top_sig is not None else type(module).__name__
@@ -176,7 +182,7 @@ class Hypocampus(dspy.Module):
 
     def forward(self, **kwargs) -> dspy.Prediction:
         pred = self.agent(context_map=self.cmap, **kwargs)
-        self._buffer_and_maybe_reflect(pred, kwargs)
+        self._buffer_and_distill(pred, kwargs)
         return pred
 
     async def aforward(self, **kwargs) -> dspy.Prediction:
@@ -189,10 +195,10 @@ class Hypocampus(dspy.Module):
         the hood but is offloaded to a thread so it never blocks the loop.
         """
         pred = await self.agent.acall(context_map=self.cmap, **kwargs)
-        await asyncio.to_thread(self._buffer_and_maybe_reflect, pred, kwargs)
+        await asyncio.to_thread(self._buffer_and_distill, pred, kwargs)
         return pred
 
-    def _buffer_and_maybe_reflect(self, pred: dspy.Prediction, kwargs: dict) -> None:
+    def _buffer_and_distill(self, pred: dspy.Prediction, kwargs: dict) -> None:
         """Shared post-call work for both ``forward`` and ``aforward``.
 
         Buffers the (stage-1 bounded) trajectory and, depending on
@@ -205,18 +211,8 @@ class Hypocampus(dspy.Module):
         # Online reflection: None = no limit (always); N = for the first N calls.
         if (self.max_reflects is None
                 or len(self._episode_trajectories) <= self.max_reflects):
-            self._distill_and_apply(traj, self._make_question(kwargs))
-
-    def reflect(self, pred: dspy.Prediction, inputs: dict) -> None:
-        """Run one distillation cycle over ``pred``'s trajectory and update the map.
-
-        For manual / selective reflection outside of the automatic per-call flow.
-        The trajectory is bounded by ``max_trajectory_tokens`` (stage 1).
-        """
-        self._distill_and_apply(
-            format_trajectory(pred, self.max_trajectory_tokens),
-            self._make_question(inputs),
-        )
+            self._distill(traj, self._make_question(kwargs))
+            self._reflected_count += 1
 
     def _consolidate(self) -> str | None:
         """Join buffered trajectories (stage-2 bounded) and distill+apply once.
@@ -224,7 +220,8 @@ class Hypocampus(dspy.Module):
         Returns the combined trajectory text used for consolidation, or
         ``None`` if the buffer is empty (no-op).
         """
-        if not self._episode_trajectories:
+        skip_double_distill = len(self._episode_trajectories)==1 and self._reflected_count>0
+        if not self._episode_trajectories or skip_double_distill:
             return None
         combined = "\n\n".join(
             f"=== Call {i + 1} ===\n{t}"
@@ -232,7 +229,7 @@ class Hypocampus(dspy.Module):
         )
         if self.max_trajectory_tokens is not None:
             combined = _head_tail_text(combined, self.max_trajectory_tokens)
-        self._distill_and_apply(combined, self._episode_question or "")
+        self._distill(combined, self._episode_question or "")
         return combined
 
     def _finalize_episode(self) -> None:
@@ -245,6 +242,7 @@ class Hypocampus(dspy.Module):
         )
         self._episode_trajectories.clear()
         self._episode_question = None
+        self._reflected_count = 0
 
     def _episode_file_path(self, dir: str) -> str:
         """Build the full episode file path from a directory.
@@ -291,7 +289,8 @@ class Hypocampus(dspy.Module):
         Raises:
             OSError: If persistence is requested and the write fails.
         """
-        if self._consolidate() is None:
+        nothing_to_persist = self._consolidate() is None and self._reflected_count==0
+        if nothing_to_persist:
             return
         self._finalize_episode()
         if store is not None and dir is not None:
@@ -309,7 +308,8 @@ class Hypocampus(dspy.Module):
         caller's event loop.
         """
         combined = await asyncio.to_thread(self._consolidate)
-        if combined is None:
+        nothing_to_persist = combined is None and self._reflected_count == 0
+        if nothing_to_persist:
             return
         await asyncio.to_thread(self._finalize_episode)
         if store is not None and dir is not None:
@@ -356,11 +356,13 @@ class Hypocampus(dspy.Module):
         self.scores = {}
         self._episode_trajectories.clear()
         self._episode_question = None
+        self._reflected_count = 0
 
     def reset_episode(self) -> None:
         """Discard the buffered trajectories without reflecting."""
         self._episode_trajectories.clear()
         self._episode_question = None
+        self._reflected_count = 0
 
     # ------------------------------------------------------------------
     # Internals
@@ -371,7 +373,7 @@ class Hypocampus(dspy.Module):
             return str(inputs.get(self.question_field, ""))
         return format_inputs(inputs, self.max_input_tokens)
 
-    def _distill_and_apply(self, trajectory: str, question: str) -> None:
+    def _distill(self, trajectory: str, question: str) -> None:
         distilled = self.distill(
             trajectory=trajectory,
             context_map=self.cmap,
