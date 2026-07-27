@@ -27,7 +27,11 @@ from codespy.config_llm import (
     discover_gemini_api_key,
     discover_openai_api_key,
 )
-from codespy.config_memory import MemoryConfig, reset_memory_store
+from codespy.config_memory import (
+    MemoryConfig,
+    apply_memory_env_overrides,
+    reset_memory_store,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +260,10 @@ class Settings(BaseSettings):
         """
         yaml_config = _load_yaml_config()
         yaml_config = apply_signature_env_overrides(yaml_config)
+        # MEMORY_* env vars target the nested `memory` model, which
+        # pydantic-settings cannot populate on its own (no env_nested_delimiter).
+        yaml_config = apply_memory_env_overrides(yaml_config)
+
 
         # Merge YAML config into values only if not already set (env vars take precedence)
         for key, val in yaml_config.items():

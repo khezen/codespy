@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+import os
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -35,6 +36,68 @@ class MemoryConfig(BaseModel):
     default_max_reflects: int = Field(default=0)   # MEMORY_DEFAULT_MAX_REFLECTS
     default_token_budget: int = Field(default=1024) # MEMORY_DEFAULT_TOKEN_BUDGET
     default_max_trajectory_tokens: int | None = None  # MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS
+
+
+# Env var name (without the MEMORY_ prefix) -> MemoryConfig field name.
+# ``memory`` is a nested model and ``Settings`` does not set
+# ``env_nested_delimiter``, so pydantic-settings cannot populate these fields
+# from the environment on its own. apply_memory_env_overrides() bridges the gap.
+MEMORY_ENV_SETTINGS = {
+    "BACKEND": "backend",
+    "ROOT": "root",
+    "S3_BUCKET": "s3_bucket",
+    "S3_REGION": "s3_region",
+    "S3_ENDPOINT_URL": "s3_endpoint_url",
+    "DEFAULT_ENABLED": "default_enabled",
+    "DEFAULT_MAX_REFLECTS": "default_max_reflects",
+    "DEFAULT_TOKEN_BUDGET": "default_token_budget",
+    "DEFAULT_MAX_TRAJECTORY_TOKENS": "default_max_trajectory_tokens",
+}
+
+
+def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
+    """Apply ``MEMORY_*`` environment variable overrides to the ``memory`` block.
+
+    Maps flat env vars onto the nested ``memory`` config, e.g.::
+
+        MEMORY_BACKEND=s3               -> memory.backend
+        MEMORY_DEFAULT_ENABLED=true     -> memory.default_enabled
+        MEMORY_DEFAULT_TOKEN_BUDGET=512 -> memory.default_token_budget
+
+    Env vars take precedence over YAML, matching the documented priority
+    (Environment Variables > YAML Config > Defaults).
+
+    Note: ``<SIGNATURE>_MEMORY_*`` vars are handled separately by
+    ``apply_signature_env_overrides`` and are ignored here, since they never
+    match a bare ``MEMORY_`` prefix.
+
+    Args:
+        config: The YAML-derived config dict to mutate.
+
+    Returns:
+        The same dict, with ``memory`` overrides applied.
+    """
+    from dotenv import dotenv_values
+
+    from codespy.config_dspy import convert_env_value
+
+    env_vars = {**dotenv_values(".env"), **os.environ}
+
+    for key, value in env_vars.items():
+        if value is None:
+            continue
+        key_upper = key.upper()
+        if not key_upper.startswith("MEMORY_"):
+            continue
+        field = MEMORY_ENV_SETTINGS.get(key_upper[len("MEMORY_"):])
+        if field is None:
+            continue
+        memory_config = config.setdefault("memory", {})
+        if not isinstance(memory_config, dict):
+            continue
+        memory_config[field] = convert_env_value(value)
+
+    return config
 
 
 # Cached singleton store. Avoids reconstructing an S3Client's boto3 client

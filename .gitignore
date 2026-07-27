@@ -54,6 +54,9 @@ coverage.xml
 
 # Environments
 .env
+.env.bak*
+.env.*.bak
+.env.local
 .venv
 env/
 venv/
