@@ -109,6 +109,10 @@ class DistillerSig(dspy.Signature):
     trajectory: str = dspy.InputField(desc="The agent's full execution trajectory.")
     context_map: ContextMap = dspy.InputField(desc="Current context map (with item IDs).")
     question: str = dspy.InputField(desc="The question the agent was answering.")
+    max_item_tokens: int = dspy.InputField(
+        desc="Token budget for a SINGLE context-map item. Keep every candidate within "
+        "it; if one exceeds it, rewrite it more compactly or split it."
+    )
 
     diagnosis: str = dspy.OutputField(
         desc="Brief (3-5 sentence) analysis of orientation vs. question-specific work, "
@@ -120,7 +124,8 @@ class DistillerSig(dspy.Signature):
         "Keys must match existing item ids exactly."
     )
     cache_candidates: list[CacheCandidate] = dspy.OutputField(
-        desc="Candidate items to add. Each <= ~80 tokens; structural/transferable only. "
+        desc="Candidate items to add. Each within the max_item_tokens budget; "
+        "structural/transferable only. "
         "Each candidate's `section` must be one of the five section names above."
     )
 
@@ -141,7 +146,13 @@ class Distiller(dspy.Module):
         super().__init__()
         self.predict = dspy.ChainOfThought(DistillerSig)
 
-    def forward(self, trajectory: str, context_map: ContextMap, question: str):
+    def forward(
+        self,
+        trajectory: str,
+        context_map: ContextMap,
+        question: str,
+        max_item_tokens: int,
+    ):
         # SignatureContext applies memory.distiller's model/temperature/reasoning
         # effort and attributes the cost to this module rather than to whichever
         # agent triggered the reflection. It must be entered here, not by the
@@ -151,6 +162,9 @@ class Distiller(dspy.Module):
 
         with SignatureContext(self.SIGNATURE, get_cost_tracker()):
             return self.predict(
-                trajectory=trajectory, context_map=context_map, question=question
+                trajectory=trajectory,
+                context_map=context_map,
+                question=question,
+                max_item_tokens=max_item_tokens,
             )
 

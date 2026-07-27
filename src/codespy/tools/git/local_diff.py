@@ -2,7 +2,7 @@
 
 import logging
 import subprocess
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from codespy.tools.git.models import ChangedFile, FileStatus, GitPlatform, MergeRequest
@@ -163,8 +163,8 @@ def build_mr_from_diff(
             head_branch=head_branch,
             base_sha=base_sha,
             head_sha=head_sha,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             repo_owner=owner,
             repo_name=repo_name,
             host=host,
@@ -217,8 +217,8 @@ def build_mr_from_diff(
         head_branch=head_branch,
         base_sha=base_sha,
         head_sha=head_sha,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
         repo_owner=owner,
         repo_name=repo_name,
         host=host,

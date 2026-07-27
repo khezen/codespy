@@ -316,6 +316,9 @@ class SupplyChainAuditor(dspy.Module):
                                         "supply_chain"
                                     )
                                 ),
+                                max_item_tokens=(
+                                    self._settings.get_memory_max_item_tokens("supply_chain")
+                                ),
                                 max_trajectory_tokens=(
                                     self._settings.get_memory_max_trajectory_tokens(
                                         "supply_chain"

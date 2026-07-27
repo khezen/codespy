@@ -1,6 +1,6 @@
 """Data models for code review results."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 
@@ -149,7 +149,8 @@ class ReviewResult(BaseModel):
     mr_url: str = Field(description="MR URL")
     repo: str = Field(description="Repository name (owner/repo)")
     reviewed_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Review timestamp"
+        default_factory=lambda: datetime.now(UTC),
+        description="Review timestamp",
     )
     model_used: str = Field(description="LLM model used for review")
     issues: list[Issue] = Field(

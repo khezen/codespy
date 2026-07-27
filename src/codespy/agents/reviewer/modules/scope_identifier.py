@@ -265,6 +265,7 @@ class ScopeIdentifier(dspy.Module):
                         max_context_map_tokens=(
                             self._settings.get_memory_max_context_map_tokens("scope")
                         ),
+                        max_item_tokens=self._settings.get_memory_max_item_tokens("scope"),
                         max_trajectory_tokens=self._settings.get_memory_max_trajectory_tokens(
                             "scope"
                         ),

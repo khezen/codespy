@@ -34,6 +34,7 @@ class ReflectionModuleConfig(BaseModel):
     extraction_model: str | None = None                 # MEMORY_<MODULE>_EXTRACTION_MODEL
     reasoning_effort: ReasoningEffort | None = None     # MEMORY_<MODULE>_REASONING_EFFORT
     temperature: float | None = None                    # MEMORY_<MODULE>_TEMPERATURE
+    max_tokens: int | None = None                       # MEMORY_<MODULE>_MAX_TOKENS
 
 
 class LLMSettings(BaseModel):
@@ -49,6 +50,10 @@ class LLMSettings(BaseModel):
     extraction_model: str
     reasoning_effort: ReasoningEffort
     temperature: float
+    # Output token budget for a single completion. Reasoning/thinking tokens are
+    # charged against it, so it must comfortably exceed the expected answer size.
+    # ``new_lm`` clamps this to the model's real output ceiling before use.
+    max_tokens: int
 
 
 
@@ -77,9 +82,19 @@ class MemoryConfig(BaseModel):
     # is prepended to every predictor of the wrapped agent, so it is re-sent on
     # every ReAct iteration (~default_max_iters times per scope) plus once per
     # reflection call. Easily the most cost-sensitive of the three budgets.
-    # 1024 holds ~12 items at the Cartographer's ~80-tokens-per-item limit.
+    # Approximate item capacity is default_max_context_map_tokens divided by
+    # default_max_item_tokens (3072 / 240 ~= 12 items).
     # MEMORY_DEFAULT_MAX_CONTEXT_MAP_TOKENS
-    default_max_context_map_tokens: int = Field(default=1024)
+    default_max_context_map_tokens: int = Field(default=3072)
+
+    # Per-item ceiling handed to the Distiller/Cartographer as a prompt input, so
+    # they keep each context-map item compact instead of spending the whole map
+    # budget on one verbose entry. Soft limit: it is expressed to the LLM rather
+    # than enforced in code (truncating an item could corrupt an exact constant).
+    # The hard, map-wide limit is default_max_context_map_tokens, enforced by the
+    # Evictor. MEMORY_DEFAULT_MAX_ITEM_TOKENS
+    default_max_item_tokens: int = Field(default=240)
+
 
     # Head+tail cap on the agent trajectory fed to the Distiller. Without it a
     # single tool-heavy scope can produce a 100k+ token trajectory; TwoStepAdapter
@@ -118,6 +133,7 @@ MEMORY_ENV_SETTINGS = {
     "DEFAULT_ENABLED": "default_enabled",
     "DEFAULT_MAX_REFLECTS": "default_max_reflects",
     "DEFAULT_MAX_CONTEXT_MAP_TOKENS": "default_max_context_map_tokens",
+    "DEFAULT_MAX_ITEM_TOKENS": "default_max_item_tokens",
     "DEFAULT_MAX_TRAJECTORY_TOKENS": "default_max_trajectory_tokens",
     "DEFAULT_MAX_QUESTION_TOKENS": "default_max_question_tokens",
 }

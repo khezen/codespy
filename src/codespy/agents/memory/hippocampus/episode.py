@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
@@ -34,7 +34,8 @@ class Episode(BaseModel):
     module: str = Field(description="Wrapped dspy.Module class name")
     context_map: ContextMap = Field(description="Consolidated context map snapshot")
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow, description="UTC time the episode was recorded"
+        default_factory=lambda: datetime.now(UTC),
+        description="UTC time the episode was recorded",
     )
 
 

@@ -169,6 +169,7 @@ class DocReviewer(dspy.Module):
                             max_context_map_tokens=(
                                 self._settings.get_memory_max_context_map_tokens("doc")
                             ),
+                            max_item_tokens=self._settings.get_memory_max_item_tokens("doc"),
                             max_trajectory_tokens=self._settings.get_memory_max_trajectory_tokens(
                                 "doc"
                             ),

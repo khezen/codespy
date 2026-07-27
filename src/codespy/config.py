@@ -122,6 +122,13 @@ class Settings(BaseSettings):
     default_reasoning_effort: ReasoningEffort = "medium"
     # Providers require temperature=1 when reasoning is enabled.
     default_temperature: float = 1.0
+    # Output token budget per completion. Must be set explicitly: when it is
+    # omitted LiteLLM silently falls back to its own 4096 default, which
+    # truncates reasoning models (thinking tokens are charged against this
+    # budget) and long structured outputs. 64000 matches the output ceiling of
+    # the Claude 4.x tier and satisfies dspy.LM's >=16000 guard for OpenAI
+    # reasoning models; new_lm() clamps it down to each model's real ceiling.
+    default_max_tokens: int = 64000
 
 
     # Global LLM reliability settings
@@ -217,6 +224,7 @@ class Settings(BaseSettings):
                 if config.temperature is not None
                 else self.default_temperature
             ),
+            max_tokens=config.max_tokens or self.default_max_tokens,
         )
 
 
@@ -261,6 +269,21 @@ class Settings(BaseSettings):
             else self.memory.default_max_context_map_tokens
         )
 
+    def get_memory_max_item_tokens(self, signature_name: str) -> int:
+        """Get max_item_tokens for a signature's memory (signature-specific or default).
+
+        Bounds a *single* context-map item. Handed to the Distiller and the
+        Cartographer as a prompt input so they keep each item compact instead of
+        spending the whole map budget on one verbose entry. Soft limit — the hard,
+        map-wide ceiling is ``get_memory_max_context_map_tokens``.
+        """
+        config = self.get_signature_config(signature_name).memory
+        return (
+            config.max_item_tokens
+            if config.max_item_tokens is not None
+            else self.memory.default_max_item_tokens
+        )
+
     def get_memory_max_trajectory_tokens(self, signature_name: str) -> int | None:
         """Get max_trajectory_tokens for a signature's memory (signature-specific or default).
 
@@ -295,14 +318,16 @@ class Settings(BaseSettings):
             logger.info(
                 f"  {sig_name}: {status}, model={llm.model}, "
                 f"max_iters={self.get_max_iters(sig_name)}, "
-                f"reasoning_effort={llm.reasoning_effort}, temperature={llm.temperature}"
+                f"reasoning_effort={llm.reasoning_effort}, temperature={llm.temperature}, "
+                f"max_tokens={llm.max_tokens}"
             )
         for module in REFLECTION_MODULES:
             llm = self.get_llm_config(module)
             logger.info(
                 f"  {module}: model={llm.model}, "
                 f"extraction_model={llm.extraction_model}, "
-                f"reasoning_effort={llm.reasoning_effort}, temperature={llm.temperature}"
+                f"reasoning_effort={llm.reasoning_effort}, temperature={llm.temperature}, "
+                f"max_tokens={llm.max_tokens}"
             )
 
 

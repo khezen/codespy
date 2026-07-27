@@ -4,10 +4,13 @@ Uses DSPy's internal LM history mechanism for reliable per-signature attribution
 even during parallel execution with dspy.Parallel.
 """
 
+import sys
 import threading
 import time
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from typing import Optional
+from types import TracebackType
+from typing import Any, Optional
 
 import dspy  # type: ignore[import-untyped]
 
@@ -162,9 +165,36 @@ def _get_history_uuids() -> set[str]:
     return {entry.get("uuid", "") for entry in entries if entry.get("uuid")}
 
 
+def _as_number(value: object) -> float:
+    """Coerce a history field to a number, yielding 0.0 for anything unusable.
+
+    History entries are raw provider/LiteLLM payloads, so ``cost`` and the
+    ``usage`` counters are only *conventionally* numeric. Coercing here keeps a
+    provider-shape surprise from turning accounting into an exception.
+
+    Args:
+        value: A value read from an LM history entry.
+
+    Returns:
+        The value as a float, or 0.0 if it is missing or not numeric.
+    """
+    if isinstance(value, bool) or value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:  # Some providers report numbers as strings.
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _calculate_costs_from_entries(entries: list[dict], exclude_uuids: set[str]) -> tuple[float, int, int]:
     """Calculate costs from history entries, excluding specific UUIDs.
-    
+
+    Every field is read defensively: cost accounting is observability, so a
+    malformed entry degrades that entry to zero rather than failing the review
+    that produced it.
+
     Args:
         entries: List of history entries
         exclude_uuids: Set of UUIDs to exclude from calculation
@@ -173,27 +203,26 @@ def _calculate_costs_from_entries(entries: list[dict], exclude_uuids: set[str]) 
         Tuple of (total_cost, total_tokens, call_count)
     """
     total_cost = 0.0
-    total_tokens = 0
+    total_tokens = 0.0
     call_count = 0
     
     for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+
         entry_uuid = entry.get("uuid", "")
         if entry_uuid and entry_uuid not in exclude_uuids:
-            # Get cost
-            cost = entry.get("cost")
-            if cost is not None:
-                total_cost += cost
-            
+            total_cost += _as_number(entry.get("cost"))
+
             # Get tokens from usage
-            usage = entry.get("usage", {})
-            if usage:
-                prompt_tokens = usage.get("prompt_tokens", 0) or 0
-                completion_tokens = usage.get("completion_tokens", 0) or 0
-                total_tokens += prompt_tokens + completion_tokens
-            
+            usage = entry.get("usage")
+            if isinstance(usage, dict):
+                total_tokens += _as_number(usage.get("prompt_tokens"))
+                total_tokens += _as_number(usage.get("completion_tokens"))
+
             call_count += 1
     
-    return total_cost, total_tokens, call_count
+    return total_cost, int(total_tokens), call_count
 
 
 class SignatureContext:
@@ -224,10 +253,18 @@ class SignatureContext:
         self.signature_name = signature_name
         self.tracker = tracker
         self._before_uuids: set[str] = set()
-        self._lm_context = None
+        # Annotated so the None default doesn't narrow the attribute to
+        # ``None``, which would hide the enter/exit calls from type checking.
+        self._lm_context: AbstractContextManager[Any] | None = None
 
     def __enter__(self) -> "SignatureContext":
-        """Enter the context, applying the LM and capturing history state."""
+        """Enter the context, applying the LM and capturing history state.
+
+        If the bookkeeping that follows the LM swap fails, the swap is rolled
+        back before propagating: Python does not call ``__exit__`` when
+        ``__enter__`` raises, so without this the overridden LM would stay
+        installed for the rest of the thread.
+        """
         # Imported here to avoid a circular import at module load time
         # (dspy_config imports codespy.config, which must not import agents).
         from codespy.agents.dspy_config import lm_context
@@ -236,28 +273,52 @@ class SignatureContext:
         # to the LM that will actually serve the enclosed calls.
         self._lm_context = lm_context(self.signature_name)
         self._lm_context.__enter__()
-        self._before_uuids = _get_history_uuids()
-        self.tracker.start_signature(self.signature_name)
+        try:
+            self._before_uuids = _get_history_uuids()
+            self.tracker.start_signature(self.signature_name)
+        except BaseException:
+            self._lm_context.__exit__(*sys.exc_info())
+            self._lm_context = None
+            raise
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Exit the context, calculating costs from new history entries."""
-        # Read history before leaving the LM context, so dspy.settings.lm still
-        # points at the LM whose history we need.
-        entries = _get_history_entries()
-        cost, tokens, call_count = _calculate_costs_from_entries(entries, self._before_uuids)
-        self.tracker.end_signature(self.signature_name, cost, tokens, call_count)
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Exit the context, calculating costs from new history entries.
 
-        if self._lm_context is not None:
-            self._lm_context.__exit__(exc_type, exc_val, exc_tb)
-            self._lm_context = None
+        The LM context is released in a ``finally``: a leaked
+        ``dspy.context`` does not raise, it silently leaves the overridden LM
+        installed for the remainder of the thread, so every later predictor
+        would run on the wrong model and be attributed to the wrong signature.
+        Guaranteeing the exit keeps an accounting failure loud and local
+        instead of quiet and global.
+        """
+        try:
+            # Read history before leaving the LM context, so dspy.settings.lm
+            # still points at the LM whose history we need.
+            entries = _get_history_entries()
+            cost, tokens, call_count = _calculate_costs_from_entries(entries, self._before_uuids)
+            self.tracker.end_signature(self.signature_name, cost, tokens, call_count)
+        finally:
+            if self._lm_context is not None:
+                self._lm_context.__exit__(exc_type, exc_val, exc_tb)
+                self._lm_context = None
 
 
     async def __aenter__(self) -> "SignatureContext":
         """Async enter the context."""
         return self.__enter__()
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Async exit the context."""
         self.__exit__(exc_type, exc_val, exc_tb)
 

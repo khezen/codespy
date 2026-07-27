@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 import dspy
 
@@ -95,14 +95,19 @@ class Hippocampus(dspy.Module):
     With ``max_trajectory_tokens=None`` both stages are no-ops and the Distiller
     receives the full trajectory.
 
-    ## The three token budgets
+    ## The four token budgets
 
-    All three are measured with the ``o200k_base`` encoding:
+    All four are measured with the ``o200k_base`` encoding:
 
     - ``max_context_map_tokens`` — the rendered ContextMap. This is the *persisted*
       artifact and it is prepended to every predictor of the wrapped agent, so it is
       re-sent on every agent iteration (~``max_iters`` times per run) plus once per
-      reflection call. The most cost-sensitive of the three.
+      reflection call. The most cost-sensitive of the four.
+    - ``max_item_tokens`` — a *single* context-map item. Unlike the other three this
+      is a **soft** budget: it is passed to the Distiller and the Cartographer as a
+      prompt input so they keep each item compact, but it is not enforced in code
+      (truncating an item could corrupt an exact constant). Roughly,
+      ``max_context_map_tokens / max_item_tokens`` is the map's item capacity.
     - ``max_trajectory_tokens`` — the trajectory fed to the Distiller.
     - ``max_question_tokens`` — the serialized inputs used as the reflection
       "question" (only when ``question_field`` is unset).
@@ -111,7 +116,8 @@ class Hippocampus(dspy.Module):
     def __init__(
         self,
         module: dspy.Module,
-        max_context_map_tokens: int = 1024,
+        max_context_map_tokens: int = 3072,
+        max_item_tokens: int = 240,
         max_trajectory_tokens: int | None = 8192,
         max_question_tokens: int | None = 2048,
         max_reflects: int | None = None,
@@ -121,10 +127,17 @@ class Hippocampus(dspy.Module):
         Args:
             module: Any dspy.Module (ReAct, RLM, Predict, …) to wrap.
             max_context_map_tokens: Hard ceiling on the rendered context map,
-                enforced by the Evictor after every reflection. At ~80 tokens per
-                item (the Cartographer's limit) 1024 holds ~12 items. Raise with
-                care: the map is re-sent on every agent iteration, so the cost is
-                multiplied by ``max_iters``.
+                enforced by the Evictor after every reflection. Divided by
+                ``max_item_tokens`` it gives the map's approximate item capacity
+                (3072 / 240 ~= 12 items). Raise with care: the map is re-sent on
+                every agent iteration, so the cost is multiplied by ``max_iters``.
+            max_item_tokens: Token budget for a *single* context-map item, passed to
+                the Distiller and the Cartographer as a prompt input so they keep
+                each item compact rather than spending the whole map budget on one
+                verbose entry. Soft limit — expressed to the LLM, not enforced in
+                code, since truncating an item could corrupt an exact constant it
+                holds. Lower it to fit more, terser items in the same map budget;
+                raise it to allow richer items.
             max_trajectory_tokens: Token budget for trajectories fed to the Distiller.
                 None = full trajectory, Distiller does all compression — only viable
                 for agents with short, predictable trajectories. Tool-using agents
@@ -173,6 +186,7 @@ class Hippocampus(dspy.Module):
         self.distill = Distiller()
         self.cartograph = Cartographer()
         self.max_context_map_tokens = max_context_map_tokens
+        self.max_item_tokens = max_item_tokens
         self.max_trajectory_tokens = max_trajectory_tokens
         self.max_question_tokens = max_question_tokens
         self.max_reflects = max_reflects
@@ -259,7 +273,7 @@ class Hippocampus(dspy.Module):
             task=self._task_name,
             module=self._module_name,
             context_map=self.cmap.model_copy(deep=True),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
         )
         self._episode_trajectories.clear()
         self._episode_question = None
@@ -400,6 +414,7 @@ class Hippocampus(dspy.Module):
             trajectory=trajectory,
             context_map=self.cmap,
             question=question,
+            max_item_tokens=self.max_item_tokens,
         )
 
         known = self.cmap.ids()
@@ -422,6 +437,7 @@ class Hippocampus(dspy.Module):
             # text, already scoped by its description, and pairs with current_tokens.
             token_budget=self.max_context_map_tokens,
             current_tokens=count_tokens(self.cmap.render()),
+            max_item_tokens=self.max_item_tokens,
         )
         ops = list(edits.operations or [])
 
