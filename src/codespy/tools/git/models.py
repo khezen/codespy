@@ -239,6 +239,13 @@ class MergeRequest(BaseModel):
     updated_at: datetime = Field(description="MR/PR last update timestamp")
     repo_owner: str = Field(description="Repository owner/namespace")
     repo_name: str = Field(description="Repository name")
+    host: str = Field(
+        default="",
+        description=(
+            "Repo host (e.g. 'github.com', 'gitlab.example.com'). "
+            "Empty when unknown (e.g. local repo with no git remote)."
+        ),
+    )
     changed_files: list[ChangedFile] = Field(
         default_factory=list, description="List of changed files"
     )
@@ -249,6 +256,18 @@ class MergeRequest(BaseModel):
     def repo_full_name(self) -> str:
         """Get full repository name (owner/repo)."""
         return f"{self.repo_owner}/{self.repo_name}"
+
+    @property
+    def repo_slug(self) -> str:
+        """Get the host-qualified repository identifier (e.g. 'github.com/owner/repo').
+
+        Falls back to ``repo_full_name`` (no host prefix) when ``host`` is
+        unknown — e.g. a local repository with no git remote configured.
+        Used by Hippocampus memory to build a stable, host-qualified episode
+        path so local and remote reviews of the same repository share memory.
+        """
+        base = self.repo_full_name
+        return f"{self.host}/{base}" if self.host else base
 
     @property
     def url(self) -> str:

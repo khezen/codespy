@@ -219,8 +219,10 @@ class ScopeIdentifier(dspy.Module):
             return []
         
         # Repo identifier for this review, stamped onto every ScopeResult
-        # (used by Hippocampus memory to build the episode path).
-        repo = repo_path.resolve().name if is_local else mr.repo_full_name
+        # (used by Hippocampus memory to build the episode path). Uses the
+        # host-qualified slug (e.g. "github.com/owner/repo") so local and
+        # remote reviews of the same repository share the same memory path.
+        repo = mr.repo_slug
 
         # Check if signature is enabled
         if not self._settings.is_signature_enabled("scope"):

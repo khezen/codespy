@@ -116,6 +116,7 @@ class GitHubClient(GitClient):
             updated_at=gh_pr.updated_at,
             repo_owner=owner,
             repo_name=repo_name,
+            host="github.com",
             changed_files=changed_files,
             labels=[label.name for label in gh_pr.labels],
             platform=GitPlatform.GITHUB,

@@ -49,33 +49,39 @@ def _count_diff_lines(patch: str) -> tuple[int, int]:
     return additions, deletions
 
 
-def _get_repo_info(repo_path: Path) -> tuple[str, str]:
-    """Extract owner and repo name from git remote or directory name.
+def _get_repo_info(repo_path: Path) -> tuple[str, str, str]:
+    """Extract host, owner, and repo name from git remote or directory name.
 
     Returns:
-        Tuple of (owner, repo_name)
+        Tuple of (host, owner, repo_name). ``host`` is empty when it cannot
+        be determined (e.g. no ``origin`` remote configured).
     """
     try:
         remote_url = _run_git(repo_path, "remote", "get-url", "origin")
         # Handle SSH: git@github.com:owner/repo.git
         if remote_url.startswith("git@"):
-            path_part = remote_url.split(":", 1)[1]
+            host_part, path_part = remote_url.split(":", 1)
+            host = host_part.split("@", 1)[-1]
         # Handle HTTPS: https://github.com/owner/repo.git
         elif "://" in remote_url:
-            path_part = remote_url.split("://", 1)[1].split("/", 1)[1]
+            after_scheme = remote_url.split("://", 1)[1]
+            host, path_part = after_scheme.split("/", 1)
+            # Strip any embedded credentials (e.g. user@host or token@host)
+            host = host.split("@")[-1]
         else:
+            host = ""
             path_part = remote_url
 
         # Remove .git suffix
         path_part = path_part.removesuffix(".git")
         parts = path_part.strip("/").split("/")
         if len(parts) >= 2:
-            return parts[-2], parts[-1]
+            return host, parts[-2], parts[-1]
     except (RuntimeError, IndexError, ValueError):
         pass
 
-    # Fallback to directory name
-    return "local", repo_path.name
+    # Fallback to directory name, no known host
+    return "", "local", repo_path.name
 
 
 def _get_current_branch(repo_path: Path) -> str:
@@ -118,7 +124,7 @@ def build_mr_from_diff(
     if not (repo_path / ".git").exists():
         raise FileNotFoundError(f"Not a git repository: {repo_path}")
 
-    owner, repo_name = _get_repo_info(repo_path)
+    host, owner, repo_name = _get_repo_info(repo_path)
     head_branch = _get_current_branch(repo_path)
     author = _get_current_user(repo_path)
 
@@ -161,6 +167,7 @@ def build_mr_from_diff(
             updated_at=datetime.utcnow(),
             repo_owner=owner,
             repo_name=repo_name,
+            host=host,
             changed_files=[],
             platform=GitPlatform.GITHUB,  # Doesn't matter for local review
         )
@@ -214,6 +221,7 @@ def build_mr_from_diff(
         updated_at=datetime.utcnow(),
         repo_owner=owner,
         repo_name=repo_name,
+        host=host,
         changed_files=changed_files,
         platform=GitPlatform.GITHUB,  # Doesn't matter for local review
     )

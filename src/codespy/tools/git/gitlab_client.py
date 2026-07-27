@@ -99,6 +99,13 @@ class GitLabClient(GitClient):
             raise ValueError(f"Invalid GitLab MR URL: {url}")
         return match.group("path")
 
+    def _get_host(self, url: str) -> str:
+        """Get the host (e.g. 'gitlab.com' or a self-hosted domain) from URL."""
+        match = self.MR_URL_PATTERN.match(url)
+        if not match:
+            raise ValueError(f"Invalid GitLab MR URL: {url}")
+        return match.group("host")
+
     def _map_status(self, diff_status: str) -> FileStatus:
         """Map GitLab diff status to FileStatus enum."""
         status_map = {
@@ -119,6 +126,7 @@ class GitLabClient(GitClient):
         """
         namespace, project_name, mr_number = self.parse_url(url)
         project_path = self._get_project_path(url)
+        host = self._get_host(url)
 
         # Get project and MR
         project = self.gitlab_client.projects.get(project_path)
@@ -174,6 +182,7 @@ class GitLabClient(GitClient):
             updated_at=gl_mr.updated_at,
             repo_owner=namespace,
             repo_name=project_name,
+            host=host,
             changed_files=changed_files,
             labels=gl_mr.labels,
             platform=GitPlatform.GITLAB,
