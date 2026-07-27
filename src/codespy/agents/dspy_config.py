@@ -6,12 +6,66 @@ import dspy  # type: ignore[import-untyped]
 from dspy.adapters.two_step_adapter import TwoStepAdapter  # type: ignore[import-untyped]
 import litellm  # type: ignore[import-untyped]
 
-from codespy.config import Settings
+from codespy.config import Settings, get_settings
+from codespy.config_memory import LLMSettings, REFLECTION_MODULES
+
 
 logger = logging.getLogger(__name__)
 
 
+def new_lm(settings: Settings, config: LLMSettings) -> dspy.LM:
+    """Build a ``dspy.LM`` for resolved LLM settings.
+
+    The single place LMs are constructed, so the cross-cutting concerns
+    (timeout, retries, provider-side prompt caching) are applied uniformly.
+
+    ``reasoning_effort`` is forwarded to LiteLLM through ``dspy.LM``'s
+    ``**kwargs``; LiteLLM maps it onto each provider's native parameter
+    (Anthropic thinking budget, OpenAI reasoning effort, ...).
+
+    Args:
+        settings: Application settings (timeout / retries / prompt caching).
+        config: Resolved settings from ``Settings.get_llm_config()``.
+
+    Returns:
+        A configured ``dspy.LM``.
+    """
+    lm_kwargs: dict = {
+        "model": config.model,
+        "temperature": config.temperature,
+        "reasoning_effort": config.reasoning_effort,
+        "timeout": settings.llm_timeout,
+        "num_retries": settings.llm_retries,
+    }
+    # Cache system prompts on the provider's servers (Anthropic, OpenAI, Bedrock...)
+    if settings.enable_prompt_caching:
+        lm_kwargs["cache_control_injection_points"] = [
+            {"location": "message", "role": "system"}
+        ]
+    return dspy.LM(**lm_kwargs)
+
+
+def lm_context(name: str):
+    """Return a ``dspy.context`` applying the LM configured for ``name``.
+
+    ``name`` is a signature or reflection module name — see
+    ``Settings.get_llm_config``. Enter this around the predictor call so the
+    named unit of work runs on its own configured model, falling back to the
+    top-level defaults when it declares no overrides.
+
+    Args:
+        name: The signature or reflection module name.
+
+    Returns:
+        A context manager that scopes the LM to the enclosed block.
+    """
+    settings = get_settings()
+    return dspy.context(lm=new_lm(settings, settings.get_llm_config(name)))
+
+
+
 def configure_dspy(settings: Settings) -> None:
+
     """Configure DSPy with the LLM backend for reliable structured output.
 
     This configures DSPy with:
@@ -44,32 +98,18 @@ def configure_dspy(settings: Settings) -> None:
         if settings.aws_secret_access_key:
             os.environ["AWS_SECRET_ACCESS_KEY"] = settings.aws_secret_access_key
 
-    # Build LM kwargs with reliability settings
-    lm_kwargs: dict = {
-        "model": model,
-        "timeout": settings.llm_timeout,  # Global timeout (default: 120s)
-        "num_retries": settings.llm_retries,  # Global retries (default: 3)
-    }
+    # Global fallback LM, used by any predictor not wrapped in lm_context().
+    # An unknown name resolves purely from the top-level defaults.
+    defaults = settings.get_llm_config("default")
+    lm = new_lm(settings, defaults)
 
-    # Enable provider-side prompt caching if configured
-    # This caches system prompts on the LLM provider's servers (Anthropic, OpenAI, Bedrock, etc.)
-    if settings.enable_prompt_caching:
-        lm_kwargs["cache_control_injection_points"] = [
-            {"location": "message", "role": "system"}
-        ]
-
-    # Configure DSPy with LiteLLM and TwoStepAdapter
-    lm = dspy.LM(**lm_kwargs)
-
-    # Create extraction LM for TwoStepAdapter's second stage
-    # Uses a smaller/faster model to extract structured fields from free-form responses
-    # Falls back to default_model if no extraction_model is configured
-    extraction_model = settings.extraction_model or settings.default_model
-    extraction_lm = dspy.LM(
-        model=extraction_model,
-        timeout=settings.llm_timeout,
-        num_retries=settings.llm_retries,
+    # Extraction LM for TwoStepAdapter's second stage: a smaller/faster model
+    # that pulls structured fields out of the main LM's free-form response.
+    extraction_model = defaults.extraction_model
+    extraction_lm = new_lm(
+        settings, defaults.model_copy(update={"model": extraction_model})
     )
+
 
     dspy.settings.configure(
         lm=lm,
@@ -91,7 +131,9 @@ def configure_dspy(settings: Settings) -> None:
 def verify_model_access(settings: Settings) -> tuple[bool, str]:
     """Verify that all configured models are accessible.
 
-    Checks the default model and all per-signature model overrides.
+    Checks the default model, all per-signature model overrides, and the
+    memory reflection models, so a typo in any of them fails fast at startup
+    rather than mid-review.
 
     Args:
         settings: Application settings containing model configuration.
@@ -106,7 +148,14 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
     for sig_name, sig_config in settings.signatures.items():
         if sig_config.model:
             models_to_check.add(sig_config.model)
-    
+
+    # Check the Hippocampus reflection models (Distiller / Cartographer)
+    for module in REFLECTION_MODULES:
+        reflection = settings.get_llm_config(module)
+        models_to_check.add(reflection.model)
+        models_to_check.add(reflection.extraction_model)
+
+
     # Check each model
     verified: list[str] = []
     failed: list[str] = []

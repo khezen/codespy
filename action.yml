@@ -68,20 +68,16 @@ inputs:
     required: false
     default: '3'
   
-  default-max-context-size:
-    description: 'Default maximum context size for all signatures'
+  default-reasoning-effort:
+    description: 'Default reasoning effort for all signatures (minimal|low|medium|high)'
     required: false
-    default: '50000'
-  
-  default-max-reasoning-tokens:
-    description: 'Default maximum reasoning tokens for all signatures'
-    required: false
-    default: '8000'
+    default: 'medium'
   
   default-temperature:
-    description: 'Default temperature for LLM calls (0.0-1.0)'
+    description: 'Default temperature for LLM calls (must be 1 while reasoning is enabled)'
     required: false
-    default: '0.1'
+    default: '1'
+
   
   llm-retries:
     description: 'Number of retries for LLM API calls'
@@ -114,12 +110,8 @@ inputs:
     description: 'Max iterations for scope identification'
     required: false
   
-  scope-max-context-size:
-    description: 'Max context size for scope identification'
-    required: false
-  
-  scope-max-reasoning-tokens:
-    description: 'Max reasoning tokens for scope identification'
+  scope-reasoning-effort:
+    description: 'Reasoning effort for scope (minimal|low|medium|high)'
     required: false
   
   scope-temperature:
@@ -142,12 +134,8 @@ inputs:
     description: 'Max iterations for code review'
     required: false
   
-  code-review-max-context-size:
-    description: 'Max context size for code review'
-    required: false
-  
-  code-review-max-reasoning-tokens:
-    description: 'Max reasoning tokens for code review'
+  code-review-reasoning-effort:
+    description: 'Reasoning effort for code review (minimal|low|medium|high)'
     required: false
   
   code-review-temperature:
@@ -170,12 +158,8 @@ inputs:
     description: 'Max iterations for doc review'
     required: false
   
-  doc-max-context-size:
-    description: 'Max context size for doc review'
-    required: false
-  
-  doc-max-reasoning-tokens:
-    description: 'Max reasoning tokens for doc review'
+  doc-reasoning-effort:
+    description: 'Reasoning effort for doc (minimal|low|medium|high)'
     required: false
   
   doc-temperature:
@@ -198,12 +182,8 @@ inputs:
     description: 'Max iterations for supply chain security'
     required: false
   
-  supply-chain-max-context-size:
-    description: 'Max context size for supply chain security'
-    required: false
-  
-  supply-chain-max-reasoning-tokens:
-    description: 'Max reasoning tokens for supply chain security'
+  supply-chain-reasoning-effort:
+    description: 'Reasoning effort for supply chain (minimal|low|medium|high)'
     required: false
   
   supply-chain-temperature:
@@ -231,12 +211,8 @@ inputs:
     description: 'Max iterations for summarization'
     required: false
   
-  summarization-max-context-size:
-    description: 'Max context size for summarization'
-    required: false
-  
-  summarization-max-reasoning-tokens:
-    description: 'Max reasoning tokens for summarization'
+  summarization-reasoning-effort:
+    description: 'Reasoning effort for summarization (minimal|low|medium|high)'
     required: false
   
   summarization-temperature:
@@ -309,8 +285,7 @@ runs:
         
         # Global defaults
         DEFAULT_MAX_ITERS: ${{ inputs.default-max-iters }}
-        DEFAULT_MAX_CONTEXT_SIZE: ${{ inputs.default-max-context-size }}
-        DEFAULT_MAX_REASONING_TOKENS: ${{ inputs.default-max-reasoning-tokens }}
+        DEFAULT_REASONING_EFFORT: ${{ inputs.default-reasoning-effort }}
         DEFAULT_TEMPERATURE: ${{ inputs.default-temperature }}
         LLM_RETRIES: ${{ inputs.llm-retries }}
         LLM_TIMEOUT: ${{ inputs.llm-timeout }}
@@ -320,32 +295,28 @@ runs:
         SCOPE_ENABLED: ${{ inputs.scope-enabled }}
         SCOPE_MODEL: ${{ inputs.scope-model }}
         SCOPE_MAX_ITERS: ${{ inputs.scope-max-iters }}
-        SCOPE_MAX_CONTEXT_SIZE: ${{ inputs.scope-max-context-size }}
-        SCOPE_MAX_REASONING_TOKENS: ${{ inputs.scope-max-reasoning-tokens }}
+        SCOPE_REASONING_EFFORT: ${{ inputs.scope-reasoning-effort }}
         SCOPE_TEMPERATURE: ${{ inputs.scope-temperature }}
         
         # Code review signature
         CODE_REVIEW_ENABLED: ${{ inputs.code-review-enabled }}
         CODE_REVIEW_MODEL: ${{ inputs.code-review-model }}
         CODE_REVIEW_MAX_ITERS: ${{ inputs.code-review-max-iters }}
-        CODE_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.code-review-max-context-size }}
-        CODE_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.code-review-max-reasoning-tokens }}
+        CODE_REVIEW_REASONING_EFFORT: ${{ inputs.code-review-reasoning-effort }}
         CODE_REVIEW_TEMPERATURE: ${{ inputs.code-review-temperature }}
         
         # Doc review signature
         DOC_ENABLED: ${{ inputs.doc-enabled }}
         DOC_MODEL: ${{ inputs.doc-model }}
         DOC_MAX_ITERS: ${{ inputs.doc-max-iters }}
-        DOC_MAX_CONTEXT_SIZE: ${{ inputs.doc-max-context-size }}
-        DOC_MAX_REASONING_TOKENS: ${{ inputs.doc-max-reasoning-tokens }}
+        DOC_REASONING_EFFORT: ${{ inputs.doc-reasoning-effort }}
         DOC_TEMPERATURE: ${{ inputs.doc-temperature }}
         
         # Supply chain signature
         SUPPLY_CHAIN_ENABLED: ${{ inputs.supply-chain-enabled }}
         SUPPLY_CHAIN_MODEL: ${{ inputs.supply-chain-model }}
         SUPPLY_CHAIN_MAX_ITERS: ${{ inputs.supply-chain-max-iters }}
-        SUPPLY_CHAIN_MAX_CONTEXT_SIZE: ${{ inputs.supply-chain-max-context-size }}
-        SUPPLY_CHAIN_MAX_REASONING_TOKENS: ${{ inputs.supply-chain-max-reasoning-tokens }}
+        SUPPLY_CHAIN_REASONING_EFFORT: ${{ inputs.supply-chain-reasoning-effort }}
         SUPPLY_CHAIN_TEMPERATURE: ${{ inputs.supply-chain-temperature }}
         SUPPLY_CHAIN_SCAN_UNCHANGED: ${{ inputs.supply-chain-scan-unchanged }}
         
@@ -353,8 +324,7 @@ runs:
         SUMMARIZATION_ENABLED: ${{ inputs.summarization-enabled }}
         SUMMARIZATION_MODEL: ${{ inputs.summarization-model }}
         SUMMARIZATION_MAX_ITERS: ${{ inputs.summarization-max-iters }}
-        SUMMARIZATION_MAX_CONTEXT_SIZE: ${{ inputs.summarization-max-context-size }}
-        SUMMARIZATION_MAX_REASONING_TOKENS: ${{ inputs.summarization-max-reasoning-tokens }}
+        SUMMARIZATION_REASONING_EFFORT: ${{ inputs.summarization-reasoning-effort }}
         SUMMARIZATION_TEMPERATURE: ${{ inputs.summarization-temperature }}
         
         # Other settings
@@ -377,8 +347,7 @@ runs:
         
         # Global defaults
         [ -n "$DEFAULT_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_ITERS"
-        [ -n "$DEFAULT_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_CONTEXT_SIZE"
-        [ -n "$DEFAULT_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_REASONING_TOKENS"
+        [ -n "$DEFAULT_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_REASONING_EFFORT"
         [ -n "$DEFAULT_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_TEMPERATURE"
         [ -n "$LLM_RETRIES" ] && DOCKER_ARGS="$DOCKER_ARGS -e LLM_RETRIES"
         [ -n "$LLM_TIMEOUT" ] && DOCKER_ARGS="$DOCKER_ARGS -e LLM_TIMEOUT"
@@ -388,32 +357,28 @@ runs:
         [ -n "$SCOPE_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_ENABLED"
         [ -n "$SCOPE_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MODEL"
         [ -n "$SCOPE_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MAX_ITERS"
-        [ -n "$SCOPE_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MAX_CONTEXT_SIZE"
-        [ -n "$SCOPE_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MAX_REASONING_TOKENS"
+        [ -n "$SCOPE_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_REASONING_EFFORT"
         [ -n "$SCOPE_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_TEMPERATURE"
         
         # Code review
         [ -n "$CODE_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_ENABLED"
         [ -n "$CODE_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MODEL"
         [ -n "$CODE_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_ITERS"
-        [ -n "$CODE_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_CONTEXT_SIZE"
-        [ -n "$CODE_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_REASONING_TOKENS"
+        [ -n "$CODE_REVIEW_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_REASONING_EFFORT"
         [ -n "$CODE_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_TEMPERATURE"
         
         # Doc review
         [ -n "$DOC_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_ENABLED"
         [ -n "$DOC_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MODEL"
         [ -n "$DOC_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MAX_ITERS"
-        [ -n "$DOC_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MAX_CONTEXT_SIZE"
-        [ -n "$DOC_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MAX_REASONING_TOKENS"
+        [ -n "$DOC_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REASONING_EFFORT"
         [ -n "$DOC_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_TEMPERATURE"
         
         # Supply chain
         [ -n "$SUPPLY_CHAIN_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_ENABLED"
         [ -n "$SUPPLY_CHAIN_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MODEL"
         [ -n "$SUPPLY_CHAIN_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_ITERS"
-        [ -n "$SUPPLY_CHAIN_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_CONTEXT_SIZE"
-        [ -n "$SUPPLY_CHAIN_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_REASONING_TOKENS"
+        [ -n "$SUPPLY_CHAIN_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_REASONING_EFFORT"
         [ -n "$SUPPLY_CHAIN_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_TEMPERATURE"
         [ -n "$SUPPLY_CHAIN_SCAN_UNCHANGED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_SCAN_UNCHANGED"
         
@@ -421,8 +386,7 @@ runs:
         [ -n "$SUMMARIZATION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_ENABLED"
         [ -n "$SUMMARIZATION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_MODEL"
         [ -n "$SUMMARIZATION_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_MAX_ITERS"
-        [ -n "$SUMMARIZATION_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_MAX_CONTEXT_SIZE"
-        [ -n "$SUMMARIZATION_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_MAX_REASONING_TOKENS"
+        [ -n "$SUMMARIZATION_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_REASONING_EFFORT"
         [ -n "$SUMMARIZATION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_TEMPERATURE"
         
         # Other settings

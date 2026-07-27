@@ -197,20 +197,23 @@ def _calculate_costs_from_entries(entries: list[dict], exclude_uuids: set[str]) 
 
 
 class SignatureContext:
-    """Context manager for tracking signature execution.
-    
-    Uses DSPy's LM history mechanism to track costs reliably, even during
-    parallel execution with dspy.Parallel. Works by:
-    1. Recording history UUIDs before signature execution
-    2. After execution, finding new entries (by UUID)
-    3. Summing costs/tokens from new entries
-    
+    """Context manager scoping one named unit of LLM work.
+
+    Two responsibilities, both keyed off the same name:
+
+    1. **LM selection** — applies the model, temperature, and reasoning effort
+       configured for this name (``signatures.<name>`` or ``memory.<name>``),
+       falling back to the top-level defaults.
+    2. **Cost attribution** — uses DSPy's LM history to attribute costs
+       reliably, even during parallel execution with dspy.Parallel, by
+       recording history UUIDs on entry and summing only the new entries.
+
     Usage:
         with SignatureContext("code_review", cost_tracker):
-            # All LLM calls here will be attributed to code_review
+            # Runs on code_review's configured model, costs attributed to it
             result = await agent.acall(...)
     """
-    
+
     def __init__(self, signature_name: str, tracker: "CostTracker") -> None:
         """Initialize the signature context.
         
@@ -221,21 +224,34 @@ class SignatureContext:
         self.signature_name = signature_name
         self.tracker = tracker
         self._before_uuids: set[str] = set()
+        self._lm_context = None
 
     def __enter__(self) -> "SignatureContext":
-        """Enter the context, capturing current history state."""
-        # Capture UUIDs of entries that exist before signature execution
+        """Enter the context, applying the LM and capturing history state."""
+        # Imported here to avoid a circular import at module load time
+        # (dspy_config imports codespy.config, which must not import agents).
+        from codespy.agents.dspy_config import lm_context
+
+        # Apply this name's LM first, so the history we snapshot below belongs
+        # to the LM that will actually serve the enclosed calls.
+        self._lm_context = lm_context(self.signature_name)
+        self._lm_context.__enter__()
         self._before_uuids = _get_history_uuids()
         self.tracker.start_signature(self.signature_name)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Exit the context, calculating costs from new history entries."""
-        # Get all current entries and calculate costs from new ones
+        # Read history before leaving the LM context, so dspy.settings.lm still
+        # points at the LM whose history we need.
         entries = _get_history_entries()
         cost, tokens, call_count = _calculate_costs_from_entries(entries, self._before_uuids)
-        
         self.tracker.end_signature(self.signature_name, cost, tokens, call_count)
+
+        if self._lm_context is not None:
+            self._lm_context.__exit__(exc_type, exc_val, exc_tb)
+            self._lm_context = None
+
 
     async def __aenter__(self) -> "SignatureContext":
         """Async enter the context."""

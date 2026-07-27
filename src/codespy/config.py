@@ -8,7 +8,12 @@ import yaml
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from codespy.config_dspy import SignatureConfig, apply_signature_env_overrides
+from codespy.config_dspy import (
+    ReasoningEffort,
+    SignatureConfig,
+    apply_signature_env_overrides,
+)
+
 from codespy.config_git import (
     GitHubConfig,
     GitLabConfig,
@@ -28,10 +33,16 @@ from codespy.config_llm import (
     discover_openai_api_key,
 )
 from codespy.config_memory import (
+    LLMSettings,
     MemoryConfig,
+    REFLECTION_MODULES,
     apply_memory_env_overrides,
     reset_memory_store,
 )
+
+
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -107,9 +118,11 @@ class Settings(BaseSettings):
     default_model: str = "anthropic/claude-opus-4-6"
     extraction_model: str | None = None  # TwoStepAdapter extraction (falls back to default_model)
     default_max_iters: int = 3
-    default_max_context_size: int = 50000
-    default_max_reasoning_tokens: int = 8000  # Limit reasoning verbosity for adapter reliability
-    default_temperature: float = 0.1  # Lower = more deterministic JSON output
+    # Provider reasoning budget; LiteLLM maps this to each provider's native parameter.
+    default_reasoning_effort: ReasoningEffort = "medium"
+    # Providers require temperature=1 when reasoning is enabled.
+    default_temperature: float = 1.0
+
 
     # Global LLM reliability settings
     llm_retries: int = 3  # Number of retries for LLM API calls
@@ -163,30 +176,49 @@ class Settings(BaseSettings):
         """Check if a signature is enabled."""
         return self.get_signature_config(signature_name).enabled
 
-    def get_model(self, signature_name: str) -> str:
-        """Get model for a signature (signature-specific or default)."""
-        config = self.get_signature_config(signature_name)
-        return config.model or self.default_model
-
     def get_max_iters(self, signature_name: str) -> int:
         """Get max_iters for a signature (signature-specific or default)."""
         config = self.get_signature_config(signature_name)
         return config.max_iters or self.default_max_iters
 
-    def get_max_context_size(self, signature_name: str) -> int:
-        """Get max_context_size for a signature (signature-specific or default)."""
-        config = self.get_signature_config(signature_name)
-        return config.max_context_size or self.default_max_context_size
+    def get_llm_config(self, name: str) -> LLMSettings:
+        """Resolve the LLM settings for one named unit of LLM work.
 
-    def get_max_reasoning_tokens(self, signature_name: str) -> int:
-        """Get max_reasoning_tokens for a signature (signature-specific or default)."""
-        config = self.get_signature_config(signature_name)
-        return config.max_reasoning_tokens or self.default_max_reasoning_tokens
+        ``name`` addresses either a signature or a memory reflection module::
 
-    def get_temperature(self, signature_name: str) -> float:
-        """Get temperature for a signature (signature-specific or default)."""
-        config = self.get_signature_config(signature_name)
-        return config.temperature if config.temperature is not None else self.default_temperature
+            "code_review"  -> signatures.code_review
+            "distiller"    -> memory.distiller
+
+        Every field falls back to its top-level ``default_*`` counterpart, so
+        the result has no ``None`` fields and callers never re-apply fallbacks.
+
+        Args:
+            name: A signature name, or a reflection module name
+                (see ``REFLECTION_MODULES``).
+
+        Returns:
+            The fully resolved settings for ``name``.
+        """
+        if name in REFLECTION_MODULES:
+            config = getattr(self.memory, name)
+        else:
+            config = self.get_signature_config(name)
+
+        model = config.model or self.default_model
+        # Only reflection modules carry their own extraction model; signatures
+        # share the global one.
+        module_extraction = getattr(config, "extraction_model", None)
+        return LLMSettings(
+            model=model,
+            extraction_model=module_extraction or self.extraction_model or model,
+            reasoning_effort=config.reasoning_effort or self.default_reasoning_effort,
+            temperature=(
+                config.temperature
+                if config.temperature is not None
+                else self.default_temperature
+            ),
+        )
+
 
     def get_scan_unchanged(self, signature_name: str) -> bool:
         """Get scan_unchanged for a signature (signature-specific, default: False).
@@ -234,22 +266,24 @@ class Settings(BaseSettings):
         )
 
     def log_signature_configs(self) -> None:
-        """Log all signature configurations."""
+        """Log all signature and reflection module LLM configurations."""
         logger.info("Signature configurations:")
         for sig_name, sig_config in self.signatures.items():
             status = "enabled" if sig_config.enabled else "disabled"
-            model = sig_config.model or self.default_model
-            max_iters = sig_config.max_iters or self.default_max_iters
-            max_reasoning = sig_config.max_reasoning_tokens or self.default_max_reasoning_tokens
-            temp = (
-                sig_config.temperature
-                if sig_config.temperature is not None
-                else self.default_temperature
-            )
+            llm = self.get_llm_config(sig_name)
             logger.info(
-                f"  {sig_name}: {status}, model={model}, max_iters={max_iters}, "
-                f"max_reasoning_tokens={max_reasoning}, temperature={temp}"
+                f"  {sig_name}: {status}, model={llm.model}, "
+                f"max_iters={self.get_max_iters(sig_name)}, "
+                f"reasoning_effort={llm.reasoning_effort}, temperature={llm.temperature}"
             )
+        for module in REFLECTION_MODULES:
+            llm = self.get_llm_config(module)
+            logger.info(
+                f"  {module}: model={llm.model}, "
+                f"extraction_model={llm.extraction_model}, "
+                f"reasoning_effort={llm.reasoning_effort}, temperature={llm.temperature}"
+            )
+
 
     @model_validator(mode="before")
     @classmethod

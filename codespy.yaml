@@ -85,12 +85,29 @@ memory:
   default_token_budget: 1024              # MEMORY_DEFAULT_TOKEN_BUDGET
   default_max_trajectory_tokens: null     # MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS (null = full trajectory)
 
+  # LLM settings for the reflection modules. The Distiller summarizes a
+  # trajectory; the Cartographer curates the context map. Both are compact
+  # summarize/curate tasks, so a cheaper tier than code review usually suffices.
+  # null inherits the top-level default_* value.
+  distiller:
+    model: null                           # MEMORY_DISTILLER_MODEL
+    extraction_model: null                # MEMORY_DISTILLER_EXTRACTION_MODEL
+    reasoning_effort: null                # MEMORY_DISTILLER_REASONING_EFFORT
+    temperature: null                     # MEMORY_DISTILLER_TEMPERATURE
+  cartographer:
+    model: null                           # MEMORY_CARTOGRAPHER_MODEL
+    extraction_model: null                # MEMORY_CARTOGRAPHER_EXTRACTION_MODEL
+    reasoning_effort: null                # MEMORY_CARTOGRAPHER_REASONING_EFFORT
+    temperature: null                     # MEMORY_CARTOGRAPHER_TEMPERATURE
+
+
 # ============================================================================
 # SIGNATURES
 # ============================================================================
 
-# Each signature config supports: enabled, max_iters, model, max_context_size
-# Set to null to use defaults
+# Each signature config supports: enabled, max_iters, model, reasoning_effort,
+# temperature. Set to null to inherit the corresponding default_* value.
+
 #
 # RECOMMENDED MODEL STRATEGY
 # ============================================================================
@@ -107,23 +124,33 @@ memory:
 #   Cheap (summarization): Used for PR summary generation. Simple synthesis
 #     task. Recommended: anthropic/claude-haiku-4-5-20251001 or equivalent.
 #
-# By default, all models fall back to default_model. Override extraction_model
-# and summarization model for cost optimization:
+#   Cheap (memory.distiller / memory.cartographer): Memory reflection —
+#     summarizing a trajectory and curating the context map. Compact, frequent
+#     tasks. Recommended: anthropic/claude-haiku-4-5-20251001 or equivalent.
+#
+# By default, all models fall back to default_model. Override extraction_model,
+# the summarization model, and the reflection models for cost optimization:
 #
 #   default_model: anthropic/claude-opus-4-6
 #   extraction_model: anthropic/claude-sonnet-4-5-20250929
 #   signatures:
 #     summarization:
 #       model: anthropic/claude-haiku-4-5-20251001
+#   memory:
+#     distiller:
+#       model: anthropic/claude-haiku-4-5-20251001
+#     cartographer:
+#       model: anthropic/claude-haiku-4-5-20251001
 # ============================================================================
 
-# These apply to all signatures unless overridden per-signature
+
+# These apply to all signatures and reflection modules unless overridden
 default_model: anthropic/claude-opus-4-6        # DEFAULT_MODEL
 extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model)
 default_max_iters: 20                           # DEFAULT_MAX_ITERS
-default_max_context_size: 100000                # DEFAULT_MAX_CONTEXT_SIZE
-default_max_reasoning_tokens: 6000             # DEFAULT_MAX_REASONING_TOKENS (limits LLM reasoning verbosity)
-default_temperature: 0                          # DEFAULT_TEMPERATURE (lower = more deterministic output)
+default_reasoning_effort: medium                # DEFAULT_REASONING_EFFORT (minimal | low | medium | high)
+default_temperature: 1                          # DEFAULT_TEMPERATURE (must be 1 while reasoning is enabled)
+
 
 # Global LLM reliability settings
 llm_retries: 3                           # LLM_RETRIES (number of retries for LLM API calls)
@@ -135,8 +162,7 @@ signatures:
     enabled: true                        # SUPPLY_CHAIN_ENABLED
     max_iters: null                      # SUPPLY_CHAIN_MAX_ITERS
     model: null                          # SUPPLY_CHAIN_MODEL (Haiku 4.5)
-    max_context_size: null               # SUPPLY_CHAIN_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # SUPPLY_CHAIN_MAX_REASONING_TOKENS
+    reasoning_effort: null               # SUPPLY_CHAIN_REASONING_EFFORT
     temperature: null                    # SUPPLY_CHAIN_TEMPERATURE
     scan_unchanged: false                # SUPPLY_CHAIN_SCAN_UNCHANGED
     # When true: scans ALL artifacts (Dockerfiles, etc.) and manifests
@@ -153,8 +179,7 @@ signatures:
     enabled: true                        # CODE_REVIEW_ENABLED
     max_iters: null                      # CODE_REVIEW_MAX_ITERS
     model: null                          # CODE_REVIEW_MODEL
-    max_context_size: null               # CODE_REVIEW_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # CODE_REVIEW_MAX_REASONING_TOKENS
+    reasoning_effort: null               # CODE_REVIEW_REASONING_EFFORT
     temperature: null                    # CODE_REVIEW_TEMPERATURE
     memory:
       enabled: null                      # CODE_REVIEW_MEMORY_ENABLED (null -> memory.default_enabled)
@@ -167,8 +192,7 @@ signatures:
   doc:
     enabled: true                        # DOC_ENABLED
     model: null                          # DOC_MODEL
-    max_context_size: null               # DOC_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # DOC_MAX_REASONING_TOKENS
+    reasoning_effort: null               # DOC_REASONING_EFFORT
     temperature: null                    # DOC_TEMPERATURE
     memory:
       enabled: null                      # DOC_MEMORY_ENABLED (null -> memory.default_enabled)
@@ -181,8 +205,7 @@ signatures:
     enabled: true                        # SCOPE_ENABLED
     max_iters: null                      # SCOPE_MAX_ITERS
     model: null                          # SCOPE_MODEL
-    max_context_size: null               # SCOPE_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # SCOPE_MAX_REASONING_TOKENS
+    reasoning_effort: null               # SCOPE_REASONING_EFFORT
     temperature: null                    # SCOPE_TEMPERATURE
     memory:
       enabled: null                      # SCOPE_MEMORY_ENABLED (null -> memory.default_enabled)
@@ -194,8 +217,7 @@ signatures:
   summarization:
     enabled: true                        # SUMMARIZATION_ENABLED
     model: null                          # SUMMARIZATION_MODEL (falls back to default_model)
-    max_context_size: null               # SUMMARIZATION_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # SUMMARIZATION_MAX_REASONING_TOKENS
+    reasoning_effort: null               # SUMMARIZATION_REASONING_EFFORT
     temperature: null                    # SUMMARIZATION_TEMPERATURE
     memory:
       enabled: false                     # SUMMARIZATION_MEMORY_ENABLED — not wired (no tools/scope)

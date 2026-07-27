@@ -9,6 +9,7 @@ from codespy.agents.memory.hippocampus.context_map import (
 )
 
 
+
 class DistillerSig(dspy.Signature):
     """You are an expert analyst reviewing an agent's execution trajectory
     after it interacted with a long external context to answer a question.
@@ -133,9 +134,23 @@ class Distiller(dspy.Module):
     specific work, tags every existing item, and proposes new candidates.
     """
 
+    # Name this module's settings live under: memory.distiller.
+    SIGNATURE = "distiller"
+
     def __init__(self):
         super().__init__()
-        self.predict = dspy.Predict(DistillerSig)
+        self.predict = dspy.ChainOfThought(DistillerSig)
 
     def forward(self, trajectory: str, context_map: ContextMap, question: str):
-        return self.predict(trajectory=trajectory, context_map=context_map, question=question)
+        # SignatureContext applies memory.distiller's model/temperature/reasoning
+        # effort and attributes the cost to this module rather than to whichever
+        # agent triggered the reflection. It must be entered here, not by the
+        # caller: Hippocampus reflects inside an asyncio.to_thread worker and
+        # DSPy's context is thread-scoped.
+        from codespy.agents import SignatureContext, get_cost_tracker
+
+        with SignatureContext(self.SIGNATURE, get_cost_tracker()):
+            return self.predict(
+                trajectory=trajectory, context_map=context_map, question=question
+            )
+

@@ -2,14 +2,22 @@
 
 import logging
 import os
-from typing import Any
+from typing import Any, Literal
+
 
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 
+# Reasoning budget hint sent to the provider. LiteLLM normalises this to each
+# provider's native parameter (Anthropic thinking budget, OpenAI reasoning
+# effort, ...), so it works across every supported model.
+ReasoningEffort = Literal["minimal", "low", "medium", "high"]
+
+
 class MemorySignatureConfig(BaseModel):
+
     """Per-signature Hippocampus memory overrides.
 
     All fields are optional — ``None`` means "use the global memory default"
@@ -28,10 +36,10 @@ class SignatureConfig(BaseModel):
     enabled: bool = True
     max_iters: int | None = None
     model: str | None = None
-    max_context_size: int | None = None
-    max_reasoning_tokens: int | None = None  # Limit reasoning verbosity for JSONAdapter reliability
-    temperature: float | None = None  # Lower = more deterministic JSON output
+    reasoning_effort: ReasoningEffort | None = None  # Provider reasoning budget
+    temperature: float | None = None  # Must be 1 when reasoning is enabled
     scan_unchanged: bool | None = None  # For supply_chain: scan unmodified artifacts/manifests
+
     memory: MemorySignatureConfig = Field(default_factory=MemorySignatureConfig)
 
 
@@ -47,24 +55,14 @@ SIGNATURE_NAMES = {
 # Create uppercase prefixes for matching (e.g., "CODE_REVIEW_", "SUPPLY_CHAIN_")
 SIGNATURE_PREFIXES = {name.upper() + "_": name for name in SIGNATURE_NAMES}
 
-# Known signature settings for validation
-SIGNATURE_SETTINGS = {
-    "enabled",
-    "max_iters",
-    "model",
-    "max_context_size",
-    "max_reasoning_tokens",
-    "temperature",
-    "scan_unchanged",
-}
+# Known signature settings for validation, derived from the models so the env
+# var routing can never drift from the declared fields. ``memory`` is excluded
+# because it is nested and routed via <SIG>_MEMORY_<SETTING> instead.
+SIGNATURE_SETTINGS = set(SignatureConfig.model_fields) - {"memory"}
 
 # Known per-signature memory settings, routed via <SIG>_MEMORY_<SETTING>
-MEMORY_SIGNATURE_SETTINGS = {
-    "enabled",
-    "max_reflects",
-    "token_budget",
-    "max_trajectory_tokens",
-}
+MEMORY_SIGNATURE_SETTINGS = set(MemorySignatureConfig.model_fields)
+
 
 
 def convert_env_value(value: str) -> Any:

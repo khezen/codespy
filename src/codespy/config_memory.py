@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
+from codespy.config_dspy import ReasoningEffort
 from codespy.tools.storage.base import Storage
+
 
 if TYPE_CHECKING:
     from codespy.config import Settings
@@ -16,7 +18,42 @@ if TYPE_CHECKING:
 MemoryBackend = Literal["filesystem", "s3"]
 
 
+
+class ReflectionModuleConfig(BaseModel):
+    """LLM overrides for a single reflection module (Distiller / Cartographer).
+
+    All fields are optional — ``None`` means "fall back to the corresponding
+    top-level ``default_*`` setting" (see ``codespy.config.Settings``).
+
+    The reflection modules are compact summarize/curate tasks rather than deep
+    analysis, so they are good candidates for a cheaper model tier than the
+    one used for code review.
+    """
+
+    model: str | None = None                            # MEMORY_<MODULE>_MODEL
+    extraction_model: str | None = None                 # MEMORY_<MODULE>_EXTRACTION_MODEL
+    reasoning_effort: ReasoningEffort | None = None     # MEMORY_<MODULE>_REASONING_EFFORT
+    temperature: float | None = None                    # MEMORY_<MODULE>_TEMPERATURE
+
+
+class LLMSettings(BaseModel):
+    """Fully resolved LLM settings for one named unit of work.
+
+    Produced by ``Settings.get_llm_config()`` for either a signature
+    (``signatures.<name>``) or a reflection module (``memory.<name>``): every
+    field is either the name-specific override or the corresponding top-level
+    default, so consumers never re-apply fallback logic.
+    """
+
+    model: str
+    extraction_model: str
+    reasoning_effort: ReasoningEffort
+    temperature: float
+
+
+
 class MemoryConfig(BaseModel):
+
     """Global memory (Hippocampus) configuration.
 
     Controls where episodes are persisted and the default reflection knobs
@@ -25,6 +62,7 @@ class MemoryConfig(BaseModel):
     """
 
     # Storage backend
+
     backend: MemoryBackend = "filesystem"  # MEMORY_BACKEND
     root: str = "~/.cache/codespy/memory"  # MEMORY_ROOT (filesystem backend)
     s3_bucket: str | None = None           # MEMORY_S3_BUCKET (s3 backend)
@@ -36,6 +74,16 @@ class MemoryConfig(BaseModel):
     default_max_reflects: int = Field(default=0)   # MEMORY_DEFAULT_MAX_REFLECTS
     default_token_budget: int = Field(default=1024) # MEMORY_DEFAULT_TOKEN_BUDGET
     default_max_trajectory_tokens: int | None = None  # MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS
+
+    # Per-module LLM overrides for the reflection pipeline.
+    # Unset fields fall back to the top-level ``default_*`` settings.
+    distiller: ReflectionModuleConfig = Field(
+        default_factory=ReflectionModuleConfig
+    )  # MEMORY_DISTILLER_*
+    cartographer: ReflectionModuleConfig = Field(
+        default_factory=ReflectionModuleConfig
+    )  # MEMORY_CARTOGRAPHER_*
+
 
 
 # Env var name (without the MEMORY_ prefix) -> MemoryConfig field name.
@@ -54,6 +102,28 @@ MEMORY_ENV_SETTINGS = {
     "DEFAULT_MAX_TRAJECTORY_TOKENS": "default_max_trajectory_tokens",
 }
 
+# The reflection modules, derived from the MemoryConfig fields that hold a
+# ReflectionModuleConfig. Iterate this instead of hardcoding module names so
+# adding a new reflection module only requires declaring its field above.
+REFLECTION_MODULES: tuple[str, ...] = tuple(
+    name
+    for name, field in MemoryConfig.model_fields.items()
+    if field.annotation is ReflectionModuleConfig
+)
+
+# Env var suffix -> ReflectionModuleConfig field name, routed via
+# MEMORY_<MODULE>_<SETTING> (e.g. MEMORY_DISTILLER_MODEL).
+REFLECTION_MODULE_ENV_SETTINGS = {
+    name.upper(): name for name in ReflectionModuleConfig.model_fields
+}
+
+# Env var prefix (after MEMORY_) -> MemoryConfig field holding the nested model.
+REFLECTION_MODULE_PREFIXES = {
+    f"{name.upper()}_": name for name in REFLECTION_MODULES
+}
+
+
+
 
 def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     """Apply ``MEMORY_*`` environment variable overrides to the ``memory`` block.
@@ -64,8 +134,14 @@ def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
         MEMORY_DEFAULT_ENABLED=true     -> memory.default_enabled
         MEMORY_DEFAULT_TOKEN_BUDGET=512 -> memory.default_token_budget
 
+    Reflection module overrides use a second level of nesting::
+
+        MEMORY_DISTILLER_MODEL=...        -> memory.distiller.model
+        MEMORY_CARTOGRAPHER_TEMPERATURE=0 -> memory.cartographer.temperature
+
     Env vars take precedence over YAML, matching the documented priority
     (Environment Variables > YAML Config > Defaults).
+
 
     Note: ``<SIGNATURE>_MEMORY_*`` vars are handled separately by
     ``apply_signature_env_overrides`` and are ignored here, since they never
@@ -89,15 +165,41 @@ def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
         key_upper = key.upper()
         if not key_upper.startswith("MEMORY_"):
             continue
-        field = MEMORY_ENV_SETTINGS.get(key_upper[len("MEMORY_"):])
-        if field is None:
-            continue
+        remainder = key_upper[len("MEMORY_"):]
+
         memory_config = config.setdefault("memory", {})
         if not isinstance(memory_config, dict):
+            continue
+
+        # Reflection module settings: MEMORY_<MODULE>_<SETTING>. Checked before
+        # the flat lookup, since e.g. MEMORY_DISTILLER_MODEL has no entry in
+        # MEMORY_ENV_SETTINGS and would otherwise be silently dropped.
+        module_field = next(
+            (
+                (field, remainder[len(prefix):])
+                for prefix, field in REFLECTION_MODULE_PREFIXES.items()
+                if remainder.startswith(prefix)
+            ),
+            None,
+        )
+        if module_field is not None:
+            field, setting = module_field
+            module_setting = REFLECTION_MODULE_ENV_SETTINGS.get(setting)
+            if module_setting is None:
+                continue
+            module_config = memory_config.setdefault(field, {})
+            if not isinstance(module_config, dict):
+                continue
+            module_config[module_setting] = convert_env_value(value)
+            continue
+
+        field = MEMORY_ENV_SETTINGS.get(remainder)
+        if field is None:
             continue
         memory_config[field] = convert_env_value(value)
 
     return config
+
 
 
 # Cached singleton store. Avoids reconstructing an S3Client's boto3 client

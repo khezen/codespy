@@ -77,7 +77,8 @@ def config(
     # Show non-sensitive settings
     console.print(f"[bold]Model:[/bold] {settings.default_model}")
     console.print(f"[bold]AWS Region:[/bold] {settings.aws_region}")
-    console.print(f"[bold]Max Context Size:[/bold] {settings.default_max_context_size}")
+    console.print(f"[bold]Reasoning Effort:[/bold] {settings.default_reasoning_effort}")
+
     console.print(f"[bold]Output Format:[/bold] {settings.output_format}")
     console.print(f"[bold]Cache Directory:[/bold] {settings.cache_dir}")
 

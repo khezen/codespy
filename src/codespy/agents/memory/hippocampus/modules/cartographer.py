@@ -111,10 +111,11 @@ class CartographerSig(dspy.Signature):
     token_budget: int = dspy.InputField(desc="Hard token budget for the context map.")
     current_tokens: int = dspy.InputField(desc="Current token count of the context map.")
 
-    reasoning: str = dspy.OutputField(
+    justification: str = dspy.OutputField(
         desc="Brief explanation of why these edits improve the shared understanding "
         "cached in the context map."
     )
+
     operations: list[Operation] = dspy.OutputField(
         desc="Ordered list of ADD/DELETE/REPLACE ops to apply. Empty if nothing "
         "is worth changing."
@@ -130,18 +131,28 @@ class Cartographer(dspy.Module):
     enforcement is the Evictor's job.
     """
 
+    # Name this module's settings live under: memory.cartographer.
+    SIGNATURE = "cartographer"
+
     def __init__(self):
         super().__init__()
-        self.predict = dspy.Predict(CartographerSig)
+        self.predict = dspy.ChainOfThought(CartographerSig)
 
     def forward(self, diagnosis, item_tags, cache_candidates, current_map, question,
                 token_budget, current_tokens):
-        return self.predict(
-            diagnosis=diagnosis,
-            item_tags=item_tags,
-            cache_candidates=cache_candidates,
-            current_map=current_map,
-            question=question,
-            token_budget=token_budget,
-            current_tokens=current_tokens,
-        )
+        # See Distiller.forward: SignatureContext applies memory.cartographer's
+        # LLM settings and gives this module its own cost line. Entered here
+        # because DSPy's context is thread-scoped and reflection runs in a worker.
+        from codespy.agents import SignatureContext, get_cost_tracker
+
+        with SignatureContext(self.SIGNATURE, get_cost_tracker()):
+            return self.predict(
+                diagnosis=diagnosis,
+                item_tags=item_tags,
+                cache_candidates=cache_candidates,
+                current_map=current_map,
+                question=question,
+                token_budget=token_budget,
+                current_tokens=current_tokens,
+            )
+
