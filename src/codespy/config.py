@@ -247,22 +247,43 @@ class Settings(BaseSettings):
             else self.memory.default_max_reflects
         )
 
-    def get_memory_token_budget(self, signature_name: str) -> int:
-        """Get token_budget for a signature's memory (signature-specific or default)."""
+    def get_memory_max_context_map_tokens(self, signature_name: str) -> int:
+        """Get max_context_map_tokens for a signature's memory (signature-specific or default).
+
+        Bounds the rendered ContextMap — the persisted artifact that is prepended
+        to every predictor of the wrapped agent, and therefore re-sent on every
+        ReAct iteration.
+        """
         config = self.get_signature_config(signature_name).memory
         return (
-            config.token_budget
-            if config.token_budget is not None
-            else self.memory.default_token_budget
+            config.max_context_map_tokens
+            if config.max_context_map_tokens is not None
+            else self.memory.default_max_context_map_tokens
         )
 
     def get_memory_max_trajectory_tokens(self, signature_name: str) -> int | None:
-        """Get max_trajectory_tokens for a signature's memory (signature-specific or default)."""
+        """Get max_trajectory_tokens for a signature's memory (signature-specific or default).
+
+        Bounds the agent trajectory fed to the Distiller.
+        """
         config = self.get_signature_config(signature_name).memory
         return (
             config.max_trajectory_tokens
             if config.max_trajectory_tokens is not None
             else self.memory.default_max_trajectory_tokens
+        )
+
+    def get_memory_max_question_tokens(self, signature_name: str) -> int | None:
+        """Get max_question_tokens for a signature's memory (signature-specific or default).
+
+        Bounds the serialized agent inputs used as the reflection "question".
+        Ignored when the caller passes an explicit ``question_field``.
+        """
+        config = self.get_signature_config(signature_name).memory
+        return (
+            config.max_question_tokens
+            if config.max_question_tokens is not None
+            else self.memory.default_max_question_tokens
         )
 
     def log_signature_configs(self) -> None:

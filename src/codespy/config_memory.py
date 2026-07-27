@@ -72,8 +72,27 @@ class MemoryConfig(BaseModel):
     # Reflection defaults — overridable per-signature
     default_enabled: bool = False                  # MEMORY_DEFAULT_ENABLED
     default_max_reflects: int = Field(default=0)   # MEMORY_DEFAULT_MAX_REFLECTS
-    default_token_budget: int = Field(default=1024) # MEMORY_DEFAULT_TOKEN_BUDGET
-    default_max_trajectory_tokens: int | None = None  # MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS
+
+    # Ceiling on the rendered ContextMap. This is the *persisted* artifact and it
+    # is prepended to every predictor of the wrapped agent, so it is re-sent on
+    # every ReAct iteration (~default_max_iters times per scope) plus once per
+    # reflection call. Easily the most cost-sensitive of the three budgets.
+    # 1024 holds ~12 items at the Cartographer's ~80-tokens-per-item limit.
+    # MEMORY_DEFAULT_MAX_CONTEXT_MAP_TOKENS
+    default_max_context_map_tokens: int = Field(default=1024)
+
+    # Head+tail cap on the agent trajectory fed to the Distiller. Without it a
+    # single tool-heavy scope can produce a 100k+ token trajectory; TwoStepAdapter
+    # then sends it twice. 8192 is ~5% of a 128k window and preserves both the
+    # orientation steps (60% head) and the conclusions (40% tail).
+    default_max_trajectory_tokens: int | None = 8192  # MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS
+
+    # Head+tail cap on the serialized agent inputs used as the Distiller/Cartographer
+    # "question". Only applies when the caller passes no question_field: otherwise
+    # every input field is serialized, which for code review means the full patch
+    # of every changed file. See Hippocampus.max_question_tokens.
+    default_max_question_tokens: int | None = 2048  # MEMORY_DEFAULT_MAX_QUESTION_TOKENS
+
 
     # Per-module LLM overrides for the reflection pipeline.
     # Unset fields fall back to the top-level ``default_*`` settings.
@@ -98,8 +117,9 @@ MEMORY_ENV_SETTINGS = {
     "S3_ENDPOINT_URL": "s3_endpoint_url",
     "DEFAULT_ENABLED": "default_enabled",
     "DEFAULT_MAX_REFLECTS": "default_max_reflects",
-    "DEFAULT_TOKEN_BUDGET": "default_token_budget",
+    "DEFAULT_MAX_CONTEXT_MAP_TOKENS": "default_max_context_map_tokens",
     "DEFAULT_MAX_TRAJECTORY_TOKENS": "default_max_trajectory_tokens",
+    "DEFAULT_MAX_QUESTION_TOKENS": "default_max_question_tokens",
 }
 
 # The reflection modules, derived from the MemoryConfig fields that hold a
@@ -130,9 +150,9 @@ def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
 
     Maps flat env vars onto the nested ``memory`` config, e.g.::
 
-        MEMORY_BACKEND=s3               -> memory.backend
-        MEMORY_DEFAULT_ENABLED=true     -> memory.default_enabled
-        MEMORY_DEFAULT_TOKEN_BUDGET=512 -> memory.default_token_budget
+        MEMORY_BACKEND=s3                          -> memory.backend
+        MEMORY_DEFAULT_ENABLED=true                -> memory.default_enabled
+        MEMORY_DEFAULT_MAX_CONTEXT_MAP_TOKENS=512  -> memory.default_max_context_map_tokens
 
     Reflection module overrides use a second level of nesting::
 

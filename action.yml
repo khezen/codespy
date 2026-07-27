@@ -154,10 +154,6 @@ inputs:
     description: 'Model for doc review (empty = use default)'
     required: false
   
-  doc-max-iters:
-    description: 'Max iterations for doc review'
-    required: false
-  
   doc-reasoning-effort:
     description: 'Reasoning effort for doc (minimal|low|medium|high)'
     required: false
@@ -205,10 +201,6 @@ inputs:
   
   summarization-model:
     description: 'Model for summarization (empty = use default)'
-    required: false
-  
-  summarization-max-iters:
-    description: 'Max iterations for summarization'
     required: false
   
   summarization-reasoning-effort:
@@ -308,7 +300,6 @@ runs:
         # Doc review signature
         DOC_ENABLED: ${{ inputs.doc-enabled }}
         DOC_MODEL: ${{ inputs.doc-model }}
-        DOC_MAX_ITERS: ${{ inputs.doc-max-iters }}
         DOC_REASONING_EFFORT: ${{ inputs.doc-reasoning-effort }}
         DOC_TEMPERATURE: ${{ inputs.doc-temperature }}
         
@@ -323,7 +314,6 @@ runs:
         # Summarization signature
         SUMMARIZATION_ENABLED: ${{ inputs.summarization-enabled }}
         SUMMARIZATION_MODEL: ${{ inputs.summarization-model }}
-        SUMMARIZATION_MAX_ITERS: ${{ inputs.summarization-max-iters }}
         SUMMARIZATION_REASONING_EFFORT: ${{ inputs.summarization-reasoning-effort }}
         SUMMARIZATION_TEMPERATURE: ${{ inputs.summarization-temperature }}
         
@@ -370,7 +360,6 @@ runs:
         # Doc review
         [ -n "$DOC_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_ENABLED"
         [ -n "$DOC_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MODEL"
-        [ -n "$DOC_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MAX_ITERS"
         [ -n "$DOC_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REASONING_EFFORT"
         [ -n "$DOC_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_TEMPERATURE"
         
@@ -385,7 +374,6 @@ runs:
         # Summarization
         [ -n "$SUMMARIZATION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_ENABLED"
         [ -n "$SUMMARIZATION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_MODEL"
-        [ -n "$SUMMARIZATION_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_MAX_ITERS"
         [ -n "$SUMMARIZATION_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_REASONING_EFFORT"
         [ -n "$SUMMARIZATION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_TEMPERATURE"
         

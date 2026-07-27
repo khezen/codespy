@@ -82,8 +82,22 @@ memory:
   # Reflection defaults — overridable per-signature via signatures.<name>.memory
   default_enabled: false                  # MEMORY_DEFAULT_ENABLED
   default_max_reflects: 0                 # MEMORY_DEFAULT_MAX_REFLECTS (0 = reflect once at end_episode)
-  default_token_budget: 1024              # MEMORY_DEFAULT_TOKEN_BUDGET
-  default_max_trajectory_tokens: null     # MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS (null = full trajectory)
+
+  # Three independent token budgets, from most to least cost-sensitive:
+  #
+  # 1. max_context_map_tokens — ceiling on the rendered ContextMap. This is the
+  #    persisted artifact, and it is prepended to every agent iteration, so it is
+  #    re-sent ~default_max_iters times per scope. 1024 holds ~12 items.
+  # 2. max_trajectory_tokens — cap on the trajectory fed to the Distiller. Tool-using
+  #    agents can produce 100k+ token trajectories and TwoStepAdapter sends the value
+  #    twice, so keep this to ~5-10% of the reflection model's context window.
+  #    null = full trajectory (unbounded — not recommended for tool-using agents).
+  # 3. max_question_tokens — cap on the serialized agent inputs used as the reflection
+  #    "question". Without it, every input field is sent in full (for code review that
+  #    means the complete patch of every changed file). null = unbounded.
+  default_max_context_map_tokens: 1024    # MEMORY_DEFAULT_MAX_CONTEXT_MAP_TOKENS
+  default_max_trajectory_tokens: 8192     # MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS
+  default_max_question_tokens: 2048       # MEMORY_DEFAULT_MAX_QUESTION_TOKENS
 
   # LLM settings for the reflection modules. The Distiller summarizes a
   # trajectory; the Cartographer curates the context map. Both are compact
@@ -170,8 +184,9 @@ signatures:
     memory:
       enabled: null                      # SUPPLY_CHAIN_MEMORY_ENABLED (null -> memory.default_enabled)
       max_reflects: null                 # SUPPLY_CHAIN_MEMORY_MAX_REFLECTS
-      token_budget: null                 # SUPPLY_CHAIN_MEMORY_TOKEN_BUDGET
+      max_context_map_tokens: null       # SUPPLY_CHAIN_MEMORY_MAX_CONTEXT_MAP_TOKENS
       max_trajectory_tokens: null        # SUPPLY_CHAIN_MEMORY_MAX_TRAJECTORY_TOKENS
+      max_question_tokens: null          # SUPPLY_CHAIN_MEMORY_MAX_QUESTION_TOKENS
 
   # Code Reviewer signature (bugs, security, removed defensive code, code smells)
   # Unified code review: bugs, security vulnerabilities, and code smells in a single agent pass per scope
@@ -184,8 +199,9 @@ signatures:
     memory:
       enabled: null                      # CODE_REVIEW_MEMORY_ENABLED (null -> memory.default_enabled)
       max_reflects: null                 # CODE_REVIEW_MEMORY_MAX_REFLECTS
-      token_budget: null                 # CODE_REVIEW_MEMORY_TOKEN_BUDGET
+      max_context_map_tokens: null       # CODE_REVIEW_MEMORY_MAX_CONTEXT_MAP_TOKENS
       max_trajectory_tokens: null        # CODE_REVIEW_MEMORY_MAX_TRAJECTORY_TOKENS
+      max_question_tokens: null          # CODE_REVIEW_MEMORY_MAX_QUESTION_TOKENS
 
   # Documentation Reviewer signature (compares patches against extracted documentation)
   # Note: doc extraction is now deterministic (no LLM) — see doc_extractor.py
@@ -197,8 +213,9 @@ signatures:
     memory:
       enabled: null                      # DOC_MEMORY_ENABLED (null -> memory.default_enabled)
       max_reflects: null                 # DOC_MEMORY_MAX_REFLECTS
-      token_budget: null                 # DOC_MEMORY_TOKEN_BUDGET
+      max_context_map_tokens: null       # DOC_MEMORY_MAX_CONTEXT_MAP_TOKENS
       max_trajectory_tokens: null        # DOC_MEMORY_MAX_TRAJECTORY_TOKENS
+      max_question_tokens: null          # DOC_MEMORY_MAX_QUESTION_TOKENS
 
   # Scope Identifier signature
   scope:
@@ -210,8 +227,10 @@ signatures:
     memory:
       enabled: null                      # SCOPE_MEMORY_ENABLED (null -> memory.default_enabled)
       max_reflects: null                 # SCOPE_MEMORY_MAX_REFLECTS
-      token_budget: null                 # SCOPE_MEMORY_TOKEN_BUDGET
+      max_context_map_tokens: null       # SCOPE_MEMORY_MAX_CONTEXT_MAP_TOKENS
       max_trajectory_tokens: null        # SCOPE_MEMORY_MAX_TRAJECTORY_TOKENS
+      # Unused: scope passes question_field="mr_title", so no inputs are serialized.
+      max_question_tokens: null          # SCOPE_MEMORY_MAX_QUESTION_TOKENS
 
   # Summarizer signature
   summarization:
@@ -222,8 +241,9 @@ signatures:
     memory:
       enabled: false                     # SUMMARIZATION_MEMORY_ENABLED — not wired (no tools/scope)
       max_reflects: null                 # SUMMARIZATION_MEMORY_MAX_REFLECTS
-      token_budget: null                 # SUMMARIZATION_MEMORY_TOKEN_BUDGET
+      max_context_map_tokens: null       # SUMMARIZATION_MEMORY_MAX_CONTEXT_MAP_TOKENS
       max_trajectory_tokens: null        # SUMMARIZATION_MEMORY_MAX_TRAJECTORY_TOKENS
+      max_question_tokens: null          # SUMMARIZATION_MEMORY_MAX_QUESTION_TOKENS
 
 # ============================================================================
 # OUTPUT

@@ -234,8 +234,15 @@ class CodeReviewer(dspy.Module):
                     if self._settings.get_memory_enabled("code_review"):
                         mem = Hippocampus(
                             agent,
-                            token_budget=self._settings.get_memory_token_budget("code_review"),
+                            max_context_map_tokens=(
+                                self._settings.get_memory_max_context_map_tokens("code_review")
+                            ),
                             max_trajectory_tokens=self._settings.get_memory_max_trajectory_tokens(
+                                "code_review"
+                            ),
+                            # No question_field: the scope (with every patch) is the
+                            # only input, so the serialized question must be bounded.
+                            max_question_tokens=self._settings.get_memory_max_question_tokens(
                                 "code_review"
                             ),
                             max_reflects=self._settings.get_memory_max_reflects("code_review"),

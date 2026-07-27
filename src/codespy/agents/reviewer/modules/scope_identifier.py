@@ -262,11 +262,15 @@ class ScopeIdentifier(dspy.Module):
                 if self._settings.get_memory_enabled("scope"):
                     mem = Hippocampus(
                         agent,
-                        token_budget=self._settings.get_memory_token_budget("scope"),
+                        max_context_map_tokens=(
+                            self._settings.get_memory_max_context_map_tokens("scope")
+                        ),
                         max_trajectory_tokens=self._settings.get_memory_max_trajectory_tokens(
                             "scope"
                         ),
                         max_reflects=self._settings.get_memory_max_reflects("scope"),
+                        # question_field makes max_question_tokens moot: the title
+                        # alone is the question, so no inputs get serialized.
                         question_field="mr_title",
                     )
                     result = await mem.aforward(

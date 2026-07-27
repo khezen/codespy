@@ -166,8 +166,15 @@ class DocReviewer(dspy.Module):
                     if self._settings.get_memory_enabled("doc"):
                         mem = Hippocampus(
                             reviewer,
-                            token_budget=self._settings.get_memory_token_budget("doc"),
+                            max_context_map_tokens=(
+                                self._settings.get_memory_max_context_map_tokens("doc")
+                            ),
                             max_trajectory_tokens=self._settings.get_memory_max_trajectory_tokens(
+                                "doc"
+                            ),
+                            # No question_field: patches + documentation are both
+                            # large, so the serialized question must be bounded.
+                            max_question_tokens=self._settings.get_memory_max_question_tokens(
                                 "doc"
                             ),
                             max_reflects=self._settings.get_memory_max_reflects("doc"),

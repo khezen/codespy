@@ -34,7 +34,7 @@ def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
 
     All fields are included in full. If max_tokens is set, the joined result is
     head+tail bounded via _head_tail_text so both the instruction and any
-    trailing intent survive. See Hippocampus.max_input_tokens for guidance on
+    trailing intent survive. See Hippocampus.max_question_tokens for guidance on
     when and how to set a limit.
     """
     parts: list[str] = []
@@ -90,36 +90,67 @@ def _format_step(i: int, entry: dict) -> str:
     return "\n".join(parts)
 
 
+# Tokens set aside for the "... (N tokens omitted) ..." marker so the returned
+# text honours max_tokens including the marker itself.
+_MARKER_RESERVE = 16
+
+
+def _slice_tokens(text: str, n: int, from_end: bool = False) -> str:
+    """Return the first (or last) ``n`` tokens of ``text`` as a string.
+
+    Used to split a line that is itself larger than the remaining budget, so
+    line-granularity bounding never has to discard a line wholesale.
+    """
+    if n <= 0:
+        return ""
+    tokens = _ENCODING.encode(text)
+    kept = tokens[-n:] if from_end else tokens[:n]
+    return _ENCODING.decode(kept)
+
+
 def _head_tail_text(text: str, max_tokens: int, head_ratio: float = 0.6) -> str:
     """Keep the first head_ratio and last (1-head_ratio) of the token budget,
     dropping the middle with an omission marker.
 
-    Operates at line granularity; returns text unchanged if it fits.
+    Prefers line granularity, but falls back to token granularity for a line
+    that alone exceeds the remaining budget — without that fallback, a single
+    long line (e.g. the one-line repr of a pydantic input field) would blow the
+    whole budget and return almost nothing. Returns text unchanged if it fits.
+
+    The omission marker is charged against ``max_tokens`` (see _MARKER_RESERVE),
+    so the result never exceeds the budget.
     """
     if count_tokens(text) <= max_tokens:
         return text
 
-    head_budget = int(max_tokens * head_ratio)
-    tail_budget = max_tokens - head_budget
+    content_budget = max(max_tokens - _MARKER_RESERVE, 0)
+    head_budget = int(content_budget * head_ratio)
+    tail_budget = content_budget - head_budget
 
     lines = text.splitlines(keepends=True)
 
-    # Collect head lines
+    # Collect head lines, token-slicing the line that straddles the budget.
     head_lines: list[str] = []
     head_tokens = 0
     for line in lines:
         lt = count_tokens(line)
         if head_tokens + lt > head_budget:
+            head_lines.append(_slice_tokens(line, head_budget - head_tokens))
+            head_tokens = head_budget
             break
         head_lines.append(line)
         head_tokens += lt
 
-    # Collect tail lines (from the end)
+    # Collect tail lines (from the end), same straddle handling.
     tail_lines: list[str] = []
     tail_tokens = 0
     for line in reversed(lines):
         lt = count_tokens(line)
         if tail_tokens + lt > tail_budget:
+            tail_lines.append(
+                _slice_tokens(line, tail_budget - tail_tokens, from_end=True)
+            )
+            tail_tokens = tail_budget
             break
         tail_lines.append(line)
         tail_tokens += lt
@@ -166,8 +197,9 @@ def format_trajectory(pred: dspy.Prediction, max_tokens: int | None = None) -> s
         if count_tokens(full) <= max_tokens:
             return full
 
-        head_budget = int(max_tokens * 0.6)
-        tail_budget = max_tokens - head_budget
+        content_budget = max(max_tokens - _MARKER_RESERVE, 0)
+        head_budget = int(content_budget * 0.6)
+        tail_budget = content_budget - head_budget
 
         # Cap individual oversized step outputs before budgeting
         capped: list[str] = []
@@ -186,16 +218,24 @@ def format_trajectory(pred: dspy.Prediction, max_tokens: int | None = None) -> s
             head_steps.append(s)
             head_tokens += t
 
-        # Greedily keep tail steps (from the end)
+        # Greedily keep tail steps (from the end), never reusing a head step
         tail_steps: list[str] = []
         tail_tokens = 0
-        for s in reversed(capped):
+        for s in reversed(capped[len(head_steps):]):
             t = count_tokens(s)
             if tail_tokens + t > tail_budget:
                 break
             tail_steps.append(s)
             tail_tokens += t
         tail_steps.reverse()
+
+        # If no whole step fits in either half (every step is larger than its
+        # budget), fall back to bounding single steps so the budget is actually
+        # used instead of returning just the omission marker.
+        if not head_steps and capped:
+            head_steps = [_head_tail_text(capped[0], head_budget)]
+        if not tail_steps and len(capped) > len(head_steps):
+            tail_steps = [_head_tail_text(capped[-1], tail_budget)]
 
         # Determine omitted range
         n_head = len(head_steps)
