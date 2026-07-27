@@ -1,4 +1,4 @@
-"""Episode record and persistence helpers for Hypocampus."""
+"""Episode record and persistence helpers for Hippocampus."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from codespy.tools.storage.base import Storage
 class Episode(BaseModel):
     """A snapshot of an agent's consolidated memory at the end of an episode.
 
-    Recorded by ``Hypocampus.end_episode()`` after the buffered trajectories
+    Recorded by ``Hippocampus.end_episode()`` after the buffered trajectories
     have been distilled into the context map. It captures *what the agent knew*
     (the consolidated ``ContextMap``) together with lightweight identity and
     timing metadata, so a review/run leaves behind a durable, inspectable

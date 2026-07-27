@@ -33,7 +33,7 @@ def prepend_context_map(sig):
     )
 
 
-class Hypocampus(dspy.Module):
+class Hippocampus(dspy.Module):
     """Wraps a dspy.Module with a context map that evolves via LLM-driven reflection.
 
     The context map is prepended to every agent call so the agent starts each run
@@ -58,28 +58,28 @@ class Hypocampus(dspy.Module):
     Common patterns::
 
         # Classic per-call (default) — reflect after every call, no end consolidation
-        mem = Hypocampus(agent)
+        mem = Hippocampus(agent)
         pred = mem(task="…")
 
         # Pure batch — no online reflection, one holistic pass at the end
-        mem = Hypocampus(agent, max_reflects=0)
+        mem = Hippocampus(agent, max_reflects=0)
         for task in tasks:
             pred = mem(task=task)
         mem.end_episode()
 
         # Hybrid — warm up online for the first 3 calls, then holistic consolidation
-        mem = Hypocampus(agent, max_reflects=3)
+        mem = Hippocampus(agent, max_reflects=3)
         for task in tasks:
             pred = mem(task=task)
         mem.end_episode()
 
         # Read-only (map never changes) — pure inference
-        mem = Hypocampus(agent, max_reflects=0)
+        mem = Hippocampus(agent, max_reflects=0)
         pred = mem(task="…")    # no end_episode() call
 
         # Async variants (for callers running inside an event loop, e.g.
         # reviewer modules using `await agent.acall(...)`)
-        mem = Hypocampus(agent, max_reflects=0)
+        mem = Hippocampus(agent, max_reflects=0)
         pred = await mem.acall(task="…")
         await mem.aend_episode(store, dir)
 

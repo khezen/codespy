@@ -34,7 +34,7 @@ def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
 
     All fields are included in full. If max_tokens is set, the joined result is
     head+tail bounded via _head_tail_text so both the instruction and any
-    trailing intent survive. See Hypocampus.max_input_tokens for guidance on
+    trailing intent survive. See Hippocampus.max_input_tokens for guidance on
     when and how to set a limit.
     """
     parts: list[str] = []

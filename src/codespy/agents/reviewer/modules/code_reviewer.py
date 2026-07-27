@@ -8,7 +8,7 @@ from typing import Any, Sequence
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.memory.hippocampus import Hypocampus
+from codespy.agents.memory.hippocampus import Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
@@ -232,7 +232,7 @@ class CodeReviewer(dspy.Module):
                 )
                 async with SignatureContext("code_review", self._cost_tracker):
                     if self._settings.get_memory_enabled("code_review"):
-                        mem = Hypocampus(
+                        mem = Hippocampus(
                             agent,
                             token_budget=self._settings.get_memory_token_budget("code_review"),
                             max_trajectory_tokens=self._settings.get_memory_max_trajectory_tokens(

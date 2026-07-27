@@ -8,7 +8,7 @@ from typing import Any, Sequence
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.memory.hippocampus import Hypocampus
+from codespy.agents.memory.hippocampus import Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, resolve_scope_root, strip_prefix, restore_repo_paths
 from codespy.config import get_settings
@@ -309,7 +309,7 @@ class SupplyChainAuditor(dspy.Module):
                     # Track supply_chain signature costs separately
                     async with SignatureContext("supply_chain", self._cost_tracker):
                         if self._settings.get_memory_enabled("supply_chain"):
-                            mem = Hypocampus(
+                            mem = Hippocampus(
                                 supply_chain_agent,
                                 token_budget=self._settings.get_memory_token_budget(
                                     "supply_chain"

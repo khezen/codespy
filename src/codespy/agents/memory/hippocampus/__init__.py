@@ -8,7 +8,7 @@ from codespy.agents.memory.hippocampus.context_map import (
     SectionName,
 )
 from codespy.agents.memory.hippocampus.episode import Episode
-from codespy.agents.memory.hippocampus.hypocampus import Hypocampus
+from codespy.agents.memory.hippocampus.hippocampus import Hippocampus
 from codespy.agents.memory.hippocampus.modules.cartographer import Cartographer, CartographerSig
 from codespy.agents.memory.hippocampus.modules.distiller import Distiller, DistillerSig
 
@@ -20,7 +20,7 @@ __all__ = [
     "Distiller",
     "DistillerSig",
     "Episode",
-    "Hypocampus",
+    "Hippocampus",
     "Item",
     "ItemTag",
     "Operation",

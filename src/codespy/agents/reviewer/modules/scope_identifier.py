@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.memory.hippocampus import Hypocampus
+from codespy.agents.memory.hippocampus import Hippocampus
 from codespy.agents.reviewer.models import PackageManifest, ScopeResult, ScopeType
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
@@ -260,7 +260,7 @@ class ScopeIdentifier(dspy.Module):
             # Track scope signature costs
             async with SignatureContext("scope", self._cost_tracker):
                 if self._settings.get_memory_enabled("scope"):
-                    mem = Hypocampus(
+                    mem = Hippocampus(
                         agent,
                         token_budget=self._settings.get_memory_token_budget("scope"),
                         max_trajectory_tokens=self._settings.get_memory_max_trajectory_tokens(
