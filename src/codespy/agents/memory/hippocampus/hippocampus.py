@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 import dspy
 
 from codespy.agents.memory.hippocampus.budget import (
+    MemoryBudget,
     _head_tail_text,
     count_tokens,
     evict,
@@ -85,41 +86,26 @@ class Hippocampus(dspy.Module):
 
     ## Trajectory bounding (two-stage)
 
-    When ``max_trajectory_tokens`` is set:
+    When ``budget.max_trajectory_tokens`` is set:
 
     - **Stage 1** (per call) — each trajectory is head+tail bounded at ``format_trajectory``
       time. This keeps the buffer lightweight.
     - **Stage 2** (``end_episode``) — the joined episode is head+tail bounded again, so
       the combined result is guaranteed to fit the budget even if many calls are buffered.
 
-    With ``max_trajectory_tokens=None`` both stages are no-ops and the Distiller
-    receives the full trajectory.
+    With ``budget.max_trajectory_tokens=None`` both stages are no-ops and the
+    Distiller receives the full trajectory.
 
-    ## The four token budgets
+    ## Token budgets
 
-    All four are measured with the ``o200k_base`` encoding:
-
-    - ``max_context_map_tokens`` — the rendered ContextMap. This is the *persisted*
-      artifact and it is prepended to every predictor of the wrapped agent, so it is
-      re-sent on every agent iteration (~``max_iters`` times per run) plus once per
-      reflection call. The most cost-sensitive of the four.
-    - ``max_item_tokens`` — a *single* context-map item. Unlike the other three this
-      is a **soft** budget: it is passed to the Distiller and the Cartographer as a
-      prompt input so they keep each item compact, but it is not enforced in code
-      (truncating an item could corrupt an exact constant). Roughly,
-      ``max_context_map_tokens / max_item_tokens`` is the map's item capacity.
-    - ``max_trajectory_tokens`` — the trajectory fed to the Distiller.
-    - ``max_question_tokens`` — the serialized inputs used as the reflection
-      "question" (only when ``question_field`` is unset).
+    The four token budgets are grouped into :class:`MemoryBudget`; see that class
+    for what each one bounds and how to tune it.
     """
 
     def __init__(
         self,
         module: dspy.Module,
-        max_context_map_tokens: int = 3072,
-        max_item_tokens: int = 240,
-        max_trajectory_tokens: int | None = 8192,
-        max_question_tokens: int | None = 2048,
+        budget: MemoryBudget | None = None,
         max_reflects: int | None = None,
         question_field: str | None = None,
         task_name: str | None = None,
@@ -127,34 +113,10 @@ class Hippocampus(dspy.Module):
         """
         Args:
             module: Any dspy.Module (ReAct, RLM, Predict, …) to wrap.
-            max_context_map_tokens: Hard ceiling on the rendered context map,
-                enforced by the Evictor after every reflection. Divided by
-                ``max_item_tokens`` it gives the map's approximate item capacity
-                (3072 / 240 ~= 12 items). Raise with care: the map is re-sent on
-                every agent iteration, so the cost is multiplied by ``max_iters``.
-            max_item_tokens: Token budget for a *single* context-map item, passed to
-                the Distiller and the Cartographer as a prompt input so they keep
-                each item compact rather than spending the whole map budget on one
-                verbose entry. Soft limit — expressed to the LLM, not enforced in
-                code, since truncating an item could corrupt an exact constant it
-                holds. Lower it to fit more, terser items in the same map budget;
-                raise it to allow richer items.
-            max_trajectory_tokens: Token budget for trajectories fed to the Distiller.
-                None = full trajectory, Distiller does all compression — only viable
-                for agents with short, predictable trajectories. Tool-using agents
-                can produce 100k+ token trajectories, and TwoStepAdapter sends the
-                value twice, so prefer ~5–10 % of the Distiller model's context
-                window (default 8192, i.e. ~5 % of 128k). Applied per call (stage 1)
-                and again over the combined episode in end_episode() (stage 2).
-                Step-aware head+tail bounding (60 % head / 40 % tail) preserves both
-                setup and conclusions.
-            max_question_tokens: Token budget for the serialized inputs used as the
-                reflection "question", on the fallback path when question_field is
-                None. None = unbounded, which is rarely safe: *every* input field is
-                serialized, so an agent taking a large field (a document dump, or a
-                diff of every changed file) sends all of it to both the Distiller and
-                the Cartographer. Ignored when question_field is set — prefer that
-                when a single field cleanly captures intent.
+            budget: The four token budgets bounding memory, as a
+                :class:`MemoryBudget`. Defaults to ``MemoryBudget()`` — see that
+                class for per-field guidance. Resolve one from configuration with
+                ``Settings.get_memory_budget(signature_name)``.
             max_reflects: Maximum number of forward() calls that also reflect online.
                 None (default): no limit — reflect after every call (classic online learning).
                 0: never reflect online — pure buffering until end_episode().
@@ -163,7 +125,8 @@ class Hippocampus(dspy.Module):
                 end_episode() is always available.
             question_field: Name of the input field carrying the task description.
                 If set, only that field is used as the Distiller "question".
-                If None, all input fields are serialized (bounded by max_question_tokens).
+                If None, all input fields are serialized (bounded by
+                ``budget.max_question_tokens``).
                 Set this when one field cleanly captures user intent.
             task_name: Identity recorded in ``Episode.task`` and used in the episode
                 filename. Pass the signature's snake_case name (``"doc"``,
@@ -194,10 +157,7 @@ class Hippocampus(dspy.Module):
         self.agent = module
         self.distill = Distiller()
         self.cartograph = Cartographer()
-        self.max_context_map_tokens = max_context_map_tokens
-        self.max_item_tokens = max_item_tokens
-        self.max_trajectory_tokens = max_trajectory_tokens
-        self.max_question_tokens = max_question_tokens
+        self.budget = budget or MemoryBudget()
         self.max_reflects = max_reflects
         self.question_field = question_field
         self.cmap = ContextMap()
@@ -249,7 +209,7 @@ class Hippocampus(dspy.Module):
         Buffers the (stage-1 bounded) trajectory and, depending on
         ``max_reflects``, runs an online distill+apply pass immediately.
         """
-        traj = format_trajectory(pred, self.max_trajectory_tokens)
+        traj = format_trajectory(pred, self.budget.max_trajectory_tokens)
         self._episode_trajectories.append(traj)
         if self._episode_question is None:
             self._episode_question = self._make_question(kwargs)
@@ -272,8 +232,8 @@ class Hippocampus(dspy.Module):
             f"=== Call {i + 1} ===\n{t}"
             for i, t in enumerate(self._episode_trajectories)
         )
-        if self.max_trajectory_tokens is not None:
-            combined = _head_tail_text(combined, self.max_trajectory_tokens)
+        if self.budget.max_trajectory_tokens is not None:
+            combined = _head_tail_text(combined, self.budget.max_trajectory_tokens)
         self._distill(combined, self._episode_question or "")
         return combined
 
@@ -312,7 +272,7 @@ class Hippocampus(dspy.Module):
         """Consolidate the buffered trajectories into the map and record an Episode snapshot.
 
         A single Distiller pass sees all buffered trajectories joined with
-        ``=== Call k ===`` headers. If ``max_trajectory_tokens`` is set, the
+        ``=== Call k ===`` headers. If ``budget.max_trajectory_tokens`` is set, the
         combined text is head+tail bounded (stage 2) after per-call bounding
         (stage 1) already applied at append time. The question is derived from
         the first buffered call. No-op if the buffer is empty.
@@ -417,14 +377,14 @@ class Hippocampus(dspy.Module):
     def _make_question(self, inputs: dict) -> str:
         if self.question_field is not None:
             return str(inputs.get(self.question_field, ""))
-        return format_inputs(inputs, self.max_question_tokens)
+        return format_inputs(inputs, self.budget.max_question_tokens)
 
     def _distill(self, trajectory: str, question: str) -> None:
         distilled = self.distill(
             trajectory=trajectory,
             context_map=self.cmap,
             question=question,
-            max_item_tokens=self.max_item_tokens,
+            max_context_item_tokens=self.budget.max_context_item_tokens,
         )
 
         known = self.cmap.ids()
@@ -445,9 +405,9 @@ class Hippocampus(dspy.Module):
             question=question,
             # The Cartographer's input field keeps the generic name: it is prompt
             # text, already scoped by its description, and pairs with current_tokens.
-            token_budget=self.max_context_map_tokens,
+            token_budget=self.budget.max_context_map_tokens,
             current_tokens=count_tokens(self.cmap.render()),
-            max_item_tokens=self.max_item_tokens,
+            max_context_item_tokens=self.budget.max_context_item_tokens,
         )
         ops = list(edits.operations or [])
 
@@ -456,7 +416,7 @@ class Hippocampus(dspy.Module):
             for nid in new_ids:
                 self.scores[nid] = self.scores.get(nid, 0) + 1
 
-        self.cmap = evict(self.cmap, self.scores, self.max_context_map_tokens)
+        self.cmap = evict(self.cmap, self.scores, self.budget.max_context_map_tokens)
 
         live = self.cmap.ids()
         self.scores = {k: v for k, v in self.scores.items() if k in live}

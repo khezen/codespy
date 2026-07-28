@@ -72,8 +72,24 @@ def extract_documentation(scope_root: Path) -> str:
     for path in doc_paths:
         try:
             content = fs.read_file(path)
-            parts.append(f"=== {path} ===\n{content.content}")
         except Exception as e:  # noqa: BLE001
+            # read_file returns an error Content rather than raising for missing
+            # or unreadable files, but path resolution and stat() can still raise.
             logger.warning(f"Could not read doc file {path}: {e}")
+            continue
+
+        # read_file signals failure via Content.error, leaving content empty. An
+        # unchecked append would emit a header with a blank body, which reads to
+        # the LLM as "this doc exists and is empty" rather than "not available"
+        # — prompting false "add missing docs" findings.
+        if not content.success:
+            logger.debug(f"Skipping unreadable doc file {path}: {content.error}")
+            continue
+
+        if not content.content.strip():
+            logger.debug(f"Skipping empty doc file {path}")
+            continue
+
+        parts.append(f"=== {path} ===\n{content.content}")
 
     return "\n\n".join(parts)

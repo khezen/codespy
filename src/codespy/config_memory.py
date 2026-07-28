@@ -83,7 +83,7 @@ class MemoryConfig(BaseModel):
     # every ReAct iteration (~default_max_iters times per scope) plus once per
     # reflection call. Easily the most cost-sensitive of the three budgets.
     # Approximate item capacity is default_max_context_map_tokens divided by
-    # default_max_item_tokens (3072 / 240 ~= 12 items).
+    # default_max_context_item_tokens (3072 / 240 ~= 12 items).
     # MEMORY_DEFAULT_MAX_CONTEXT_MAP_TOKENS
     default_max_context_map_tokens: int = Field(default=3072)
 
@@ -92,8 +92,8 @@ class MemoryConfig(BaseModel):
     # budget on one verbose entry. Soft limit: it is expressed to the LLM rather
     # than enforced in code (truncating an item could corrupt an exact constant).
     # The hard, map-wide limit is default_max_context_map_tokens, enforced by the
-    # Evictor. MEMORY_DEFAULT_MAX_ITEM_TOKENS
-    default_max_item_tokens: int = Field(default=240)
+    # Evictor. MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS
+    default_max_context_item_tokens: int = Field(default=240)
 
 
     # Head+tail cap on the agent trajectory fed to the Distiller. Without it a
@@ -133,7 +133,7 @@ MEMORY_ENV_SETTINGS = {
     "DEFAULT_ENABLED": "default_enabled",
     "DEFAULT_MAX_REFLECTS": "default_max_reflects",
     "DEFAULT_MAX_CONTEXT_MAP_TOKENS": "default_max_context_map_tokens",
-    "DEFAULT_MAX_ITEM_TOKENS": "default_max_item_tokens",
+    "DEFAULT_MAX_CONTEXT_ITEM_TOKENS": "default_max_context_item_tokens",
     "DEFAULT_MAX_TRAJECTORY_TOKENS": "default_max_trajectory_tokens",
     "DEFAULT_MAX_QUESTION_TOKENS": "default_max_question_tokens",
 }

@@ -109,7 +109,7 @@ class DistillerSig(dspy.Signature):
     trajectory: str = dspy.InputField(desc="The agent's full execution trajectory.")
     context_map: ContextMap = dspy.InputField(desc="Current context map (with item IDs).")
     question: str = dspy.InputField(desc="The question the agent was answering.")
-    max_item_tokens: int = dspy.InputField(
+    max_context_item_tokens: int = dspy.InputField(
         desc="Token budget for a SINGLE context-map item. Keep every candidate within "
         "it; if one exceeds it, rewrite it more compactly or split it."
     )
@@ -124,7 +124,7 @@ class DistillerSig(dspy.Signature):
         "Keys must match existing item ids exactly."
     )
     cache_candidates: list[CacheCandidate] = dspy.OutputField(
-        desc="Candidate items to add. Each within the max_item_tokens budget; "
+        desc="Candidate items to add. Each within the max_context_item_tokens budget; "
         "structural/transferable only. "
         "Each candidate's `section` must be one of the five section names above."
     )
@@ -151,7 +151,7 @@ class Distiller(dspy.Module):
         trajectory: str,
         context_map: ContextMap,
         question: str,
-        max_item_tokens: int,
+        max_context_item_tokens: int,
     ):
         # SignatureContext applies memory.distiller's model/temperature/reasoning
         # effort and attributes the cost to this module rather than to whichever
@@ -165,6 +165,6 @@ class Distiller(dspy.Module):
                 trajectory=trajectory,
                 context_map=context_map,
                 question=question,
-                max_item_tokens=max_item_tokens,
+                max_context_item_tokens=max_context_item_tokens,
             )
 

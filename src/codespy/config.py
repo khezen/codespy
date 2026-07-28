@@ -2,7 +2,8 @@
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
 
 import yaml
 from pydantic import Field, model_validator
@@ -39,6 +40,12 @@ from codespy.config_memory import (
     apply_memory_env_overrides,
     reset_memory_store,
 )
+
+if TYPE_CHECKING:
+    # Imported lazily inside get_memory_budget(): importing this at module level
+    # pulls in codespy.agents, whose __init__ imports dspy_config, which imports
+    # this module — a circular import that breaks every entrypoint.
+    from codespy.agents.memory.hippocampus.budget import MemoryBudget
 
 
 
@@ -269,8 +276,8 @@ class Settings(BaseSettings):
             else self.memory.default_max_context_map_tokens
         )
 
-    def get_memory_max_item_tokens(self, signature_name: str) -> int:
-        """Get max_item_tokens for a signature's memory (signature-specific or default).
+    def get_memory_max_context_item_tokens(self, signature_name: str) -> int:
+        """Get max_context_item_tokens for a signature's memory (signature-specific or default).
 
         Bounds a *single* context-map item. Handed to the Distiller and the
         Cartographer as a prompt input so they keep each item compact instead of
@@ -279,9 +286,9 @@ class Settings(BaseSettings):
         """
         config = self.get_signature_config(signature_name).memory
         return (
-            config.max_item_tokens
-            if config.max_item_tokens is not None
-            else self.memory.default_max_item_tokens
+            config.max_context_item_tokens
+            if config.max_context_item_tokens is not None
+            else self.memory.default_max_context_item_tokens
         )
 
     def get_memory_max_trajectory_tokens(self, signature_name: str) -> int | None:
@@ -307,6 +314,29 @@ class Settings(BaseSettings):
             config.max_question_tokens
             if config.max_question_tokens is not None
             else self.memory.default_max_question_tokens
+        )
+
+    def get_memory_budget(self, signature_name: str) -> "MemoryBudget":
+        """Resolve the full ``MemoryBudget`` for a signature's memory.
+
+        Composes the four per-field getters, so each budget still resolves as
+        "signature-specific override, else ``memory.default_*``". Pass the result
+        straight to ``Hippocampus(module, budget=...)``.
+
+        Args:
+            signature_name: The signature whose memory budget to resolve.
+
+        Returns:
+            A fully resolved ``MemoryBudget`` (no None-means-default fields).
+        """
+        # Deferred import — see the TYPE_CHECKING note at the top of this module.
+        from codespy.agents.memory.hippocampus.budget import MemoryBudget
+
+        return MemoryBudget(
+            max_context_map_tokens=self.get_memory_max_context_map_tokens(signature_name),
+            max_context_item_tokens=self.get_memory_max_context_item_tokens(signature_name),
+            max_trajectory_tokens=self.get_memory_max_trajectory_tokens(signature_name),
+            max_question_tokens=self.get_memory_max_question_tokens(signature_name),
         )
 
     def log_signature_configs(self) -> None:

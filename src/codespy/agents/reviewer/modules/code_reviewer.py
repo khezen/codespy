@@ -232,22 +232,12 @@ class CodeReviewer(dspy.Module):
                 )
                 async with SignatureContext("code_review", self._cost_tracker):
                     if self._settings.get_memory_enabled("code_review"):
+                        # No question_field: the scope (with every patch) is the
+                        # only input, so budget.max_question_tokens must bound
+                        # the serialized question.
                         mem = Hippocampus(
                             agent,
-                            max_context_map_tokens=(
-                                self._settings.get_memory_max_context_map_tokens("code_review")
-                            ),
-                            max_item_tokens=self._settings.get_memory_max_item_tokens(
-                                "code_review"
-                            ),
-                            max_trajectory_tokens=self._settings.get_memory_max_trajectory_tokens(
-                                "code_review"
-                            ),
-                            # No question_field: the scope (with every patch) is the
-                            # only input, so the serialized question must be bounded.
-                            max_question_tokens=self._settings.get_memory_max_question_tokens(
-                                "code_review"
-                            ),
+                            budget=self._settings.get_memory_budget("code_review"),
                             max_reflects=self._settings.get_memory_max_reflects("code_review"),
                             task_name="code_review",
                         )

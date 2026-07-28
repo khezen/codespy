@@ -55,7 +55,7 @@ class Item(BaseModel):
 class CacheCandidate(BaseModel):
     section: SectionName
     value: str = Field(
-        description="Compact candidate cache item, within the max_item_tokens budget."
+        description="Compact candidate cache item, within the max_context_item_tokens budget."
     )
     transferability: str = Field(description="Kinds of future questions this would help.")
     rationale: str = Field(description="Why this is shared understanding, not a one-off fact.")

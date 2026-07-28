@@ -33,7 +33,7 @@ class CartographerSig(dspy.Signature):
       Prefer REPLACE over ADD when possible.
     - Add new items only when they represent transferable understanding.
     - Each item must be short and budget-efficient — stay within the
-      `max_item_tokens` budget given as an input. If a candidate exceeds
+      `max_context_item_tokens` budget given as an input. If a candidate exceeds
       it, rewrite it more compactly or split it.
     - If nothing new is worth keeping, return an empty operations list.
 
@@ -110,7 +110,7 @@ class CartographerSig(dspy.Signature):
     question: str = dspy.InputField(desc="Question the agent was answering.")
     token_budget: int = dspy.InputField(desc="Hard token budget for the context map.")
     current_tokens: int = dspy.InputField(desc="Current token count of the context map.")
-    max_item_tokens: int = dspy.InputField(
+    max_context_item_tokens: int = dspy.InputField(
         desc="Token budget for a SINGLE context-map item. Every ADD/REPLACE content "
         "must stay within it."
     )
@@ -143,7 +143,7 @@ class Cartographer(dspy.Module):
         self.predict = dspy.ChainOfThought(CartographerSig)
 
     def forward(self, diagnosis, item_tags, cache_candidates, current_map, question,
-                token_budget, current_tokens, max_item_tokens):
+                token_budget, current_tokens, max_context_item_tokens):
         # See Distiller.forward: SignatureContext applies memory.cartographer's
         # LLM settings and gives this module its own cost line. Entered here
         # because DSPy's context is thread-scoped and reflection runs in a worker.
@@ -158,6 +158,6 @@ class Cartographer(dspy.Module):
                 question=question,
                 token_budget=token_budget,
                 current_tokens=current_tokens,
-                max_item_tokens=max_item_tokens,
+                max_context_item_tokens=max_context_item_tokens,
             )
 

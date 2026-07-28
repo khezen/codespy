@@ -164,20 +164,12 @@ class DocReviewer(dspy.Module):
                 )
                 async with SignatureContext("doc", self._cost_tracker):
                     if self._settings.get_memory_enabled("doc"):
+                        # No question_field: patches + documentation are both
+                        # large, so budget.max_question_tokens must bound the
+                        # serialized question.
                         mem = Hippocampus(
                             reviewer,
-                            max_context_map_tokens=(
-                                self._settings.get_memory_max_context_map_tokens("doc")
-                            ),
-                            max_item_tokens=self._settings.get_memory_max_item_tokens("doc"),
-                            max_trajectory_tokens=self._settings.get_memory_max_trajectory_tokens(
-                                "doc"
-                            ),
-                            # No question_field: patches + documentation are both
-                            # large, so the serialized question must be bounded.
-                            max_question_tokens=self._settings.get_memory_max_question_tokens(
-                                "doc"
-                            ),
+                            budget=self._settings.get_memory_budget("doc"),
                             max_reflects=self._settings.get_memory_max_reflects("doc"),
                             # ChainOfThought exposes no .signature, so the episode
                             # identity must be given explicitly.

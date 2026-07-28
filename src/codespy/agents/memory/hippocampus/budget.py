@@ -1,11 +1,69 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import dspy
 import tiktoken
 
 from codespy.agents.memory.hippocampus.context_map import ContextMap
 
 _ENCODING = tiktoken.get_encoding("o200k_base")
+
+
+# ---------------------------------------------------------------------------
+# Budget
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class MemoryBudget:
+    """The four token budgets bounding Hippocampus memory.
+
+    These four always travel together: a signature's memory is configured as a
+    set, not field by field. All are measured with the ``o200k_base`` encoding.
+
+    Frozen because they are read-only configuration — a budget can be resolved
+    once (see ``Settings.get_memory_budget``) and shared across instances.
+
+    Attributes:
+        max_context_map_tokens: Hard ceiling on the rendered ContextMap,
+            enforced by the Evictor after every reflection. This is the
+            *persisted* artifact and it is prepended to every predictor of the
+            wrapped agent, so it is re-sent on every agent iteration
+            (~``max_iters`` times per run) plus once per reflection call — the
+            most cost-sensitive of the four. Divided by ``max_context_item_tokens`` it
+            gives the map's approximate item capacity (3072 / 240 ~= 12 items).
+        max_context_item_tokens: Budget for a *single* context-map item, passed to the
+            Distiller and the Cartographer as a prompt input so they keep each
+            item compact rather than spending the whole map budget on one
+            verbose entry. Unlike the other three this is a **soft** budget:
+            expressed to the LLM, not enforced in code, since truncating an
+            item could corrupt an exact constant it holds. Lower it to fit
+            more, terser items in the same map budget; raise it for richer
+            items.
+        max_trajectory_tokens: Budget for trajectories fed to the Distiller.
+            None = full trajectory, Distiller does all compression — only
+            viable for agents with short, predictable trajectories. Tool-using
+            agents can produce 100k+ token trajectories, and TwoStepAdapter
+            sends the value twice, so prefer ~5–10 % of the Distiller model's
+            context window (default 8192, i.e. ~5 % of 128k). Applied per call
+            (stage 1) and again over the combined episode in end_episode()
+            (stage 2). Step-aware head+tail bounding (60 % head / 40 % tail)
+            preserves both setup and conclusions.
+        max_question_tokens: Budget for the serialized inputs used as the
+            reflection "question", on the fallback path when
+            ``Hippocampus.question_field`` is None. None = unbounded, which is
+            rarely safe: *every* input field is serialized, so an agent taking
+            a large field (a document dump, or a diff of every changed file)
+            sends all of it to both the Distiller and the Cartographer.
+            Ignored when ``question_field`` is set — prefer that when a single
+            field cleanly captures intent.
+    """
+
+    max_context_map_tokens: int = 3072
+    max_context_item_tokens: int = 240
+    max_trajectory_tokens: int | None = 8192
+    max_question_tokens: int | None = 2048
+
 
 # Eviction priority — lower number = evict first
 _SECTION_EVICT_PRIORITY: dict[str, int] = {
@@ -34,8 +92,8 @@ def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
 
     All fields are included in full. If max_tokens is set, the joined result is
     head+tail bounded via _head_tail_text so both the instruction and any
-    trailing intent survive. See Hippocampus.max_question_tokens for guidance on
-    when and how to set a limit.
+    trailing intent survive. See MemoryBudget.max_question_tokens for guidance
+    on when and how to set a limit.
     """
     parts: list[str] = []
     for k, v in kwargs.items():

@@ -1,3 +1,4 @@
+from codespy.agents.memory.hippocampus.budget import MemoryBudget
 from codespy.agents.memory.hippocampus.context_map import (
     CacheCandidate,
     ContextMap,
@@ -23,6 +24,7 @@ __all__ = [
     "Hippocampus",
     "Item",
     "ItemTag",
+    "MemoryBudget",
     "Operation",
     "OpType",
     "SectionName",

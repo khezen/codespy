@@ -146,6 +146,27 @@ def read_file(path: str, max_bytes: int = 100_000, max_lines: int | None = None)
 
 
 # ------------------------------------------------------------------
+# Cache invalidation
+# ------------------------------------------------------------------
+
+
+def _invalidate_read_caches() -> None:
+    """Clear all cached read results after a mutating operation.
+
+    lru_cache has no per-key eviction, and a single write or delete can
+    invalidate entries across several caches - including listings and trees
+    for every ancestor prefix - so all read caches are cleared wholesale.
+    Called unconditionally, since a failed put/delete may still have changed
+    bucket state (timeouts, partial uploads, ambiguous retries).
+    """
+    _file_exists_cached.cache_clear()
+    _get_file_info_cached.cache_clear()
+    _list_directory_cached.cache_clear()
+    _get_tree_cached.cache_clear()
+    _read_file_cached.cache_clear()
+
+
+# ------------------------------------------------------------------
 # Write tools (not cached)
 # ------------------------------------------------------------------
 
@@ -165,6 +186,7 @@ def write_file(path: str, content: str, content_type: str = "text/plain") -> dic
     client = _get_client()
     logger.info(f"[S3] {_caller_module} -> write_file: s3://{client.bucket}/{path}")
     result = client.write_file(path, content, content_type)
+    _invalidate_read_caches()
     return result.model_dump()
 
 
@@ -181,6 +203,7 @@ def delete_file(path: str) -> dict:
     client = _get_client()
     logger.info(f"[S3] {_caller_module} -> delete_file: s3://{client.bucket}/{path}")
     result = client.delete_file(path)
+    _invalidate_read_caches()
     return result.model_dump()
 
 

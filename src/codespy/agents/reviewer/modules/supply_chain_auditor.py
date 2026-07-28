@@ -311,24 +311,7 @@ class SupplyChainAuditor(dspy.Module):
                         if self._settings.get_memory_enabled("supply_chain"):
                             mem = Hippocampus(
                                 supply_chain_agent,
-                                max_context_map_tokens=(
-                                    self._settings.get_memory_max_context_map_tokens(
-                                        "supply_chain"
-                                    )
-                                ),
-                                max_item_tokens=(
-                                    self._settings.get_memory_max_item_tokens("supply_chain")
-                                ),
-                                max_trajectory_tokens=(
-                                    self._settings.get_memory_max_trajectory_tokens(
-                                        "supply_chain"
-                                    )
-                                ),
-                                max_question_tokens=(
-                                    self._settings.get_memory_max_question_tokens(
-                                        "supply_chain"
-                                    )
-                                ),
+                                budget=self._settings.get_memory_budget("supply_chain"),
                                 max_reflects=self._settings.get_memory_max_reflects(
                                     "supply_chain"
                                 ),
