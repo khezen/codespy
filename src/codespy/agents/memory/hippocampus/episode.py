@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
-from codespy.agents.memory.hippocampus.context_map import ContextMap, _recompute_next_id
+from codespy.agents.memory.hippocampus.context_map import ContextMap
 from codespy.tools.storage.base import Storage
 
 
@@ -24,18 +24,40 @@ class Episode(BaseModel):
             ``"CodeReviewSignature"``). Falls back to the module class name when
             the wrapped module exposes no signature.
         module: Class name of the wrapped ``dspy.Module`` (e.g. ``"CodeReviewer"``).
+        question: Question/task description derived from the first buffered
+            call's inputs (via ``question_field`` or serialized input fields).
         context_map: Deep-copied snapshot of the context map *after*
             consolidation, so later edits to the live map do not mutate this
             record.
         timestamp: UTC time the episode was recorded.
+        artifacts: Named output artifacts produced by the wrapped agent for
+            this episode (e.g. ``{"review": "<markdown>"}``). Agent-agnostic:
+            any module can attach whatever markdown/text output it produced
+            under a key of its choosing. Empty by default.
+        run_id: Identifier of the pipeline run that produced this episode.
+            Shared by every agent/module invoked within the same
+            ``ReviewPipeline.forward()`` call, so all episodes from one
+            review run can be correlated. Also used as the ``<uuid>`` suffix
+            in the episode filename: ``<task>-<run_id>.json``.
     """
-
+    run_id: str = Field(
+        default="",
+        description=(
+            "Identifier of the pipeline run that produced this episode. "
+            "Shared across all agents invoked within the same review run."
+        ),
+    )
     task: str = Field(description="Wrapped signature name (or module class name as fallback)")
     module: str = Field(description="Wrapped dspy.Module class name")
+    question: str = Field(description="Question/task description for this episode")
     context_map: ContextMap = Field(description="Consolidated context map snapshot")
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         description="UTC time the episode was recorded",
+    )
+    artifacts: dict[str, str] = Field(
+        default_factory=dict,
+        description="Named output artifacts produced by the agent (e.g. {'review': '<markdown>'})",
     )
 
 
@@ -60,15 +82,12 @@ def save_episode(store: Storage, path: str, episode: Episode) -> None:
 def load_episode(store: Storage, path: str) -> Episode:
     """Load an episode from ``path`` via ``store``.
 
-    The embedded ``ContextMap.next_id`` is recomputed from the loaded item IDs
-    so the restored map can safely receive further ADD operations.
-
     Args:
         store: A ``FileSystem`` or ``S3Client`` instance.
         path: Source path (relative to the store's root / bucket).
 
     Returns:
-        An ``Episode`` with ``context_map.next_id`` recomputed.
+        The loaded ``Episode``.
 
     Raises:
         FileNotFoundError: If the path does not exist in the store.
@@ -86,5 +105,4 @@ def load_episode(store: Storage, path: str) -> Episode:
         episode = Episode.model_validate_json(result.content)
     except Exception as exc:
         raise OSError(f"Failed to parse episode from {path!r}: {exc}") from exc
-    _recompute_next_id(episode.context_map)
     return episode

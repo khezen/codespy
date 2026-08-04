@@ -13,6 +13,7 @@ from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.doc_extractor import extract_documentation
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
+    issues_to_markdown,
     make_scope_relative,
     resolve_scope_root,
     restore_repo_paths,
@@ -112,13 +113,18 @@ class DocReviewer(dspy.Module):
         return "\n\n".join(parts)
 
     async def aforward(
-        self, scopes: Sequence[ScopeResult], repo_path: Path
+        self,
+        scopes: Sequence[ScopeResult],
+        repo_path: Path,
+        run_id: str | None = None,
     ) -> list[Issue]:
         """Analyze scopes for documentation issues.
 
         Args:
             scopes: List of identified scopes with their changed files
             repo_path: Path to the cloned repository
+            run_id: Identifier of the pipeline run, shared across all agents
+                invoked within the same review run (see ``Hippocampus.run_id``)
 
         Returns:
             List of documentation issues found across all scopes
@@ -174,13 +180,22 @@ class DocReviewer(dspy.Module):
                             # ChainOfThought exposes no .signature, so the episode
                             # identity must be given explicitly.
                             task_name="doc",
+                            run_id=run_id,
                         )
                         result = await mem.aforward(
                             patches=patches,
                             documentation=documentation,
                             categories=[IssueCategory.DOCUMENTATION],
                         )
-                        await mem.aend_episode(get_memory_store(self._settings), scope.scope_path())
+                        issues = [
+                            issue for issue in (result.issues or [])
+                            if issue.confidence >= MIN_CONFIDENCE
+                        ]
+                        await mem.aend_episode(
+                            get_memory_store(self._settings),
+                            scope.scope_path(),
+                            artifacts={"review": issues_to_markdown(issues)},
+                        )
                     else:
                         result = await asyncio.to_thread(
                             reviewer,
@@ -188,10 +203,10 @@ class DocReviewer(dspy.Module):
                             documentation=documentation,
                             categories=[IssueCategory.DOCUMENTATION],
                         )
-                issues = [
-                    issue for issue in (result.issues or [])
-                    if issue.confidence >= MIN_CONFIDENCE
-                ]
+                        issues = [
+                            issue for issue in (result.issues or [])
+                            if issue.confidence >= MIN_CONFIDENCE
+                        ]
                 restore_repo_paths(issues, scope.subroot)
                 all_issues.extend(issues)
                 logger.debug(
@@ -204,15 +219,20 @@ class DocReviewer(dspy.Module):
         return all_issues
 
     def forward(
-        self, scopes: Sequence[ScopeResult], repo_path: Path
+        self,
+        scopes: Sequence[ScopeResult],
+        repo_path: Path,
+        run_id: str | None = None,
     ) -> list[Issue]:
         """Analyze scopes for documentation issues (sync wrapper).
 
         Args:
             scopes: List of identified scopes with their changed files
             repo_path: Path to the cloned repository
+            run_id: Identifier of the pipeline run, shared across all agents
+                invoked within the same review run
 
         Returns:
             List of documentation issues found across all scopes
         """
-        return asyncio.run(self.aforward(scopes, repo_path))
+        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id))

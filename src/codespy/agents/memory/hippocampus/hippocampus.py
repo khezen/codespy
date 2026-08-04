@@ -109,6 +109,7 @@ class Hippocampus(dspy.Module):
         max_reflects: int | None = None,
         question_field: str | None = None,
         task_name: str | None = None,
+        run_id: str | None = None,
     ):
         """
         Args:
@@ -136,6 +137,12 @@ class Hippocampus(dspy.Module):
                 ``dspy.ReAct``-style modules expose ``.signature``,
                 ``dspy.ChainOfThought`` does not, so the fallback would yield a
                 meaningless (and collision-prone) ``"ChainOfThought"``.
+            run_id: Identifier of the pipeline run this agent belongs to. Passed
+                down by the orchestrating ``ReviewPipeline`` so every module
+                invoked within the same review run shares the same identifier,
+                used as the ``<uuid>`` prefix in the episode filename
+                (``<run_id>-<task>.json``) and recorded on ``Episode.run_id``.
+                If ``None`` (standalone usage), a random UUID is generated.
         """
         super().__init__()
 
@@ -178,6 +185,10 @@ class Hippocampus(dspy.Module):
             top_sig.__name__ if top_sig is not None else type(module).__name__
         )
         self._module_name: str = type(module).__name__
+        # Identifier of the pipeline run this agent belongs to (see run_id arg
+        # above). Falls back to a random UUID for standalone usage where no
+        # orchestrator provides one.
+        self._run_id: str = run_id or uuid.uuid4().hex
         # The most recent consolidated Episode; set by end_episode(), None until then.
         self.episode: Episode | None = None
 
@@ -237,37 +248,48 @@ class Hippocampus(dspy.Module):
         self._distill(combined, self._episode_question or "")
         return combined
 
-    def _finalize_episode(self) -> None:
-        """Record the consolidated Episode snapshot and clear the buffer."""
+    def _finalize_episode(self, artifacts: dict[str, str] | None = None) -> None:
+        """Record the consolidated Episode snapshot and clear the buffer.
+
+        Args:
+            artifacts: Named output artifacts to attach to the recorded
+                episode (e.g. ``{"review": "<markdown>"}``). Defaults to an
+                empty dict when omitted.
+        """
         self.episode = Episode(
             task=self._task_name,
             module=self._module_name,
+            question=self._episode_question or "",
             context_map=self.cmap.model_copy(deep=True),
             timestamp=datetime.now(UTC),
+            artifacts=artifacts or {},
+            run_id=self._run_id,
         )
         self._episode_trajectories.clear()
         self._episode_question = None
         self._reflected_count = 0
 
+
     def _episode_file_path(self, dir: str) -> str:
         """Build the full episode file path from a directory.
 
         Prepends the ``episodes`` root and appends a hidden ``.codespy``
-        folder holding the episode file, named after the wrapped task and a
-        random UUID: ``episodes/<dir>/.codespy/<task>-<uuid>.json``.
+        folder holding the episode file, named after the pipeline run's
+        identifier and the wrapped task:
+        ``global/episodic/<dir>/.codespy/<run_id>-<task>.json``.
 
         Args:
             dir: Directory identifying where this episode belongs (e.g. a
                 scope's ``/{repo}/{subroot}/`` path).
         """
-        file_id = uuid.uuid4().hex
         trimmed = dir.strip("/")
-        return f"episodes/{trimmed}/.codespy/{self._task_name}-{file_id}.json"
+        return f"global/episodic/{trimmed}/.codespy/{self._run_id}-{self._task_name}.json"
 
     def end_episode(
         self,
         store: Storage | None = None,
         dir: str | None = None,
+        artifacts: dict[str, str] | None = None,
     ) -> None:
         """Consolidate the buffered trajectories into the map and record an Episode snapshot.
 
@@ -283,7 +305,7 @@ class Hippocampus(dspy.Module):
 
         If both ``store`` and ``dir`` are provided the episode is persisted
         via ``save_episode()`` after consolidation, at
-        ``episodes/<dir>/.codespy/<task>-<uuid>.json``. ``store`` may be a
+        ``global/episodic/<dir>/.codespy/<run_id>-<task>.json``. ``store`` may be a
         ``FileSystem`` or an ``S3Client`` instance.
 
         Args:
@@ -291,6 +313,10 @@ class Hippocampus(dspy.Module):
                 consolidation (``FileSystem`` or ``S3Client``).
             dir: Directory identifying where this episode belongs (e.g. a
                 scope's path). Required when ``store`` is set.
+            artifacts: Named output artifacts to attach to the recorded
+                episode (e.g. ``{"review": "<markdown>"}``). Agent-agnostic —
+                any caller can attach whatever markdown/text output it
+                produced under a key of its choosing.
 
         Raises:
             OSError: If persistence is requested and the write fails.
@@ -298,7 +324,7 @@ class Hippocampus(dspy.Module):
         nothing_to_persist = self._consolidate() is None and self._reflected_count==0
         if nothing_to_persist:
             return
-        self._finalize_episode()
+        self._finalize_episode(artifacts)
         if store is not None and dir is not None:
             _save_episode(store, self._episode_file_path(dir), self.episode)
 
@@ -306,21 +332,31 @@ class Hippocampus(dspy.Module):
         self,
         store: Storage | None = None,
         dir: str | None = None,
+        artifacts: dict[str, str] | None = None,
     ) -> None:
         """Async counterpart of :meth:`end_episode`.
 
         The (synchronous) Distiller/Cartographer consolidation pass and the
         storage write are both offloaded to a thread so they never block the
         caller's event loop.
+
+        Args:
+            store: Optional ``Storage`` backend to persist the episode after
+                consolidation (``FileSystem`` or ``S3Client``).
+            dir: Directory identifying where this episode belongs (e.g. a
+                scope's path). Required when ``store`` is set.
+            artifacts: Named output artifacts to attach to the recorded
+                episode (e.g. ``{"review": "<markdown>"}``).
         """
         combined = await asyncio.to_thread(self._consolidate)
         nothing_to_persist = combined is None and self._reflected_count == 0
         if nothing_to_persist:
             return
-        await asyncio.to_thread(self._finalize_episode)
+        await asyncio.to_thread(self._finalize_episode, artifacts)
         if store is not None and dir is not None:
             path = self._episode_file_path(dir)
             await asyncio.to_thread(_save_episode, store, path, self.episode)
+
 
     def save_episode(self, store: Storage, path: str) -> None:
         """Persist the current episode to ``path`` via ``store``.

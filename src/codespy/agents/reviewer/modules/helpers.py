@@ -180,3 +180,42 @@ def restore_repo_paths(issues: list[Issue], subroot: str) -> None:
     for issue in issues:
         if issue.filename and not issue.filename.startswith(prefix):
             issue.filename = prefix + issue.filename
+
+
+def issues_to_markdown(issues: list[Issue]) -> str:
+    """Format a list of issues as a compact Markdown report.
+
+    Intended as an ``Episode`` artifact (see ``Hippocampus.aend_episode``)
+    so a scope's episode carries a human-readable snapshot of what the
+    module found for that call, alongside the consolidated context map.
+
+    Args:
+        issues: Issues found for a given scope/call.
+
+    Returns:
+        Markdown text. If ``issues`` is empty, a short "no issues" note.
+    """
+    if not issues:
+        return "No issues found."
+
+    lines = [f"## Issues ({len(issues)})", ""]
+    for issue in issues:
+        lines.extend([
+            f"### {issue.title}",
+            "",
+            f"**Location:** `{issue.location}`",
+            f"**Category:** {issue.category.value}",
+            f"**Severity:** {issue.severity.value}",
+            "",
+            issue.description,
+            "",
+        ])
+        if issue.suggestion:
+            lines.extend(["**Suggestion:**", issue.suggestion, ""])
+        if issue.cwe_id:
+            lines.append(f"**Reference:** {issue.cwe_id}")
+            lines.append("")
+        lines.append("---")
+        lines.append("")
+    return "\n".join(lines)
+

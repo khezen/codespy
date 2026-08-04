@@ -61,12 +61,14 @@ gitlab:
 # MEMORY
 # ============================================================================
 # Hippocampus lets scope-based agents (scope, code_review, doc, supply_chain)
-# consolidate their run into a ContextMap and persist it as an Episode.
-# Save-only for now (no loading). Disabled by default per-signature — see
-# `memory:` blocks under each signature below.
+# and the summarization step consolidate their run into a ContextMap and
+# persist it as an Episode. Save-only for now (no loading). Disabled by
+# default globally; enabled by default for summarization — see `memory:`
+# blocks under each signature below.
+
 #
 # Episodes are written to:
-#   episodes/<repo>/<scope-subroot>/codespy-<task>-<timestamp>.json
+#   global/episodic/<repo>/<scope-subroot>/codespy-<task>-<timestamp>.json
 # under `root` (filesystem) or `s3_bucket` (s3).
 memory:
   backend: filesystem                     # MEMORY_BACKEND (filesystem | s3)
@@ -268,7 +270,7 @@ signatures:
     temperature: null                    # SUMMARIZATION_TEMPERATURE
     max_tokens: null                     # SUMMARIZATION_MAX_TOKENS
     memory:
-      enabled: false                     # SUMMARIZATION_MEMORY_ENABLED — not wired (no tools/scope)
+      enabled: true                      # SUMMARIZATION_MEMORY_ENABLED (null -> memory.default_enabled)
       max_reflects: null                 # SUMMARIZATION_MEMORY_MAX_REFLECTS
       max_context_map_tokens: null       # SUMMARIZATION_MEMORY_MAX_CONTEXT_MAP_TOKENS
       max_context_item_tokens: null              # SUMMARIZATION_MEMORY_MAX_CONTEXT_ITEM_TOKENS

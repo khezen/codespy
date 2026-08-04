@@ -2,12 +2,15 @@
 
 import asyncio
 import logging
+import uuid
 from pathlib import Path
 
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, configure_dspy, get_cost_tracker, verify_model_access
+from codespy.agents.memory.hippocampus import Hippocampus
 from codespy.config import Settings, get_settings
+from codespy.config_memory import get_memory_store
 from codespy.tools.git import GitClient, get_client, ChangedFile, MergeRequest
 from codespy.tools.git.local_diff import build_mr_from_diff
 from codespy.agents.reviewer.models import (
@@ -114,6 +117,7 @@ class ReviewPipeline(dspy.Module):
         scopes: list,
         repo_path: Path,
         module_names: list[str],
+        run_id: str | None = None,
     ) -> list[Issue]:
         """Run review modules concurrently in a single event loop.
 
@@ -125,14 +129,16 @@ class ReviewPipeline(dspy.Module):
             scopes: Identified scopes with changed files
             repo_path: Path to the cloned repository
             module_names: Names of modules (for error logging)
+            run_id: Identifier of the pipeline run, shared across all agents
+                invoked within the same review run
 
         Returns:
             Aggregated list of issues from all modules
         """
         tasks = [
-            self.code_reviewer.aforward(scopes=scopes, repo_path=repo_path),
-            self.doc_reviewer.aforward(scopes=scopes, repo_path=repo_path),
-            self.supply_chain_auditor.aforward(scopes=scopes, repo_path=repo_path),
+            self.code_reviewer.aforward(scopes=scopes, repo_path=repo_path, run_id=run_id),
+            self.doc_reviewer.aforward(scopes=scopes, repo_path=repo_path, run_id=run_id),
+            self.supply_chain_auditor.aforward(scopes=scopes, repo_path=repo_path, run_id=run_id),
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -170,7 +176,11 @@ class ReviewPipeline(dspy.Module):
             ReviewResult with issues, summary, costs, etc.
         """
         self.cost_tracker.reset()
-        
+
+        # Generate a single run_id shared across all agents/modules invoked
+        # within this pipeline run, used to correlate Episode records.
+        run_id = uuid.uuid4().hex
+
         # Always verify model access
         self._verify_model_access()
 
@@ -192,7 +202,7 @@ class ReviewPipeline(dspy.Module):
         # Identify scopes (the module internally checks if signature is enabled)
         is_local = isinstance(config, LocalReviewConfig)
         logger.info("Identifying code scopes...")
-        scopes = self.scope_identifier(mr, repo_path, is_local=is_local)
+        scopes = self.scope_identifier(mr, repo_path, is_local=is_local, run_id=run_id)
         for scope in scopes:
             logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
             if scope.package_manifest:
@@ -207,7 +217,7 @@ class ReviewPipeline(dspy.Module):
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
         all_issues = asyncio.run(
-            self._run_review_modules(scopes, repo_path, module_names)
+            self._run_review_modules(scopes, repo_path, module_names, run_id=run_id)
         )
         logger.info(f"Found {len(all_issues)} issues")
 
@@ -224,12 +234,42 @@ class ReviewPipeline(dspy.Module):
                 summarizer = dspy.ChainOfThought(MRSummarySignature)
                 # Track the summarization signature's costs
                 with SignatureContext("summarization", self.cost_tracker):
-                    result = summarizer(
-                        mr_title=mr.title,
-                        mr_description=mr.body or "No description provided.",
-                        changed_files=scoped_files,
-                        all_issues=all_issues,
-                    )
+                    if self.settings.get_memory_enabled("summarization"):
+                        mem = Hippocampus(
+                            summarizer,
+                            budget=self.settings.get_memory_budget("summarization"),
+                            max_reflects=self.settings.get_memory_max_reflects(
+                                "summarization"
+                            ),
+                            # ChainOfThought exposes no .signature, so the episode
+                            # identity must be given explicitly.
+                            task_name="summarization",
+                            run_id=run_id,
+                        )
+                        result = mem.forward(
+                            mr_title=mr.title,
+                            mr_description=mr.body or "No description provided.",
+                            changed_files=scoped_files,
+                            all_issues=all_issues,
+                        )
+                        summary_md = (
+                            f"## Summary\n\n{result.summary}\n\n"
+                            f"## Quality Assessment\n\n{result.quality_assessment}\n\n"
+                            f"## Recommendation\n\n{result.recommendation}\n"
+                        )
+                        # Repo-level episode: same "root" path used by scope_identifier.
+                        mem.end_episode(
+                            get_memory_store(self.settings),
+                            f"/{mr.repo_slug}/root/",
+                            artifacts={"summary": summary_md},
+                        )
+                    else:
+                        result = summarizer(
+                            mr_title=mr.title,
+                            mr_description=mr.body or "No description provided.",
+                            changed_files=scoped_files,
+                            all_issues=all_issues,
+                        )
                 summary = result.summary
                 quality_assessment = result.quality_assessment
                 recommendation = result.recommendation
@@ -251,6 +291,7 @@ class ReviewPipeline(dspy.Module):
             mr_title=mr.title,
             mr_url=mr.url,
             repo=mr.repo_full_name,
+            run_id=run_id,
             model_used=self.settings.default_model,
             issues=all_issues,
             overall_summary=summary,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from enum import Enum
 from typing import Literal
 
@@ -98,11 +99,10 @@ class ContextMap(BaseModel):
             "that multiple questions would need"
         ),
     )
-    next_id: int = Field(default=1, exclude=True)
 
     @classmethod
     def section_names(cls) -> list[str]:
-        return [n for n in cls.model_fields if n != "next_id"]
+        return list(cls.model_fields)
 
     def section(self, name: str) -> list[Item]:
         return getattr(self, name)
@@ -143,10 +143,9 @@ class ContextMap(BaseModel):
                             lst[i] = Item(id=it.id, content=op.content)
             elif op.type == OpType.ADD and op.section and op.content:
                 prefix = _SECTION_PREFIX.get(op.section, op.section[:2])
-                new_id = f"{prefix}-{cm.next_id:05d}"
+                new_id = f"{prefix}-{uuid.uuid4().hex}"
                 cm.section(op.section).append(Item(id=new_id, content=op.content))
                 new_ids.append(new_id)
-                cm.next_id += 1
         return cm, new_ids
 
     def without(self, ids: set[str]) -> ContextMap:
@@ -157,45 +156,10 @@ class ContextMap(BaseModel):
         return cm
 
     def to_json(self) -> str:
-        """Serialize the map to a JSON string.
-
-        ``next_id`` is excluded from the output (it is a transient counter).
-        Use ``from_json()`` to reload — it recomputes ``next_id`` from the
-        item IDs present in the map so there are no collisions on subsequent
-        ADD operations.
-        """
+        """Serialize the map to a JSON string."""
         return self.model_dump_json(indent=2)
 
     @classmethod
     def from_json(cls, text: str) -> ContextMap:
-        """Deserialize a map from a JSON string produced by ``to_json()``.
-
-        Recomputes ``next_id`` as one past the highest numeric suffix found
-        in any item ID (e.g. ``cu-00042`` → suffix 42), so the reloaded map
-        can safely receive further ADD operations without ID collisions.
-        """
-        cm = cls.model_validate_json(text)
-        max_n = 0
-        for it in cm.all_items():
-            suffix = it.id.rsplit("-", 1)[-1]
-            if suffix.isdigit():
-                max_n = max(max_n, int(suffix))
-        cm.next_id = max_n + 1
-        return cm
-
-def _recompute_next_id(cmap: ContextMap) -> None:
-    """Recompute ``cmap.next_id`` from the highest numeric item-ID suffix (in-place).
-
-    After deserialisation the ``next_id`` counter is reset from the highest
-    numeric suffix found in any item ID (e.g. ``cu-00042`` → 42), so the
-    restored map can safely receive further ADD operations without collisions.
-
-    Args:
-        cmap: The context map to update in-place.
-    """
-    max_n = 0
-    for item in cmap.all_items():
-        suffix = item.id.rsplit("-", 1)[-1]
-        if suffix.isdigit():
-            max_n = max(max_n, int(suffix))
-    cmap.next_id = max_n + 1
+        """Deserialize a map from a JSON string produced by ``to_json()``."""
+        return cls.model_validate_json(text)

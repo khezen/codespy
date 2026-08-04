@@ -48,6 +48,41 @@ class ScopeAssignment(BaseModel):
     reason: str = Field(description="Explanation for why this scope was identified")
 
 
+def scope_assignments_to_markdown(assignments: list[ScopeAssignment]) -> str:
+    """Format scope assignments as a compact Markdown report.
+
+    Intended as an ``Episode`` artifact (see ``Hippocampus.aend_episode``) so
+    the repo-level episode carries a human-readable snapshot of the scopes
+    identified for this call, alongside the consolidated context map.
+
+    Args:
+        assignments: Scope assignments produced by the agent for this call.
+
+    Returns:
+        Markdown text. If ``assignments`` is empty, a short "no scopes" note.
+    """
+    if not assignments:
+        return "No scopes identified."
+
+    lines = [f"## Scopes ({len(assignments)})", ""]
+    for assignment in assignments:
+        lines.extend([
+            f"### {assignment.subroot}",
+            "",
+            f"**Type:** {assignment.scope_type.value}",
+            f"**Confidence:** {assignment.confidence}",
+            f"**Has changes:** {assignment.has_changes}",
+            f"**Is dependency:** {assignment.is_dependency}",
+            f"**Files:** {len(assignment.changed_files)}",
+            "",
+            assignment.reason,
+            "",
+            "---",
+            "",
+        ])
+    return "\n".join(lines)
+
+
 class ScopeIdentifierSignature(dspy.Signature):
     """Identify code scopes in a repository for a merge request.
 
@@ -196,13 +231,21 @@ class ScopeIdentifier(dspy.Module):
             tools.extend(await connect_mcp_server(tools_dir / "git" / "server.py", [], contexts, caller))
         return tools, contexts
 
-    async def aforward(self, mr: MergeRequest, repo_path: Path, is_local: bool = False) -> list[ScopeResult]:
+    async def aforward(
+        self,
+        mr: MergeRequest,
+        repo_path: Path,
+        is_local: bool = False,
+        run_id: str | None = None,
+    ) -> list[ScopeResult]:
         """Identify scopes in the repository for the given MR.
         
         Args:
             mr: The merge request to analyze
             repo_path: Path to the repository root
             is_local: If True, repo is already on disk (skip cloning)
+            run_id: Identifier of the pipeline run, shared across all agents
+                invoked within the same review run (see ``Hippocampus.run_id``)
         """
         # Get excluded directories from settings
         excluded_dirs = self._settings.excluded_directories
@@ -268,6 +311,7 @@ class ScopeIdentifier(dspy.Module):
                         # title alone is the question, so no inputs get serialized.
                         question_field="mr_title",
                         task_name="scope",
+                        run_id=run_id,
                     )
                     result = await mem.aforward(
                         changed_files=changed_file_paths,
@@ -281,7 +325,13 @@ class ScopeIdentifier(dspy.Module):
                     )
                     # Repo-level episode: subroot "." (no scope object exists yet).
                     dir_path = f"/{repo}/root/"
-                    await mem.aend_episode(get_memory_store(self._settings), dir_path)
+                    await mem.aend_episode(
+                        get_memory_store(self._settings),
+                        dir_path,
+                        artifacts={
+                            "scopes": scope_assignments_to_markdown(result.scopes)
+                        },
+                    )
                 else:
                     result = await agent.acall(
                         changed_files=changed_file_paths,
@@ -361,6 +411,12 @@ class ScopeIdentifier(dspy.Module):
             ))
         return results
 
-    def forward(self, mr: MergeRequest, repo_path: Path, is_local: bool = False) -> list[ScopeResult]:
+    def forward(
+        self,
+        mr: MergeRequest,
+        repo_path: Path,
+        is_local: bool = False,
+        run_id: str | None = None,
+    ) -> list[ScopeResult]:
         """Identify scopes (sync wrapper)."""
-        return asyncio.run(self.aforward(mr, repo_path, is_local=is_local))
+        return asyncio.run(self.aforward(mr, repo_path, is_local=is_local, run_id=run_id))

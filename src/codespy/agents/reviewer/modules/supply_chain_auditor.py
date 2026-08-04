@@ -10,7 +10,13 @@ import dspy  # type: ignore[import-untyped]
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
-from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, resolve_scope_root, strip_prefix, restore_repo_paths
+from codespy.agents.reviewer.modules.helpers import (
+    MIN_CONFIDENCE,
+    issues_to_markdown,
+    resolve_scope_root,
+    restore_repo_paths,
+    strip_prefix,
+)
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -229,7 +235,12 @@ class SupplyChainAuditor(dspy.Module):
 
         return tools, contexts
 
-    async def aforward(self, scopes: Sequence[ScopeResult], repo_path: Path) -> list[Issue]:
+    async def aforward(
+        self,
+        scopes: Sequence[ScopeResult],
+        repo_path: Path,
+        run_id: str | None = None,
+    ) -> list[Issue]:
         """Analyze scopes for supply chain security vulnerabilities and return issues.
 
         For each scope, filesystem/parser tools are created rooted at
@@ -240,6 +251,8 @@ class SupplyChainAuditor(dspy.Module):
         Args:
             scopes: The scopes containing changed files to analyze
             repo_path: Path to the cloned repository for reading manifest files
+            run_id: Identifier of the pipeline run, shared across all agents
+                invoked within the same review run (see ``Hippocampus.run_id``)
 
         Returns:
             List of security issues found across all scopes
@@ -316,6 +329,7 @@ class SupplyChainAuditor(dspy.Module):
                                     "supply_chain"
                                 ),
                                 task_name="supply_chain",
+                                run_id=run_id,
                             )
                             result = await mem.aforward(
                                 manifest_path=manifest_path,
@@ -323,8 +337,14 @@ class SupplyChainAuditor(dspy.Module):
                                 package_manager=package_manager,
                                 category=IssueCategory.SECURITY,
                             )
+                            issues = [
+                                issue for issue in result.issues
+                                if issue.confidence >= MIN_CONFIDENCE
+                            ]
                             await mem.aend_episode(
-                                get_memory_store(self._settings), scope.scope_path()
+                                get_memory_store(self._settings),
+                                scope.scope_path(),
+                                artifacts={"review": issues_to_markdown(issues)},
                             )
                         else:
                             result = await supply_chain_agent.acall(
@@ -333,10 +353,10 @@ class SupplyChainAuditor(dspy.Module):
                                 package_manager=package_manager,
                                 category=IssueCategory.SECURITY,
                             )
-                    issues = [
-                        issue for issue in result.issues
-                        if issue.confidence >= MIN_CONFIDENCE
-                    ]
+                            issues = [
+                                issue for issue in result.issues
+                                if issue.confidence >= MIN_CONFIDENCE
+                            ]
                     # Restore repo-root-relative paths in reported issues
                     restore_repo_paths(issues, scope.subroot)
                     all_issues.extend(issues)
@@ -351,14 +371,21 @@ class SupplyChainAuditor(dspy.Module):
         logger.info(f"Security audit found {len(all_issues)} issues")
         return all_issues
 
-    def forward(self, scopes: Sequence[ScopeResult], repo_path: Path) -> list[Issue]:
+    def forward(
+        self,
+        scopes: Sequence[ScopeResult],
+        repo_path: Path,
+        run_id: str | None = None,
+    ) -> list[Issue]:
         """Analyze scopes for supply chain security vulnerabilities (sync wrapper).
 
         Args:
             scopes: The scopes containing changed files to analyze
             repo_path: Path to the cloned repository for reading manifest files
+            run_id: Identifier of the pipeline run, shared across all agents
+                invoked within the same review run
 
         Returns:
             List of security issues found across all scopes
         """
-        return asyncio.run(self.aforward(scopes, repo_path))
+        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id))

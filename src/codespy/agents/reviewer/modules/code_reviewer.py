@@ -12,10 +12,12 @@ from codespy.agents.memory.hippocampus import Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
+    issues_to_markdown,
     make_scope_relative,
     resolve_scope_root,
     restore_repo_paths,
 )
+
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -143,9 +145,6 @@ class CodeReviewSignature(dspy.Signature):
 class CodeReviewer(dspy.Module):
     """Unified code reviewer — defects, security, and smells in a single pass.
 
-    Merges DefectDetector and SmellDetector into one agent to avoid redundant
-    README reads, tool sessions, and input token costs per scope.
-
     MCP tools are scope-restricted: for each scope, tools are rooted at
     repo_path/scope.subroot so the agent cannot access files outside the scope.
     """
@@ -181,13 +180,18 @@ class CodeReviewer(dspy.Module):
         return tools, contexts
 
     async def aforward(
-        self, scopes: Sequence[ScopeResult], repo_path: Path
+        self,
+        scopes: Sequence[ScopeResult],
+        repo_path: Path,
+        run_id: str | None = None,
     ) -> list[Issue]:
         """Analyze scopes for defects, security issues, and code smells.
 
         Args:
             scopes: List of identified scopes with their changed files
             repo_path: Path to the cloned repository
+            run_id: Identifier of the pipeline run, shared across all agents
+                invoked within the same review run (see ``Hippocampus.run_id``)
 
         Returns:
             List of bug, security, and smell issues found across all scopes
@@ -240,22 +244,30 @@ class CodeReviewer(dspy.Module):
                             budget=self._settings.get_memory_budget("code_review"),
                             max_reflects=self._settings.get_memory_max_reflects("code_review"),
                             task_name="code_review",
+                            run_id=run_id,
                         )
                         result = await mem.aforward(
                             scope=scoped,
                             categories=categories,
                         )
-                        await mem.aend_episode(get_memory_store(self._settings), scope.scope_path())
+                        issues = [
+                            issue for issue in (result.issues or [])
+                            if issue.confidence >= MIN_CONFIDENCE
+                        ]
+                        await mem.aend_episode(
+                            get_memory_store(self._settings),
+                            scope.scope_path(),
+                            artifacts={"review": issues_to_markdown(issues)},
+                        )
                     else:
                         result = await agent.acall(
                             scope=scoped,
                             categories=categories,
                         )
-
-                issues = [
-                    issue for issue in (result.issues or [])
-                    if issue.confidence >= MIN_CONFIDENCE
-                ]
+                        issues = [
+                            issue for issue in (result.issues or [])
+                            if issue.confidence >= MIN_CONFIDENCE
+                        ]
                 restore_repo_paths(issues, scope.subroot)
                 all_issues.extend(issues)
                 logger.debug(
@@ -270,15 +282,20 @@ class CodeReviewer(dspy.Module):
         return all_issues
 
     def forward(
-        self, scopes: Sequence[ScopeResult], repo_path: Path
+        self,
+        scopes: Sequence[ScopeResult],
+        repo_path: Path,
+        run_id: str | None = None,
     ) -> list[Issue]:
         """Analyze scopes for code issues (sync wrapper).
 
         Args:
             scopes: List of identified scopes with their changed files
             repo_path: Path to the cloned repository
+            run_id: Identifier of the pipeline run, shared across all agents
+                invoked within the same review run
 
         Returns:
             List of bug, security, and smell issues found across all scopes
         """
-        return asyncio.run(self.aforward(scopes, repo_path))
+        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id))

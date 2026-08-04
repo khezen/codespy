@@ -148,6 +148,11 @@ class ReviewResult(BaseModel):
     mr_title: str = Field(description="MR title")
     mr_url: str = Field(description="MR URL")
     repo: str = Field(description="Repository name (owner/repo)")
+    run_id: str = Field(
+        default="",
+        description="Identifier of the pipeline run that produced this result, "
+        "shared with all Episode records persisted during this run",
+    )
     reviewed_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         description="Review timestamp",
