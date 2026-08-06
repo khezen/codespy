@@ -7,6 +7,20 @@ from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
 
 
+class PRContext(BaseModel):
+    """Shared PR identity passed to all review modules after summarization.
+
+    Built by the pipeline orchestrator after the Summarizer runs, then
+    threaded through scope identification, review modules, and audit.
+    Each module constructs its own Hippocampus question from these fields.
+    """
+
+    repo_slug: str = Field(description="Host-qualified repo identifier (e.g. github.com/owner/repo)")
+    mr_number: int = Field(description="MR/PR number")
+    mr_title: str = Field(description="MR/PR title")
+    summary: str = Field(description="2-3 sentence PR summary produced by Summarizer")
+
+
 class IssueSeverity(str, Enum):
     """Severity level of an issue."""
 
@@ -120,7 +134,7 @@ class Issue(BaseModel):
 class SignatureStatsResult(BaseModel):
     """Statistics for a single signature's execution during review."""
 
-    name: str = Field(description="Signature name (e.g., code_review, doc, scope, supply_chain, summarization)")
+    name: str = Field(description="Signature name (e.g., code_review, doc, scope, supply_chain, summary, audit)")
     cost: float = Field(default=0.0, description="Cost in USD for this signature")
     tokens: int = Field(default=0, description="Tokens used by this signature")
     call_count: int = Field(default=0, description="Number of LLM calls made by this signature")

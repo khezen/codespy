@@ -307,7 +307,7 @@ class Settings(BaseSettings):
         """Get max_question_tokens for a signature's memory (signature-specific or default).
 
         Bounds the serialized agent inputs used as the reflection "question".
-        Ignored when the caller passes an explicit ``question_field``.
+        Ignored when the caller passes an explicit ``question`` string.
         """
         config = self.get_signature_config(signature_name).memory
         return (

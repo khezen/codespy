@@ -4,17 +4,17 @@ import asyncio
 import logging
 import uuid
 from pathlib import Path
+from typing import Sequence
 
 import dspy  # type: ignore[import-untyped]
 
-from codespy.agents import SignatureContext, configure_dspy, get_cost_tracker, verify_model_access
-from codespy.agents.memory.hippocampus import Hippocampus
+from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 from codespy.config import Settings, get_settings
-from codespy.config_memory import get_memory_store
 from codespy.tools.git import GitClient, get_client, ChangedFile, MergeRequest
 from codespy.tools.git.local_diff import build_mr_from_diff
 from codespy.agents.reviewer.models import (
     Issue,
+    PRContext,
     SignatureStatsResult,
     ReviewResult,
     ReviewConfig,
@@ -22,47 +22,15 @@ from codespy.agents.reviewer.models import (
     LocalReviewConfig,
 )
 from codespy.agents.reviewer.modules import (
+    Auditor,
     CodeReviewer,
     DocReviewer,
     ScopeIdentifier,
+    Summarizer,
     SupplyChainAuditor,
 )
 
 logger = logging.getLogger(__name__)
-
-
-class MRSummarySignature(dspy.Signature):
-    """Generate an overall summary and recommendation for a merge request.
-
-    You are a busy Principal Engineer. Be extremely terse. State facts only.
-
-    Based on all the issues found during review, provide:
-    - A concise summary of what the MR does
-    - An overall assessment of the code quality
-    - A recommendation (approve, request changes, or needs discussion)
-
-    OUTPUT RULES: Be direct and terse. No polite filler ("I suggest", "Great job", "Well done").
-    No conversational language. State facts and assessments only.
-    """
-
-    mr_title: str = dspy.InputField(desc="Title of the merge request")
-    mr_description: str = dspy.InputField(desc="Description/body of the MR")
-    changed_files: list[ChangedFile] = dspy.InputField(
-        desc="In-scope reviewable files (excludes binaries, vendor, lock files, etc.) with status and line counts"
-    )
-    all_issues: list[Issue] = dspy.InputField(
-        desc="All issues found during review"
-    )
-
-    summary: str = dspy.OutputField(
-        desc="2-3 sentence summary of what this MR accomplishes"
-    )
-    quality_assessment: str = dspy.OutputField(
-        desc="Overall assessment of code quality (e.g., well-structured, needs refactoring, follows best practices, etc.)"
-    )
-    recommendation: str = dspy.OutputField(
-        desc="One of: APPROVE, REQUEST_CHANGES, or NEEDS_DISCUSSION with brief justification"
-    )
 
 
 class ReviewPipeline(dspy.Module):
@@ -81,6 +49,8 @@ class ReviewPipeline(dspy.Module):
         self.code_reviewer = CodeReviewer()
         self.doc_reviewer = DocReviewer()
         self.supply_chain_auditor = SupplyChainAuditor()
+        self.summarizer = Summarizer()
+        self.auditor = Auditor()
 
     def _verify_model_access(self) -> None:
         """Verify LLM model access."""
@@ -118,6 +88,7 @@ class ReviewPipeline(dspy.Module):
         repo_path: Path,
         module_names: list[str],
         run_id: str | None = None,
+        pr_context: PRContext | None = None,
     ) -> list[Issue]:
         """Run review modules concurrently in a single event loop.
 
@@ -131,14 +102,15 @@ class ReviewPipeline(dspy.Module):
             module_names: Names of modules (for error logging)
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run
+            pr_context: PR context for Hippocampus question (passed to all modules)
 
         Returns:
             Aggregated list of issues from all modules
         """
         tasks = [
-            self.code_reviewer.aforward(scopes=scopes, repo_path=repo_path, run_id=run_id),
-            self.doc_reviewer.aforward(scopes=scopes, repo_path=repo_path, run_id=run_id),
-            self.supply_chain_auditor.aforward(scopes=scopes, repo_path=repo_path, run_id=run_id),
+            self.code_reviewer.aforward(scopes=scopes, repo_path=repo_path, run_id=run_id, pr_context=pr_context),
+            self.doc_reviewer.aforward(scopes=scopes, repo_path=repo_path, run_id=run_id, pr_context=pr_context),
+            self.supply_chain_auditor.aforward(scopes=scopes, repo_path=repo_path, run_id=run_id, pr_context=pr_context),
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -199,10 +171,31 @@ class ReviewPipeline(dspy.Module):
         else:
             raise ValueError(f"Invalid config type: {type(config)}")
 
-        # Identify scopes (the module internally checks if signature is enabled)
+        # Step 1: Run Summarizer (before scope identification)
+        changed_file_paths = [f.filename for f in mr.changed_files]
+        pr_summary = self.summarizer(
+            mr_title=mr.title,
+            mr_description=mr.body or "No description provided.",
+            mr_number=mr.number,
+            changed_file_paths=changed_file_paths,
+            repo_slug=mr.repo_slug,
+            run_id=run_id,
+        )
+
+        # Build PRContext after summarizer runs
+        pr_context = PRContext(
+            repo_slug=mr.repo_slug,
+            mr_number=mr.number,
+            mr_title=mr.title,
+            summary=pr_summary,
+        )
+
+        # Step 2: Identify scopes (pass pr_context)
         is_local = isinstance(config, LocalReviewConfig)
         logger.info("Identifying code scopes...")
-        scopes = self.scope_identifier(mr, repo_path, is_local=is_local, run_id=run_id)
+        scopes = self.scope_identifier(
+            mr, repo_path, is_local=is_local, run_id=run_id, pr_context=pr_context
+        )
         for scope in scopes:
             logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
             if scope.package_manifest:
@@ -213,76 +206,27 @@ class ReviewPipeline(dspy.Module):
                 if manifest.dependencies_changed:
                     logger.info(f"    Dependencies changed: Yes")
 
-        # Run review modules concurrently via asyncio.gather
+        # Step 3: Run review modules concurrently via asyncio.gather (pass pr_context)
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
         all_issues = asyncio.run(
-            self._run_review_modules(scopes, repo_path, module_names, run_id=run_id)
+            self._run_review_modules(scopes, repo_path, module_names, run_id=run_id, pr_context=pr_context)
         )
         logger.info(f"Found {len(all_issues)} issues")
 
-        # Collect in-scope files from identified scopes (excludes binaries, vendor, lock files, etc.)
+        # Step 4: Run Audit
         scoped_files = self._collect_scoped_files(scopes)
         logger.info(
-            f"Summary input: {len(scoped_files)} in-scope files "
+            f"Audit input: {len(scoped_files)} in-scope files "
             f"(filtered from {len(mr.changed_files)} total)"
         )
-        # Generate summary, quality assessment, and recommendation
-        if self.settings.is_signature_enabled("summarization"):
-            logger.info("Generating MR summary...")
-            try:
-                summarizer = dspy.ChainOfThought(MRSummarySignature)
-                # Track the summarization signature's costs
-                with SignatureContext("summarization", self.cost_tracker):
-                    if self.settings.get_memory_enabled("summarization"):
-                        mem = Hippocampus(
-                            summarizer,
-                            budget=self.settings.get_memory_budget("summarization"),
-                            max_reflects=self.settings.get_memory_max_reflects(
-                                "summarization"
-                            ),
-                            # ChainOfThought exposes no .signature, so the episode
-                            # identity must be given explicitly.
-                            task_name="summarization",
-                            run_id=run_id,
-                        )
-                        result = mem.forward(
-                            mr_title=mr.title,
-                            mr_description=mr.body or "No description provided.",
-                            changed_files=scoped_files,
-                            all_issues=all_issues,
-                        )
-                        summary_md = (
-                            f"## Summary\n\n{result.summary}\n\n"
-                            f"## Quality Assessment\n\n{result.quality_assessment}\n\n"
-                            f"## Recommendation\n\n{result.recommendation}\n"
-                        )
-                        # Repo-level episode: same "root" path used by scope_identifier.
-                        mem.end_episode(
-                            get_memory_store(self.settings),
-                            f"/{mr.repo_slug}/root/",
-                            artifacts={"summary": summary_md},
-                        )
-                    else:
-                        result = summarizer(
-                            mr_title=mr.title,
-                            mr_description=mr.body or "No description provided.",
-                            changed_files=scoped_files,
-                            all_issues=all_issues,
-                        )
-                summary = result.summary
-                quality_assessment = result.quality_assessment
-                recommendation = result.recommendation
-            except Exception as e:
-                logger.error(f"Failed to generate summary: {e}")
-                summary = f"Reviewed {len(scoped_files)} files with {len(all_issues)} issues."
-                quality_assessment = "Unable to assess due to error."
-                recommendation = "NEEDS_DISCUSSION: Summary generation failed."
-        else:
-            logger.debug("Skipping summarization: disabled")
-            summary = f"Reviewed {len(scoped_files)} files with {len(all_issues)} issues."
-            quality_assessment = "Summarization disabled."
-            recommendation = "NEEDS_DISCUSSION" if all_issues else "APPROVE"
+        quality_assessment, recommendation = self.auditor(
+            pr_context=pr_context,
+            changed_files=scoped_files,
+            all_issues=all_issues,
+            run_id=run_id,
+        )
+
         # Collect per-signature statistics
         signature_stats_list = self._collect_signature_stats()
 
@@ -294,7 +238,7 @@ class ReviewPipeline(dspy.Module):
             run_id=run_id,
             model_used=self.settings.default_model,
             issues=all_issues,
-            overall_summary=summary,
+            overall_summary=pr_summary,
             quality_assessment=quality_assessment,
             recommendation=recommendation,
             total_cost=self.cost_tracker.total_cost,

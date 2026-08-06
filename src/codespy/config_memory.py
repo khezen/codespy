@@ -103,7 +103,7 @@ class MemoryConfig(BaseModel):
     default_max_trajectory_tokens: int | None = 8192  # MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS
 
     # Head+tail cap on the serialized agent inputs used as the Distiller/Cartographer
-    # "question". Only applies when the caller passes no question_field: otherwise
+    # "question". Only applies when the caller passes no 'question': otherwise
     # every input field is serialized, which for code review means the full patch
     # of every changed file. See Hippocampus.max_question_tokens.
     default_max_question_tokens: int | None = 2048  # MEMORY_DEFAULT_MAX_QUESTION_TOKENS

@@ -1,0 +1,121 @@
+"""Auditor module — assesses code quality and provides recommendation after reviews."""
+
+import logging
+from typing import Sequence
+
+import dspy
+
+from codespy.agents import SignatureContext, get_cost_tracker
+from codespy.agents.memory.hippocampus import Hippocampus
+from codespy.agents.reviewer.models import Issue, PRContext
+from codespy.config import get_settings
+from codespy.config_memory import get_memory_store
+from codespy.tools.git.models import ChangedFile
+
+logger = logging.getLogger(__name__)
+
+
+class AuditSignature(dspy.Signature):
+    """Assess code quality and provide a recommendation for a merge request.
+
+    You are a busy Principal Engineer. Be extremely terse. State facts only.
+    Based on the summary, changed files, and issues found during review, provide:
+    - An overall assessment of the code quality
+    - A recommendation (approve, request changes, or needs discussion)
+
+    No polite filler. No conversational language.
+    """
+
+    mr_title: str = dspy.InputField(desc="Title of the merge request")
+    summary: str = dspy.InputField(desc="Summary of what this MR accomplishes")
+    changed_files: list[ChangedFile] = dspy.InputField(
+        desc="In-scope reviewable files with status and line counts"
+    )
+    all_issues: list[Issue] = dspy.InputField(
+        desc="All issues found during review"
+    )
+
+    quality_assessment: str = dspy.OutputField(
+        desc="Overall assessment of code quality"
+    )
+    recommendation: str = dspy.OutputField(
+        desc="One of: APPROVE, REQUEST_CHANGES, or NEEDS_DISCUSSION with brief justification"
+    )
+
+
+class Auditor(dspy.Module):
+    """Assesses code quality and recommends action after all reviews complete."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._cost_tracker = get_cost_tracker()
+        self._settings = get_settings()
+
+    def forward(
+        self,
+        pr_context: PRContext,
+        changed_files: Sequence[ChangedFile],
+        all_issues: Sequence[Issue],
+        run_id: str | None = None,
+    ) -> tuple[str, str]:
+        """Assess quality and recommend action.
+
+        Args:
+            pr_context: PR context containing repo_slug, mr_number, mr_title, summary
+            changed_files: In-scope reviewable files
+            all_issues: All issues found during review
+            run_id: Pipeline run identifier
+
+        Returns:
+            Tuple of (quality_assessment, recommendation)
+        """
+        if not self._settings.is_signature_enabled("audit"):
+            logger.debug("Skipping audit: disabled")
+            return (
+                "Audit disabled.",
+                "NEEDS_DISCUSSION" if all_issues else "APPROVE",
+            )
+
+        auditor = dspy.ChainOfThought(AuditSignature)
+        logger.info("Running audit...")
+
+        question = (
+            f"final audit of {pr_context.repo_slug}: "
+            f"pull request {pr_context.mr_number} {pr_context.mr_title}: {pr_context.summary}"
+        )
+
+        with SignatureContext("audit", self._cost_tracker):
+            if self._settings.get_memory_enabled("audit"):
+                mem = Hippocampus(
+                    auditor,
+                    budget=self._settings.get_memory_budget("audit"),
+                    max_reflects=self._settings.get_memory_max_reflects("audit"),
+                    question=question,
+                    task_name="audit",
+                    run_id=run_id,
+                )
+                result = mem(
+                    mr_title=pr_context.mr_title,
+                    summary=pr_context.summary,
+                    changed_files=list(changed_files),
+                    all_issues=list(all_issues),
+                )
+                mem.end_episode(
+                    get_memory_store(self._settings),
+                    f"/{pr_context.repo_slug}/root/",
+                    artifacts={
+                        "audit": (
+                            f"## Quality Assessment\n\n{result.quality_assessment}\n\n"
+                            f"## Recommendation\n\n{result.recommendation}\n"
+                        )
+                    },
+                )
+            else:
+                result = auditor(
+                    mr_title=pr_context.mr_title,
+                    summary=pr_context.summary,
+                    changed_files=list(changed_files),
+                    all_issues=list(all_issues),
+                )
+
+        return result.quality_assessment, result.recommendation

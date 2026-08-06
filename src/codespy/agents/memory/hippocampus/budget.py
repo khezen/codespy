@@ -51,11 +51,11 @@ class MemoryBudget:
             preserves both setup and conclusions.
         max_question_tokens: Budget for the serialized inputs used as the
             reflection "question", on the fallback path when
-            ``Hippocampus.question_field`` is None. None = unbounded, which is
+            ``Hippocampus.question`` is None. None = unbounded, which is
             rarely safe: *every* input field is serialized, so an agent taking
             a large field (a document dump, or a diff of every changed file)
             sends all of it to both the Distiller and the Cartographer.
-            Ignored when ``question_field`` is set — prefer that when a single
+            Ignored when ``question`` is set — prefer that when a single
             field cleanly captures intent.
     """
 

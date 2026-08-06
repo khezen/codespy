@@ -107,7 +107,7 @@ class Hippocampus(dspy.Module):
         module: dspy.Module,
         budget: MemoryBudget | None = None,
         max_reflects: int | None = None,
-        question_field: str | None = None,
+        question: str | None = None,
         task_name: str | None = None,
         run_id: str | None = None,
     ):
@@ -124,8 +124,8 @@ class Hippocampus(dspy.Module):
                 N: reflect online for the first N calls, buffer-only afterwards.
                 Every call is always buffered regardless of this setting, so
                 end_episode() is always available.
-            question_field: Name of the input field carrying the task description.
-                If set, only that field is used as the Distiller "question".
+            question: Pre-computed question string for the reflection "question".
+                If set, this string is used directly as the Distiller question.
                 If None, all input fields are serialized (bounded by
                 ``budget.max_question_tokens``).
                 Set this when one field cleanly captures user intent.
@@ -166,7 +166,7 @@ class Hippocampus(dspy.Module):
         self.cartograph = Cartographer()
         self.budget = budget or MemoryBudget()
         self.max_reflects = max_reflects
-        self.question_field = question_field
+        self.question = question
         self.cmap = ContextMap()
         self.scores: dict[str, int] = {}
         # Buffer of per-call bounded trajectory strings, cleared after end_episode().
@@ -411,8 +411,8 @@ class Hippocampus(dspy.Module):
     # ------------------------------------------------------------------
 
     def _make_question(self, inputs: dict) -> str:
-        if self.question_field is not None:
-            return str(inputs.get(self.question_field, ""))
+        if self.question is not None:
+            return self.question
         return format_inputs(inputs, self.budget.max_question_tokens)
 
     def _distill(self, trajectory: str, question: str) -> None:

@@ -49,7 +49,7 @@ class Episode(BaseModel):
     )
     task: str = Field(description="Wrapped signature name (or module class name as fallback)")
     module: str = Field(description="Wrapped dspy.Module class name")
-    question: str = Field(description="Question/task description for this episode")
+    question: str = Field(description="Question/task description for this episode (passed as 'question' or derived from serialized inputs)")
     context_map: ContextMap = Field(description="Consolidated context map snapshot")
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(UTC),

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import Hippocampus
-from codespy.agents.reviewer.models import PackageManifest, ScopeResult, ScopeType
+from codespy.agents.reviewer.models import PackageManifest, PRContext, ScopeResult, ScopeType
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 from codespy.tools.git.models import ChangedFile, MergeRequest, should_review_file
@@ -237,15 +237,17 @@ class ScopeIdentifier(dspy.Module):
         repo_path: Path,
         is_local: bool = False,
         run_id: str | None = None,
+        pr_context: PRContext | None = None,
     ) -> list[ScopeResult]:
         """Identify scopes in the repository for the given MR.
-        
+
         Args:
             mr: The merge request to analyze
             repo_path: Path to the repository root
             is_local: If True, repo is already on disk (skip cloning)
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run (see ``Hippocampus.run_id``)
+            pr_context: PR context used to construct Hippocampus question
         """
         # Get excluded directories from settings
         excluded_dirs = self._settings.excluded_directories
@@ -303,13 +305,15 @@ class ScopeIdentifier(dspy.Module):
             # Track scope signature costs
             async with SignatureContext("scope", self._cost_tracker):
                 if self._settings.get_memory_enabled("scope"):
+                    question = (
+                        f"identify scopes of {pr_context.repo_slug}: "
+                        f"pull request {pr_context.mr_number} {pr_context.mr_title}: {pr_context.summary}"
+                    ) if pr_context else None
                     mem = Hippocampus(
                         agent,
                         budget=self._settings.get_memory_budget("scope"),
                         max_reflects=self._settings.get_memory_max_reflects("scope"),
-                        # question_field makes budget.max_question_tokens moot: the
-                        # title alone is the question, so no inputs get serialized.
-                        question_field="mr_title",
+                        question=question,
                         task_name="scope",
                         run_id=run_id,
                     )
@@ -417,6 +421,7 @@ class ScopeIdentifier(dspy.Module):
         repo_path: Path,
         is_local: bool = False,
         run_id: str | None = None,
+        pr_context: PRContext | None = None,
     ) -> list[ScopeResult]:
         """Identify scopes (sync wrapper)."""
-        return asyncio.run(self.aforward(mr, repo_path, is_local=is_local, run_id=run_id))
+        return asyncio.run(self.aforward(mr, repo_path, is_local=is_local, run_id=run_id, pr_context=pr_context))

@@ -9,7 +9,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import Hippocampus
-from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
+from codespy.agents.reviewer.models import Issue, IssueCategory, PRContext, ScopeResult
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
     issues_to_markdown,
@@ -184,6 +184,7 @@ class CodeReviewer(dspy.Module):
         scopes: Sequence[ScopeResult],
         repo_path: Path,
         run_id: str | None = None,
+        pr_context: PRContext | None = None,
     ) -> list[Issue]:
         """Analyze scopes for defects, security issues, and code smells.
 
@@ -192,6 +193,7 @@ class CodeReviewer(dspy.Module):
             repo_path: Path to the cloned repository
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run (see ``Hippocampus.run_id``)
+            pr_context: PR context used to construct Hippocampus question per scope
 
         Returns:
             List of bug, security, and smell issues found across all scopes
@@ -236,13 +238,15 @@ class CodeReviewer(dspy.Module):
                 )
                 async with SignatureContext("code_review", self._cost_tracker):
                     if self._settings.get_memory_enabled("code_review"):
-                        # No question_field: the scope (with every patch) is the
-                        # only input, so budget.max_question_tokens must bound
-                        # the serialized question.
+                        question = (
+                            f"review code change of {scope.repo}: {scope.subroot}: "
+                            f"pull request {pr_context.mr_number} {pr_context.mr_title}: {pr_context.summary}"
+                        ) if pr_context else None
                         mem = Hippocampus(
                             agent,
                             budget=self._settings.get_memory_budget("code_review"),
                             max_reflects=self._settings.get_memory_max_reflects("code_review"),
+                            question=question,
                             task_name="code_review",
                             run_id=run_id,
                         )
@@ -286,6 +290,7 @@ class CodeReviewer(dspy.Module):
         scopes: Sequence[ScopeResult],
         repo_path: Path,
         run_id: str | None = None,
+        pr_context: PRContext | None = None,
     ) -> list[Issue]:
         """Analyze scopes for code issues (sync wrapper).
 
@@ -294,8 +299,9 @@ class CodeReviewer(dspy.Module):
             repo_path: Path to the cloned repository
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run
+            pr_context: PR context used to construct Hippocampus question per scope
 
         Returns:
             List of bug, security, and smell issues found across all scopes
         """
-        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id))
+        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id, pr_context=pr_context))

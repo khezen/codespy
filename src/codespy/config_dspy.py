@@ -52,7 +52,8 @@ SIGNATURE_NAMES = {
     "doc",
     "scope",
     "supply_chain",
-    "summarization",
+    "summary",
+    "audit",
 }
 
 # Create uppercase prefixes for matching (e.g., "CODE_REVIEW_", "SUPPLY_CHAIN_")
