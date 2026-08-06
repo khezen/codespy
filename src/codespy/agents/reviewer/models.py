@@ -94,13 +94,14 @@ class ScopeResult(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
     def scope_path(self) -> str:
-        """Return the storage-relative path for this scope: ``/{repo}/{subroot}/``.
+        """Return the storage-relative path for this scope.
 
         Used by Hippocampus memory as the base directory for episode files.
-        ``subroot == "."`` (repo root) is normalized to ``"root"``.
+        ``subroot == "."`` (repo root) results in ``/{repo}/``.
         """
-        subroot = "root" if self.subroot in (".", "") else self.subroot.strip("/")
-        return f"/{self.repo}/{subroot}/"
+        if self.subroot in (".", ""):
+            return f"/{self.repo}/"
+        return f"/{self.repo}/{self.subroot.strip('/')}/"
 
 
 class Issue(BaseModel):

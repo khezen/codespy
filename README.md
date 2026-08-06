@@ -512,7 +512,7 @@ To optimize costs, override the mid-tier and cheap models:
 # .env or environment variables
 DEFAULT_MODEL=anthropic/claude-opus-4-6                    # Smart tier (default)
 EXTRACTION_MODEL=anthropic/claude-sonnet-4-5-20250929      # Mid-tier: field extraction
-SUMMARIZATION_MODEL=anthropic/claude-haiku-4-5-20251001    # Cheap tier: PR summary
+SUMMARY_MODEL=anthropic/claude-haiku-4-5-20251001    # Cheap tier: PR summary
 ```
 
 Or in `codespy.yaml`:
@@ -521,7 +521,7 @@ Or in `codespy.yaml`:
 default_model: anthropic/claude-opus-4-6
 extraction_model: anthropic/claude-sonnet-4-5-20250929
 signatures:
-  summarization:
+  summary:
     model: anthropic/claude-haiku-4-5-20251001
 ```
 
@@ -685,7 +685,7 @@ The review is powered by DSPy signatures that structure the LLM's analysis:
 | **CodeReviewSignature** | `code_review` | Detects verified bugs, security vulnerabilities, removed defensive code, and code smells |
 | **DocReviewSignature** | `doc` | Detects stale or wrong documentation caused by code changes |
 | **SupplyChainSecuritySignature** | `supply_chain` | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
-| **MRSummarySignature** | `summarization` | Generates summary, quality assessment, and recommendation |
+| **MRSummarySignature** | `summary` | Generates summary, quality assessment, and recommendation |
 
 ## Supported Languages
 

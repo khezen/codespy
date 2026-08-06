@@ -328,7 +328,7 @@ class ScopeIdentifier(dspy.Module):
                         is_local=is_local,
                     )
                     # Repo-level episode: subroot "." (no scope object exists yet).
-                    dir_path = f"/{repo}/root/"
+                    dir_path = f"/{repo}/"
                     await mem.aend_episode(
                         get_memory_store(self._settings),
                         dir_path,

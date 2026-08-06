@@ -102,7 +102,7 @@ class Auditor(dspy.Module):
                 )
                 mem.end_episode(
                     get_memory_store(self._settings),
-                    f"/{pr_context.repo_slug}/root/",
+                    f"/{pr_context.repo_slug}/",
                     artifacts={
                         "audit": (
                             f"## Quality Assessment\n\n{result.quality_assessment}\n\n"

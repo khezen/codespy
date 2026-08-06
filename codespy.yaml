@@ -61,9 +61,9 @@ gitlab:
 # MEMORY
 # ============================================================================
 # Hippocampus lets scope-based agents (scope, code_review, doc, supply_chain)
-# and the summarization step consolidate their run into a ContextMap and
+# and the summary step consolidate their run into a ContextMap and
 # persist it as an Episode. Save-only for now (no loading). Disabled by
-# default globally; enabled by default for summarization — see `memory:`
+# default globally; enabled by default for summary — see `memory:`
 # blocks under each signature below.
 
 #
@@ -146,7 +146,7 @@ memory:
 #     extraction (TwoStepAdapter). Needs accuracy but not deep reasoning.
 #     Recommended: anthropic/claude-sonnet-4-5-20250929 or equivalent.
 #
-#   Cheap (summarization): Used for PR summary generation. Simple synthesis
+#   Cheap (summary): Used for PR summary generation. Simple synthesis
 #     task. Recommended: anthropic/claude-haiku-4-5-20251001 or equivalent.
 #
 #   Cheap (memory.distiller / memory.cartographer): Memory reflection —
@@ -154,12 +154,12 @@ memory:
 #     tasks. Recommended: anthropic/claude-haiku-4-5-20251001 or equivalent.
 #
 # By default, all models fall back to default_model. Override extraction_model,
-# the summarization model, and the reflection models for cost optimization:
+# the summary model, and the reflection models for cost optimization:
 #
 #   default_model: anthropic/claude-opus-4-6
 #   extraction_model: anthropic/claude-sonnet-4-5-20250929
 #   signatures:
-#     summarization:
+#     summary:
 #       model: anthropic/claude-haiku-4-5-20251001
 #   memory:
 #     distiller:
@@ -263,19 +263,19 @@ signatures:
       max_question_tokens: null          # SCOPE_MEMORY_MAX_QUESTION_TOKENS
 
   # Summarizer signature
-  summarization:
-    enabled: true                        # SUMMARIZATION_ENABLED
-    model: null                          # SUMMARIZATION_MODEL (falls back to default_model)
-    reasoning_effort: null               # SUMMARIZATION_REASONING_EFFORT
-    temperature: null                    # SUMMARIZATION_TEMPERATURE
-    max_tokens: null                     # SUMMARIZATION_MAX_TOKENS
+  summary:
+    enabled: true                        # SUMMARY_ENABLED
+    model: null                          # SUMMARY_MODEL (falls back to default_model)
+    reasoning_effort: null               # SUMMARY_REASONING_EFFORT
+    temperature: null                    # SUMMARY_TEMPERATURE
+    max_tokens: null                     # SUMMARY_MAX_TOKENS
     memory:
-      enabled: true                      # SUMMARIZATION_MEMORY_ENABLED (null -> memory.default_enabled)
-      max_reflects: null                 # SUMMARIZATION_MEMORY_MAX_REFLECTS
-      max_context_map_tokens: null       # SUMMARIZATION_MEMORY_MAX_CONTEXT_MAP_TOKENS
-      max_context_item_tokens: null              # SUMMARIZATION_MEMORY_MAX_CONTEXT_ITEM_TOKENS
-      max_trajectory_tokens: null        # SUMMARIZATION_MEMORY_MAX_TRAJECTORY_TOKENS
-      max_question_tokens: null          # SUMMARIZATION_MEMORY_MAX_QUESTION_TOKENS
+      enabled: true                      # SUMMARY_MEMORY_ENABLED (null -> memory.default_enabled)
+      max_reflects: null                 # SUMMARY_MEMORY_MAX_REFLECTS
+      max_context_map_tokens: null       # SUMMARY_MEMORY_MAX_CONTEXT_MAP_TOKENS
+      max_context_item_tokens: null              # SUMMARY_MEMORY_MAX_CONTEXT_ITEM_TOKENS
+      max_trajectory_tokens: null        # SUMMARY_MEMORY_MAX_TRAJECTORY_TOKENS
+      max_question_tokens: null          # SUMMARY_MEMORY_MAX_QUESTION_TOKENS
 
 # ============================================================================
 # OUTPUT

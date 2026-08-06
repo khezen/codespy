@@ -192,23 +192,23 @@ inputs:
     default: 'false'
   
   # ==========================================
-  # SIGNATURE: summarization
+  # SIGNATURE: summary
   # ==========================================
-  summarization-enabled:
-    description: 'Enable PR summarization signature'
+  summary-enabled:
+    description: 'Enable PR summary signature'
     required: false
     default: 'true'
-  
-  summarization-model:
-    description: 'Model for summarization (empty = use default)'
+
+  summary-model:
+    description: 'Model for summary (empty = use default)'
     required: false
-  
-  summarization-reasoning-effort:
-    description: 'Reasoning effort for summarization (minimal|low|medium|high)'
+
+  summary-reasoning-effort:
+    description: 'Reasoning effort for summary (minimal|low|medium|high)'
     required: false
-  
-  summarization-temperature:
-    description: 'Temperature for summarization'
+
+  summary-temperature:
+    description: 'Temperature for summary'
     required: false
   
   excluded-directories:
@@ -311,11 +311,11 @@ runs:
         SUPPLY_CHAIN_TEMPERATURE: ${{ inputs.supply-chain-temperature }}
         SUPPLY_CHAIN_SCAN_UNCHANGED: ${{ inputs.supply-chain-scan-unchanged }}
         
-        # Summarization signature
-        SUMMARIZATION_ENABLED: ${{ inputs.summarization-enabled }}
-        SUMMARIZATION_MODEL: ${{ inputs.summarization-model }}
-        SUMMARIZATION_REASONING_EFFORT: ${{ inputs.summarization-reasoning-effort }}
-        SUMMARIZATION_TEMPERATURE: ${{ inputs.summarization-temperature }}
+        # Summary signature
+        SUMMARY_ENABLED: ${{ inputs.summary-enabled }}
+        SUMMARY_MODEL: ${{ inputs.summary-model }}
+        SUMMARY_REASONING_EFFORT: ${{ inputs.summary-reasoning-effort }}
+        SUMMARY_TEMPERATURE: ${{ inputs.summary-temperature }}
         
         # Other settings
         EXCLUDED_DIRECTORIES: ${{ inputs.excluded-directories }}
@@ -371,11 +371,11 @@ runs:
         [ -n "$SUPPLY_CHAIN_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_TEMPERATURE"
         [ -n "$SUPPLY_CHAIN_SCAN_UNCHANGED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_SCAN_UNCHANGED"
         
-        # Summarization
-        [ -n "$SUMMARIZATION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_ENABLED"
-        [ -n "$SUMMARIZATION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_MODEL"
-        [ -n "$SUMMARIZATION_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_REASONING_EFFORT"
-        [ -n "$SUMMARIZATION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_TEMPERATURE"
+        # Summary
+        [ -n "$SUMMARY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_ENABLED"
+        [ -n "$SUMMARY_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_MODEL"
+        [ -n "$SUMMARY_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_REASONING_EFFORT"
+        [ -n "$SUMMARY_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_TEMPERATURE"
         
         # Other settings
         [ -n "$EXCLUDED_DIRECTORIES" ] && DOCKER_ARGS="$DOCKER_ARGS -e EXCLUDED_DIRECTORIES"

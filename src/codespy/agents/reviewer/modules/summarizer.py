@@ -87,7 +87,7 @@ class Summarizer(dspy.Module):
                 )
                 mem.end_episode(
                     get_memory_store(self._settings),
-                    f"/{repo_slug}/root/",
+                    f"/{repo_slug}/",
                     artifacts={"summary": result.summary},
                 )
             else:
