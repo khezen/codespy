@@ -34,11 +34,11 @@ class Episode(BaseModel):
             this episode (e.g. ``{"review": "<markdown>"}``). Agent-agnostic:
             any module can attach whatever markdown/text output it produced
             under a key of its choosing. Empty by default.
-        run_id: Identifier of the pipeline run that produced this episode.
-            Shared by every agent/module invoked within the same
-            ``ReviewPipeline.forward()`` call, so all episodes from one
-            review run can be correlated. Also used as the ``<uuid>`` suffix
-            in the episode filename: ``<task>-<run_id>.json``.
+    run_id: Identifier of the pipeline run that produced this episode.
+        Shared by every agent/module invoked within the same
+        ``ReviewPipeline.forward()`` call, so all episodes from one
+        review run can be correlated. Also used as the ``<uuid>`` prefix
+        in the episode filename: ``<run_id>-<task>-<index>.json``.
     """
     run_id: str = Field(
         default="",

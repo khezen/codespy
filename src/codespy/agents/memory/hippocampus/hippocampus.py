@@ -189,6 +189,9 @@ class Hippocampus(dspy.Module):
         # above). Falls back to a random UUID for standalone usage where no
         # orchestrator provides one.
         self._run_id: str = run_id or uuid.uuid4().hex
+        # Counter for episode filenames to avoid collisions when the same
+        # signature is invoked multiple times on the same scope within one run.
+        self._episode_index: int = 0
         # The most recent consolidated Episode; set by end_episode(), None until then.
         self.episode: Episode | None = None
 
@@ -270,20 +273,23 @@ class Hippocampus(dspy.Module):
         self._reflected_count = 0
 
 
-    def _episode_file_path(self, dir: str) -> str:
+    def _episode_file_path(self, dir: str, index: int = 0) -> str:
         """Build the full episode file path from a directory.
 
         Prepends the ``episodes`` root and appends a hidden ``.codespy``
         folder holding the episode file, named after the pipeline run's
-        identifier and the wrapped task:
-        ``global/episodic/<dir>/.codespy/<run_id>-<task>.json``.
+        identifier, the wrapped task, and an optional index to avoid collisions:
+        ``global/episodic/<dir>/.codespy/<run_id>-<task>-<index>.json``.
 
         Args:
             dir: Directory identifying where this episode belongs (e.g. a
                 scope's ``/{repo}/{subroot}/`` path).
+            index: Episode index for this scope/task combination. Used to
+                disambiguate when the same signature is invoked multiple
+                times on the same scope within a single pipeline run.
         """
         trimmed = dir.strip("/")
-        return f"global/episodic/{trimmed}/.codespy/{self._run_id}-{self._task_name}.json"
+        return f"global/episodic/{trimmed}/.codespy/{self._run_id}-{self._task_name}-{index}.json"
 
     def end_episode(
         self,
@@ -326,7 +332,8 @@ class Hippocampus(dspy.Module):
             return
         self._finalize_episode(artifacts)
         if store is not None and dir is not None:
-            _save_episode(store, self._episode_file_path(dir), self.episode)
+            _save_episode(store, self._episode_file_path(dir, self._episode_index), self.episode)
+            self._episode_index += 1
 
     async def aend_episode(
         self,
@@ -354,8 +361,9 @@ class Hippocampus(dspy.Module):
             return
         await asyncio.to_thread(self._finalize_episode, artifacts)
         if store is not None and dir is not None:
-            path = self._episode_file_path(dir)
+            path = self._episode_file_path(dir, self._episode_index)
             await asyncio.to_thread(_save_episode, store, path, self.episode)
+            self._episode_index += 1
 
 
     def save_episode(self, store: Storage, path: str) -> None:
@@ -399,12 +407,14 @@ class Hippocampus(dspy.Module):
         self._episode_trajectories.clear()
         self._episode_question = None
         self._reflected_count = 0
+        self._episode_index = 0
 
     def reset_episode(self) -> None:
         """Discard the buffered trajectories without reflecting."""
         self._episode_trajectories.clear()
         self._episode_question = None
         self._reflected_count = 0
+        self._episode_index = 0
 
     # ------------------------------------------------------------------
     # Internals
