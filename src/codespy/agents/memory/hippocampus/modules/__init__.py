@@ -1,5 +1,6 @@
 """DSPy modules for the hippocampus agent."""
 
+from codespy.agents.memory.hippocampus.context_map import Mutation
 from codespy.agents.memory.hippocampus.modules.cartographer import Cartographer, CartographerSig
 from codespy.agents.memory.hippocampus.modules.distiller import Distiller, DistillerSig
 
@@ -8,4 +9,5 @@ __all__ = [
     "CartographerSig",
     "Distiller",
     "DistillerSig",
+    "Mutation",
 ]

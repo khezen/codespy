@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
-from codespy.agents.memory.hippocampus.context_map import ContextMap
+from codespy.agents.memory.hippocampus.context_map import ContextMap, Mutation
 from codespy.tools.storage.base import Storage
 
 
@@ -47,17 +47,21 @@ class Episode(BaseModel):
             "Shared across all agents invoked within the same review run."
         ),
     )
-    task: str = Field(description="Wrapped signature name (or module class name as fallback)")
-    module: str = Field(description="Wrapped dspy.Module class name")
-    question: str = Field(description="Question/task description for this episode (passed as 'question' or derived from serialized inputs)")
-    context_map: ContextMap = Field(description="Consolidated context map snapshot")
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         description="UTC time the episode was recorded",
     )
+    task: str = Field(description="Wrapped signature name (or module class name as fallback)")
+    module: str = Field(description="Wrapped dspy.Module class name")
+    question: str = Field(description="Question/task description for this episode (passed as 'question' or derived from serialized inputs)")
     artifacts: dict[str, str] = Field(
         default_factory=dict,
         description="Named output artifacts produced by the agent (e.g. {'review': '<markdown>'})",
+    )
+    context_map: ContextMap = Field(description="Consolidated context map snapshot")
+    mutations: list[Mutation] = Field(
+        default_factory=list,
+        description="Ordered sequence of Cartographer mutations applied during this episode",
     )
 
 

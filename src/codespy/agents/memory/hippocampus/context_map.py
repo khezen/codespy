@@ -69,6 +69,21 @@ class Operation(BaseModel):
     content: str | None = Field(default=None, description="Required for ADD / REPLACE.")
 
 
+class Mutation(BaseModel):
+    """A recorded Cartographer mutation applied to the context map.
+
+    Tracks the sequence of ADD/DELETE/REPLACE operations with pre-mutation
+    state for debugging and audit purposes.
+    """
+
+    step: int = Field(description="Which _distill() pass produced this mutation (0-indexed)")
+    type: OpType = Field(description="Type of mutation: ADD, DELETE, or REPLACE")
+    item_id: str = Field(description="Generated ID (ADD) or existing ID (DELETE/REPLACE)")
+    section: SectionName = Field(description="Section the item belongs to")
+    content: str | None = Field(default=None, description="New content (ADD/REPLACE); None for DELETE")
+    previous_content: str | None = Field(default=None, description="Old content (DELETE/REPLACE); None for ADD")
+
+
 class ContextMap(BaseModel):
     context_roadmap: list[Item] = Field(
         default_factory=list,
@@ -106,6 +121,18 @@ class ContextMap(BaseModel):
 
     def section(self, name: str) -> list[Item]:
         return getattr(self, name)
+
+    def find_item(self, item_id: str) -> tuple[SectionName, Item] | None:
+        """Look up an item by ID across all sections.
+
+        Returns:
+            Tuple of (section_name, item) if found, None otherwise.
+        """
+        for sec in self.section_names():
+            for it in self.section(sec):
+                if it.id == item_id:
+                    return sec, it
+        return None
 
     def all_items(self) -> list[Item]:
         return [it for s in self.section_names() for it in self.section(s)]
