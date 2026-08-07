@@ -110,6 +110,7 @@ class Hippocampus(dspy.Module):
         question: str | None = None,
         task_name: str | None = None,
         run_id: str | None = None,
+        initial_memory: ContextMap | None = None,
     ):
         """
         Args:
@@ -143,6 +144,9 @@ class Hippocampus(dspy.Module):
                 used as the ``<uuid>`` prefix in the episode filename
                 (``<run_id>-<task>.json``) and recorded on ``Episode.run_id``.
                 If ``None`` (standalone usage), a random UUID is generated.
+            initial_memory: Optional context map to seed the agent with. When
+                provided, the agent starts with this map instead of an empty one,
+                inheriting accumulated understanding from upstream pipeline stages.
         """
         super().__init__()
 
@@ -167,7 +171,7 @@ class Hippocampus(dspy.Module):
         self.budget = budget or MemoryBudget()
         self.max_reflects = max_reflects
         self.question = question
-        self.cmap = ContextMap()
+        self.cmap = initial_memory.model_copy(deep=True) if initial_memory else ContextMap()
         self.scores: dict[str, int] = {}
         # Buffer of per-call bounded trajectory strings, cleared after end_episode().
         self._episode_trajectories: list[str] = []

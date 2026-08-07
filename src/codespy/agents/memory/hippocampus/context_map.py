@@ -188,5 +188,35 @@ class ContextMap(BaseModel):
 
     @classmethod
     def from_json(cls, text: str) -> ContextMap:
-        """Deserialize a map from a JSON string produced by ``to_json()``."""
+        """Deserialize a map from a JSON string produced by ``to_json()`` ."""
         return cls.model_validate_json(text)
+
+    @classmethod
+    def merge(cls, *maps: "ContextMap") -> "ContextMap":
+        """Merge multiple context maps into a single map.
+
+        Later maps win on ID collision (items with duplicate IDs are
+        replaced by those from later maps in the argument list).
+
+        Args:
+            *maps: One or more ContextMap instances to merge.
+
+        Returns:
+            A new ContextMap containing merged items from all input maps.
+        """
+        merged = cls()
+        for cmap in maps:
+            for sec in cls.section_names():
+                merged_section = merged.section(sec)
+                existing_ids = {item.id for item in merged_section}
+                for item in cmap.section(sec):
+                    if item.id in existing_ids:
+                        # Replace existing item (later wins)
+                        merged_section[:] = [
+                            it if it.id != item.id else item.model_copy(deep=True)
+                            for it in merged_section
+                        ]
+                    else:
+                        merged_section.append(item.model_copy(deep=True))
+                        existing_ids.add(item.id)
+        return merged

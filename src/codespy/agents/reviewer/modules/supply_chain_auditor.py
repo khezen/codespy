@@ -9,7 +9,8 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import Hippocampus
-from codespy.agents.reviewer.models import Issue, IssueCategory, PRContext, ScopeResult
+from codespy.agents.memory.hippocampus import ContextMap
+from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
     issues_to_markdown,
@@ -240,8 +241,8 @@ class SupplyChainAuditor(dspy.Module):
         scopes: Sequence[ScopeResult],
         repo_path: Path,
         run_id: str | None = None,
-        pr_context: PRContext | None = None,
-    ) -> list[Issue]:
+        review_context: ReviewContext | None = None,
+    ) -> tuple[list[Issue], ContextMap | None]:
         """Analyze scopes for supply chain security vulnerabilities and return issues.
 
         For each scope, filesystem/parser tools are created rooted at
@@ -254,22 +255,23 @@ class SupplyChainAuditor(dspy.Module):
             repo_path: Path to the cloned repository for reading manifest files
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run (see ``Hippocampus.run_id``)
-            pr_context: PR context used to construct Hippocampus question per scope
+            review_context: ReviewContext containing PR identity and inherited memory
 
         Returns:
-            List of security issues found across all scopes
+            Tuple of (list of issues, merged context map or None)
         """
         # Check if supply chain signature is enabled
         if not self._settings.is_signature_enabled("supply_chain"):
             logger.debug("Skipping supply_chain: disabled")
-            return []
+            return [], review_context.memory if review_context else None
 
         # Check if any scope has supply-chain-relevant changes
         if not self._needs_analysis(scopes):
             logger.info("Skipping supply chain analysis: no dependency changes or Dockerfiles modified")
-            return []
+            return [], review_context.memory if review_context else None
 
         all_issues: list[Issue] = []
+        scope_memories: list[ContextMap] = []
         supply_chain_max_iters = self._settings.get_max_iters("supply_chain")
 
         # Create OSV tools once (shared across scopes, no filesystem root)
@@ -322,12 +324,13 @@ class SupplyChainAuditor(dspy.Module):
                         f"manifest={bool(manifest_path)}"
                     )
                     # Track supply_chain signature costs separately
+                    mem: Hippocampus | None = None
                     async with SignatureContext("supply_chain", self._cost_tracker):
                         if self._settings.get_memory_enabled("supply_chain"):
                             question = (
                                 f"review supply chain of {scope.repo}: {scope.subroot}: "
-                                f"pull request {pr_context.mr_number} {pr_context.mr_title}: {pr_context.summary}"
-                            ) if pr_context else None
+                                f"pull request {review_context.pr_context.mr_number} {review_context.pr_context.mr_title}: {review_context.pr_context.summary}"
+                            ) if review_context else None
                             mem = Hippocampus(
                                 supply_chain_agent,
                                 budget=self._settings.get_memory_budget("supply_chain"),
@@ -337,6 +340,7 @@ class SupplyChainAuditor(dspy.Module):
                                 question=question,
                                 task_name="supply_chain",
                                 run_id=run_id,
+                                initial_memory=review_context.memory if review_context else None,
                             )
                             result = await mem.aforward(
                                 manifest_path=manifest_path,
@@ -353,6 +357,9 @@ class SupplyChainAuditor(dspy.Module):
                                 scope.scope_path(),
                                 artifacts={"review": issues_to_markdown(issues)},
                             )
+                            # Collect scope's context map
+                            if mem:
+                                scope_memories.append(mem.cmap.model_copy(deep=True))
                         else:
                             result = await supply_chain_agent.acall(
                                 manifest_path=manifest_path,
@@ -376,15 +383,21 @@ class SupplyChainAuditor(dspy.Module):
             await cleanup_mcp_contexts(osv_contexts)
 
         logger.info(f"Security audit found {len(all_issues)} issues")
-        return all_issues
+        # Merge all scope context maps into one module-level map
+        merged_memory = (
+            ContextMap.merge(*scope_memories)
+            if scope_memories
+            else (review_context.memory if review_context else None)
+        )
+        return all_issues, merged_memory
 
     def forward(
         self,
         scopes: Sequence[ScopeResult],
         repo_path: Path,
         run_id: str | None = None,
-        pr_context: PRContext | None = None,
-    ) -> list[Issue]:
+        review_context: ReviewContext | None = None,
+    ) -> tuple[list[Issue], ContextMap | None]:
         """Analyze scopes for supply chain security vulnerabilities (sync wrapper).
 
         Args:
@@ -392,9 +405,9 @@ class SupplyChainAuditor(dspy.Module):
             repo_path: Path to the cloned repository for reading manifest files
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run
-            pr_context: PR context used to construct Hippocampus question per scope
+            review_context: ReviewContext containing PR identity and inherited memory
 
         Returns:
-            List of security issues found across all scopes
+            Tuple of (list of issues, merged context map or None)
         """
-        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id, pr_context=pr_context))
+        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id, review_context=review_context))

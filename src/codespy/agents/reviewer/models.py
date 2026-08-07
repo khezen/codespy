@@ -6,6 +6,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator
 
+from codespy.agents.memory.hippocampus import ContextMap
+
 
 class PRContext(BaseModel):
     """Shared PR identity passed to all review modules after summarization.
@@ -19,6 +21,18 @@ class PRContext(BaseModel):
     mr_number: int = Field(description="MR/PR number")
     mr_title: str = Field(description="MR/PR title")
     summary: str = Field(description="2-3 sentence PR summary produced by Summarizer")
+
+
+class ReviewContext(BaseModel):
+    """Evolving pipeline state threaded through review stages.
+
+    Carries both the immutable PR identity and the inherited context map
+    (memory) from upstream pipeline stages. Updated at each stage boundary
+    so downstream modules inherit accumulated understanding.
+    """
+
+    pr_context: PRContext = Field(description="Immutable PR identity (repo, number, title, summary)")
+    memory: ContextMap | None = Field(default=None, description="Inherited context map from upstream stages")
 
 
 class IssueSeverity(str, Enum):

@@ -9,7 +9,8 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import Hippocampus
-from codespy.agents.reviewer.models import Issue, IssueCategory, PRContext, ScopeResult
+from codespy.agents.memory.hippocampus import ContextMap
+from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
 from codespy.agents.reviewer.modules.doc_extractor import extract_documentation
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
@@ -117,8 +118,8 @@ class DocReviewer(dspy.Module):
         scopes: Sequence[ScopeResult],
         repo_path: Path,
         run_id: str | None = None,
-        pr_context: PRContext | None = None,
-    ) -> list[Issue]:
+        review_context: ReviewContext | None = None,
+    ) -> tuple[list[Issue], ContextMap | None]:
         """Analyze scopes for documentation issues.
 
         Args:
@@ -126,19 +127,20 @@ class DocReviewer(dspy.Module):
             repo_path: Path to the cloned repository
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run (see ``Hippocampus.run_id``)
-            pr_context: PR context used to construct Hippocampus question per scope
+            review_context: ReviewContext containing PR identity and inherited memory
 
         Returns:
-            List of documentation issues found across all scopes
+            Tuple of (list of issues, merged context map or None)
         """
         if not self._settings.is_signature_enabled("doc"):
             logger.debug("Skipping doc: disabled")
-            return []
+            return [], review_context.memory if review_context else None
         changed_scopes = [s for s in scopes if s.has_changes and s.changed_files]
         if not changed_scopes:
             logger.info("No scopes with changes for doc review")
-            return []
+            return [], review_context.memory if review_context else None
         all_issues: list[Issue] = []
+        scope_memories: list[ContextMap] = []
         total_files = sum(len(s.changed_files) for s in changed_scopes)
         logger.info(
             f"Doc review for {len(changed_scopes)} scopes "
@@ -170,12 +172,13 @@ class DocReviewer(dspy.Module):
                     f"  Doc review: scope {scope.subroot} "
                     f"({len(scope.changed_files)} files)"
                 )
+                mem: Hippocampus | None = None
                 async with SignatureContext("doc", self._cost_tracker):
                     if self._settings.get_memory_enabled("doc"):
                         question = (
                             f"review documentation of {scope.repo}: {scope.subroot}: "
-                            f"pull request {pr_context.mr_number} {pr_context.mr_title}: {pr_context.summary}"
-                        ) if pr_context else None
+                            f"pull request {review_context.pr_context.mr_number} {review_context.pr_context.mr_title}: {review_context.pr_context.summary}"
+                        ) if review_context else None
                         mem = Hippocampus(
                             reviewer,
                             budget=self._settings.get_memory_budget("doc"),
@@ -183,6 +186,7 @@ class DocReviewer(dspy.Module):
                             question=question,
                             task_name="doc",
                             run_id=run_id,
+                            initial_memory=review_context.memory if review_context else None,
                         )
                         result = await mem.aforward(
                             patches=patches,
@@ -198,6 +202,9 @@ class DocReviewer(dspy.Module):
                             scope.scope_path(),
                             artifacts={"review": issues_to_markdown(issues)},
                         )
+                        # Collect scope's context map
+                        if mem:
+                            scope_memories.append(mem.cmap.model_copy(deep=True))
                     else:
                         result = await asyncio.to_thread(
                             reviewer,
@@ -218,15 +225,21 @@ class DocReviewer(dspy.Module):
                 logger.error(f"Doc review failed for scope {scope.subroot}: {e}")
 
         logger.info(f"Doc review found {len(all_issues)} issues")
-        return all_issues
+        # Merge all scope context maps into one module-level map
+        merged_memory = (
+            ContextMap.merge(*scope_memories)
+            if scope_memories
+            else (review_context.memory if review_context else None)
+        )
+        return all_issues, merged_memory
 
     def forward(
         self,
         scopes: Sequence[ScopeResult],
         repo_path: Path,
         run_id: str | None = None,
-        pr_context: PRContext | None = None,
-    ) -> list[Issue]:
+        review_context: ReviewContext | None = None,
+    ) -> tuple[list[Issue], ContextMap | None]:
         """Analyze scopes for documentation issues (sync wrapper).
 
         Args:
@@ -234,9 +247,9 @@ class DocReviewer(dspy.Module):
             repo_path: Path to the cloned repository
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run
-            pr_context: PR context used to construct Hippocampus question per scope
+            review_context: ReviewContext containing PR identity and inherited memory
 
         Returns:
-            List of documentation issues found across all scopes
+            Tuple of (list of issues, merged context map or None)
         """
-        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id, pr_context=pr_context))
+        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id, review_context=review_context))

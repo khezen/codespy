@@ -5,7 +5,7 @@ import logging
 import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.memory.hippocampus import Hippocampus
+from codespy.agents.memory.hippocampus import ContextMap, Hippocampus
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 
@@ -47,7 +47,7 @@ class Summarizer(dspy.Module):
         changed_file_paths: list[str],
         repo_slug: str,
         run_id: str | None = None,
-    ) -> str:
+    ) -> tuple[str, ContextMap | None]:
         """Generate a PR summary.
 
         Args:
@@ -59,17 +59,19 @@ class Summarizer(dspy.Module):
             run_id: Pipeline run identifier
 
         Returns:
-            The summary string (2-3 sentences)
+            Tuple of (summary string, final context map or None)
         """
+
         if not self._settings.is_signature_enabled("summary"):
             logger.debug("Skipping summary: disabled")
-            return mr_title or "No title"
+            return mr_title or "No title", None
 
         summarizer = dspy.ChainOfThought(PRSummarySignature)
         logger.info("Generating PR summary...")
 
         question = f"summarize {repo_slug}: pull request {mr_number} {mr_title}"
 
+        mem: Hippocampus | None = None
         with SignatureContext("summary", self._cost_tracker):
             if self._settings.get_memory_enabled("summary"):
                 mem = Hippocampus(
@@ -98,4 +100,6 @@ class Summarizer(dspy.Module):
                 )
 
         logger.info(f"PR summary: {result.summary[:80]}...")
-        return result.summary
+        # Return final context map when memory is enabled
+        final_memory = mem.cmap.model_copy(deep=True) if mem else None
+        return result.summary, final_memory

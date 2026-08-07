@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import Hippocampus
-from codespy.agents.reviewer.models import PackageManifest, PRContext, ScopeResult, ScopeType
+from codespy.agents.memory.hippocampus import ContextMap
+from codespy.agents.reviewer.models import PackageManifest, ReviewContext, ScopeResult, ScopeType
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 from codespy.tools.git.models import ChangedFile, MergeRequest, should_review_file
@@ -237,8 +238,8 @@ class ScopeIdentifier(dspy.Module):
         repo_path: Path,
         is_local: bool = False,
         run_id: str | None = None,
-        pr_context: PRContext | None = None,
-    ) -> list[ScopeResult]:
+        review_context: ReviewContext | None = None,
+    ) -> tuple[list[ScopeResult], ContextMap | None]:
         """Identify scopes in the repository for the given MR.
 
         Args:
@@ -247,7 +248,10 @@ class ScopeIdentifier(dspy.Module):
             is_local: If True, repo is already on disk (skip cloning)
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run (see ``Hippocampus.run_id``)
-            pr_context: PR context used to construct Hippocampus question
+            review_context: ReviewContext containing PR identity and inherited memory
+
+        Returns:
+            Tuple of (list of ScopeResult, final context map or None)
         """
         # Get excluded directories from settings
         excluded_dirs = self._settings.excluded_directories
@@ -283,7 +287,7 @@ class ScopeIdentifier(dspy.Module):
                 package_manifest=None,
                 changed_files=reviewable_files,
                 reason="Scope identification disabled - fallback to single scope",
-            )]
+            )], review_context.memory if review_context else None
 
         tools, contexts = await self._create_mcp_tools(repo_path, is_local=is_local)
         changed_file_paths = [f.filename for f in reviewable_files]
@@ -302,13 +306,14 @@ class ScopeIdentifier(dspy.Module):
                 max_iters=max_iters,
             )
             logger.info(f"Identifying scopes for {len(changed_file_paths)} changed files...")
-            # Track scope signature costs
+            mem: Hippocampus | None = None
+            final_memory: ContextMap | None = review_context.memory if review_context else None
             async with SignatureContext("scope", self._cost_tracker):
                 if self._settings.get_memory_enabled("scope"):
                     question = (
-                        f"identify scopes of {pr_context.repo_slug}: "
-                        f"pull request {pr_context.mr_number} {pr_context.mr_title}: {pr_context.summary}"
-                    ) if pr_context else None
+                        f"identify scopes of {review_context.pr_context.repo_slug}: "
+                        f"pull request {review_context.pr_context.mr_number} {review_context.pr_context.mr_title}: {review_context.pr_context.summary}"
+                    ) if review_context else None
                     mem = Hippocampus(
                         agent,
                         budget=self._settings.get_memory_budget("scope"),
@@ -316,6 +321,7 @@ class ScopeIdentifier(dspy.Module):
                         question=question,
                         task_name="scope",
                         run_id=run_id,
+                        initial_memory=review_context.memory if review_context else None,
                     )
                     result = await mem.aforward(
                         changed_files=changed_file_paths,
@@ -355,6 +361,8 @@ class ScopeIdentifier(dspy.Module):
             scopes = self._convert_assignments_to_results(
                 scope_assignments, changed_files_map, repo
             )
+            # Capture final memory after successful execution
+            final_memory = mem.cmap.model_copy(deep=True) if mem else (review_context.memory if review_context else None)
         except Exception as e:
             logger.error(f"Agent failed: {e}")
             scopes = [ScopeResult(
@@ -374,7 +382,7 @@ class ScopeIdentifier(dspy.Module):
         # Log results
         total_files = sum(len(s.changed_files) for s in scopes)
         logger.info(f"Identified {len(scopes)} scopes covering {total_files} files")
-        return scopes
+        return scopes, final_memory
 
     def _convert_assignments_to_results(
         self,
@@ -421,7 +429,7 @@ class ScopeIdentifier(dspy.Module):
         repo_path: Path,
         is_local: bool = False,
         run_id: str | None = None,
-        pr_context: PRContext | None = None,
-    ) -> list[ScopeResult]:
+        review_context: ReviewContext | None = None,
+    ) -> tuple[list[ScopeResult], ContextMap | None]:
         """Identify scopes (sync wrapper)."""
-        return asyncio.run(self.aforward(mr, repo_path, is_local=is_local, run_id=run_id, pr_context=pr_context))
+        return asyncio.run(self.aforward(mr, repo_path, is_local=is_local, run_id=run_id, review_context=review_context))

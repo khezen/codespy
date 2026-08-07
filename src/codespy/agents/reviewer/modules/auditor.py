@@ -7,7 +7,7 @@ import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import Hippocampus
-from codespy.agents.reviewer.models import Issue, PRContext
+from codespy.agents.reviewer.models import Issue, ReviewContext
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 from codespy.tools.git.models import ChangedFile
@@ -53,7 +53,7 @@ class Auditor(dspy.Module):
 
     def forward(
         self,
-        pr_context: PRContext,
+        review_context: ReviewContext,
         changed_files: Sequence[ChangedFile],
         all_issues: Sequence[Issue],
         run_id: str | None = None,
@@ -61,7 +61,7 @@ class Auditor(dspy.Module):
         """Assess quality and recommend action.
 
         Args:
-            pr_context: PR context containing repo_slug, mr_number, mr_title, summary
+            review_context: ReviewContext containing PR identity and inherited memory
             changed_files: In-scope reviewable files
             all_issues: All issues found during review
             run_id: Pipeline run identifier
@@ -80,8 +80,8 @@ class Auditor(dspy.Module):
         logger.info("Running audit...")
 
         question = (
-            f"final audit of {pr_context.repo_slug}: "
-            f"pull request {pr_context.mr_number} {pr_context.mr_title}: {pr_context.summary}"
+            f"final audit of {review_context.pr_context.repo_slug}: "
+            f"pull request {review_context.pr_context.mr_number} {review_context.pr_context.mr_title}: {review_context.pr_context.summary}"
         )
 
         with SignatureContext("audit", self._cost_tracker):
@@ -93,16 +93,17 @@ class Auditor(dspy.Module):
                     question=question,
                     task_name="audit",
                     run_id=run_id,
+                    initial_memory=review_context.memory,
                 )
                 result = mem(
-                    mr_title=pr_context.mr_title,
-                    summary=pr_context.summary,
+                    mr_title=review_context.pr_context.mr_title,
+                    summary=review_context.pr_context.summary,
                     changed_files=list(changed_files),
                     all_issues=list(all_issues),
                 )
                 mem.end_episode(
                     get_memory_store(self._settings),
-                    f"/{pr_context.repo_slug}/",
+                    f"/{review_context.pr_context.repo_slug}/",
                     artifacts={
                         "audit": (
                             f"## Quality Assessment\n\n{result.quality_assessment}\n\n"
@@ -112,8 +113,8 @@ class Auditor(dspy.Module):
                 )
             else:
                 result = auditor(
-                    mr_title=pr_context.mr_title,
-                    summary=pr_context.summary,
+                    mr_title=review_context.pr_context.mr_title,
+                    summary=review_context.pr_context.summary,
                     changed_files=list(changed_files),
                     all_issues=list(all_issues),
                 )
