@@ -8,12 +8,17 @@ from typing import Any
 
 from codespy.tools.parsers.treesitter.base_extractor import BaseExtractor
 from codespy.tools.parsers.treesitter.extractors import (
+    BashExtractor,
+    CppExtractor,
+    CSharpExtractor,
     GoExtractor,
     JavaExtractor,
     JavaScriptExtractor,
     KotlinExtractor,
     ObjCExtractor,
+    PHPExtractor,
     PythonExtractor,
+    RubyExtractor,
     RustExtractor,
     SwiftExtractor,
     TerraformExtractor,
@@ -41,6 +46,28 @@ try:
     from tree_sitter import Language, Node, Parser
 
     TREE_SITTER_AVAILABLE = True
+
+    # Try to import new language grammars (optional)
+    try:
+        import tree_sitter_cpp as ts_cpp
+    except ImportError:
+        ts_cpp = None  # type: ignore
+    try:
+        import tree_sitter_c_sharp as ts_csharp
+    except ImportError:
+        ts_csharp = None  # type: ignore
+    try:
+        import tree_sitter_ruby as ts_ruby
+    except ImportError:
+        ts_ruby = None  # type: ignore
+    try:
+        import tree_sitter_php as ts_php
+    except ImportError:
+        ts_php = None  # type: ignore
+    try:
+        import tree_sitter_bash as ts_bash
+    except ImportError:
+        ts_bash = None  # type: ignore
 except ImportError:
     TREE_SITTER_AVAILABLE = False
     Parser = Any  # type: ignore[misc]
@@ -75,6 +102,21 @@ class TreeSitterParser:
         "rs": ("rust", ["function_item"]),
         "tf": ("hcl", ["block"]),
         "tfvars": ("hcl", ["block"]),
+        # New languages
+        "c": ("cpp", ["function_definition"]),
+        "cpp": ("cpp", ["function_definition"]),
+        "cc": ("cpp", ["function_definition"]),
+        "cxx": ("cpp", ["function_definition"]),
+        "h": ("cpp", ["function_definition"]),
+        "hpp": ("cpp", ["function_definition"]),
+        "hh": ("cpp", ["function_definition"]),
+        "hxx": ("cpp", ["function_definition"]),
+        "cs": ("csharp", ["method_declaration", "constructor_declaration"]),
+        "rb": ("ruby", ["method", "singleton_method"]),
+        "php": ("php", ["function_definition", "method_declaration"]),
+        "sh": ("bash", ["function_definition"]),
+        "bash": ("bash", ["function_definition"]),
+        "zsh": ("bash", ["function_definition"]),
     }
 
     def __init__(self, repo_path: Path) -> None:
@@ -111,6 +153,12 @@ class TreeSitterParser:
             "objc": ObjCExtractor(),
             "rust": RustExtractor(),
             "hcl": TerraformExtractor(),
+            # New languages
+            "cpp": CppExtractor(),
+            "csharp": CSharpExtractor(),
+            "ruby": RubyExtractor(),
+            "php": PHPExtractor(),
+            "bash": BashExtractor(),
         }
 
     def _init_languages(self) -> None:
@@ -130,11 +178,20 @@ class TreeSitterParser:
             ("objc", lambda: ts_objc.language()),
             ("rust", lambda: ts_rust.language()),
             ("hcl", lambda: ts_hcl.language()),
+            # New languages (conditional)
+            ("cpp", lambda: ts_cpp.language() if ts_cpp else None),
+            ("csharp", lambda: ts_csharp.language() if ts_csharp else None),
+            ("ruby", lambda: ts_ruby.language() if ts_ruby else None),
+            ("php", lambda: ts_php.language() if ts_php else None),
+            ("bash", lambda: ts_bash.language() if ts_bash else None),
         ]
 
         for lang_name, lang_func in language_configs:
             try:
-                self._languages[lang_name] = Language(lang_func())
+                lang_result = lang_func()
+                if lang_result is None:
+                    continue  # Language grammar not available
+                self._languages[lang_name] = Language(lang_result)
                 parser = Parser(self._languages[lang_name])
                 self._parsers[lang_name] = parser
             except Exception as e:
