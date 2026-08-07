@@ -10,6 +10,7 @@ from codespy.tools.parsers.treesitter.extractors.kotlin import KotlinExtractor
 from codespy.tools.parsers.treesitter.extractors.objc import ObjCExtractor
 from codespy.tools.parsers.treesitter.extractors.php import PHPExtractor
 from codespy.tools.parsers.treesitter.extractors.python import PythonExtractor
+from codespy.tools.parsers.treesitter.extractors.ripgrep_fallback import RipgrepHeuristicsExtractor
 from codespy.tools.parsers.treesitter.extractors.ruby import RubyExtractor
 from codespy.tools.parsers.treesitter.extractors.rust import RustExtractor
 from codespy.tools.parsers.treesitter.extractors.swift import SwiftExtractor
@@ -26,6 +27,7 @@ __all__ = [
     "ObjCExtractor",
     "PHPExtractor",
     "PythonExtractor",
+    "RipgrepHeuristicsExtractor",
     "RubyExtractor",
     "RustExtractor",
     "SwiftExtractor",
