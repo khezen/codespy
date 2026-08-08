@@ -12,6 +12,7 @@ from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 from codespy.config import Settings, get_settings
 from codespy.tools.git import GitClient, get_client, ChangedFile, MergeRequest
 from codespy.tools.git.local_diff import build_mr_from_diff
+from codespy.tools.git.patch_utils import compact_patches
 from codespy.agents.memory.hippocampus import ContextMap
 from codespy.agents.reviewer.models import (
     Issue,
@@ -215,6 +216,10 @@ class ReviewPipeline(dspy.Module):
 
         # Update ReviewContext with Scope Identifier's memory for downstream modules
         review_ctx = ReviewContext(pr_context=pr_context, memory=scope_memory)
+
+        # Compact patches: expand context to function bodies for better review context
+        logger.info("Compacting patches to function boundaries...")
+        compact_patches(scopes, repo_path)
 
         # Step 3: Run review modules concurrently via asyncio.gather (inherit Scope Identifier memory)
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
