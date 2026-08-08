@@ -106,7 +106,7 @@ class DocReviewer(dspy.Module):
         self._settings = get_settings()
 
     def _build_patches(self, scope: ScopeResult) -> str:
-        """Build compact patches representation."""
+        """Build patches representation for review."""
         parts: list[str] = []
         for f in scope.changed_files:
             if f.patch:

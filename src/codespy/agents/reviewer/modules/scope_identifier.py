@@ -265,7 +265,7 @@ class ScopeIdentifier(dspy.Module):
         
         if not reviewable_files:
             logger.warning("No reviewable files in MR - all files are binary, lock files, or in excluded directories")
-            return []
+            return [], review_context.memory if review_context else None
         
         # Repo identifier for this review, stamped onto every ScopeResult
         # (used by Hippocampus memory to build the episode path). Uses the
