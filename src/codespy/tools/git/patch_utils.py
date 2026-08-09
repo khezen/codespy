@@ -410,16 +410,11 @@ def _rebuild_patch(
             if line_num <= len(source_lines):
                 new_hunk_lines.append(f" {source_lines[line_num - 1]}")
 
-        # Add original hunk lines (excluding context lines that are now part of expansion)
+        # Add all original hunk lines (context + changes).
+        # No overlap with expansion context: pre-expansion ends at hunk_start_new,
+        # post-expansion begins at hunk_end_new + 1, so interior context is unique.
         original_lines = original_hunk.get("lines", [])
-        for line in original_lines:
-            if line.startswith(" "):
-                # Check if this context line is within our expansion range
-                # We already added the expansion context, so skip original context
-                # that overlaps with expansion
-                pass
-            else:
-                new_hunk_lines.append(line)
+        new_hunk_lines.extend(original_lines)
 
         # Add context lines after the original hunk (from hunk_end_new + 1 to expansion_end)
         for line_num in range(hunk_end_new + 1, expansion_end + 1):
