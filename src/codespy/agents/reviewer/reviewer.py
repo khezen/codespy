@@ -122,7 +122,7 @@ class ReviewPipeline(dspy.Module):
         context_maps: dict[str, ContextMap | None] = {}
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                logger.error(f"{module_names[i]} failed: {result}")
+                logger.error(f"{module_names[i]} failed: {result}", exc_info=result)
             elif result is not None:
                 issues, ctx_map = result
                 all_issues.extend(issues)

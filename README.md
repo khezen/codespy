@@ -693,16 +693,21 @@ Tree-sitter based parsing for context-aware analysis:
 
 | Language | Extensions | Features |
 |----------|-----------|----------|
-| Python | `.py` | Functions, classes, imports |
-| JavaScript | `.js`, `.jsx` | Functions, classes, imports |
-| TypeScript | `.ts`, `.tsx` | Functions, classes, interfaces |
+| Bash | `.sh`, `.bash` | Functions, commands |
+| C/C++ | `.c`, `.cpp`, `.h`, `.hpp` | Functions, classes, structs |
+| C# | `.cs` | Methods, classes, interfaces |
 | Go | `.go` | Functions, structs, interfaces |
 | Java | `.java` | Methods, classes, packages |
+| JavaScript | `.js`, `.jsx` | Functions, classes, imports |
 | Kotlin | `.kt` | Functions, classes, objects |
-| Swift | `.swift` | Functions, classes, structs |
 | Objective-C | `.m`, `.h` | Methods, interfaces, protocols |
+| PHP | `.php` | Functions, classes, namespaces |
+| Python | `.py` | Functions, classes, imports |
+| Ruby | `.rb` | Methods, classes, modules |
 | Rust | `.rs` | Functions, structs, traits, impl blocks |
+| Swift | `.swift` | Functions, classes, structs |
 | Terraform | `.tf` | Resources, data sources, modules, variables |
+| TypeScript | `.ts`, `.tsx` | Functions, classes, interfaces |
 
 All languages are supported for security, bug, and documentation analysis.
 

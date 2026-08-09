@@ -364,7 +364,7 @@ class ScopeIdentifier(dspy.Module):
             # Capture final memory after successful execution
             final_memory = mem.cmap.model_copy(deep=True) if mem else (review_context.memory if review_context else None)
         except Exception as e:
-            logger.error(f"Agent failed: {e}")
+            logger.error(f"Agent failed: {e}", exc_info=True)
             scopes = [ScopeResult(
                 repo=repo,
                 subroot=".",

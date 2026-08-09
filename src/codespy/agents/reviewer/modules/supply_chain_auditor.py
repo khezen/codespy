@@ -376,7 +376,7 @@ class SupplyChainAuditor(dspy.Module):
                     all_issues.extend(issues)
                     logger.debug(f"  Supply chain security in scope {scope.subroot}: {len(issues)} issues")
                 except Exception as e:
-                    logger.error(f"Error analyzing supply chain in scope {scope.subroot}: {e}")
+                    logger.error(f"Error analyzing supply chain in scope {scope.subroot}: {e}", exc_info=True)
                 finally:
                     await cleanup_mcp_contexts(scoped_contexts)
         finally:

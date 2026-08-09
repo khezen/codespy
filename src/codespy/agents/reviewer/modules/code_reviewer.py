@@ -285,7 +285,7 @@ class CodeReviewer(dspy.Module):
                     f"  Scope {scope.subroot}: {len(issues)} code review issues"
                 )
             except Exception as e:
-                logger.error(f"Code review failed for scope {scope.subroot}: {e}")
+                logger.error(f"Code review failed for scope {scope.subroot}: {e}", exc_info=True)
             finally:
                 await cleanup_mcp_contexts(contexts)
 

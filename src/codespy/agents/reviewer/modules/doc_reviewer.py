@@ -150,7 +150,7 @@ class DocReviewer(dspy.Module):
             try:
                 documentation = extract_documentation(scope_root)
             except Exception as e:
-                logger.error(f"Doc extraction failed for scope {scope.subroot}: {e}")
+                logger.error(f"Doc extraction failed for scope {scope.subroot}: {e}", exc_info=True)
                 documentation = ""
             if not documentation.strip():
                 logger.debug(
@@ -219,7 +219,7 @@ class DocReviewer(dspy.Module):
                     f"  Scope {scope.subroot}: {len(issues)} doc issues"
                 )
             except Exception as e:
-                logger.error(f"Doc review failed for scope {scope.subroot}: {e}")
+                logger.error(f"Doc review failed for scope {scope.subroot}: {e}", exc_info=True)
 
         logger.info(f"Doc review found {len(all_issues)} issues")
         # Merge all scope context maps into one module-level map
