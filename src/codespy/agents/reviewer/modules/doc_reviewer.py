@@ -145,6 +145,11 @@ class DocReviewer(dspy.Module):
         )
         for scope in changed_scopes:
             scope_root = resolve_scope_root(repo_path, scope.subroot)
+            if not scope_root.exists():
+                logger.debug(
+                    f"  Scope directory does not exist (deleted/moved files): {scope.subroot}"
+                )
+                continue
             # Step 1: Extract documentation (deterministic — no LLM)
             logger.info(f"  Doc extraction: scope {scope.subroot}")
             try:

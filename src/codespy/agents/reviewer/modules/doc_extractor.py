@@ -59,6 +59,9 @@ def extract_documentation(scope_root: Path) -> str:
         Concatenated documentation with ``=== filename ===`` headers,
         or empty string if no documentation exists.
     """
+    if not scope_root.exists():
+        logger.debug("Scope root does not exist, skipping: %s", scope_root)
+        return ""
     fs = FileSystem(scope_root, create_if_missing=False)
 
     # One tree scan — depth 2 covers root files + immediate subdirs.
