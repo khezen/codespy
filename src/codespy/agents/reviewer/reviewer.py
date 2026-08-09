@@ -28,7 +28,7 @@ from codespy.agents.reviewer.modules import (
     Auditor,
     CodeReviewer,
     DocReviewer,
-    ScopeIdentifier,
+    ScopeResolver,
     Summarizer,
     SupplyChainAuditor,
 )
@@ -49,7 +49,7 @@ class ReviewPipeline(dspy.Module):
         configure_dspy(self.settings)
 
         # Initialize all modules - they internally check if their signatures are enabled
-        self.scope_identifier = ScopeIdentifier()
+        self.scope_resolver = ScopeResolver()
         self.code_reviewer = CodeReviewer()
         self.doc_reviewer = DocReviewer()
         self.supply_chain_auditor = SupplyChainAuditor()
@@ -204,7 +204,7 @@ class ReviewPipeline(dspy.Module):
         # Step 2: Identify scopes (inherits Summarizer memory)
         is_local = isinstance(config, LocalReviewConfig)
         logger.info("Identifying code scopes...")
-        scopes, scope_memory = self.scope_identifier(
+        scopes, scope_memory = self.scope_resolver(
             mr, repo_path, is_local=is_local, run_id=run_id, review_context=review_ctx
         )
         for scope in scopes:
@@ -279,7 +279,7 @@ class ReviewPipeline(dspy.Module):
         summarizer operates on the same focused set as the review modules.
 
         Args:
-            scopes: Identified scopes from scope_identifier
+            scopes: Identified scopes from scope_resolver
 
         Returns:
             De-duplicated list of ChangedFile objects from all scopes
