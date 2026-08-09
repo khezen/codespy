@@ -14,6 +14,7 @@ from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, 
 from codespy.agents.reviewer.modules.doc_extractor import extract_documentation
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
+    build_patches,
     issues_to_markdown,
     make_scope_relative,
     resolve_scope_root,
@@ -107,11 +108,7 @@ class DocReviewer(dspy.Module):
 
     def _build_patches(self, scope: ScopeResult) -> str:
         """Build patches representation for review."""
-        parts: list[str] = []
-        for f in scope.changed_files:
-            if f.patch:
-                parts.append(f"--- {f.filename} ---\n{f.patch}")
-        return "\n\n".join(parts)
+        return build_patches(scope.changed_files)
 
     async def aforward(
         self,

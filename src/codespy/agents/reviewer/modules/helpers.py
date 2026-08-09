@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 
 from codespy.tools.git.models import ChangedFile
 from codespy.agents.reviewer.models import Issue
@@ -180,6 +180,26 @@ def restore_repo_paths(issues: list[Issue], subroot: str) -> None:
     for issue in issues:
         if issue.filename and not issue.filename.startswith(prefix):
             issue.filename = prefix + issue.filename
+
+
+def build_patches(files: Sequence[ChangedFile]) -> str:
+    """Build a patches string from a sequence of changed files.
+
+    Each patch is prefixed with its filename in the format:
+    --- {filename} ---
+    {patch content}
+
+    Args:
+        files: Sequence of ChangedFile objects
+
+    Returns:
+        Concatenated patches string, or empty string if no patches
+    """
+    parts: list[str] = []
+    for f in files:
+        if f.patch:
+            parts.append(f"--- {f.filename} ---\n{f.patch}")
+    return "\n\n".join(parts)
 
 
 def issues_to_markdown(issues: list[Issue]) -> str:

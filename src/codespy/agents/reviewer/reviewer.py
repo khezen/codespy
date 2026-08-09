@@ -32,6 +32,7 @@ from codespy.agents.reviewer.modules import (
     Summarizer,
     SupplyChainAuditor,
 )
+from codespy.agents.reviewer.modules.helpers import build_patches
 
 logger = logging.getLogger(__name__)
 
@@ -179,11 +180,13 @@ class ReviewPipeline(dspy.Module):
 
         # Step 1: Run Summarizer (before scope identification)
         changed_file_paths = [f.filename for f in mr.changed_files]
+        patches = build_patches(mr.changed_files)
         pr_summary, summarizer_memory = self.summarizer(
             mr_title=mr.title,
             mr_description=mr.body or "No description provided.",
             mr_number=mr.number,
             changed_file_paths=changed_file_paths,
+            patches=patches,
             repo_slug=mr.repo_slug,
             run_id=run_id,
         )

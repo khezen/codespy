@@ -16,14 +16,17 @@ class PRSummarySignature(dspy.Signature):
     """Summarize what a merge request does in 2-3 sentences.
 
     You are a busy Principal Engineer. Be extremely terse. State facts only.
-    Based on the title, description, and changed file paths, describe
-    what this MR accomplishes. No polite filler. No conversational language.
+    Based on the title, description, changed file paths, and code patches,
+    describe what this MR accomplishes. No polite filler. No conversational language.
     """
 
     mr_title: str = dspy.InputField(desc="Title of the merge request")
     mr_description: str = dspy.InputField(desc="Description/body of the MR")
     changed_file_paths: list[str] = dspy.InputField(
         desc="List of changed file paths from the MR"
+    )
+    patches: str = dspy.InputField(
+        desc="Unified diff patches showing code changes. Each patch is prefixed with the filename."
     )
 
     summary: str = dspy.OutputField(
@@ -45,6 +48,7 @@ class Summarizer(dspy.Module):
         mr_description: str,
         mr_number: int,
         changed_file_paths: list[str],
+        patches: str,
         repo_slug: str,
         run_id: str | None = None,
     ) -> tuple[str, ContextMap | None]:
@@ -55,6 +59,7 @@ class Summarizer(dspy.Module):
             mr_description: Description/body of the MR
             mr_number: MR/PR number
             changed_file_paths: List of changed file paths
+            patches: Unified diff patches showing code changes
             repo_slug: Host-qualified repo slug for episode path
             run_id: Pipeline run identifier
 
@@ -86,6 +91,7 @@ class Summarizer(dspy.Module):
                     mr_title=mr_title,
                     mr_description=mr_description,
                     changed_file_paths=changed_file_paths,
+                    patches=patches,
                 )
                 mem.end_episode(
                     get_memory_store(self._settings),
@@ -97,6 +103,7 @@ class Summarizer(dspy.Module):
                     mr_title=mr_title,
                     mr_description=mr_description,
                     changed_file_paths=changed_file_paths,
+                    patches=patches,
                 )
 
         logger.info(f"PR summary: {result.summary[:80]}...")
