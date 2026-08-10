@@ -333,8 +333,8 @@ def _merge_hunks(expanded_hunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if len(expanded_hunks) <= 1:
         return expanded_hunks
 
-    # Sort by expansion start
-    sorted_hunks = sorted(expanded_hunks, key=lambda h: h.get("expansion_start", 0))
+    # Sort by expansion start (fallback to new_start for non-expanded hunks)
+    sorted_hunks = sorted(expanded_hunks, key=lambda h: h.get("expansion_start", h.get("new_start", 0)))
 
     merged = [sorted_hunks[0]]
 
@@ -345,7 +345,9 @@ def _merge_hunks(expanded_hunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         last_end = last.get("expansion_end", 0)
         current_start = hunk.get("expansion_start", 0)
 
-        if current_start <= last_end + 1:  # Overlapping or adjacent
+        # Only merge expanded hunks (those with expansion boundaries)
+        can_merge = "expansion_start" in last and "expansion_start" in hunk
+        if can_merge and current_start <= last_end + 1:  # Overlapping or adjacent
             # Merge: extend the end if needed
             last["expansion_end"] = max(last_end, hunk.get("expansion_end", 0))
             # Keep track of original hunks for reconstruction

@@ -90,6 +90,7 @@ class Auditor(dspy.Module):
         )
 
         with SignatureContext("audit", self._cost_tracker):
+            mem: Hippocampus | None = None
             if self._settings.get_memory_enabled("audit"):
                 mem = Hippocampus(
                     auditor,

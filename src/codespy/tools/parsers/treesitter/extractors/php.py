@@ -23,7 +23,7 @@ class PHPExtractor(BaseExtractor):
 
         def visit(n: Any, in_class: bool = False) -> None:
             if n.type == "function_definition":
-                func_info = self._extract_function_info(n, file_path, source, in_class)
+                func_info = self._extract_function_info(n, file_path, source)
                 if func_info:
                     functions.append(func_info)
 
@@ -55,7 +55,6 @@ class PHPExtractor(BaseExtractor):
         func_node: Any,
         file_path: Path,
         source: bytes,
-        in_class: bool,
     ) -> FunctionInfo | None:
         """Extract function info from a function_definition node."""
         name_node = func_node.child_by_field_name("name")

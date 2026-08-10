@@ -241,12 +241,11 @@ class S3Client(Storage):
         truncated = False
 
         try:
-            raw: bytes = resp["Body"].read(max_bytes + 1)
+            raw: bytes = resp["Body"].read()
         except Exception as e:
             return Content(path=file_path, error=f"Error reading body: {e}", size=size, content_type=content_type)
 
         if len(raw) > max_bytes:
-            raw = raw[:max_bytes]
             truncated = True
 
         try:
@@ -263,6 +262,9 @@ class S3Client(Storage):
                 )
 
         total_lines = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
+
+        if truncated:
+            content = content[:max_bytes]
 
         if max_lines is not None:
             lines = content.split("\n")

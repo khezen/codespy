@@ -164,7 +164,8 @@ class Hippocampus(dspy.Module):
             module.signature = prepend_context_map(top_sig)
             for _, pred in module.named_predictors():
                 if set(pred.signature.input_fields) & module_inputs:
-                    pred.signature = prepend_context_map(pred.signature)
+                    if "context_map" not in pred.signature.input_fields:
+                        pred.signature = prepend_context_map(pred.signature)
         else:
             for _, pred in module.named_predictors():
                 pred.signature = prepend_context_map(pred.signature)
