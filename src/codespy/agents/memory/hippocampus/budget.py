@@ -143,8 +143,12 @@ def _format_step(i: int, entry: dict) -> str:
     parts = [f"--- Step {i + 1} ---"]
     if entry.get("reasoning"):
         parts.append(f"Reasoning: {entry['reasoning']}")
-    parts.append(f"Code:\n{entry['code']}")
-    parts.append(f"Output:\n{entry['output']}")
+    code = entry.get("code", "")
+    if code:
+        parts.append(f"Code:\n{code}")
+    output = entry.get("output", "")
+    if output:
+        parts.append(f"Output:\n{output}")
     return "\n".join(parts)
 
 

@@ -18,6 +18,9 @@ _caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 mcp = FastMCP("filesystem")
 _fs: FileSystem | None = None
 
+# Manual cache for read_file to skip caching error results
+_read_file_cache: dict[tuple[str, int, int | None], tuple] = {}
+
 
 def _get_fs() -> FileSystem:
     """Get the FileSystem instance, raising if not initialized."""
@@ -26,11 +29,16 @@ def _get_fs() -> FileSystem:
     return _fs
 
 
-@lru_cache(maxsize=256)
 def _read_file_cached(path: str, max_bytes: int, max_lines: int | None) -> tuple:
-    """Cached version of read_file."""
+    """Cached version of read_file that doesn't cache error results."""
+    key = (path, max_bytes, max_lines)
+    if key in _read_file_cache:
+        return _read_file_cache[key]
     result = _get_fs().read_file(path, max_bytes, max_lines)
-    return tuple(sorted(result.model_dump().items()))
+    dumped = tuple(sorted(result.model_dump().items()))
+    if not result.error:
+        _read_file_cache[key] = dumped
+    return dumped
 
 
 @mcp.tool()

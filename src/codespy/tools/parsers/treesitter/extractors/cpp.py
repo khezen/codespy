@@ -118,7 +118,7 @@ class CppExtractor(BaseExtractor):
         """Check if function is inside a class/struct context."""
         current = node
         while current:
-            if current.type in ("class_specifier", "struct_specifier", "namespace_definition"):
+            if current.type in ("class_specifier", "struct_specifier"):
                 return True
             current = current.parent
         return False

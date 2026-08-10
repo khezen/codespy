@@ -361,6 +361,18 @@ class S3Client(Storage):
                 error="Cannot delete: path resolves to bucket root",
             )
 
+        # Check existence first (matches filesystem semantics)
+        try:
+            self._s3.head_object(Bucket=self.bucket, Key=file_path)
+        except self._s3.exceptions.ClientError as e:
+            if self._client_error_code(e) == "404":
+                return OperationResult(
+                    success=False,
+                    path=file_path,
+                    error=f"File not found: {path}",
+                )
+            raise
+
         try:
             self._s3.delete_object(Bucket=self.bucket, Key=file_path)
             return OperationResult(

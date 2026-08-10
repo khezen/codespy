@@ -90,12 +90,12 @@ class RipgrepHeuristicsExtractor:
         (
             "sql",
             re.compile(
+                r"(?i)"  # case-insensitive inline flag
                 r"^[\s]*"  # leading whitespace
                 r"(?:CREATE\s+(?:OR\s+REPLACE\s+)?)?"  # optional CREATE OR REPLACE
                 r"(?:PROCEDURE|FUNCTION|TRIGGER)\s+"  # object type
                 r"(?:[\w.]+\s+)?"  # optional schema prefix
-                r"(\w+)",  # name
-                re.IGNORECASE,
+                r"(\w+)"  # name
             ),
         ),
     ]

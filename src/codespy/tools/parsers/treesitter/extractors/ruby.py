@@ -110,7 +110,7 @@ class RubyExtractor(BaseExtractor):
                 param_name = self._get_node_text(child, source)
                 if param_name and param_name not in ("(", ")", ",", "|", "&"):
                     params.append(param_name)
-            elif child.type in ("optional_parameter", "keyword_parameter"):
+            elif child.type == "optional_parameter":
                 name_node = child.child_by_field_name("name")
                 if name_node:
                     param_name = self._get_node_text(name_node, source)

@@ -203,9 +203,9 @@ def _calculate_costs_from_entries(entries: list[dict], exclude_uuids: set[str]) 
         Tuple of (total_cost, total_tokens, call_count)
     """
     total_cost = 0.0
-    total_tokens = 0.0
+    total_tokens = 0
     call_count = 0
-    
+
     for entry in entries:
         if not isinstance(entry, dict):
             continue
@@ -217,12 +217,12 @@ def _calculate_costs_from_entries(entries: list[dict], exclude_uuids: set[str]) 
             # Get tokens from usage
             usage = entry.get("usage")
             if isinstance(usage, dict):
-                total_tokens += _as_number(usage.get("prompt_tokens"))
-                total_tokens += _as_number(usage.get("completion_tokens"))
+                total_tokens += int(_as_number(usage.get("prompt_tokens")))
+                total_tokens += int(_as_number(usage.get("completion_tokens")))
 
             call_count += 1
-    
-    return total_cost, int(total_tokens), call_count
+
+    return total_cost, total_tokens, call_count
 
 
 class SignatureContext:

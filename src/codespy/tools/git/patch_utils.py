@@ -406,20 +406,24 @@ def _rebuild_patch(
         new_hunk_lines = []
 
         # Add context lines before the original hunk (from expansion_start to hunk_start_new - 1)
+        pre_context_lines = []
         for line_num in range(expansion_start, hunk_start_new):
             if line_num <= len(source_lines):
-                new_hunk_lines.append(f" {source_lines[line_num - 1]}")
+                pre_context_lines.append(f" {source_lines[line_num - 1]}")
+        new_hunk_lines.extend(pre_context_lines)
 
-        # Add all original hunk lines (context + changes).
-        # No overlap with expansion context: pre-expansion ends at hunk_start_new,
-        # post-expansion begins at hunk_end_new + 1, so interior context is unique.
-        original_lines = original_hunk.get("lines", [])
-        new_hunk_lines.extend(original_lines)
+        # Add diff lines from all constituent hunks (merged_hunks if present, else original_hunk)
+        merged_sub_hunks = merged_hunk.get("merged_hunks", [original_hunk])
+        for sub_hunk in merged_sub_hunks:
+            sub_lines = sub_hunk.get("lines", [])
+            new_hunk_lines.extend(sub_lines)
 
         # Add context lines after the original hunk (from hunk_end_new + 1 to expansion_end)
+        post_context_lines = []
         for line_num in range(hunk_end_new + 1, expansion_end + 1):
             if line_num <= len(source_lines):
-                new_hunk_lines.append(f" {source_lines[line_num - 1]}")
+                post_context_lines.append(f" {source_lines[line_num - 1]}")
+        new_hunk_lines.extend(post_context_lines)
 
         # Calculate new hunk header counts
         # For the new file: count context lines and additions
@@ -428,10 +432,8 @@ def _rebuild_patch(
             if line.startswith(" ") or line.startswith("+"):
                 new_file_count += 1
 
-        # For the old file: we approximate by using the ratio of original change
-        # This is a simplification; the old file line numbers would need full reconstruction
-        # We use the original old_count as a reasonable approximation
-        old_count = original_hunk.get("old_count", new_file_count)
+        # For the old file: count context (" ") and deletion ("-") lines
+        old_count = sum(1 for line in new_hunk_lines if line.startswith(" ") or line.startswith("-"))
 
         # Build new header
         new_header = f"@@ -{expansion_start},{old_count} +{expansion_start},{new_file_count} @@"

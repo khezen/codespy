@@ -17,6 +17,9 @@ _caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 mcp = FastMCP("s3")
 _client: S3Client | None = None
 
+# Manual cache for read_file to skip caching error results
+_read_file_cache: dict[tuple[str, int, int | None], tuple] = {}
+
 
 def _get_client() -> S3Client:
     """Get the S3Client instance, raising if not initialized."""
@@ -121,11 +124,16 @@ def get_tree(path: str = "", max_depth: int = 3, include_hidden: bool = False) -
     return _get_tree_cached(path, max_depth, include_hidden)
 
 
-@lru_cache(maxsize=256)
 def _read_file_cached(path: str, max_bytes: int, max_lines: int | None) -> tuple:
-    """Cached version of read_file."""
+    """Cached version of read_file that doesn't cache error results."""
+    key = (path, max_bytes, max_lines)
+    if key in _read_file_cache:
+        return _read_file_cache[key]
     result = _get_client().read_file(path, max_bytes, max_lines)
-    return tuple(sorted(result.model_dump().items()))
+    dumped = tuple(sorted(result.model_dump().items()))
+    if not result.error:
+        _read_file_cache[key] = dumped
+    return dumped
 
 
 @mcp.tool()
@@ -163,7 +171,7 @@ def _invalidate_read_caches() -> None:
     _get_file_info_cached.cache_clear()
     _list_directory_cached.cache_clear()
     _get_tree_cached.cache_clear()
-    _read_file_cached.cache_clear()
+    _read_file_cache.clear()
 
 
 # ------------------------------------------------------------------
