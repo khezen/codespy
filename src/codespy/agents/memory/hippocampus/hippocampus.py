@@ -284,7 +284,7 @@ class Hippocampus(dspy.Module):
         self._distill_step = 0
 
 
-    def _episode_file_path(self, dir: str, index: int = 0) -> str:
+    def episode_file_path(self, dir: str, index: int = 0) -> str:
         """Build the full episode file path from a directory.
 
         Prepends the ``episodes`` root and appends a hidden ``.codespy``
@@ -343,7 +343,7 @@ class Hippocampus(dspy.Module):
             return
         self._finalize_episode(artifacts)
         if store is not None and dir is not None:
-            _save_episode(store, self._episode_file_path(dir, self._episode_index), self.episode)
+            _save_episode(store, self.episode_file_path(dir, self._episode_index), self.episode)
             self._episode_index += 1
 
     async def aend_episode(
@@ -372,7 +372,7 @@ class Hippocampus(dspy.Module):
             return
         await asyncio.to_thread(self._finalize_episode, artifacts)
         if store is not None and dir is not None:
-            path = self._episode_file_path(dir, self._episode_index)
+            path = self.episode_file_path(dir, self._episode_index)
             await asyncio.to_thread(_save_episode, store, path, self.episode)
             self._episode_index += 1
 

@@ -178,33 +178,17 @@ class ReviewPipeline(dspy.Module):
         else:
             raise ValueError(f"Invalid config type: {type(config)}")
 
-        # Step 1: Run Summarizer (before scope identification)
-        changed_file_paths = [f.filename for f in mr.changed_files]
-        patches = build_patches(mr.changed_files)
-        pr_summary, summarizer_memory = self.summarizer(
-            mr_title=mr.title,
-            mr_description=mr.body or "No description provided.",
-            mr_number=mr.number,
-            changed_file_paths=changed_file_paths,
-            patches=patches,
-            repo_slug=mr.repo_slug,
-            run_id=run_id,
-        )
-
-        # Build PRContext and ReviewContext after summarizer runs
+        # Step 1: Identify scopes FIRST
+        is_local = isinstance(config, LocalReviewConfig)
+        logger.info("Identifying code scopes...")
         pr_context = PRContext(
             repo_slug=mr.repo_slug,
             mr_number=mr.number,
             mr_title=mr.title,
-            summary=pr_summary,
+            summary=mr.title,  # Use title as placeholder since summary hasn't run
         )
-        # Summarizer is first stage - no inherited memory yet
-        review_ctx = ReviewContext(pr_context=pr_context, memory=summarizer_memory)
-
-        # Step 2: Identify scopes (inherits Summarizer memory)
-        is_local = isinstance(config, LocalReviewConfig)
-        logger.info("Identifying code scopes...")
-        scopes, scope_memory = self.scope_resolver(
+        review_ctx = ReviewContext(pr_context=pr_context, memory=None)
+        scopes, _ = self.scope_resolver(
             mr, repo_path, is_local=is_local, run_id=run_id, review_context=review_ctx
         )
         for scope in scopes:
@@ -216,14 +200,25 @@ class ReviewPipeline(dspy.Module):
                     logger.info(f"    Lock file: {manifest.lock_file_path}")
                 if manifest.dependencies_changed:
                     logger.info(f"    Dependencies changed: Yes")
-
-        # Update ReviewContext with Scope Identifier's memory for downstream modules
-        review_ctx = ReviewContext(pr_context=pr_context, memory=scope_memory)
-
         # Compact patches: expand context to function bodies for better review context
         logger.info("Compacting patches to function boundaries...")
+        changed_file_paths = [f.filename for f in mr.changed_files]
+        patches = build_patches(mr.changed_files)
         compact_patches(scopes, repo_path)
-
+        # Step 2: Run Summarizer (now receives scopes for per-scope episode persistence)
+        pr_summary, summarizer_memory = self.summarizer(
+            mr_title=mr.title,
+            mr_description=mr.body or "No description provided.",
+            mr_number=mr.number,
+            changed_file_paths=changed_file_paths,
+            patches=patches,
+            repo_slug=mr.repo_slug,
+            run_id=run_id,
+            scopes=scopes,
+        )
+        # Enrich review_ctx with actual summary and memory from summarizer
+        pr_context.summary = pr_summary
+        review_ctx = ReviewContext(pr_context=pr_context, memory=summarizer_memory)
         # Step 3: Run review modules concurrently via asyncio.gather (inherit Scope Identifier memory)
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
@@ -231,12 +226,10 @@ class ReviewPipeline(dspy.Module):
             self._run_review_modules(scopes, repo_path, module_names, run_id=run_id, review_context=review_ctx)
         )
         logger.info(f"Found {len(all_issues)} issues")
-
         # Merge parallel context maps for Auditor
         maps_to_merge = [m for m in parallel_memories.values() if m is not None]
-        merged_memory = ContextMap.merge(*maps_to_merge) if maps_to_merge else scope_memory
+        merged_memory = ContextMap.merge(*maps_to_merge) if maps_to_merge else summarizer_memory
         review_ctx = ReviewContext(pr_context=pr_context, memory=merged_memory)
-
         # Step 4: Run Audit (inherits merged memory from parallel modules)
         scoped_files = self._collect_scoped_files(scopes)
         logger.info(
@@ -248,11 +241,10 @@ class ReviewPipeline(dspy.Module):
             changed_files=scoped_files,
             all_issues=all_issues,
             run_id=run_id,
+            scopes=scopes,
         )
-
         # Collect per-signature statistics
         signature_stats_list = self._collect_signature_stats()
-
         return ReviewResult(
             mr_number=mr.number,
             mr_title=mr.title,

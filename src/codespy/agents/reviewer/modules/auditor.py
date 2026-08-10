@@ -1,7 +1,7 @@
 """Auditor module — assesses code quality and provides recommendation after reviews."""
 
 import logging
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 import dspy
 
@@ -11,6 +11,9 @@ from codespy.agents.reviewer.models import Issue, ReviewContext
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 from codespy.tools.git.models import ChangedFile
+
+if TYPE_CHECKING:
+    from codespy.agents.reviewer.models import ScopeResult
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,7 @@ class Auditor(dspy.Module):
         changed_files: Sequence[ChangedFile],
         all_issues: Sequence[Issue],
         run_id: str | None = None,
+        scopes: list["ScopeResult"] | None = None,
     ) -> tuple[str, str]:
         """Assess quality and recommend action.
 
@@ -65,6 +69,7 @@ class Auditor(dspy.Module):
             changed_files: In-scope reviewable files
             all_issues: All issues found during review
             run_id: Pipeline run identifier
+            scopes: List of resolved scopes for per-scope episode persistence
 
         Returns:
             Tuple of (quality_assessment, recommendation)
@@ -118,5 +123,12 @@ class Auditor(dspy.Module):
                     changed_files=list(changed_files),
                     all_issues=list(all_issues),
                 )
+
+        # Persist episode at each scope location if memory is enabled and scopes are provided
+        if mem is not None and scopes:
+            store = get_memory_store(self._settings)
+            for scope in scopes:
+                path = mem.episode_file_path(scope.scope_path())
+                mem.save_episode(store, path)
 
         return result.quality_assessment, result.recommendation

@@ -26,6 +26,7 @@ from codespy.agents.reviewer.models import (
     ScopeType,
 )
 from codespy.config import get_settings
+from codespy.config_memory import get_memory_store
 from codespy.tools.git.client import get_client
 from codespy.tools.git.models import ChangedFile, MergeRequest, should_review_file
 
@@ -33,6 +34,28 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
+
+
+def _deepest_common_folder(scopes: list[ScopeResult], repo_slug: str) -> str:
+    """Compute the deepest common ancestor directory across all scope subroots.
+
+    Args:
+        scopes: List of scope results
+        repo_slug: Repository slug for fallback path
+
+    Returns:
+        Deepest common ancestor path (e.g., "/repo/scope/subroot/")
+    """
+    subroots = [s.subroot for s in scopes]
+    if not subroots or any(sr in (".", "") for sr in subroots):
+        return f"/{repo_slug}/"
+    try:
+        common = os.path.commonpath(subroots)
+    except ValueError:
+        common = ""
+    if not common or common == ".":
+        return f"/{repo_slug}/"
+    return f"/{repo_slug}/{common.strip('/')}/"
 
 # Exact filename matches -> package manager
 MANIFEST_FILES: dict[str, str] = {
@@ -724,7 +747,22 @@ class ScopeResolver(dspy.Module):
         all_files = {f.filename: f for s in scopes for f in s.changed_files}
         all_files.update({f.filename: f for f in orphans})
 
-        return self._convert_assignments(result.scopes, all_files, mr.repo_slug)
+        final_scopes = self._convert_assignments(result.scopes, all_files, mr.repo_slug)
+
+        # Persist episode at deepest common folder when LLM fallback was used and memory is enabled
+        if mem is not None:
+            common_dir = _deepest_common_folder(final_scopes, mr.repo_slug)
+            scope_desc = "\n".join(
+                f"- {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
+                for s in final_scopes
+            )
+            await mem.aend_episode(
+                get_memory_store(self._settings),
+                common_dir,
+                artifacts={"scopes": scope_desc},
+            )
+
+        return final_scopes
 
     def _convert_assignments(
         self,

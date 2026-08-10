@@ -1,6 +1,7 @@
 """PR summarizer module — produces a concise summary before scope identification."""
 
 import logging
+from typing import TYPE_CHECKING
 
 import dspy
 
@@ -8,6 +9,9 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import ContextMap, Hippocampus
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
+
+if TYPE_CHECKING:
+    from codespy.agents.reviewer.models import ScopeResult
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +55,7 @@ class Summarizer(dspy.Module):
         patches: str,
         repo_slug: str,
         run_id: str | None = None,
+        scopes: list["ScopeResult"] | None = None,
     ) -> tuple[str, ContextMap | None]:
         """Generate a PR summary.
 
@@ -62,6 +67,7 @@ class Summarizer(dspy.Module):
             patches: Unified diff patches showing code changes
             repo_slug: Host-qualified repo slug for episode path
             run_id: Pipeline run identifier
+            scopes: List of resolved scopes for per-scope episode persistence
 
         Returns:
             Tuple of (summary string, final context map or None)
@@ -109,4 +115,12 @@ class Summarizer(dspy.Module):
         logger.info(f"PR summary: {result.summary[:80]}...")
         # Return final context map when memory is enabled
         final_memory = mem.cmap.model_copy(deep=True) if mem else None
+
+        # Persist episode at each scope location if memory is enabled and scopes are provided
+        if mem is not None and scopes:
+            store = get_memory_store(self._settings)
+            for scope in scopes:
+                path = mem.episode_file_path(scope.scope_path())
+                mem.save_episode(store, path)
+
         return result.summary, final_memory
