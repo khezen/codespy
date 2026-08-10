@@ -101,6 +101,14 @@ class DistillerSig(dspy.Signature):
     onto the context map schema): context_understanding, domain_constants,
     context_roadmap, reusable_results, parsing_schema.
 
+    Each candidate is a JSON object with exactly these fields:
+    - section: one of the five section names above
+    - value: the compact cached content (stay within max_context_item_tokens)
+    - transferability: what kinds of future questions this would help
+    - rationale: why this is shared understanding, not a one-off fact
+
+    Do NOT invent extra fields (no "id", no "content", no "name").
+
     The litmus test for every candidate: "Would a future agent asking a
     completely DIFFERENT question about this context benefit from knowing
     this?"

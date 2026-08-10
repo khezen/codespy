@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import logging
 import uuid
 from datetime import UTC, datetime
 
 import dspy
+
+
+logger = logging.getLogger(__name__)
 
 from codespy.agents.memory.hippocampus.budget import (
     MemoryBudget,
@@ -238,8 +242,15 @@ class Hippocampus(dspy.Module):
         # Online reflection: None = no limit (always); N = for the first N calls.
         if (self.max_reflects is None
                 or len(self._episode_trajectories) <= self.max_reflects):
-            self._distill(traj, self._make_question(kwargs))
-            self._reflected_count += 1
+            try:
+                self._distill(traj, self._make_question(kwargs))
+                self._reflected_count += 1
+            except Exception:
+                logger.warning(
+                    "Online reflection failed for %s; trajectory buffered for end_episode().",
+                    self._task_name,
+                    exc_info=True,
+                )
 
     def _consolidate(self) -> str | None:
         """Join buffered trajectories (stage-2 bounded) and distill+apply once.
@@ -256,7 +267,14 @@ class Hippocampus(dspy.Module):
         )
         if self.budget.max_trajectory_tokens is not None:
             combined = _head_tail_text(combined, self.budget.max_trajectory_tokens)
-        self._distill(combined, self._episode_question or "")
+        try:
+            self._distill(combined, self._episode_question or "")
+        except Exception:
+            logger.warning(
+                "Consolidation reflection failed for %s; episode saved without final distill.",
+                self._task_name,
+                exc_info=True,
+            )
         return combined
 
     def _finalize_episode(self, artifacts: dict[str, str] | None = None) -> None:

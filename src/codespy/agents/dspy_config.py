@@ -137,7 +137,16 @@ def lm_context(name: str):
         A context manager that scopes the LM to the enclosed block.
     """
     settings = get_settings()
-    return dspy.context(lm=new_lm(settings, settings.get_llm_config(name)))
+    llm_config = settings.get_llm_config(name)
+    lm = new_lm(settings, llm_config)
+    # Override adapter when this module has a different extraction model
+    defaults = settings.get_llm_config("default")
+    if llm_config.extraction_model != defaults.extraction_model:
+        extraction_lm = new_lm(
+            settings, llm_config.model_copy(update={"model": llm_config.extraction_model})
+        )
+        return dspy.context(lm=lm, adapter=TwoStepAdapter(extraction_lm))
+    return dspy.context(lm=lm)
 
 
 
