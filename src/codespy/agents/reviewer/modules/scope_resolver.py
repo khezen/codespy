@@ -1,8 +1,9 @@
-"""Scope resolver module - merged deterministic analysis + LLM fallback.
+"""Scope resolver module - merged deterministic analysis + ReAct agent refinement.
 
-This module combines deterministic scope identification with LLM fallback
-for ambiguous cases, replacing the previous split between scope_analyzer
-and scope_identifier.
+This module combines deterministic scope identification with a ReAct agent
+for intelligent refinement. The agent uses filesystem and search tools to
+explore the codebase and make informed scope decisions, replacing the
+previous ChainOfThought predictor that relied on a static repo tree.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import fnmatch
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import dspy  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
@@ -29,9 +30,7 @@ from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 from codespy.tools.git.client import get_client
 from codespy.tools.git.models import ChangedFile, MergeRequest, should_review_file
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
+from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
 
@@ -145,10 +144,7 @@ SCOPE_INDICATORS: dict[ScopeType, list[str]] = {
         "sdk/", "sdks/",
         "components/",
         "plugins/", "extensions/", "addons/",
-        "middleware/",
         "framework/",
-        "utils/", "utilities/", "helpers/",
-        "internal/",
     ],
     ScopeType.SERVICE: [
         "services/", "service/", "svc/",
@@ -161,7 +157,6 @@ SCOPE_INDICATORS: dict[ScopeType, list[str]] = {
         "workers/", "worker/",
         "jobs/", "cron/", "schedulers/",
         "consumers/", "producers/",
-        "handlers/", "endpoints/",
         "functions/", "lambdas/", "lambda/",
         "cmd/",
     ],
@@ -237,69 +232,59 @@ class ScopeAssignment(BaseModel):
     reason: str = Field(description="Explanation for why this scope was identified")
 
 
-class ScopeClassifierSignature(dspy.Signature):
-    """Assign orphan files to the most appropriate scope given pre-computed candidates and repo structure.
+class ScopeRefinementSignature(dspy.Signature):
+    """Refine and finalize scope assignments for a pull request.
 
-    You are given:
-    - Pre-identified scope candidates (from deterministic manifest/indicator analysis)
-    - Orphan files that could not be assigned deterministically
-    - A directory tree of the repository
+    You receive deterministic scope candidates (heuristic proposals) and unassigned files.
+    You have tools to explore the repository filesystem and search code.
 
-    SCOPE IDENTIFICATION FROM FILE PATHS:
-    Analyze orphan file paths to find the best matching scope:
-    1. Extract common directory prefixes from orphan files to find candidate scopes
-    2. Look for scope indicator patterns at ANY DEPTH in the path:
-       - svc/, services/, microservices/ -> service scope
-       - libs/, packages/, shared/, common/, core/ -> library scope
-       - apps/, web/, frontend/, mobile/ -> application scope
-       - scripts/, bin/, tools/, hack/, ci/, .github/, .gitlab/ -> script scope
-    3. Examples of nested scope detection:
-       - File: mono/svc/my-service-v1/internal/handler.go
-         -> Scope: mono/svc/my-service-v1 ("svc/" indicates service)
-       - File: platform/packages/auth/src/index.ts
-         -> Scope: platform/packages/auth ("packages/" indicates library)
-    4. Group files by longest common directory prefix containing a scope indicator
+    TOOLS AVAILABLE:
+    - list_directory: see directory contents
+    - get_tree: get subtree structure (use sparingly, targeted)
+    - read_file: read manifest files to understand package boundaries
+    - search_literal: find patterns across the codebase
+    - find_imports_of: understand dependencies between directories
 
-    SCOPE TYPE CLASSIFICATION:
-    These patterns can appear at ANY nesting depth:
-    - library: Shared code that others import
-      * Patterns: */libs/*, */packages/*, */shared/*, */common/*, */core/*, */sdk/*
-    - service: Isolated microservice with APIs
-      * Patterns: */services/*, */microservices/*, */svc/*, */cmd/*
-    - application: Standalone app or frontend
-      * Patterns: */apps/*, */web/*, */frontend/*, */mobile/*
-    - script: Build/deployment scripts, tooling, infrastructure
-      * Patterns: */scripts/*, */bin/*, */tools/*, */ci/*, */.github/*, */infra/*
+    YOUR ROLE:
+    Produce the MINIMAL correct set of scopes. The deterministic heuristics provide
+    a starting point — validate, merge, or reclassify as needed.
 
-    MONO-REPO AWARENESS:
-    - Scope indicator directories (packages/, services/, apps/, svc/) can appear at any level
-    - Prefer the deepest directory that forms a logical boundary
-    - Use repo_tree to verify directory structure exists
+    REFINEMENT OPERATIONS:
+    1. MERGE: Combine candidates that share a deployment/release boundary
+    2. RECLASSIFY: Change scope_type if the heuristic got it wrong
+    3. ASSIGN: Place unassigned files into the best matching scope
+    4. CREATE: New scope only when files clearly belong to an undiscovered boundary
+    5. DROP: Remove candidates with no files and no structural value
+
+    WHEN TO USE TOOLS:
+    - Use list_directory or get_tree to verify a directory boundary exists
+    - Use read_file on manifest files to check if two directories share a package
+    - Use find_imports_of to check if directories are coupled (merge signal)
+    - Do NOT explore exhaustively — only when a decision requires verification
 
     CRITICAL RULES:
-    1. EVERY orphan file must be assigned to exactly ONE scope
-    2. Don't create overlapping scopes (parent contains child)
-    3. Prefer the most specific scope -- deepest directory that forms a logical boundary
-    4. Use "." as scope ONLY when files are truly root-level with no nested structure
-    5. Assign orphans to existing candidates when paths are compatible (file is under candidate subroot)
-    6. Create new scopes only when orphan files clearly belong to an undiscovered boundary
+    1. Every changed file must be assigned to exactly ONE scope
+    2. No overlapping scopes (parent contains child)
+    3. Candidates marked "manifest=..." are backed by a real package manifest — they
+       represent a single deployable unit. Internal directories (tools/, agents/, lib/)
+       within a manifest scope typically belong to that scope.
+    4. Prefer FEWER scopes. 1-3 scopes is typical for most PRs.
+    5. When in doubt, MERGE into fewer scopes rather than split.
 
-    OUTPUT: Include ALL files (from candidates AND orphans) in the final scope assignments.
-    Group files by common directory prefix. Keep reasoning concise.
+    OUTPUT: Final refined scope assignments with ALL changed files distributed.
     """
 
     candidates: str = dspy.InputField(
-        desc="Pre-identified scope candidates with files already assigned (one per line)"
+        desc="Deterministic scope candidates with manifest info and file lists. Subject to refinement."
     )
     orphan_files: list[str] = dspy.InputField(
-        desc="File paths that could not be assigned to any candidate scope"
+        desc="Changed files not assigned to any candidate (may be empty list)"
     )
-    repo_tree: str = dspy.InputField(desc="Directory tree of repo (depth=6)")
-    mr_title: str = dspy.InputField(desc="PR title for context")
-    mr_description: str = dspy.InputField(desc="PR description for context")
+    mr_title: str = dspy.InputField(desc="PR title for intent context")
+    mr_description: str = dspy.InputField(desc="PR description for intent context")
 
     scopes: list[ScopeAssignment] = dspy.OutputField(
-        desc="Final scope assignments including all files from candidates and resolved orphans"
+        desc="Final refined scope assignments — all changed files must appear in exactly one scope"
     )
 
 
@@ -348,6 +333,31 @@ class ScopeResolver(dspy.Module):
         super().__init__()
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
+
+    async def _create_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
+        """Create tools for the scope agent: filesystem + ripgrep.
+
+        Args:
+            repo_path: Path to the repository root (not scope-restricted)
+
+        Returns:
+            Tuple of (tools list, contexts list for cleanup)
+        """
+        tools: list[Any] = []
+        contexts: list[Any] = []
+        tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
+        repo_path_str = str(repo_path)
+        caller = "scope_resolver"
+
+        tools.extend(await connect_mcp_server(
+            tools_dir / "storage" / "filesystem" / "server.py",
+            [repo_path_str], contexts, caller,
+        ))
+        tools.extend(await connect_mcp_server(
+            tools_dir / "parsers" / "ripgrep" / "server.py",
+            [repo_path_str], contexts, caller,
+        ))
+        return tools, contexts
 
     async def _ensure_repo(
         self, mr: MergeRequest, repo_path: Path, is_local: bool
@@ -433,8 +443,21 @@ class ScopeResolver(dspy.Module):
                 reason=f"manifest {manifest_filename} at {subroot}/",
             )
 
-        # Add scope-indicator-based scopes for uncovered paths
+        # Determine if root manifest is the sole manifest (single-package repo)
+        has_nested_manifests = any(subroot != "." for subroot in scopes)
+        root_suppresses = "." in scopes and not has_nested_manifests
+
+        # Add scope-indicator-based scopes ONLY for files not covered by a manifest scope
         for file in changed_files:
+            # Check if file is covered by a non-root manifest
+            covered_by_nested = any(
+                subroot != "." and file.filename.startswith(subroot + "/")
+                for subroot in scopes
+            )
+            # Root suppresses all indicators when it's the only manifest
+            if covered_by_nested or root_suppresses:
+                continue
+
             indicator_type, indicator_path = self._find_scope_indicator(file.filename)
             if indicator_path and indicator_type and indicator_path not in scopes:
                 scopes[indicator_path] = ScopeResult(
@@ -442,7 +465,7 @@ class ScopeResolver(dspy.Module):
                     subroot=indicator_path,
                     scope_type=indicator_type,
                     confidence=0.9,
-                    reason="scope indicator in path",
+                    reason="scope indicator in path (no parent manifest)",
                 )
 
         # Assign files to deepest matching scope
@@ -637,132 +660,109 @@ class ScopeResolver(dspy.Module):
 
         return None, ""
 
-    def _build_repo_tree(
-        self, repo_path: Path, max_depth: int = 6, max_lines: int = 200
-    ) -> str:
-        """Build a string representation of the repo tree.
+    def _format_candidate(self, s: ScopeResult) -> str:
+        """Format a scope candidate for the LLM.
 
         Args:
-            repo_path: Path to the repository root
-            max_depth: Maximum depth to traverse
-            max_lines: Maximum lines to return
+            s: Scope result to format
 
         Returns:
-            Tree string for LLM context
+            Formatted candidate string
         """
-        lines: list[str] = []
-        excluded_dirs = self._settings.excluded_directories
+        manifest_info = ""
+        if s.package_manifest:
+            manifest_info = f", manifest={s.package_manifest.manifest_path}"
+        files = ", ".join(f.filename for f in s.changed_files)
+        return f"- {s.subroot} ({s.scope_type.value}{manifest_info}): files=[{files}]"
 
-        for root, dirs, files in os.walk(repo_path):
-            rel_root = Path(root).relative_to(repo_path)
-            depth = len(rel_root.parts) if str(rel_root) != "." else 0
-
-            if depth > max_depth:
-                dirs[:] = []
-                continue
-
-            dirs[:] = [d for d in dirs if d not in excluded_dirs and not d.startswith(".")]
-
-            indent = "  " * depth
-            dir_name = Path(root).name if depth > 0 else "."
-
-            manifest_markers = []
-            for f in files:
-                if f in MANIFEST_FILES:
-                    manifest_markers.append(f)
-                for pattern in MANIFEST_GLOBS:
-                    if fnmatch.fnmatch(f, pattern):
-                        manifest_markers.append(f)
-
-            marker_str = f" ({', '.join(manifest_markers)})" if manifest_markers else ""
-            lines.append(f"{indent}{dir_name}/{marker_str}")
-
-        return "\n".join(lines[:max_lines])
-
-    async def _resolve_orphans(
+    async def _refine_scopes(
         self,
         scopes: list[ScopeResult],
         orphans: list[ChangedFile],
-        repo_tree: str,
         mr: MergeRequest,
+        repo_path: Path,
         review_context: ReviewContext | None,
         run_id: str | None,
     ) -> list[ScopeResult]:
-        """Use LLM to resolve ambiguous scope assignments.
+        """Use ReAct agent to refine scope assignments from deterministic candidates.
 
         Args:
             scopes: Already-resolved scope results
             orphans: Orphan files that couldn't be assigned
-            repo_tree: Directory tree for context
             mr: The merge request
+            repo_path: Path to the repository root
             review_context: Optional review context with memory
             run_id: Pipeline run identifier
 
         Returns:
-            List of ScopeResult with LLM-resolved assignments
+            List of ScopeResult with agent-resolved assignments
         """
         # Build candidates string from already-resolved scopes
-        candidates_str = "\n".join(
-            f"- {s.subroot} ({s.scope_type.value}): "
-            f"files=[{', '.join(f.filename for f in s.changed_files)}]"
-            for s in scopes
-        )
+        candidates_str = "\n".join(self._format_candidate(s) for s in scopes)
 
-        predictor = dspy.ChainOfThought(ScopeClassifierSignature)
-        mem: Hippocampus | None = None
-
-        async with SignatureContext("scope", self._cost_tracker):
-            if self._settings.get_memory_enabled("scope") and review_context:
-                question = (
-                    f"classify scopes of {review_context.pr_context.repo_slug}: "
-                    f"pull request {review_context.pr_context.mr_number} "
-                    f"{review_context.pr_context.mr_title}: {review_context.pr_context.summary}"
-                )
-                mem = Hippocampus(
-                    predictor,
-                    budget=self._settings.get_memory_budget("scope"),
-                    max_reflects=self._settings.get_memory_max_reflects("scope"),
-                    question=question,
-                    task_name="scope",
-                    run_id=run_id,
-                    initial_memory=review_context.memory if review_context else None,
-                )
-                result = await mem.aforward(
-                    candidates=candidates_str,
-                    orphan_files=[f.filename for f in orphans],
-                    repo_tree=repo_tree,
-                    mr_title=mr.title or "No title",
-                    mr_description=mr.body or "No description",
-                )
-            else:
-                result = await predictor.acall(
-                    candidates=candidates_str,
-                    orphan_files=[f.filename for f in orphans],
-                    repo_tree=repo_tree,
-                    mr_title=mr.title or "No title",
-                    mr_description=mr.body or "No description",
-                )
-
-        # Build file map from all known files
-        all_files = {f.filename: f for s in scopes for f in s.changed_files}
-        all_files.update({f.filename: f for f in orphans})
-
-        final_scopes = self._convert_assignments(result.scopes, all_files, mr.repo_slug)
-
-        # Persist episode at deepest common folder when LLM fallback was used and memory is enabled
-        if mem is not None:
-            common_dir = _deepest_common_folder(final_scopes, mr.repo_slug)
-            scope_desc = "\n".join(
-                f"- {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
-                for s in final_scopes
+        max_iters = self._settings.get_max_iters("scope")
+        tools, contexts = await self._create_tools(repo_path)
+        try:
+            agent = dspy.ReAct(
+                signature=ScopeRefinementSignature,
+                tools=tools,
+                max_iters=max_iters,
             )
-            await mem.aend_episode(
-                get_memory_store(self._settings),
-                common_dir,
-                artifacts={"scopes": scope_desc},
-            )
+            mem: Hippocampus | None = None
 
-        return final_scopes
+            async with SignatureContext("scope", self._cost_tracker):
+                if self._settings.get_memory_enabled("scope") and review_context:
+                    question = (
+                        f"refine scopes of {review_context.pr_context.repo_slug}: "
+                        f"PR #{review_context.pr_context.mr_number} "
+                        f"{review_context.pr_context.mr_title}: "
+                        f"{review_context.pr_context.summary}"
+                    )
+                    mem = Hippocampus(
+                        agent,
+                        budget=self._settings.get_memory_budget("scope"),
+                        max_reflects=self._settings.get_memory_max_reflects("scope"),
+                        question=question,
+                        task_name="scope",
+                        run_id=run_id,
+                        initial_memory=review_context.memory if review_context else None,
+                    )
+                    result = await mem.aforward(
+                        candidates=candidates_str,
+                        orphan_files=[f.filename for f in orphans],
+                        mr_title=mr.title or "No title",
+                        mr_description=mr.body or "No description",
+                    )
+                else:
+                    result = await agent.acall(
+                        candidates=candidates_str,
+                        orphan_files=[f.filename for f in orphans],
+                        mr_title=mr.title or "No title",
+                        mr_description=mr.body or "No description",
+                    )
+
+            # Build file map from all known files
+            all_files = {f.filename: f for s in scopes for f in s.changed_files}
+            all_files.update({f.filename: f for f in orphans})
+
+            final_scopes = self._convert_assignments(result.scopes, all_files, mr.repo_slug)
+
+            # Persist episode at deepest common folder when memory is enabled
+            if mem is not None:
+                common_dir = _deepest_common_folder(final_scopes, mr.repo_slug)
+                scope_desc = "\n".join(
+                    f"- {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
+                    for s in final_scopes
+                )
+                await mem.aend_episode(
+                    get_memory_store(self._settings),
+                    common_dir,
+                    artifacts={"scopes": scope_desc},
+                )
+
+            return final_scopes
+        finally:
+            await cleanup_mcp_contexts(contexts)
 
     def _convert_assignments(
         self,
@@ -844,13 +844,15 @@ class ScopeResolver(dspy.Module):
         try:
             await self._ensure_repo(mr, repo_path, is_local)
             scopes, orphans = self._resolve(repo_path, reviewable_files, repo)
-
-            if not orphans:
-                return scopes, review_context.memory if review_context else None
-
-            # LLM fallback for orphans
-            repo_tree = self._build_repo_tree(repo_path)
-            scopes = await self._resolve_orphans(scopes, orphans, repo_tree, mr, review_context, run_id)
+            scopes = await self._refine_scopes(
+                scopes, orphans, mr, repo_path, review_context, run_id
+            )
+            # Log final scopes for visibility
+            scope_summary = "\n".join(
+                f"  - {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
+                for s in scopes
+            )
+            logger.info("Resolved %d scope(s) for %s:\n%s", len(scopes), mr.repo_slug, scope_summary)
             return scopes, review_context.memory if review_context else None
 
         except Exception as e:

@@ -208,5 +208,89 @@ class TestConfidenceScoring:
             assert scopes[0].confidence == 0.9
 
 
+    def test_internal_dir_not_scope_indicator(self):
+        """internal/ is not a scope indicator for sparse paths."""
+        changed_files = ["backend/internal/cache/redis.go"]
+        paths = derive_sparse_paths(changed_files)
+        # Should use depth-2 fallback, not scope indicator
+        assert "backend/internal/" in paths  # depth-2 prefix
+
+    def test_indicator_suppressed_under_manifest(self):
+        """Indicator scopes not created when parent manifest covers file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir)
+            (repo_path / "services" / "api").mkdir(parents=True)
+            (repo_path / "services" / "api" / "go.mod").touch()
+
+            changed_files = [
+                ChangedFile(filename="services/api/cmd/main.go", status=FileStatus.MODIFIED),
+            ]
+
+            resolver = ScopeResolver()
+            scopes, orphans = resolver._resolve(repo_path, changed_files, "owner/repo")
+
+            # Should be 1 scope (from manifest), not 2 (manifest + cmd/ indicator)
+            assert len(scopes) == 1
+            assert scopes[0].subroot == "services/api"
+            assert len(orphans) == 0
+
+    def test_root_manifest_suppresses_indicators_when_sole_manifest(self):
+        """Root package.json as sole manifest suppresses indicator scopes."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir)
+            (repo_path / "package.json").touch()
+            (repo_path / "scripts" / "deploy").mkdir(parents=True)
+
+            changed_files = [
+                ChangedFile(filename="scripts/deploy/prod.sh", status=FileStatus.MODIFIED),
+            ]
+
+            resolver = ScopeResolver()
+            scopes, orphans = resolver._resolve(repo_path, changed_files, "owner/repo")
+
+            # scripts/ indicator is suppressed when root is the only manifest (single-package repo)
+            scope_subroots = [s.subroot for s in scopes]
+            assert len(scopes) == 1
+            assert scopes[0].subroot == "."
+
+    def test_root_manifest_suppresses_when_sole_manifest(self):
+        """Single-package repo: root manifest suppresses all indicators."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir)
+            (repo_path / "pyproject.toml").touch()
+            (repo_path / "src" / "pkg" / "tools" / "git").mkdir(parents=True)
+
+            changed_files = [
+                ChangedFile(filename="src/pkg/tools/git/client.py", status=FileStatus.MODIFIED),
+            ]
+
+            resolver = ScopeResolver()
+            scopes, orphans = resolver._resolve(repo_path, changed_files, "owner/repo")
+
+            assert len(scopes) == 1
+            assert scopes[0].subroot == "."
+            assert len(orphans) == 0
+
+    def test_root_does_not_suppress_when_nested_manifests_exist(self):
+        """Monorepo: root is container, indicators still fire for uncovered files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir)
+            (repo_path / "package.json").touch()
+            (repo_path / "packages" / "auth").mkdir(parents=True)
+            (repo_path / "packages" / "auth" / "package.json").touch()
+            (repo_path / "scripts" / "deploy").mkdir(parents=True)
+
+            changed_files = [
+                ChangedFile(filename="scripts/deploy/prod.sh", status=FileStatus.MODIFIED),
+            ]
+
+            resolver = ScopeResolver()
+            scopes, orphans = resolver._resolve(repo_path, changed_files, "owner/repo")
+
+            # scripts/deploy indicator should fire — root has nested manifests
+            scope_subroots = [s.subroot for s in scopes]
+            assert "scripts/deploy" in scope_subroots
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
