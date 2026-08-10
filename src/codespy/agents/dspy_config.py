@@ -69,6 +69,36 @@ def _supports_reasoning_effort(model: str) -> bool | None:
     return "reasoning_effort" in params
 
 
+def _supports_cache_control(model: str) -> bool:
+    """Whether the model uses explicit Anthropic-style cache_control markers.
+
+    Returns True only for models where the provider expects ``cache_control``
+    fields in messages to enable prompt caching. Models with automatic caching
+    (OpenAI prefix-match, Gemini) or no caching return False — sending markers
+    to them is either pointless or causes provider errors.
+
+    Detection: ``cache_creation_input_token_cost`` is non-None in LiteLLM's
+    model database only for Anthropic-style providers that charge separately
+    for cache writes, which correlates exactly with explicit marker support.
+
+    Falls back to provider-prefix heuristic when model info is unavailable.
+    """
+    try:
+        info = litellm.get_model_info(model)
+        if info.get("cache_creation_input_token_cost") is not None:
+            return True
+        return False
+    except Exception:
+        # Model not in LiteLLM DB (Ollama offline, custom endpoint).
+        # Fall back to prefix heuristic.
+        lower = model.lower()
+        if lower.startswith("anthropic/"):
+            return True
+        if lower.startswith("bedrock/") and "anthropic" in lower:
+            return True
+        return False
+
+
 def new_lm(settings: Settings, config: LLMSettings) -> dspy.LM:
     """Build a ``dspy.LM`` for resolved LLM settings.
 
@@ -114,11 +144,18 @@ def new_lm(settings: Settings, config: LLMSettings) -> dspy.LM:
         )
     else:
         lm_kwargs["reasoning_effort"] = config.reasoning_effort
-    # Cache system prompts on the provider's servers (Anthropic, OpenAI, Bedrock...)
-    if settings.enable_prompt_caching:
+    # Cache system prompts via explicit Anthropic-style cache_control markers.
+    # Only injected for providers that use explicit markers (Anthropic, Bedrock
+    # Anthropic); OpenAI/Gemini have automatic caching that needs no markers.
+    if settings.enable_prompt_caching and _supports_cache_control(config.model):
         lm_kwargs["cache_control_injection_points"] = [
             {"location": "message", "role": "system"}
         ]
+    elif settings.enable_prompt_caching:
+        logger.debug(
+            f"Prompt caching enabled but model {config.model} does not use "
+            f"explicit cache_control markers — skipping injection"
+        )
     return dspy.LM(**lm_kwargs)
 
 
@@ -205,7 +242,12 @@ def configure_dspy(settings: Settings) -> None:
     # Enable memory-only caching for LLM calls (no disk caching)
     dspy.configure_cache(enable_memory_cache=True, enable_disk_cache=False, memory_max_entries=10000)
 
-    prompt_cache_status = "enabled" if settings.enable_prompt_caching else "disabled"
+    if not settings.enable_prompt_caching:
+        prompt_cache_status = "disabled"
+    elif _supports_cache_control(model):
+        prompt_cache_status = "enabled (cache_control markers)"
+    else:
+        prompt_cache_status = "enabled (provider-automatic, no markers)"
     logger.info(
         f"Configured DSPy with model: {model} "
         f"(TwoStepAdapter with extraction_model={extraction_model}, "
