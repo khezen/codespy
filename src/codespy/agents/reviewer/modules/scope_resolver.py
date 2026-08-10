@@ -708,7 +708,7 @@ class ScopeResolver(dspy.Module):
             for s in scopes
         )
 
-        predictor = dspy.Predict(ScopeClassifierSignature)
+        predictor = dspy.ChainOfThought(ScopeClassifierSignature)
         mem: Hippocampus | None = None
 
         async with SignatureContext("scope", self._cost_tracker):
