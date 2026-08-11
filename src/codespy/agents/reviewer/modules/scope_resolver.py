@@ -313,6 +313,19 @@ def derive_sparse_paths(changed_files: list[str]) -> list[str]:
         # For glob patterns like *.csproj, we need to add the pattern itself
         paths.append(manifest_pattern)
 
+    # Agent config directories — project instructions for ReAct agents
+    paths.extend([
+        ".claude/",
+        ".kilo/",
+        ".agent/",
+        ".ai/",
+        ".cursor/",
+        ".codex/",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "SKILL.md",
+    ])
+
     return paths
 
 
