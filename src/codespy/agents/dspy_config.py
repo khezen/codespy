@@ -40,35 +40,6 @@ def _resolve_max_tokens(model: str, max_tokens: int) -> int:
     return min(max_tokens, ceiling)
 
 
-def _supports_reasoning_effort(model: str) -> bool | None:
-    """Whether LiteLLM maps ``reasoning_effort`` onto this model's provider.
-
-    Three outcomes, because "unknown" must not be conflated with
-    "unsupported":
-
-    - ``True`` — LiteLLM knows the model and maps the parameter.
-    - ``False`` — LiteLLM knows the model and does *not* map it. Sending it
-      anyway raises ``UnsupportedParamsError`` on every request, because
-      ``litellm.drop_params`` defaults to False.
-    - ``None`` — LiteLLM has no parameter list for the model (Ollama, a
-      proxy, a custom endpoint). There is no published support to check, so
-      the caller should pass the value through and let the provider decide.
-
-    Args:
-        model: The LiteLLM model identifier.
-
-    Returns:
-        True / False when known, None when the model is unmapped.
-    """
-    try:
-        params = litellm.get_supported_openai_params(model=model)
-    except Exception:  # Unrecognised provider — treat as unmapped.
-        return None
-    if params is None:
-        return None
-    return "reasoning_effort" in params
-
-
 def _supports_cache_control(model: str) -> bool:
     """Whether the model uses explicit Anthropic-style cache_control markers.
 
@@ -106,13 +77,11 @@ def new_lm(settings: Settings, config: LLMSettings) -> dspy.LM:
     (timeout, retries, output budget, provider-side prompt caching) are applied
     uniformly.
 
-    ``reasoning_effort`` is forwarded to LiteLLM through ``dspy.LM``'s
+    ``reasoning_effort`` is always forwarded to LiteLLM through ``dspy.LM``'s
     ``**kwargs``; LiteLLM maps it onto each provider's native parameter
     (Anthropic ``thinking.budget_tokens``, OpenAI ``reasoning_effort``,
-    Ollama ``think``, ...). It is omitted for models LiteLLM knows do not
-    support it: ``litellm.drop_params`` defaults to False, so sending it to
-    such a model raises on *every* request, and callers log-and-continue on
-    LLM errors — which would yield an empty review that still exits 0.
+    Ollama ``think``, ...). ``drop_params=True`` ensures that models/providers
+    which do not support it gracefully ignore the parameter instead of crashing.
 
     ``max_tokens`` must be passed explicitly: omitting it makes LiteLLM fall
     back to its own 4096 default, which silently truncates responses (DSPy then
@@ -132,18 +101,9 @@ def new_lm(settings: Settings, config: LLMSettings) -> dspy.LM:
         "max_tokens": _resolve_max_tokens(config.model, config.max_tokens),
         "timeout": settings.llm_timeout,
         "num_retries": settings.llm_retries,
+        "drop_params": True,
+        "reasoning_effort": config.reasoning_effort,
     }
-    # Only omit the effort when LiteLLM positively reports it unsupported;
-    # unmapped models (None) still get it, so reasoning is never silently
-    # disabled for a model that actually honours it.
-    if _supports_reasoning_effort(config.model) is False:
-        logger.warning(
-            f"Model {config.model} does not support reasoning_effort - ignoring "
-            f"reasoning_effort={config.reasoning_effort}. Sending it would fail "
-            f"every request to this model."
-        )
-    else:
-        lm_kwargs["reasoning_effort"] = config.reasoning_effort
     # Cache system prompts via explicit Anthropic-style cache_control markers.
     # Only injected for providers that use explicit markers (Anthropic, Bedrock
     # Anthropic); OpenAI/Gemini have automatic caching that needs no markers.
