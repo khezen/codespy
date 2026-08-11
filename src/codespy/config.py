@@ -124,7 +124,7 @@ class Settings(BaseSettings):
     # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
     default_model: str = "anthropic/claude-opus-4-6"
     extraction_model: str | None = None  # TwoStepAdapter extraction (falls back to default_model)
-    default_max_iters: int = 5
+    default_max_iters: int = 10
     # Provider reasoning budget; LiteLLM maps this to each provider's native parameter.
     default_reasoning_effort: ReasoningEffort = "medium"
     # Providers require temperature=1 when reasoning is enabled.

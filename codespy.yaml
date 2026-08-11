@@ -172,7 +172,7 @@ memory:
 # These apply to all signatures and reflection modules unless overridden
 default_model: anthropic/claude-opus-4-6        # DEFAULT_MODEL
 extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model)
-default_max_iters: 5                            # DEFAULT_MAX_ITERS
+default_max_iters: 10                           # DEFAULT_MAX_ITERS
 default_reasoning_effort: medium                # DEFAULT_REASONING_EFFORT (minimal | low | medium | high)
 default_temperature: 1                          # DEFAULT_TEMPERATURE (must be 1 while reasoning is enabled)
 

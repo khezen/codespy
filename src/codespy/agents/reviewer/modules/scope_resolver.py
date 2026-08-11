@@ -13,7 +13,7 @@ import fnmatch
 import logging
 import os
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
@@ -205,35 +205,16 @@ SCOPE_INDICATOR_DIRS = frozenset(
 )
 
 
-class ScopeAssignment(BaseModel):
-    """LLM-friendly scope assignment with string file paths.
+class ScopeBoundary(BaseModel):
+    """LLM output: a scope boundary decision (no file listing)."""
 
-    Used for LLM output in the fallback path.
-    """
-
-    subroot: str = Field(description="Path relative to repo root (e.g., packages/auth)")
-    scope_type: ScopeType = Field(description="Type of scope (library, service, etc.)")
-    has_changes: bool = Field(
-        default=False, description="Whether this scope has changed files from PR"
-    )
-    is_dependency: bool = Field(
-        default=False, description="Whether this scope depends on a changed scope"
-    )
-    confidence: float = Field(
-        default=0.8, ge=0.0, le=1.0, description="Confidence score for scope identification"
-    )
-    language: str | None = Field(default=None, description="Primary language detected")
-    package_manifest: PackageManifest | None = Field(
-        default=None, description="Package manifest info if present"
-    )
-    changed_files: list[str] = Field(
-        default_factory=list, description="Changed file paths belonging to this scope"
-    )
-    reason: str = Field(description="Explanation for why this scope was identified")
+    subroot: str = Field(description="Path relative to repo root (e.g., 'packages/auth' or '.' for root)")
+    scope_type: ScopeType = Field(description="Type of scope")
+    reason: str = Field(description="Brief explanation for this boundary")
 
 
 class ScopeRefinementSignature(dspy.Signature):
-    """Refine and finalize scope assignments for a pull request.
+    """Refine and finalize scope boundaries for a pull request.
 
     You receive deterministic scope candidates (heuristic proposals) and unassigned files.
     You have tools to explore the repository filesystem and search code.
@@ -246,15 +227,17 @@ class ScopeRefinementSignature(dspy.Signature):
     - find_imports_of: understand dependencies between directories
 
     YOUR ROLE:
-    Produce the MINIMAL correct set of scopes. The deterministic heuristics provide
+    Produce the MINIMAL correct set of scope boundaries. The deterministic heuristics provide
     a starting point — validate, merge, or reclassify as needed.
+
+    Files are assigned automatically to the deepest matching boundary by path prefix.
+    You only need to decide WHERE boundaries are, not which files go where.
 
     REFINEMENT OPERATIONS:
     1. MERGE: Combine candidates that share a deployment/release boundary
     2. RECLASSIFY: Change scope_type if the heuristic got it wrong
-    3. ASSIGN: Place unassigned files into the best matching scope
-    4. CREATE: New scope only when files clearly belong to an undiscovered boundary
-    5. DROP: Remove candidates with no files and no structural value
+    3. CREATE: New boundary only for clearly separate units (especially orphans)
+    4. DROP: Remove candidates with no structural value
 
     WHEN TO USE TOOLS:
     - Use list_directory or get_tree to verify a directory boundary exists
@@ -263,15 +246,15 @@ class ScopeRefinementSignature(dspy.Signature):
     - Do NOT explore exhaustively — only when a decision requires verification
 
     CRITICAL RULES:
-    1. Every changed file must be assigned to exactly ONE scope
+    1. Output only scope boundaries (subroots). Files are assigned automatically by path
+       prefix to the deepest matching scope.
     2. No overlapping scopes (parent contains child)
-    3. Candidates marked "manifest=..." are backed by a real package manifest — they
-       represent a single deployable unit. Internal directories (tools/, agents/, lib/)
-       within a manifest scope typically belong to that scope.
+    3. Manifest-backed candidates (marked 'manifest=...') are authoritative. Keep them
+       unless merging multiple manifests into one.
     4. Prefer FEWER scopes. 1-3 scopes is typical for most PRs.
     5. When in doubt, MERGE into fewer scopes rather than split.
 
-    OUTPUT: Final refined scope assignments with ALL changed files distributed.
+    OUTPUT: Final refined scope boundaries. Files are assigned automatically.
     """
 
     candidates: str = dspy.InputField(
@@ -283,8 +266,8 @@ class ScopeRefinementSignature(dspy.Signature):
     mr_title: str = dspy.InputField(desc="PR title for intent context")
     mr_description: str = dspy.InputField(desc="PR description for intent context")
 
-    scopes: list[ScopeAssignment] = dspy.OutputField(
-        desc="Final refined scope assignments — all changed files must appear in exactly one scope"
+    scopes: list[ScopeBoundary] = dspy.OutputField(
+        desc="Scope boundaries (subroots). Files are assigned automatically — do NOT list files."
     )
 
 
@@ -321,6 +304,14 @@ def derive_sparse_paths(changed_files: list[str]) -> list[str]:
     # Always include root-level files for root manifests
     paths = sorted(scope_roots)
     paths.append("/*")
+
+    # Explicitly add root manifest files to ensure they are checked out
+    # in sparse/treeless clones (/* pattern doesn't always work reliably)
+    for manifest in MANIFEST_FILES:
+        paths.append(manifest)
+    for manifest_pattern in MANIFEST_GLOBS:
+        # For glob patterns like *.csproj, we need to add the pattern itself
+        paths.append(manifest_pattern)
 
     return paths
 
@@ -374,7 +365,20 @@ class ScopeResolver(dspy.Module):
             return
 
         if repo_path.exists() and (repo_path / ".git").exists():
-            logger.debug("Repo already cloned at %s", repo_path)
+            from git import Repo
+            logger.debug("Updating existing clone at %s", repo_path)
+            changed_file_paths = [f.filename for f in mr.changed_files]
+            sparse_paths = derive_sparse_paths(changed_file_paths)
+            # Update sparse-checkout config
+            sparse_file = repo_path / ".git" / "info" / "sparse-checkout"
+            sparse_file.parent.mkdir(parents=True, exist_ok=True)
+            sparse_file.write_text("\n".join(sparse_paths) + "\n")
+            # Fetch and checkout correct ref
+            repo = Repo(repo_path)
+            repo.git.fetch("origin", mr.head_sha, "--depth", "1")
+            repo.git.checkout(mr.head_sha)
+            # Ensure manifests at root + parent dirs
+            await self._ensure_manifests(repo_path, changed_file_paths)
             return
 
         changed_file_paths = [f.filename for f in mr.changed_files]
@@ -403,6 +407,55 @@ class ScopeResolver(dspy.Module):
         )
         logger.info("Clone complete: %s", repo_path)
 
+        # Ensure manifest files are present at root and parent directories
+        await self._ensure_manifests(repo_path, changed_file_paths)
+
+    async def _ensure_manifests(self, repo_path: Path, changed_files: list[str]) -> None:
+        """Ensure manifest files at root and parent directories are checked out.
+
+        Sparse/treeless clones may not materialize manifests at ancestor directories.
+        This explicitly checks out known manifest files at:
+        - Repository root
+        - Every ancestor directory of every changed file path
+
+        Args:
+            repo_path: Path to the repository root
+            changed_files: List of changed file paths
+        """
+        from git import Repo
+
+        # Collect all ancestor directories of changed files
+        parent_dirs: set[str] = set()
+        for filepath in changed_files:
+            parts = filepath.split("/")
+            for depth in range(1, len(parts)):  # skip filename, collect dirs
+                parent_dirs.add("/".join(parts[:depth]))
+
+        # Build list of manifest paths to check
+        manifest_paths: list[str] = []
+
+        # Root manifests
+        for manifest in MANIFEST_FILES:
+            manifest_paths.append(manifest)
+
+        # Parent manifests
+        for parent in parent_dirs:
+            for manifest in MANIFEST_FILES:
+                manifest_paths.append(f"{parent}/{manifest}")
+
+        # Checkout missing manifests
+        try:
+            repo = Repo(repo_path)
+            for path in manifest_paths:
+                if not (repo_path / path).exists():
+                    try:
+                        repo.git.checkout("HEAD", "--", path)
+                        logger.debug("Checked out manifest: %s", path)
+                    except Exception:
+                        pass  # File doesn't exist in repo — expected
+        except Exception as e:
+            logger.warning("Failed to ensure manifests: %s", e)
+
     def _resolve(
         self, repo_path: Path, changed_files: list[ChangedFile], repo: str
     ) -> tuple[list[ScopeResult], list[ChangedFile]]:
@@ -418,6 +471,12 @@ class ScopeResolver(dspy.Module):
         """
         excluded_dirs = self._settings.excluded_directories
         manifests = self._discover_manifests(repo_path, excluded_dirs)
+        logger.info(
+            "Manifest discovery at %s found %d manifest(s): %s",
+            repo_path,
+            len(manifests),
+            {str(k): v[1] for k, v in manifests.items()},
+        )
 
         # Build ScopeResult per manifest
         scopes: dict[str, ScopeResult] = {}
@@ -443,19 +502,15 @@ class ScopeResolver(dspy.Module):
                 reason=f"manifest {manifest_filename} at {subroot}/",
             )
 
-        # Determine if root manifest is the sole manifest (single-package repo)
         has_nested_manifests = any(subroot != "." for subroot in scopes)
-        root_suppresses = "." in scopes and not has_nested_manifests
+        root_is_sole_manifest = "." in scopes and not has_nested_manifests
 
-        # Add scope-indicator-based scopes ONLY for files not covered by a manifest scope
         for file in changed_files:
-            # Check if file is covered by a non-root manifest
             covered_by_nested = any(
                 subroot != "." and file.filename.startswith(subroot + "/")
                 for subroot in scopes
             )
-            # Root suppresses all indicators when it's the only manifest
-            if covered_by_nested or root_suppresses:
+            if covered_by_nested or root_is_sole_manifest:
                 continue
 
             indicator_type, indicator_path = self._find_scope_indicator(file.filename)
@@ -487,6 +542,7 @@ class ScopeResolver(dspy.Module):
         Returns:
             Dict mapping manifest directory -> (package manager, filename)
         """
+        logger.debug("Walking %s for manifests (excluded: %s)", repo_path, excluded_dirs)
         manifests: dict[Path, tuple[str, str]] = {}
         excluded_set = set(excluded_dirs)
 
@@ -600,9 +656,7 @@ class ScopeResolver(dspy.Module):
         manifest_path = str(manifest_dir / manifest_filename) if manifest_dir != Path(".") else manifest_filename
         if manifest_path in changed_paths:
             return True
-        if lock_file and str(lock_file) in changed_paths:
-            return True
-        return False
+        return bool(lock_file and str(lock_file) in changed_paths)
 
     def _assign_files(
         self, scopes: list[ScopeResult], changed_files: list[ChangedFile]
@@ -675,6 +729,87 @@ class ScopeResolver(dspy.Module):
         files = ", ".join(f.filename for f in s.changed_files)
         return f"- {s.subroot} ({s.scope_type.value}{manifest_info}): files=[{files}]"
 
+    def _apply_boundaries(
+        self,
+        boundaries: list[ScopeBoundary],
+        all_changed_files: list[ChangedFile],
+        deterministic_scopes: list[ScopeResult],
+        repo: str,
+    ) -> list[ScopeResult]:
+        """Apply LLM boundaries + manifest guardrail + deterministic file assignment.
+
+        Args:
+            boundaries: Scope boundaries from LLM
+            all_changed_files: All changed files to assign
+            deterministic_scopes: Original deterministic scopes (for manifest info)
+            repo: Repo identifier
+
+        Returns:
+            List of ScopeResult with files assigned
+        """
+        # Index manifest-backed scopes from deterministic layer
+        manifest_scopes = {
+            s.subroot: s for s in deterministic_scopes if s.package_manifest
+        }
+
+        # Build final boundary set
+        final_boundaries: dict[str, ScopeResult] = {}
+
+        # 1. Always include manifest-backed scopes (immutable baseline)
+        for subroot, det_scope in manifest_scopes.items():
+            final_boundaries[subroot] = ScopeResult(
+                repo=repo,
+                subroot=subroot,
+                scope_type=det_scope.scope_type,
+                confidence=0.9,
+                package_manifest=det_scope.package_manifest,
+                reason=det_scope.reason,
+            )
+
+        # 2. Add LLM boundaries — but discard if child of a manifest scope
+        for boundary in boundaries:
+            # Check if this boundary is inside a manifest-backed scope
+            inside_manifest = any(
+                boundary.subroot.startswith(ms + "/") or ms == "."
+                for ms in manifest_scopes
+                if ms != boundary.subroot
+            )
+            if inside_manifest:
+                logger.debug(
+                    "Discarding LLM boundary '%s' — inside manifest scope", boundary.subroot
+                )
+                continue
+
+            # LLM can override scope_type of manifest scopes
+            if boundary.subroot in final_boundaries:
+                final_boundaries[boundary.subroot].scope_type = boundary.scope_type
+            else:
+                final_boundaries[boundary.subroot] = ScopeResult(
+                    repo=repo,
+                    subroot=boundary.subroot,
+                    scope_type=boundary.scope_type,
+                    confidence=0.8,
+                    reason=boundary.reason,
+                )
+
+        # 3. Deterministic file assignment to deepest matching boundary
+        orphans = self._assign_files(list(final_boundaries.values()), all_changed_files)
+
+        # 4. Stragglers → root scope
+        if orphans:
+            if "." in final_boundaries:
+                for f in orphans:
+                    final_boundaries["."].changed_files.append(f)
+                    final_boundaries["."].has_changes = True
+            else:
+                final_boundaries["."] = ScopeResult(
+                    repo=repo, subroot=".", scope_type=ScopeType.APPLICATION,
+                    has_changes=True, confidence=0.7, changed_files=orphans,
+                    reason="catch-all for unmatched files",
+                )
+
+        return [s for s in final_boundaries.values() if s.changed_files]
+
     async def _refine_scopes(
         self,
         scopes: list[ScopeResult],
@@ -741,11 +876,13 @@ class ScopeResolver(dspy.Module):
                         mr_description=mr.body or "No description",
                     )
 
-            # Build file map from all known files
-            all_files = {f.filename: f for s in scopes for f in s.changed_files}
-            all_files.update({f.filename: f for f in orphans})
+            # Collect all changed files (from scopes + orphans)
+            all_files = [f for s in scopes for f in s.changed_files] + orphans
 
-            final_scopes = self._convert_assignments(result.scopes, all_files, mr.repo_slug)
+            # Apply LLM boundaries with manifest guardrail and deterministic file assignment
+            final_scopes = self._apply_boundaries(
+                result.scopes, all_files, scopes, mr.repo_slug
+            )
 
             # Persist episode at deepest common folder when memory is enabled
             if mem is not None:
@@ -763,48 +900,6 @@ class ScopeResolver(dspy.Module):
             return final_scopes
         finally:
             await cleanup_mcp_contexts(contexts)
-
-    def _convert_assignments(
-        self,
-        assignments: list[ScopeAssignment],
-        changed_files_map: dict[str, ChangedFile],
-        repo: str,
-    ) -> list[ScopeResult]:
-        """Convert LLM scope assignments to ScopeResults.
-
-        Args:
-            assignments: Scope assignments from LLM
-            changed_files_map: Map from filename to ChangedFile
-            repo: Repo identifier
-
-        Returns:
-            List of ScopeResult
-        """
-        results: list[ScopeResult] = []
-        for assignment in assignments:
-            changed_files: list[ChangedFile] = []
-            for filepath in assignment.changed_files:
-                if filepath in changed_files_map:
-                    changed_files.append(changed_files_map[filepath])
-                else:
-                    logger.warning(
-                        "File '%s' from scope assignment not found in PR", filepath
-                    )
-            results.append(
-                ScopeResult(
-                    repo=repo,
-                    subroot=assignment.subroot,
-                    scope_type=assignment.scope_type,
-                    has_changes=assignment.has_changes,
-                    is_dependency=assignment.is_dependency,
-                    confidence=assignment.confidence,
-                    language=assignment.language,
-                    package_manifest=assignment.package_manifest,
-                    changed_files=changed_files,
-                    reason=assignment.reason,
-                )
-            )
-        return results
 
     async def aforward(
         self,
@@ -844,6 +939,22 @@ class ScopeResolver(dspy.Module):
         try:
             await self._ensure_repo(mr, repo_path, is_local)
             scopes, orphans = self._resolve(repo_path, reviewable_files, repo)
+
+            # Log deterministic scopes before LLM refinement
+            if scopes:
+                det_summary = "\n".join(
+                    f"  - {s.subroot} ({s.scope_type.value})"
+                    f"{f', manifest={s.package_manifest.manifest_path}' if s.package_manifest else ''}"
+                    f": {len(s.changed_files)} files"
+                    for s in scopes
+                )
+                logger.info(
+                    "Deterministic scope identification found %d scope(s):\n%s",
+                    len(scopes), det_summary
+                )
+            if orphans:
+                logger.info("Deterministic identification produced %d orphan(s)", len(orphans))
+
             scopes = await self._refine_scopes(
                 scopes, orphans, mr, repo_path, review_context, run_id
             )
