@@ -243,7 +243,7 @@ class Hippocampus(dspy.Module):
         if (self.max_reflects is None
                 or len(self._episode_trajectories) <= self.max_reflects):
             try:
-                self._distill(traj, self._make_question(kwargs))
+                self._distill(traj, self._episode_question)
                 self._reflected_count += 1
             except Exception:
                 logger.warning(
