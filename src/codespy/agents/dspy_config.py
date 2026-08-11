@@ -136,13 +136,6 @@ def lm_context(name: str):
     settings = get_settings()
     llm_config = settings.get_llm_config(name)
     lm = new_lm(settings, llm_config)
-    # Override adapter when this module has a different extraction model
-    defaults = settings.get_llm_config("default")
-    if llm_config.extraction_model != defaults.extraction_model:
-        extraction_lm = new_lm(
-            settings, llm_config.model_copy(update={"model": llm_config.extraction_model})
-        )
-        return dspy.context(lm=lm, adapter=TwoStepAdapter(extraction_lm))
     return dspy.context(lm=lm)
 
 
@@ -186,11 +179,16 @@ def configure_dspy(settings: Settings) -> None:
     defaults = settings.get_llm_config("default")
     lm = new_lm(settings, defaults)
 
-    # Extraction LM for TwoStepAdapter's second stage: a smaller/faster model
-    # that pulls structured fields out of the main LM's free-form response.
+    # Extraction LM for TwoStepAdapter's second stage: deterministic field extraction
+    # from the main LM's free-form response. Never uses reasoning; temperature=0.0 for
+    # deterministic output.
     extraction_model = defaults.extraction_model
     extraction_lm = new_lm(
-        settings, defaults.model_copy(update={"model": extraction_model})
+        settings, defaults.model_copy(update={
+            "model": extraction_model,
+            "reasoning_effort": None,
+            "temperature": 0.0,
+        })
     )
 
 
@@ -238,11 +236,13 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
         if sig_config.model:
             models_to_check.add(sig_config.model)
 
-    # Check the Hippocampus reflection models (Distiller / Cartographer)
+    # Global extraction model (if different from default_model)
+    if settings.extraction_model:
+        models_to_check.add(settings.extraction_model)
+
     for module in REFLECTION_MODULES:
         reflection = settings.get_llm_config(module)
         models_to_check.add(reflection.model)
-        models_to_check.add(reflection.extraction_model)
 
 
     # Check each model

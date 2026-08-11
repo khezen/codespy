@@ -219,8 +219,6 @@ class Settings(BaseSettings):
             config = self.get_signature_config(name)
 
         model = config.model or self.default_model
-        # Only reflection modules carry their own extraction model; signatures
-        # share the global one.
         module_extraction = getattr(config, "extraction_model", None)
         return LLMSettings(
             model=model,

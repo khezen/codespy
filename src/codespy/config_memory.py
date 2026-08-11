@@ -34,7 +34,6 @@ class ReflectionModuleConfig(BaseModel):
     """
 
     model: str | None = None                            # MEMORY_<MODULE>_MODEL
-    extraction_model: str | None = None                 # MEMORY_<MODULE>_EXTRACTION_MODEL
     reasoning_effort: ReasoningEffort | None = None     # MEMORY_<MODULE>_REASONING_EFFORT
     temperature: float | None = None                    # MEMORY_<MODULE>_TEMPERATURE
     max_tokens: int | None = None                       # MEMORY_<MODULE>_MAX_TOKENS
