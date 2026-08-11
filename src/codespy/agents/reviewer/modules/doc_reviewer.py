@@ -69,6 +69,7 @@ class DocReviewSignature(dspy.Signature):
 
     OUTPUT RULES:
     - Set category to "documentation"
+    - filename: the documentation file that needs updating (use path from === path === headers)
     - description: ≤25 words, imperative tone ("Update X section", "Add Y to README")
     - Empty list if documentation is up to date. No approval text ("LGTM", "looks good")
     - No polite or conversational language
@@ -88,6 +89,8 @@ class DocReviewSignature(dspy.Signature):
 
     issues: list[Issue] = dspy.OutputField(
         desc="Documentation issues. Category must be 'documentation'. "
+        "Each issue MUST include 'filename' set to the documentation file that needs "
+        "updating (from the === filename === headers in the documentation input). "
         "Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none."
     )
 

@@ -93,9 +93,6 @@ class ScopeResult(BaseModel):
     is_dependency: bool = Field(
         default=False, description="Whether this scope depends on a changed scope"
     )
-    confidence: float = Field(
-        default=0.8, ge=0.0, le=1.0, description="Confidence score for scope identification"
-    )
     language: str | None = Field(default=None, description="Primary language detected")
     package_manifest: PackageManifest | None = Field(
         default=None, description="Package manifest info if present"
@@ -104,6 +101,9 @@ class ScopeResult(BaseModel):
         default_factory=list, description="Changed files belonging to this scope"
     )
     reason: str = Field(description="Explanation for why this scope was identified")
+    skills: str | None = Field(
+        default=None, description="Project/scope instructions inherited from ancestor directories"
+    )
 
     model_config = {"arbitrary_types_allowed": True}
 

@@ -34,6 +34,52 @@ from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
 
+# Files to read at each directory level
+SKILL_FILES: list[str] = ["AGENTS.md", "CLAUDE.md", "SKILL.md"]
+
+# Subdirectories to scan for .md files (limited depth)
+SKILL_DIRS: list[str] = [".kilo/agent", ".claude", ".agent", ".ai", ".cursor", ".codex"]
+
+
+def collect_skills(repo_path: Path, subroot: str) -> str | None:
+    """Collect hierarchical skills from root down to scope subroot.
+
+    Reads instruction files at each ancestor directory level.
+    Returns concatenated content (root-first) or None if nothing found.
+    """
+    # Build path hierarchy: [".", "packages", "packages/auth"]
+    levels: list[str] = ["."]
+    if subroot and subroot != ".":
+        parts = subroot.split("/")
+        for i in range(1, len(parts) + 1):
+            levels.append("/".join(parts[:i]))
+
+    sections: list[str] = []
+
+    for level in levels:
+        level_path = repo_path if level == "." else repo_path / level
+
+        # Read standalone skill files
+        for filename in SKILL_FILES:
+            filepath = level_path / filename
+            if filepath.is_file():
+                content = filepath.read_text(errors="ignore").strip()
+                if content:
+                    header = filename if level == "." else f"{level}/{filename}"
+                    sections.append(f"=== {header} ===\n{content}")
+
+        # Read .md files from skill directories
+        for skill_dir in SKILL_DIRS:
+            dir_path = level_path / skill_dir
+            if dir_path.is_dir():
+                for md_file in sorted(dir_path.glob("*.md")):
+                    content = md_file.read_text(errors="ignore").strip()
+                    if content:
+                        rel = f"{level}/{skill_dir}/{md_file.name}" if level != "." else f"{skill_dir}/{md_file.name}"
+                        sections.append(f"=== {rel} ===\n{content}")
+
+    return "\n\n".join(sections) if sections else None
+
 
 def _deepest_common_folder(scopes: list[ScopeResult], repo_slug: str) -> str:
     """Compute the deepest common ancestor directory across all scope subroots.
@@ -216,7 +262,8 @@ class ScopeBoundary(BaseModel):
 class ScopeRefinementSignature(dspy.Signature):
     """Refine and finalize scope boundaries for a pull request.
 
-    You receive deterministic scope candidates (heuristic proposals) and unassigned files.
+    You receive deterministic scope candidates (heuristic proposals), unassigned files,
+    and project instructions that describe the repository structure and conventions.
     You have tools to explore the repository filesystem and search code.
 
     TOOLS AVAILABLE:
@@ -265,6 +312,9 @@ class ScopeRefinementSignature(dspy.Signature):
     )
     mr_title: str = dspy.InputField(desc="PR title for intent context")
     mr_description: str = dspy.InputField(desc="PR description for intent context")
+    project_instructions: str = dspy.InputField(
+        desc="Project coding guidelines and structure context from config files (AGENTS.md, .kilo/, etc.). May be empty."
+    )
 
     scopes: list[ScopeBoundary] = dspy.OutputField(
         desc="Scope boundaries (subroots). Files are assigned automatically — do NOT list files."
@@ -505,7 +555,6 @@ class ScopeResolver(dspy.Module):
                 repo=repo,
                 subroot=subroot,
                 scope_type=scope_type,
-                confidence=0.9,
                 package_manifest=PackageManifest(
                     manifest_path=manifest_path,
                     lock_file_path=str(lock_file) if lock_file else None,
@@ -532,7 +581,6 @@ class ScopeResolver(dspy.Module):
                     repo=repo,
                     subroot=indicator_path,
                     scope_type=indicator_type,
-                    confidence=0.9,
                     reason="scope indicator in path (no parent manifest)",
                 )
 
@@ -774,7 +822,6 @@ class ScopeResolver(dspy.Module):
                 repo=repo,
                 subroot=subroot,
                 scope_type=det_scope.scope_type,
-                confidence=0.9,
                 package_manifest=det_scope.package_manifest,
                 reason=det_scope.reason,
             )
@@ -801,7 +848,6 @@ class ScopeResolver(dspy.Module):
                     repo=repo,
                     subroot=boundary.subroot,
                     scope_type=boundary.scope_type,
-                    confidence=0.8,
                     reason=boundary.reason,
                 )
 
@@ -817,7 +863,7 @@ class ScopeResolver(dspy.Module):
             else:
                 final_boundaries["."] = ScopeResult(
                     repo=repo, subroot=".", scope_type=ScopeType.APPLICATION,
-                    has_changes=True, confidence=0.7, changed_files=orphans,
+                    has_changes=True, changed_files=orphans,
                     reason="catch-all for unmatched files",
                 )
 
@@ -847,6 +893,9 @@ class ScopeResolver(dspy.Module):
         """
         # Build candidates string from already-resolved scopes
         candidates_str = "\n".join(self._format_candidate(s) for s in scopes)
+
+        # Read root-level project instructions for the scope agent
+        project_instructions = collect_skills(repo_path, ".") or ""
 
         max_iters = self._settings.get_max_iters("scope")
         tools, contexts = await self._create_tools(repo_path)
@@ -880,6 +929,7 @@ class ScopeResolver(dspy.Module):
                         orphan_files=[f.filename for f in orphans],
                         mr_title=mr.title or "No title",
                         mr_description=mr.body or "No description",
+                        project_instructions=project_instructions,
                     )
                 else:
                     result = await agent.acall(
@@ -887,6 +937,7 @@ class ScopeResolver(dspy.Module):
                         orphan_files=[f.filename for f in orphans],
                         mr_title=mr.title or "No title",
                         mr_description=mr.body or "No description",
+                        project_instructions=project_instructions,
                     )
 
             # Collect all changed files (from scopes + orphans)
@@ -896,6 +947,10 @@ class ScopeResolver(dspy.Module):
             final_scopes = self._apply_boundaries(
                 result.scopes, all_files, scopes, mr.repo_slug
             )
+
+            # Attach hierarchical skills to each produced scope
+            for scope in final_scopes:
+                scope.skills = collect_skills(repo_path, scope.subroot)
 
             # Persist episode at deepest common folder when memory is enabled
             if mem is not None:
@@ -943,11 +998,13 @@ class ScopeResolver(dspy.Module):
         repo = mr.repo_slug
 
         if not self._settings.is_signature_enabled("scope"):
-            return [ScopeResult(
+            fallback = ScopeResult(
                 repo=repo, subroot=".", scope_type=ScopeType.APPLICATION,
-                has_changes=True, confidence=0.5, changed_files=reviewable_files,
+                has_changes=True, changed_files=reviewable_files,
                 reason="Scope identification disabled",
-            )], review_context.memory if review_context else None
+            )
+            fallback.skills = collect_skills(repo_path, ".")
+            return [fallback], review_context.memory if review_context else None
 
         try:
             await self._ensure_repo(mr, repo_path, is_local)
@@ -983,7 +1040,7 @@ class ScopeResolver(dspy.Module):
             logger.error("Scope resolution failed: %s", e, exc_info=True)
             return [ScopeResult(
                 repo=repo, subroot=".", scope_type=ScopeType.APPLICATION,
-                has_changes=True, confidence=0.5, changed_files=reviewable_files,
+                has_changes=True, changed_files=reviewable_files,
                 reason=f"Fallback due to error: {e}",
             )], review_context.memory if review_context else None
 

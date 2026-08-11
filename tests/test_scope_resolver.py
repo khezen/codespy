@@ -187,11 +187,11 @@ class TestScopeResolver:
             assert by_subroot["apps/web"].scope_type == ScopeType.APPLICATION
 
 
-class TestConfidenceScoring:
-    """Test confidence scoring based on manifest types."""
+class TestManifestScoping:
+    """Test scope detection based on manifests."""
 
-    def test_strong_manifest_confidence(self):
-        """Test strong manifests get 0.9 confidence."""
+    def test_manifest_creates_scope(self):
+        """Test manifests create proper scopes."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_path = Path(tmpdir)
             (repo_path / "go.mod").touch()
@@ -203,9 +203,8 @@ class TestConfidenceScoring:
             resolver = ScopeResolver()
             scopes, orphans = resolver._resolve(repo_path, changed_files, "owner/repo")
 
-            # Candidate should exist with manifest and 0.9 confidence
+            # Candidate should exist with manifest
             assert scopes[0].package_manifest is not None
-            assert scopes[0].confidence == 0.9
 
 
     def test_internal_dir_not_scope_indicator(self):

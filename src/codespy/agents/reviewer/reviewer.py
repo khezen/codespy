@@ -33,6 +33,7 @@ from codespy.agents.reviewer.modules import (
     SupplyChainAuditor,
 )
 from codespy.agents.reviewer.modules.helpers import build_patches
+from codespy.agents.reviewer.modules.scope_resolver import MANIFEST_FILES, MANIFEST_GLOBS
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +201,9 @@ class ReviewPipeline(dspy.Module):
                     logger.info(f"    Lock file: {manifest.lock_file_path}")
                 if manifest.dependencies_changed:
                     logger.info(f"    Dependencies changed: Yes")
+        # Expand sparse checkout to cover full scope subtrees
+        if not is_local:
+            self._expand_sparse_for_scopes(scopes, repo_path)
         # Compact patches: expand context to function bodies for better review context
         logger.info("Compacting patches to function boundaries...")
         changed_file_paths = [f.filename for f in mr.changed_files]
@@ -304,3 +308,42 @@ class ReviewPipeline(dspy.Module):
             ))
 
         return stats_list
+
+    def _expand_sparse_for_scopes(
+        self, scopes: list, repo_path: Path
+    ) -> None:
+        """Expand sparse checkout to cover full subtree of each identified scope.
+
+        Called after scope identification, before compact_patches and review modules,
+        to ensure read_file and patch compaction have full scope context available.
+        """
+        from git import Repo
+
+        git_dir = repo_path / ".git"
+        if not git_dir.exists():
+            return
+
+        # Build scope-aware sparse paths
+        sparse_paths: set[str] = set()
+        for scope in scopes:
+            if scope.subroot == ".":
+                # Root scope — need everything; disable sparse checkout effectively
+                sparse_paths.add("/*")
+                sparse_paths.add("*/")
+                break
+            else:
+                sparse_paths.add(scope.subroot.rstrip("/") + "/")
+
+        # Always include root-level files and manifests
+        sparse_paths.add("/*")
+        for manifest in MANIFEST_FILES:
+            sparse_paths.add(manifest)
+        for pattern in MANIFEST_GLOBS:
+            sparse_paths.add(pattern)
+
+        sparse_file = git_dir / "info" / "sparse-checkout"
+        sparse_file.write_text("\n".join(sorted(sparse_paths)) + "\n")
+
+        # Re-checkout to materialize newly included paths
+        repo = Repo(repo_path)
+        repo.git.checkout()

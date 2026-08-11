@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+logger = logging.getLogger(__name__)
 
 from codespy.config_dspy import ReasoningEffort
 from codespy.tools.storage.base import Storage
@@ -54,6 +57,19 @@ class LLMSettings(BaseModel):
     # charged against it, so it must comfortably exceed the expected answer size.
     # ``new_lm`` clamps this to the model's real output ceiling before use.
     max_tokens: int
+
+    @model_validator(mode="after")
+    def _enforce_temperature_with_reasoning(self) -> "LLMSettings":
+        """Providers require temperature=1 when reasoning is enabled."""
+        if self.reasoning_effort is not None and self.temperature != 1.0:
+            logger.warning(
+                "temperature=%.2f is incompatible with reasoning_effort=%r; "
+                "forcing temperature=1.0",
+                self.temperature,
+                self.reasoning_effort,
+            )
+            self.temperature = 1.0
+        return self
 
 
 

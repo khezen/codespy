@@ -156,11 +156,11 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
         scope_type=scope.scope_type,
         has_changes=scope.has_changes,
         is_dependency=scope.is_dependency,
-        confidence=scope.confidence,
         language=scope.language,
         package_manifest=manifest,
         changed_files=relative_files,
         reason=scope.reason,
+        skills=scope.skills,
     )
 
 
