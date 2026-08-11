@@ -185,7 +185,7 @@ class Hippocampus(dspy.Module):
         # and to detect "everything was reflected online" so end_episode() still
         # persists a snapshot even when nothing remains to consolidate.
         self._reflected_count: int = 0
-        # Question derived from the first buffered call; used as Distiller input.
+        # Question derived from the latest buffered call; used as Distiller consolidation input.
         self._episode_question: str | None = None
 
         # Identity of the wrapped module/signature for Episode metadata. An explicit
@@ -238,8 +238,7 @@ class Hippocampus(dspy.Module):
         """
         traj = format_trajectory(pred, self.budget.max_trajectory_tokens)
         self._episode_trajectories.append(traj)
-        if self._episode_question is None:
-            self._episode_question = self._make_question(kwargs)
+        self._episode_question = self._make_question(kwargs)
         # Online reflection: None = no limit (always); N = for the first N calls.
         if (self.max_reflects is None
                 or len(self._episode_trajectories) <= self.max_reflects):

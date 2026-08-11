@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import posixpath
 
 from codespy.tools.storage.base import Storage
 from codespy.tools.storage.models import (
@@ -60,15 +61,12 @@ class S3Client(Storage):
     # ------------------------------------------------------------------
 
     def _resolve_path(self, path: str) -> str:
-        normalised = path.lstrip("/")
-        parts = normalised.split("/")
-        resolved: list[str] = []
-        for part in parts:
-            if part == "..":
-                raise ValueError(f"Path escapes bucket root: {path!r}")
-            if part and part != ".":
-                resolved.append(part)
-        return "/".join(resolved)
+        normalised = posixpath.normpath(path.strip("/"))
+        if normalised == ".":
+            return ""
+        if normalised.startswith(".."):
+            raise ValueError(f"Path escapes bucket root: {path!r}")
+        return normalised
 
     def _file_name(self, path: str) -> str:
         return path.rstrip("/").rsplit("/", 1)[-1]
@@ -247,6 +245,12 @@ class S3Client(Storage):
 
         if len(raw) > max_bytes:
             truncated = True
+            raw = raw[:max_bytes]
+            # Back up to a valid UTF-8 character boundary
+            while raw and (raw[-1] & 0xC0) == 0x80:
+                raw = raw[:-1]
+            if raw and raw[-1] >= 0xC0:
+                raw = raw[:-1]
 
         try:
             content = raw.decode("utf-8")
@@ -262,9 +266,6 @@ class S3Client(Storage):
                 )
 
         total_lines = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
-
-        if truncated:
-            content = content[:max_bytes]
 
         if max_lines is not None:
             lines = content.split("\n")

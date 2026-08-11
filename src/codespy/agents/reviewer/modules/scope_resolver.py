@@ -732,7 +732,7 @@ class ScopeResolver(dspy.Module):
             List of orphan files that couldn't be assigned
         """
         # Sort by depth (deepest first) for greedy assignment
-        sorted_scopes = sorted(scopes, key=lambda s: s.subroot.count("/"), reverse=True)
+        sorted_scopes = sorted(scopes, key=lambda s: (-s.subroot.count("/"), s.subroot))
         orphans: list[ChangedFile] = []
 
         for file in changed_files:

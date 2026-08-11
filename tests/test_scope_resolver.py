@@ -291,5 +291,31 @@ class TestManifestScoping:
             assert "scripts/deploy" in scope_subroots
 
 
+class TestAssignFilesDeterminism:
+    """Verify file assignment is deterministic for same-depth scopes."""
+
+    def test_same_depth_scopes_deterministic(self):
+        """Scopes at the same depth should assign files consistently."""
+        from codespy.agents.reviewer.models import ScopeResult, ScopeType
+
+        # Two scopes at depth 1 (one slash each)
+        scope_a = ScopeResult(subroot="packages/alpha", scope_type=ScopeType.LIBRARY, reason="test")
+        scope_b = ScopeResult(subroot="packages/beta", scope_type=ScopeType.LIBRARY, reason="test")
+        file_alpha = ChangedFile(filename="packages/alpha/index.ts", status=FileStatus.MODIFIED)
+        file_beta = ChangedFile(filename="packages/beta/index.ts", status=FileStatus.MODIFIED)
+
+        resolver = ScopeResolver()
+        # Pass scopes in both orders — assignment should be identical
+        orphans_ab = resolver._assign_files([scope_a, scope_b], [file_alpha, file_beta])
+        scope_a.changed_files.clear()
+        scope_b.changed_files.clear()
+        orphans_ba = resolver._assign_files([scope_b, scope_a], [file_alpha, file_beta])
+
+        assert len(orphans_ab) == 0
+        assert len(orphans_ba) == 0
+        assert scope_a.changed_files == [file_alpha]
+        assert scope_b.changed_files == [file_beta]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

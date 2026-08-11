@@ -361,6 +361,49 @@ def _merge_hunks(expanded_hunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return merged
 
 
+def _build_expanded_hunk(
+    merged_hunk: dict[str, Any],
+    source_lines: list[str],
+) -> tuple[str, list[str]]:
+    """Build the header and content lines for one expanded hunk.
+
+    Returns:
+        Tuple of (hunk_header, hunk_lines).
+    """
+    expansion_start = merged_hunk.get("expansion_start")
+    expansion_end = merged_hunk.get("expansion_end")
+    original_hunk = merged_hunk.get("original_hunk", merged_hunk)
+
+    if expansion_start is None or expansion_end is None:
+        return original_hunk["header"], original_hunk["lines"]
+
+    hunk_start_new = merged_hunk.get("hunk_start_new", expansion_start)
+    hunk_end_new = merged_hunk.get("hunk_end_new", expansion_end)
+
+    new_hunk_lines: list[str] = []
+
+    # Pre-context
+    for line_num in range(expansion_start, hunk_start_new):
+        if line_num <= len(source_lines):
+            new_hunk_lines.append(f" {source_lines[line_num - 1]}")
+
+    # Diff lines from constituent hunks
+    for sub_hunk in merged_hunk.get("merged_hunks", [original_hunk]):
+        new_hunk_lines.extend(sub_hunk.get("lines", []))
+
+    # Post-context
+    for line_num in range(hunk_end_new + 1, expansion_end + 1):
+        if line_num <= len(source_lines):
+            new_hunk_lines.append(f" {source_lines[line_num - 1]}")
+
+    # Compute counts
+    new_file_count = sum(1 for l in new_hunk_lines if l.startswith((" ", "+")))
+    old_count = sum(1 for l in new_hunk_lines if l.startswith((" ", "-")))
+    header = f"@@ -{expansion_start},{old_count} +{expansion_start},{new_file_count} @@"
+
+    return header, new_hunk_lines
+
+
 def _rebuild_patch(
     raw_patch: str,
     merged_hunks: list[dict[str, Any]],
@@ -378,69 +421,15 @@ def _rebuild_patch(
     """
     if not merged_hunks:
         return None
-
-    # Split original patch to get header lines (before first hunk)
     lines = raw_patch.split("\n")
-    header_lines = []
+    header_lines: list[str] = []
     for line in lines:
         if line.startswith("@@"):
             break
         header_lines.append(line)
-
-    result_lines = list(header_lines)
-
+    result_lines: list[str] = list(header_lines)
     for merged_hunk in merged_hunks:
-        expansion_start = merged_hunk.get("expansion_start")
-        expansion_end = merged_hunk.get("expansion_end")
-        original_hunk = merged_hunk.get("original_hunk", merged_hunk)
-
-        if expansion_start is None or expansion_end is None:
-            # No expansion, keep original hunk
-            result_lines.append(original_hunk["header"])
-            result_lines.extend(original_hunk["lines"])
-            continue
-
-        # Get the hunk boundaries
-        hunk_start_new = merged_hunk.get("hunk_start_new", expansion_start)
-        hunk_end_new = merged_hunk.get("hunk_end_new", expansion_end)
-
-        # Build new hunk lines
-        new_hunk_lines = []
-
-        # Add context lines before the original hunk (from expansion_start to hunk_start_new - 1)
-        pre_context_lines = []
-        for line_num in range(expansion_start, hunk_start_new):
-            if line_num <= len(source_lines):
-                pre_context_lines.append(f" {source_lines[line_num - 1]}")
-        new_hunk_lines.extend(pre_context_lines)
-
-        # Add diff lines from all constituent hunks (merged_hunks if present, else original_hunk)
-        merged_sub_hunks = merged_hunk.get("merged_hunks", [original_hunk])
-        for sub_hunk in merged_sub_hunks:
-            sub_lines = sub_hunk.get("lines", [])
-            new_hunk_lines.extend(sub_lines)
-
-        # Add context lines after the original hunk (from hunk_end_new + 1 to expansion_end)
-        post_context_lines = []
-        for line_num in range(hunk_end_new + 1, expansion_end + 1):
-            if line_num <= len(source_lines):
-                post_context_lines.append(f" {source_lines[line_num - 1]}")
-        new_hunk_lines.extend(post_context_lines)
-
-        # Calculate new hunk header counts
-        # For the new file: count context lines and additions
-        new_file_count = 0
-        for line in new_hunk_lines:
-            if line.startswith(" ") or line.startswith("+"):
-                new_file_count += 1
-
-        # For the old file: count context (" ") and deletion ("-") lines
-        old_count = sum(1 for line in new_hunk_lines if line.startswith(" ") or line.startswith("-"))
-
-        # Build new header
-        new_header = f"@@ -{expansion_start},{old_count} +{expansion_start},{new_file_count} @@"
-
-        result_lines.append(new_header)
-        result_lines.extend(new_hunk_lines)
-
+        hunk_header, hunk_lines = _build_expanded_hunk(merged_hunk, source_lines)
+        result_lines.append(hunk_header)
+        result_lines.extend(hunk_lines)
     return "\n".join(result_lines)
