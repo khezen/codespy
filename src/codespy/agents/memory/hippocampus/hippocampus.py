@@ -118,7 +118,7 @@ class Hippocampus(dspy.Module):
     ):
         """
         Args:
-            module: Any dspy.Module (ReAct, RLM, Predict, …) to wrap.
+            module: Any dspy.Module (ReActV2, RLM, Predict, …) to wrap.
             budget: The four token budgets bounding memory, as a
                 :class:`MemoryBudget`. Defaults to ``MemoryBudget()`` — see that
                 class for per-field guidance. Resolve one from configuration with
@@ -134,14 +134,14 @@ class Hippocampus(dspy.Module):
                 If None, all input fields are serialized (bounded by
                 ``budget.max_question_tokens``).
                 Set this when one field cleanly captures user intent.
-            task_name: Identity recorded in ``Episode.task`` and used in the episode
-                filename. Pass the signature's snake_case name (``"doc"``,
-                ``"code_review"``, …) — the same key that drives config, LM
-                selection and cost attribution — so the episode path lines up with
-                the rest of the system. Inference is a last resort: only
-                ``dspy.ReAct``-style modules expose ``.signature``,
-                ``dspy.ChainOfThought`` does not, so the fallback would yield a
-                meaningless (and collision-prone) ``"ChainOfThought"``.
+        task_name: Identity recorded in ``Episode.task`` and used in the episode
+            filename. Pass the signature's snake_case name (``"doc"``,
+            ``"code_review"``, …) — the same key that drives config, LM
+            selection and cost attribution — so the episode path lines up with
+            the rest of the system. Inference is a last resort: only
+            ``dspy.ReActV2``-style modules expose ``.signature``,
+            ``dspy.ChainOfThought`` does not, so the fallback would yield a
+            meaningless (and collision-prone) ``"ChainOfThought"``.
             run_id: Identifier of the pipeline run this agent belongs to. Passed
                 down by the orchestrating ``ReviewPipeline`` so every module
                 invoked within the same review run shares the same identifier,
@@ -163,12 +163,15 @@ class Hippocampus(dspy.Module):
             module_inputs = set(top_sig.input_fields)
             module.signature = prepend_context_map(top_sig)
             for _, pred in module.named_predictors():
-                if set(pred.signature.input_fields) & module_inputs:
-                    if "context_map" not in pred.signature.input_fields:
-                        pred.signature = prepend_context_map(pred.signature)
+                pred_sig = getattr(pred, "signature", None)
+                if pred_sig is not None and set(pred_sig.input_fields) & module_inputs:
+                    if "context_map" not in pred_sig.input_fields:
+                        pred.signature = prepend_context_map(pred_sig)
         else:
             for _, pred in module.named_predictors():
-                pred.signature = prepend_context_map(pred.signature)
+                pred_sig = getattr(pred, "signature", None)
+                if pred_sig is not None:
+                    pred.signature = prepend_context_map(pred_sig)
 
         self.agent = module
         self.distill = Distiller()

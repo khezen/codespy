@@ -8,6 +8,7 @@ from typing import Any, Sequence
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
+from codespy.agents.dspy_config import AsyncReActV2
 from codespy.agents.memory.hippocampus import Hippocampus
 from codespy.agents.memory.hippocampus import ContextMap
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
@@ -228,7 +229,7 @@ class CodeReviewer(dspy.Module):
             scope_root = resolve_scope_root(repo_path, scope.subroot)
             tools, contexts = await self._create_tools(scope_root)
             try:
-                agent = dspy.ReAct(
+                agent = AsyncReActV2(
                     signature=CodeReviewSignature,
                     tools=tools,
                     max_iters=max_iters,
