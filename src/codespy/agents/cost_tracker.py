@@ -4,6 +4,7 @@ Uses DSPy's internal LM history mechanism for reliable per-signature attribution
 even during parallel execution with dspy.Parallel.
 """
 
+import logging
 import sys
 import threading
 import time
@@ -13,6 +14,8 @@ from types import TracebackType
 from typing import Any, Optional
 
 import dspy  # type: ignore[import-untyped]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -290,6 +293,9 @@ class SignatureContext:
     ) -> None:
         """Exit the context, calculating costs from new history entries.
 
+        Cost calculation failures are logged at WARNING level but never
+        propagated — bookkeeping must not mask application errors.
+
         The LM context is released in a ``finally``: a leaked
         ``dspy.context`` does not raise, it silently leaves the overridden LM
         installed for the remainder of the thread, so every later predictor
@@ -303,6 +309,8 @@ class SignatureContext:
             entries = _get_history_entries()
             cost, tokens, call_count = _calculate_costs_from_entries(entries, self._before_uuids)
             self.tracker.end_signature(self.signature_name, cost, tokens, call_count)
+        except Exception as e:
+            logger.warning("Cost calculation failed for %s: %s", self.signature_name, e)
         finally:
             if self._lm_context is not None:
                 self._lm_context.__exit__(exc_type, exc_val, exc_tb)

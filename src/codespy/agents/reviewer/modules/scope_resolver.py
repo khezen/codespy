@@ -508,14 +508,19 @@ class ScopeResolver(dspy.Module):
 
         # Checkout missing manifests
         try:
+            from git import Repo
+            from git.exc import GitCommandError
+
             repo = Repo(repo_path)
             for path in manifest_paths:
                 if not (repo_path / path).exists():
                     try:
                         repo.git.checkout("HEAD", "--", path)
                         logger.debug("Checked out manifest: %s", path)
-                    except Exception:
+                    except GitCommandError:
                         pass  # File doesn't exist in repo — expected
+                    except Exception as e:
+                        logger.warning("Unexpected error checking out manifest %s: %s", path, e)
         except Exception as e:
             logger.warning("Failed to ensure manifests: %s", e)
 

@@ -3,6 +3,7 @@
 import logging
 import os
 import sys
+from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
 
@@ -19,7 +20,8 @@ mcp = FastMCP("filesystem")
 _fs: FileSystem | None = None
 
 # Manual cache for read_file to skip caching error results
-_read_file_cache: dict[tuple[str, int, int | None], tuple] = {}
+_READ_FILE_CACHE_MAX = 512
+_read_file_cache: OrderedDict[tuple[str, int, int | None], tuple] = OrderedDict()
 
 
 def _get_fs() -> FileSystem:
@@ -33,11 +35,14 @@ def _read_file_cached(path: str, max_bytes: int, max_lines: int | None) -> tuple
     """Cached version of read_file that doesn't cache error results."""
     key = (path, max_bytes, max_lines)
     if key in _read_file_cache:
+        _read_file_cache.move_to_end(key)
         return _read_file_cache[key]
     result = _get_fs().read_file(path, max_bytes, max_lines)
     dumped = tuple(sorted(result.model_dump().items()))
     if not result.error:
         _read_file_cache[key] = dumped
+        if len(_read_file_cache) > _READ_FILE_CACHE_MAX:
+            _read_file_cache.popitem(last=False)
     return dumped
 
 

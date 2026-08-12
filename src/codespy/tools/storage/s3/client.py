@@ -61,9 +61,14 @@ class S3Client(Storage):
     # ------------------------------------------------------------------
 
     def _resolve_path(self, path: str) -> str:
-        normalised = posixpath.normpath(path.strip("/"))
+        stripped = path.strip("/")
+        # Reject '..' in any path component before normalization
+        if any(part == ".." for part in stripped.split("/")):
+            raise ValueError(f"Path escapes bucket root: {path!r}")
+        normalised = posixpath.normpath(stripped)
         if normalised == ".":
             return ""
+        # Belt-and-suspenders: catch anything normpath might produce
         if normalised.startswith(".."):
             raise ValueError(f"Path escapes bucket root: {path!r}")
         return normalised
@@ -246,11 +251,15 @@ class S3Client(Storage):
         if len(raw) > max_bytes:
             truncated = True
             raw = raw[:max_bytes]
-            # Back up to a valid UTF-8 character boundary
-            while raw and (raw[-1] & 0xC0) == 0x80:
-                raw = raw[:-1]
-            if raw and raw[-1] >= 0xC0:
-                raw = raw[:-1]
+            # Ensure truncation didn't split a multi-byte UTF-8 sequence.
+            # Only the last 1-3 bytes can be an incomplete character.
+            try:
+                raw.decode("utf-8")
+            except UnicodeDecodeError as e:
+                # Only trim if the error is at the truncation boundary (last 4 bytes)
+                if e.start >= len(raw) - 4:
+                    raw = raw[:e.start]
+                # Interior errors are handled by the full decode below (latin-1 fallback)
 
         try:
             content = raw.decode("utf-8")

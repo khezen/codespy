@@ -190,9 +190,19 @@ class Hippocampus(dspy.Module):
 
         # Identity of the wrapped module/signature for Episode metadata. An explicit
         # task_name wins: inference only works for modules exposing .signature.
-        self._task_name: str = task_name or (
-            top_sig.__name__ if top_sig is not None else type(module).__name__
-        )
+        self._task_name: str
+        if task_name:
+            self._task_name = task_name
+        elif top_sig is not None:
+            self._task_name = top_sig.__name__
+        else:
+            fallback = type(module).__name__
+            logger.warning(
+                "Hippocampus: task_name not provided and module %r has no .signature; "
+                "using collision-prone fallback %r. Pass task_name explicitly.",
+                module, fallback,
+            )
+            self._task_name = fallback
         self._module_name: str = type(module).__name__
         # Identifier of the pipeline run this agent belongs to (see run_id arg
         # above). Falls back to a random UUID for standalone usage where no
@@ -258,7 +268,7 @@ class Hippocampus(dspy.Module):
         Returns the combined trajectory text used for consolidation, or
         ``None`` if the buffer is empty (no-op).
         """
-        skip_double_distill = len(self._episode_trajectories)==1 and self._reflected_count>0
+        skip_double_distill = len(self._episode_trajectories) == 1 and self._reflected_count > 0
         if not self._episode_trajectories or skip_double_distill:
             return None
         combined = "\n\n".join(
@@ -356,8 +366,9 @@ class Hippocampus(dspy.Module):
         Raises:
             OSError: If persistence is requested and the write fails.
         """
-        nothing_to_persist = self._consolidate() is None and self._reflected_count==0
-        if nothing_to_persist:
+        combined = self._consolidate()
+        has_content = combined is not None or self._reflected_count > 0
+        if not has_content:
             return
         self._finalize_episode(artifacts)
         if store is not None and dir is not None:
@@ -385,8 +396,8 @@ class Hippocampus(dspy.Module):
                 episode (e.g. ``{"review": "<markdown>"}``).
         """
         combined = await asyncio.to_thread(self._consolidate)
-        nothing_to_persist = combined is None and self._reflected_count == 0
-        if nothing_to_persist:
+        has_content = combined is not None or self._reflected_count > 0
+        if not has_content:
             return
         await asyncio.to_thread(self._finalize_episode, artifacts)
         if store is not None and dir is not None:
