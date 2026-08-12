@@ -1,22 +1,13 @@
 """DSPy and LiteLLM configuration utilities."""
 
-import asyncio
 import logging
 
 import dspy  # type: ignore[import-untyped]
 from dspy.adapters.two_step_adapter import TwoStepAdapter  # type: ignore[import-untyped]
-from dspy.predict.react_v2 import ReActV2 as _ReActV2  # type: ignore[import-untyped]
 import litellm  # type: ignore[import-untyped]
 
 from codespy.config import Settings, get_settings
 from codespy.config_memory import LLMSettings, REFLECTION_MODULES
-
-
-class AsyncReActV2(_ReActV2):
-    """ReActV2 with aforward() for async callers (acall)."""
-
-    async def aforward(self, **kwargs):
-        return await asyncio.to_thread(self.forward, **kwargs)
 
 
 logger = logging.getLogger(__name__)
@@ -162,7 +153,7 @@ def configure_dspy(settings: Settings) -> None:
     - Memory caching for LLM responses
 
     TwoStepAdapter decouples reasoning quality from format compliance,
-    solving ChatAdapter parsing failures with ReActV2 agents.
+    solving ChatAdapter parsing failures with ReAct agents.
 
     Args:
         settings: Application settings containing model and API key configuration.
@@ -203,7 +194,7 @@ def configure_dspy(settings: Settings) -> None:
 
     dspy.settings.configure(
         lm=lm,
-        adapter=TwoStepAdapter(extraction_lm, use_native_function_calling=True),  # TwoStepAdapter solves ChatAdapter parsing failures
+        adapter=TwoStepAdapter(extraction_lm),  # TwoStepAdapter solves ChatAdapter parsing failures
     )
 
     # Enable memory-only caching for LLM calls (no disk caching)

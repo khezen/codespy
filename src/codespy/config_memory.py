@@ -95,7 +95,7 @@ class MemoryConfig(BaseModel):
 
     # Ceiling on the rendered ContextMap. This is the *persisted* artifact and it
     # is prepended to every predictor of the wrapped agent, so it is re-sent on
-    # every ReActV2 iteration (~default_max_iters times per scope) plus once per
+    # every ReAct iteration (~default_max_iters times per scope) plus once per
     # reflection call. Easily the most cost-sensitive of the three budgets.
     # Approximate item capacity is default_max_context_map_tokens divided by
     # default_max_context_item_tokens (3072 / 240 ~= 12 items).

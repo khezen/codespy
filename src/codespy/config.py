@@ -265,7 +265,7 @@ class Settings(BaseSettings):
 
         Bounds the rendered ContextMap — the persisted artifact that is prepended
         to every predictor of the wrapped agent, and therefore re-sent on every
-        ReActV2 iteration.
+        ReAct iteration.
         """
         config = self.get_signature_config(signature_name).memory
         return (

@@ -8,7 +8,6 @@ from typing import Any, Sequence
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.dspy_config import AsyncReActV2
 from codespy.agents.memory.hippocampus import Hippocampus
 from codespy.agents.memory.hippocampus import ContextMap
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
@@ -314,7 +313,7 @@ class SupplyChainAuditor(dspy.Module):
                 try:
                     # Combine scoped filesystem tools with shared OSV tools
                     all_tools = scoped_tools + osv_tools
-                    supply_chain_agent = AsyncReActV2(
+                    supply_chain_agent = dspy.ReAct(
                         signature=SupplyChainSecuritySignature,
                         tools=all_tools,
                         max_iters=supply_chain_max_iters,

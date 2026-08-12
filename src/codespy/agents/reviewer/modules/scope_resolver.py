@@ -1,6 +1,6 @@
-"""Scope resolver module - merged deterministic analysis + ReActV2 agent refinement.
+"""Scope resolver module - merged deterministic analysis + ReAct agent refinement.
 
-This module combines deterministic scope identification with a ReActV2 agent
+This module combines deterministic scope identification with a ReAct agent
 for intelligent refinement. The agent uses filesystem and search tools to
 explore the codebase and make informed scope decisions, replacing the
 previous ChainOfThought predictor that relied on a static repo tree.
@@ -19,7 +19,6 @@ import dspy  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.dspy_config import AsyncReActV2
 from codespy.agents.memory.hippocampus import ContextMap, Hippocampus
 from codespy.agents.reviewer.models import (
     PackageManifest,
@@ -364,7 +363,7 @@ def derive_sparse_paths(changed_files: list[str]) -> list[str]:
         # For glob patterns like *.csproj, we need to add the pattern itself
         paths.append(manifest_pattern)
 
-    # Agent config directories — project instructions for ReActV2 agents
+    # Agent config directories — project instructions for ReAct agents
     paths.extend([
         ".claude/",
         ".kilo/",
@@ -879,7 +878,7 @@ class ScopeResolver(dspy.Module):
         review_context: ReviewContext | None,
         run_id: str | None,
     ) -> list[ScopeResult]:
-        """Use ReActV2 agent to refine scope assignments from deterministic candidates.
+        """Use ReAct agent to refine scope assignments from deterministic candidates.
 
         Args:
             scopes: Already-resolved scope results
@@ -901,7 +900,7 @@ class ScopeResolver(dspy.Module):
         max_iters = self._settings.get_max_iters("scope")
         tools, contexts = await self._create_tools(repo_path)
         try:
-            agent = AsyncReActV2(
+            agent = dspy.ReAct(
                 signature=ScopeRefinementSignature,
                 tools=tools,
                 max_iters=max_iters,
