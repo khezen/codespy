@@ -9,6 +9,7 @@ import litellm
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, ReviewContext
+from codespy.agents.reviewer.modules.scope_resolver import _deepest_common_folder
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 from codespy.tools.git.models import ChangedFile
@@ -139,7 +140,7 @@ class Auditor(dspy.Module):
             )
             mem.end_episode(
                 get_memory_store(self._settings),
-                f"/{review_context.pr_context.repo_slug}/",
+                _deepest_common_folder(scopes, review_context.pr_context.repo_slug) if scopes else f"/{review_context.pr_context.repo_slug}/",
                 artifacts={
                     "audit": (
                         f"## Quality Assessment\n\n{result.quality_assessment}\n\n"

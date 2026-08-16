@@ -325,20 +325,21 @@ class Hippocampus(dspy.Module):
     def episode_file_path(self, dir: str, index: int = 0) -> str:
         """Build the full episode file path from a directory.
 
-        Prepends the ``episodes`` root and appends a hidden ``.codespy``
-        folder holding the episode file, named after the pipeline run's
-        identifier, the wrapped task, and an optional index to avoid collisions:
-        ``global/episodic/<dir>/.codespy/<run_id>-<task>-<index>.json``.
+        Path format: ``orgs/<owner>/episodic/.codespy/<owner>.<repo>[.<subroot>].<run_id>-<task>-<index>.json``
 
         Args:
             dir: Directory identifying where this episode belongs (e.g. a
-                scope's ``/{repo}/{subroot}/`` path).
-            index: Episode index for this scope/task combination. Used to
-                disambiguate when the same signature is invoked multiple
-                times on the same scope within a single pipeline run.
+                scope's ``/{host}/{owner}/{repo}/{subroot}/`` path or
+                ``/{owner}/{repo}/{subroot}/`` without host).
+            index: Episode index for this scope/task combination.
         """
-        trimmed = dir.strip("/")
-        return f"global/episodic/{trimmed}/.codespy/{self._run_id}-{self._task_name}-{index}.json"
+        segments = [s for s in dir.strip("/").split("/") if s]
+        # Strip host segment (contains a dot, e.g. github.com/gitlab.com)
+        if segments and "." in segments[0]:
+            segments = segments[1:]
+        owner = segments[0] if segments else "unknown"
+        slug = ".".join(segments)
+        return f"orgs/{owner}/episodic/.codespy/{slug}.{self._run_id}-{self._task_name}-{index}.json"
 
     def end_episode(
         self,
@@ -360,7 +361,7 @@ class Hippocampus(dspy.Module):
 
         If both ``store`` and ``dir`` are provided the episode is persisted
         via ``save_episode()`` after consolidation, at
-        ``global/episodic/<dir>/.codespy/<run_id>-<task>.json``. ``store`` may be a
+        ``orgs/<owner>/episodic/.codespy/<slug>.<run_id>-<task>-<index>.json``. ``store`` may be a
         ``FileSystem`` or an ``S3Client`` instance.
 
         Args:

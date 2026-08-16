@@ -313,7 +313,7 @@ class ScopeRefinementSignature(dspy.Signature):
 
     OUTPUT: Final refined scope boundaries. Files are assigned automatically.
 
-    For each scope boundary, include a `description` (max 500 characters) summarizing
+    For each scope boundary, include a `description` (max 615 tokens) summarizing
     what the folder contains and its role in the project. For example:
     - "Auth library handling JWT issuance and session management"
     - "API gateway routing to downstream services"

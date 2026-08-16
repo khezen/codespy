@@ -7,6 +7,7 @@ import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
+from codespy.agents.reviewer.modules.scope_resolver import _deepest_common_folder
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 
@@ -107,7 +108,7 @@ class Summarizer(dspy.Module):
                 )
                 mem.end_episode(
                     get_memory_store(self._settings),
-                    f"/{repo_slug}/",
+                    _deepest_common_folder(scopes, repo_slug) if scopes else f"/{repo_slug}/",
                     artifacts={"summary": result.summary},
                 )
             else:

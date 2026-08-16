@@ -82,9 +82,9 @@ class MemoryConfig(BaseModel):
     # every ReAct iteration (~default_max_iters times per scope) plus once per
     # reflection call. Easily the most cost-sensitive of the three budgets.
     # Approximate item capacity is default_max_context_memory_tokens divided by
-    # default_max_context_item_tokens (3072 / 240 ~= 12 items).
+    # default_max_context_item_tokens (8192 / 410 ~= 19 items).
     # MEMORY_DEFAULT_MAX_CONTEXT_MEMORY_TOKENS
-    default_max_context_memory_tokens: int = Field(default=3072)
+    default_max_context_memory_tokens: int = Field(default=8192)
 
     # Per-item ceiling handed to the Distiller/Cartographer as a prompt input, so
     # they keep each context-memory item compact instead of spending the whole memory
@@ -92,7 +92,7 @@ class MemoryConfig(BaseModel):
     # than enforced in code (truncating an item could corrupt an exact constant).
     # The hard, memory-wide limit is default_max_context_memory_tokens, enforced by the
     # Evictor. MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS
-    default_max_context_item_tokens: int = Field(default=240)
+    default_max_context_item_tokens: int = Field(default=410)
 
 
     # Head+tail cap on the agent trajectory fed to the Distiller. Without it a

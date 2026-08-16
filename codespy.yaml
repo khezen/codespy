@@ -90,7 +90,7 @@ memory:
   # 1. max_context_memory_tokens — ceiling on the rendered ContextMemory. This is the
   #    persisted artifact, and it is prepended to every agent iteration, so it is
   #    re-sent ~default_max_iters times per scope. Divided by max_context_item_tokens it
-  #    gives the memory's item capacity (3072 / 240 ~= 12 items).
+  #    gives the memory's item capacity (8192 / 410 ~= 19 items).
   # 2. max_context_item_tokens — budget for a SINGLE context memory item, given to the Distiller
   #    and the Cartographer as a prompt input so no one item eats the whole memory.
   #    Soft limit (expressed to the LLM, not enforced — truncating an item could
@@ -103,8 +103,8 @@ memory:
   # 4. max_question_tokens — cap on the serialized agent inputs used as the reflection
   #    "question". Without it, every input field is sent in full (for code review that
   #    means the complete patch of every changed file). null = unbounded.
-  default_max_context_memory_tokens: 3072    # MEMORY_DEFAULT_MAX_CONTEXT_MEMORY_TOKENS
-  default_max_context_item_tokens: 240            # MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS
+  default_max_context_memory_tokens: 8192    # MEMORY_DEFAULT_MAX_CONTEXT_MEMORY_TOKENS
+  default_max_context_item_tokens: 410            # MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS
   default_max_trajectory_tokens: 8192     # MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS
   default_max_question_tokens: 2048       # MEMORY_DEFAULT_MAX_QUESTION_TOKENS
 
