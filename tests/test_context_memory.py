@@ -420,6 +420,31 @@ class TestContextMemoryMerge:
         assert len(merged.domain_constants) == 1
 
 
+class TestTopicDependencies:
+    """Tests for Topic.dependencies field."""
+
+    def test_topic_with_dependencies(self):
+        """Topic can have dependencies."""
+        topic = Topic(
+            id="owner/repo/auth",
+            description="Auth service",
+            dependencies=["owner/repo/core", "PyPI/passlib"]
+        )
+        assert topic.dependencies == ["owner/repo/core", "PyPI/passlib"]
+
+    def test_topic_dependencies_default_empty(self):
+        """Topic dependencies default to empty list."""
+        topic = Topic(id="owner/repo/auth", description="Auth service")
+        assert topic.dependencies == []
+
+    def test_topic_deserialization_without_dependencies(self):
+        """Old episodes without dependencies deserialize to empty list."""
+        import json
+        old_data = '{"id": "owner/repo/auth", "description": "Auth service"}'
+        topic = Topic.model_validate_json(old_data)
+        assert topic.dependencies == []
+
+
 class TestScopeResultTopicHelper:
     """Tests for ScopeResult.topic() helper method."""
 

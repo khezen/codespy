@@ -31,7 +31,12 @@ from codespy.config_memory import get_memory_store
 from codespy.tools.git.client import get_client
 from codespy.tools.git.models import ChangedFile, MergeRequest, should_review_file
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
-from codespy.agents.reviewer.modules.manifest_parser import extract_package_name
+from codespy.agents.reviewer.modules.manifest_parser import (
+    extract_package_name,
+    extract_dependencies,
+    PACKAGE_MANAGER_TO_ECOSYSTEM,
+    infer_repo_from_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -919,7 +924,9 @@ class ScopeResolver(dspy.Module):
             Tuple of (list of ScopeResult with agent-resolved assignments,
                       ContextMemory with topics and items from Hippocampus)
         """
-        from codespy.agents.memory.hippocampus import ContextMemory, Topic, compute_common_ancestor_topic_id
+        from codespy.agents.memory.hippocampus import (
+            ContextMemory, Topic, compute_common_ancestor_topic_id, make_topic_id,
+        )
 
         # Build candidates string from already-resolved scopes
         candidates_str = "\n".join(self._format_candidate(s) for s in scopes)
@@ -984,11 +991,47 @@ class ScopeResolver(dspy.Module):
                 if scope.subroot in boundary_descriptions:
                     scope.description = boundary_descriptions[scope.subroot]
 
-            # Build topics from final scopes
+            # Build topic IDs + internal lookup
+            internal_packages: dict[str, str] = {}
+            scope_topic_ids: dict[str, str] = {}
+            for scope in final_scopes:
+                pkg_name = scope.package_manifest.package_name if scope.package_manifest else None
+                tid = make_topic_id(mr.repo_full_name, scope.subroot, pkg_name)
+                scope_topic_ids[scope.subroot] = tid
+                if pkg_name:
+                    internal_packages[pkg_name] = tid
+
+            # Build Topics with resolved dependencies
             scope_topics: list[Topic] = []
             for scope in final_scopes:
-                topic = scope.topic(mr.repo_full_name)
-                scope_topics.append(topic)
+                dep_topic_ids: list[str] = []
+                if scope.package_manifest:
+                    dep_names, dep_repos = extract_dependencies(
+                        scope.package_manifest.manifest_path, repo_path
+                    )
+                    ecosystem = PACKAGE_MANAGER_TO_ECOSYSTEM.get(
+                        scope.package_manifest.package_manager,
+                        scope.package_manifest.package_manager,
+                    )
+                    for name in dep_names:
+                        if name in internal_packages:
+                            # Rule 1: internal scope match
+                            dep_topic_ids.append(internal_packages[name])
+                        elif name in dep_repos:
+                            # Rule 2: repo identifiable from source metadata
+                            dep_topic_ids.append(make_topic_id(dep_repos[name], "", name))
+                        elif infer_repo_from_name(name):
+                            # Rule 2: repo identifiable from dep name (Go modules)
+                            dep_topic_ids.append(make_topic_id(infer_repo_from_name(name), "", name))
+                        else:
+                            # Rule 3: external
+                            dep_topic_ids.append(f"{ecosystem}/{name}")
+
+                scope_topics.append(Topic(
+                    id=scope_topic_ids[scope.subroot],
+                    description=scope.description,
+                    dependencies=dep_topic_ids,
+                ))
 
             # Compute common ancestor topic if >1 scope
             common_ancestor_topic_id = compute_common_ancestor_topic_id(
