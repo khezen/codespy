@@ -13,7 +13,7 @@ from codespy.config import Settings, get_settings
 from codespy.tools.git import GitClient, get_client, ChangedFile, MergeRequest
 from codespy.tools.git.local_diff import build_mr_from_diff
 from codespy.tools.git.patch_utils import compact_patches
-from codespy.agents.memory.hippocampus import ContextMap
+from codespy.agents.memory.hippocampus import ContextMemory
 from codespy.agents.reviewer.models import (
     Issue,
     PRContext,
@@ -94,7 +94,8 @@ class ReviewPipeline(dspy.Module):
         module_names: list[str],
         run_id: str | None = None,
         review_context: ReviewContext | None = None,
-    ) -> tuple[list[Issue], dict[str, ContextMap | None]]:
+        mr: MergeRequest | None = None,
+    ) -> tuple[list[Issue], dict[str, ContextMemory | None]]:
         """Run review modules concurrently in a single event loop.
 
         Uses asyncio.gather instead of dspy.Parallel to avoid the
@@ -110,25 +111,39 @@ class ReviewPipeline(dspy.Module):
             review_context: ReviewContext for Hippocampus question and memory inheritance
 
         Returns:
-            Tuple of (aggregated list of issues, dict of module_name -> context_map)
+            Tuple of (aggregated list of issues, dict of module_name -> context_memory)
         """
+        # Compute all scope topic IDs for summary/auditor modules
+        all_scope_topic_ids: list[str] = []
+        if mr:
+            all_scope_topic_ids = [s.topic(mr.repo_full_name).id for s in scopes]
+
         tasks = [
-            self.code_reviewer.aforward(scopes=scopes, repo_path=repo_path, run_id=run_id, review_context=review_context),
-            self.doc_reviewer.aforward(scopes=scopes, repo_path=repo_path, run_id=run_id, review_context=review_context),
-            self.supply_chain_auditor.aforward(scopes=scopes, repo_path=repo_path, run_id=run_id, review_context=review_context),
+            self.code_reviewer.aforward(
+                scopes=scopes, repo_path=repo_path, run_id=run_id,
+                review_context=review_context, mr=mr
+            ),
+            self.doc_reviewer.aforward(
+                scopes=scopes, repo_path=repo_path, run_id=run_id,
+                review_context=review_context, mr=mr
+            ),
+            self.supply_chain_auditor.aforward(
+                scopes=scopes, repo_path=repo_path, run_id=run_id,
+                review_context=review_context, mr=mr
+            ),
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_issues: list[Issue] = []
-        context_maps: dict[str, ContextMap | None] = {}
+        context_memories: dict[str, ContextMemory | None] = {}
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.error(f"{module_names[i]} failed: {result}", exc_info=result)
             elif result is not None:
-                issues, ctx_map = result
+                issues, ctx_mem = result
                 all_issues.extend(issues)
-                context_maps[module_names[i]] = ctx_map
-        return all_issues, context_maps
+                context_memories[module_names[i]] = ctx_mem
+        return all_issues, context_memories
 
     def _build_local_mr(self, config: LocalReviewConfig) -> MergeRequest:
         """Build a MergeRequest from local git changes.
@@ -189,7 +204,7 @@ class ReviewPipeline(dspy.Module):
             summary=mr.title,  # Use title as placeholder since summary hasn't run
         )
         review_ctx = ReviewContext(pr_context=pr_context, memory=None)
-        scopes, _ = self.scope_resolver(
+        scopes, initial_memory = self.scope_resolver(
             mr, repo_path, is_local=is_local, run_id=run_id, review_context=review_ctx
         )
         for scope in scopes:
@@ -210,6 +225,8 @@ class ReviewPipeline(dspy.Module):
         patches = build_patches(mr.changed_files)
         compact_patches(scopes, repo_path)
         # Step 2: Run Summarizer (now receives scopes for per-scope episode persistence)
+        # Compute all scope topic IDs for summarizer
+        all_scope_topic_ids = [s.topic(mr.repo_full_name).id for s in scopes]
         pr_summary, summarizer_memory = self.summarizer(
             mr_title=mr.title,
             mr_description=mr.body or "No description provided.",
@@ -219,6 +236,8 @@ class ReviewPipeline(dspy.Module):
             repo_slug=mr.repo_slug,
             run_id=run_id,
             scopes=scopes,
+            initial_memory=initial_memory,
+            topic_ids=all_scope_topic_ids,
         )
         # Enrich review_ctx with actual summary and memory from summarizer
         pr_context.summary = pr_summary
@@ -227,12 +246,12 @@ class ReviewPipeline(dspy.Module):
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
         all_issues, parallel_memories = asyncio.run(
-            self._run_review_modules(scopes, repo_path, module_names, run_id=run_id, review_context=review_ctx)
+            self._run_review_modules(scopes, repo_path, module_names, run_id=run_id, review_context=review_ctx, mr=mr)
         )
         logger.info(f"Found {len(all_issues)} issues")
-        # Merge parallel context maps for Auditor
-        maps_to_merge = [m for m in parallel_memories.values() if m is not None]
-        merged_memory = ContextMap.merge(*maps_to_merge) if maps_to_merge else summarizer_memory
+        # Merge parallel context memories for Auditor
+        memories_to_merge = [m for m in parallel_memories.values() if m is not None]
+        merged_memory = ContextMemory.merge(*memories_to_merge) if memories_to_merge else summarizer_memory
         review_ctx = ReviewContext(pr_context=pr_context, memory=merged_memory)
         # Step 4: Run Audit (inherits merged memory from parallel modules)
         scoped_files = self._collect_scoped_files(scopes)
@@ -246,6 +265,7 @@ class ReviewPipeline(dspy.Module):
             all_issues=all_issues,
             run_id=run_id,
             scopes=scopes,
+            topic_ids=all_scope_topic_ids,
         )
         # Collect per-signature statistics
         signature_stats_list = self._collect_signature_stats()

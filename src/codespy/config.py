@@ -260,27 +260,27 @@ class Settings(BaseSettings):
             else self.memory.default_max_reflects
         )
 
-    def get_memory_max_context_map_tokens(self, signature_name: str) -> int:
-        """Get max_context_map_tokens for a signature's memory (signature-specific or default).
+    def get_memory_max_context_memory_tokens(self, signature_name: str) -> int:
+        """Get max_context_memory_tokens for a signature's memory (signature-specific or default).
 
-        Bounds the rendered ContextMap — the persisted artifact that is prepended
+        Bounds the rendered ContextMemory — the persisted artifact that is prepended
         to every predictor of the wrapped agent, and therefore re-sent on every
         ReAct iteration.
         """
         config = self.get_signature_config(signature_name).memory
         return (
-            config.max_context_map_tokens
-            if config.max_context_map_tokens is not None
-            else self.memory.default_max_context_map_tokens
+            config.max_context_memory_tokens
+            if config.max_context_memory_tokens is not None
+            else self.memory.default_max_context_memory_tokens
         )
 
     def get_memory_max_context_item_tokens(self, signature_name: str) -> int:
         """Get max_context_item_tokens for a signature's memory (signature-specific or default).
 
-        Bounds a *single* context-map item. Handed to the Distiller and the
+        Bounds a *single* context-memory item. Handed to the Distiller and the
         Cartographer as a prompt input so they keep each item compact instead of
-        spending the whole map budget on one verbose entry. Soft limit — the hard,
-        map-wide ceiling is ``get_memory_max_context_map_tokens``.
+        spending the whole memory budget on one verbose entry. Soft limit — the hard,
+        memory-wide ceiling is ``get_memory_max_context_memory_tokens``.
         """
         config = self.get_signature_config(signature_name).memory
         return (
@@ -331,7 +331,7 @@ class Settings(BaseSettings):
         from codespy.agents.memory.hippocampus.budget import MemoryBudget
 
         return MemoryBudget(
-            max_context_map_tokens=self.get_memory_max_context_map_tokens(signature_name),
+            max_context_memory_tokens=self.get_memory_max_context_memory_tokens(signature_name),
             max_context_item_tokens=self.get_memory_max_context_item_tokens(signature_name),
             max_trajectory_tokens=self.get_memory_max_trajectory_tokens(signature_name),
             max_question_tokens=self.get_memory_max_question_tokens(signature_name),

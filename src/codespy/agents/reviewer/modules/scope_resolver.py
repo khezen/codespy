@@ -19,7 +19,7 @@ import dspy  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.memory.hippocampus import ContextMap, Hippocampus
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import (
     PackageManifest,
     ReviewContext,
@@ -31,6 +31,7 @@ from codespy.config_memory import get_memory_store
 from codespy.tools.git.client import get_client
 from codespy.tools.git.models import ChangedFile, MergeRequest, should_review_file
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
+from codespy.agents.reviewer.modules.manifest_parser import extract_package_name
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +258,10 @@ class ScopeBoundary(BaseModel):
     subroot: str = Field(description="Path relative to repo root (e.g., 'packages/auth' or '.' for root)")
     scope_type: ScopeType = Field(description="Type of scope")
     reason: str = Field(description="Brief explanation for this boundary")
+    description: str = Field(
+        default="",
+        description="Brief description (max 500 chars) of what this scope/folder contains and its role in the project"
+    )
 
 
 class ScopeRefinementSignature(dspy.Signature):
@@ -302,6 +307,11 @@ class ScopeRefinementSignature(dspy.Signature):
     5. When in doubt, MERGE into fewer scopes rather than split.
 
     OUTPUT: Final refined scope boundaries. Files are assigned automatically.
+
+    For each scope boundary, include a `description` (max 500 characters) summarizing
+    what the folder contains and its role in the project. For example:
+    - "Auth library handling JWT issuance and session management"
+    - "API gateway routing to downstream services"
     """
 
     candidates: str = dspy.InputField(
@@ -317,7 +327,8 @@ class ScopeRefinementSignature(dspy.Signature):
     )
 
     scopes: list[ScopeBoundary] = dspy.OutputField(
-        desc="Scope boundaries (subroots). Files are assigned automatically — do NOT list files."
+        desc="Scope boundaries (subroots) with descriptions. Files are assigned automatically — do NOT list files. "
+        "For each scope boundary, include a `description` (max 500 characters) summarizing what the folder contains and its role in the project."
     )
 
 
@@ -556,6 +567,12 @@ class ScopeResolver(dspy.Module):
             deps_changed = self._dependencies_changed(manifest_dir, manifest_filename, lock_file, changed_paths)
             manifest_path = str(manifest_dir / manifest_filename) if manifest_dir != Path(".") else manifest_filename
 
+            # Extract package name from manifest
+            package_name = extract_package_name(manifest_path, repo_path)
+
+            # Build deterministic description
+            description = f"{pkg_mgr} package at {subroot}" if subroot != "." else f"{pkg_mgr} package (root)"
+
             scopes[subroot] = ScopeResult(
                 repo=repo,
                 subroot=subroot,
@@ -565,8 +582,10 @@ class ScopeResolver(dspy.Module):
                     lock_file_path=str(lock_file) if lock_file else None,
                     package_manager=pkg_mgr,
                     dependencies_changed=deps_changed,
+                    package_name=package_name,
                 ),
                 reason=f"manifest {manifest_filename} at {subroot}/",
+                description=description,
             )
 
         has_nested_manifests = any(subroot != "." for subroot in scopes)
@@ -582,11 +601,14 @@ class ScopeResolver(dspy.Module):
 
             indicator_type, indicator_path = self._find_scope_indicator(file.filename)
             if indicator_path and indicator_type and indicator_path not in scopes:
+                # Build deterministic description for indicator-based scope
+                description = f"{indicator_type.value} scope at {indicator_path}"
                 scopes[indicator_path] = ScopeResult(
                     repo=repo,
                     subroot=indicator_path,
                     scope_type=indicator_type,
                     reason="scope indicator in path (no parent manifest)",
+                    description=description,
                 )
 
         # Assign files to deepest matching scope
@@ -882,7 +904,7 @@ class ScopeResolver(dspy.Module):
         repo_path: Path,
         review_context: ReviewContext | None,
         run_id: str | None,
-    ) -> list[ScopeResult]:
+    ) -> tuple[list[ScopeResult], "ContextMemory | None"]:
         """Use ReAct agent to refine scope assignments from deterministic candidates.
 
         Args:
@@ -894,8 +916,11 @@ class ScopeResolver(dspy.Module):
             run_id: Pipeline run identifier
 
         Returns:
-            List of ScopeResult with agent-resolved assignments
+            Tuple of (list of ScopeResult with agent-resolved assignments,
+                      ContextMemory with topics and items from Hippocampus)
         """
+        from codespy.agents.memory.hippocampus import ContextMemory, Topic, compute_common_ancestor_topic_id
+
         # Build candidates string from already-resolved scopes
         candidates_str = "\n".join(self._format_candidate(s) for s in scopes)
 
@@ -953,9 +978,55 @@ class ScopeResolver(dspy.Module):
                 result.scopes, all_files, scopes, mr.repo_slug
             )
 
+            # Copy ScopeBoundary.description to ScopeResult.description (overrides deterministic fallback)
+            boundary_descriptions: dict[str, str] = {b.subroot: b.description for b in result.scopes}
+            for scope in final_scopes:
+                if scope.subroot in boundary_descriptions:
+                    scope.description = boundary_descriptions[scope.subroot]
+
+            # Build topics from final scopes
+            scope_topics: list[Topic] = []
+            for scope in final_scopes:
+                topic = scope.topic(mr.repo_full_name)
+                scope_topics.append(topic)
+
+            # Compute common ancestor topic if >1 scope
+            common_ancestor_topic_id = compute_common_ancestor_topic_id(
+                mr.repo_full_name, [s.subroot for s in final_scopes]
+            )
+            if common_ancestor_topic_id:
+                # Build description: "Common context for scopes: subroot1, subroot2, ..."
+                subroot_list = ", ".join(s.subroot for s in final_scopes)
+                common_desc = f"Common context for scopes: {subroot_list}"
+                scope_topics.append(Topic(id=common_ancestor_topic_id, description=common_desc))
+                stamp_topic_ids = [common_ancestor_topic_id]
+            elif scope_topics:
+                # Single scope: stamp with its topic ID
+                stamp_topic_ids = [scope_topics[0].id]
+            else:
+                stamp_topic_ids = []
+
             # Attach hierarchical skills to each produced scope
             for scope in final_scopes:
                 scope.skills = collect_skills(repo_path, scope.subroot)
+
+            # Bind topics to hippocampus cmem BEFORE building context_memory.
+            # This ensures: (a) persisted episode includes topics, (b) items
+            # copied into context_memory are pre-stamped with topic_ids,
+            # (c) any new items from consolidation also get topic_ids via _topic_ids.
+            if mem is not None and stamp_topic_ids:
+                mem._topic_ids = stamp_topic_ids
+                mem.cmem.bind_topics(scope_topics, stamp_topic_ids)
+
+            # Build ContextMemory from Hippocampus cmem (items already stamped)
+            context_memory = ContextMemory(
+                topics=scope_topics,
+                context_roadmap=mem.cmem.context_roadmap.copy() if mem else [],
+                context_understanding=mem.cmem.context_understanding.copy() if mem else [],
+                domain_constants=mem.cmem.domain_constants.copy() if mem else [],
+                parsing_schema=mem.cmem.parsing_schema.copy() if mem else [],
+                reusable_results=mem.cmem.reusable_results.copy() if mem else [],
+            )
 
             # Persist episode at deepest common folder when memory is enabled
             if mem is not None:
@@ -969,8 +1040,13 @@ class ScopeResolver(dspy.Module):
                     common_dir,
                     artifacts={"scopes": scope_desc},
                 )
+                return final_scopes, context_memory
 
-            return final_scopes
+            # No memory enabled: return scopes with ContextMemory containing topics only
+            if scope_topics:
+                return final_scopes, context_memory
+            return final_scopes, None
+
         finally:
             await cleanup_mcp_contexts(contexts)
 
@@ -981,7 +1057,7 @@ class ScopeResolver(dspy.Module):
         is_local: bool = False,
         run_id: str | None = None,
         review_context: ReviewContext | None = None,
-    ) -> tuple[list[ScopeResult], ContextMap | None]:
+    ) -> tuple[list[ScopeResult], "ContextMemory | None"]:
         """Resolve scopes in the repository for the given MR.
 
         Args:
@@ -992,7 +1068,7 @@ class ScopeResolver(dspy.Module):
             review_context: Review context with inherited memory
 
         Returns:
-            Tuple of (list of ScopeResult, final context map or None)
+            Tuple of (list of ScopeResult, final context memory or None)
         """
         excluded_dirs = self._settings.excluded_directories
         reviewable_files = [f for f in mr.changed_files if should_review_file(f, excluded_dirs)]
@@ -1007,9 +1083,11 @@ class ScopeResolver(dspy.Module):
                 repo=repo, subroot=".", scope_type=ScopeType.APPLICATION,
                 has_changes=True, changed_files=reviewable_files,
                 reason="Scope identification disabled",
+                description="Repository root",
             )
             fallback.skills = collect_skills(repo_path, ".")
-            return [fallback], review_context.memory if review_context else None
+            root_topic = fallback.topic(mr.repo_full_name)
+            return [fallback], ContextMemory(topics=[root_topic])
 
         try:
             await self._ensure_repo(mr, repo_path, is_local)
@@ -1030,7 +1108,7 @@ class ScopeResolver(dspy.Module):
             if orphans:
                 logger.info("Deterministic identification produced %d orphan(s)", len(orphans))
 
-            scopes = await self._refine_scopes(
+            scopes, context_memory = await self._refine_scopes(
                 scopes, orphans, mr, repo_path, review_context, run_id
             )
             # Log final scopes for visibility
@@ -1039,15 +1117,18 @@ class ScopeResolver(dspy.Module):
                 for s in scopes
             )
             logger.info("Resolved %d scope(s) for %s:\n%s", len(scopes), mr.repo_slug, scope_summary)
-            return scopes, review_context.memory if review_context else None
+            return scopes, context_memory
 
         except Exception as e:
             logger.error("Scope resolution failed: %s", e, exc_info=True)
-            return [ScopeResult(
+            fallback = ScopeResult(
                 repo=repo, subroot=".", scope_type=ScopeType.APPLICATION,
                 has_changes=True, changed_files=reviewable_files,
                 reason=f"Fallback due to error: {e}",
-            )], review_context.memory if review_context else None
+                description="Repository root",
+            )
+            root_topic = fallback.topic(mr.repo_full_name)
+            return [fallback], ContextMemory(topics=[root_topic])
 
     def forward(
         self,
@@ -1056,7 +1137,7 @@ class ScopeResolver(dspy.Module):
         is_local: bool = False,
         run_id: str | None = None,
         review_context: ReviewContext | None = None,
-    ) -> tuple[list[ScopeResult], ContextMap | None]:
+    ) -> tuple[list[ScopeResult], ContextMemory | None]:
         """Resolve scopes (sync wrapper)."""
         return asyncio.run(
             self.aforward(

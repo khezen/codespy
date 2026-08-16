@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator
 
-from codespy.agents.memory.hippocampus import ContextMap
+from codespy.agents.memory.hippocampus import ContextMemory
 
 
 class PRContext(BaseModel):
@@ -26,13 +26,13 @@ class PRContext(BaseModel):
 class ReviewContext(BaseModel):
     """Evolving pipeline state threaded through review stages.
 
-    Carries both the immutable PR identity and the inherited context map
-    (memory) from upstream pipeline stages. Updated at each stage boundary
+    Carries both the immutable PR identity and the inherited context memory
+    from upstream pipeline stages. Updated at each stage boundary
     so downstream modules inherit accumulated understanding.
     """
 
     pr_context: PRContext = Field(description="Immutable PR identity (repo, number, title, summary)")
-    memory: ContextMap | None = Field(default=None, description="Inherited context map from upstream stages")
+    memory: ContextMemory | None = Field(default=None, description="Inherited context memory from upstream stages")
 
 
 class IssueSeverity(str, Enum):
@@ -74,6 +74,7 @@ class PackageManifest(BaseModel):
     dependencies_changed: bool = Field(
         default=False, description="Whether PR modified this manifest or lock file"
     )
+    package_name: str | None = Field(default=None, description="Package identity from manifest")
 
 
 from codespy.tools.git.models import ChangedFile
@@ -104,6 +105,9 @@ class ScopeResult(BaseModel):
     skills: str | None = Field(
         default=None, description="Project/scope instructions inherited from ancestor directories"
     )
+    description: str = Field(
+        default="", description="Description of scope's role in the project (max 500 chars)"
+    )
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -116,6 +120,21 @@ class ScopeResult(BaseModel):
         if self.subroot in (".", ""):
             return f"/{self.repo}/"
         return f"/{self.repo}/{self.subroot.strip('/')}/"
+
+    def topic(self, repo_full_name: str) -> "Topic":
+        """Build the Topic for this scope.
+
+        Args:
+            repo_full_name: Repository full name (owner/repo)
+
+        Returns:
+            Topic object with id and description
+        """
+        from codespy.agents.memory.hippocampus.context_memory import make_topic_id, Topic
+
+        package_name = self.package_manifest.package_name if self.package_manifest else None
+        topic_id = make_topic_id(repo_full_name, self.subroot, package_name)
+        return Topic(id=topic_id, description=self.description)
 
 
 class Issue(BaseModel):

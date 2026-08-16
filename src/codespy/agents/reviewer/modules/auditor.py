@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Sequence
 import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.memory.hippocampus import Hippocampus
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, ReviewContext
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
@@ -61,6 +61,7 @@ class Auditor(dspy.Module):
         all_issues: Sequence[Issue],
         run_id: str | None = None,
         scopes: list["ScopeResult"] | None = None,
+        topic_ids: list[str] | None = None,
     ) -> tuple[str, str]:
         """Assess quality and recommend action.
 
@@ -70,6 +71,7 @@ class Auditor(dspy.Module):
             all_issues: All issues found during review
             run_id: Pipeline run identifier
             scopes: List of resolved scopes for per-scope episode persistence
+            topic_ids: Optional list of topic IDs for auto-tagging
 
         Returns:
             Tuple of (quality_assessment, recommendation)
@@ -100,6 +102,7 @@ class Auditor(dspy.Module):
                     task_name="audit",
                     run_id=run_id,
                     initial_memory=review_context.memory,
+                    topic_ids=topic_ids,
                 )
                 result = mem(
                     mr_title=review_context.pr_context.mr_title,

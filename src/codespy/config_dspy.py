@@ -26,7 +26,7 @@ class MemorySignatureConfig(BaseModel):
 
     enabled: bool | None = None                   # <SIG>_MEMORY_ENABLED
     max_reflects: int | None = None               # <SIG>_MEMORY_MAX_REFLECTS
-    max_context_map_tokens: int | None = None     # <SIG>_MEMORY_MAX_CONTEXT_MAP_TOKENS
+    max_context_memory_tokens: int | None = None     # <SIG>_MEMORY_MAX_CONTEXT_MEMORY_TOKENS
     max_context_item_tokens: int | None = None            # <SIG>_MEMORY_MAX_CONTEXT_ITEM_TOKENS
     max_trajectory_tokens: int | None = None      # <SIG>_MEMORY_MAX_TRAJECTORY_TOKENS
     max_question_tokens: int | None = None        # <SIG>_MEMORY_MAX_QUESTION_TOKENS
@@ -94,7 +94,7 @@ def apply_signature_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     - ``CODE_REVIEW_MAX_ITERS``      -> signatures.code_review.max_iters
     - ``SUPPLY_CHAIN_ENABLED``       -> signatures.supply_chain.enabled
     - ``CODE_REVIEW_MEMORY_ENABLED`` -> signatures.code_review.memory.enabled
-    - ``SCOPE_MEMORY_MAX_CONTEXT_MAP_TOKENS`` -> signatures.scope.memory.max_context_map_tokens
+    - ``SCOPE_MEMORY_MAX_CONTEXT_MEMORY_TOKENS`` -> signatures.scope.memory.max_context_memory_tokens
     - ``SCOPE_MEMORY_MAX_CONTEXT_ITEM_TOKENS`` -> signatures.scope.memory.max_context_item_tokens
 
     Top-level settings (DEFAULT_MODEL, AWS_REGION, MEMORY_DEFAULT_ENABLED, etc.)

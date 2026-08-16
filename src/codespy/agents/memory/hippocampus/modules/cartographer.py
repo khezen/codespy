@@ -2,20 +2,19 @@ from __future__ import annotations
 
 import dspy
 
-from codespy.agents.memory.hippocampus.context_map import (
+from codespy.agents.memory.hippocampus.context_memory import (
     CacheCandidate,
-    ContextMap,
     ItemTag,
     Operation,
 )
 
 
 class CartographerSig(dspy.Signature):
-    """You are a context map curator. You maintain a concise, high-value
-    context map prepended to an agent that repeatedly interacts with a long
+    """You are a context memory curator. You maintain a concise, high-value
+    context memory prepended to an agent that repeatedly interacts with a long
     external context.
 
-    The context map captures the agent's evolving UNDERSTANDING of the
+    The context memory captures the agent's evolving UNDERSTANDING of the
     context — NOT answers to specific questions. Think of it as the mental
     model a human builds after reading a document: structure, key entities,
     relationships, and global summaries that help with ANY question about
@@ -23,7 +22,7 @@ class CartographerSig(dspy.Signature):
 
     ## Instructions
 
-    - Review the latest Distiller diagnosis and the current context map.
+    - Review the latest Distiller diagnosis and the current context memory.
     - Prioritize items representing SHARED UNDERSTANDING — knowledge
       useful across many different questions on this context.
     - Demote or remove question-specific facts that only help one query.
@@ -56,7 +55,7 @@ class CartographerSig(dspy.Signature):
     - ADD: requires `section` (one of the five section names) and `content`.
     - DELETE: requires `item_id`.
     - REPLACE: requires `item_id` and `content`.
-    - Only reference `item_id`s that exist in the current map. Never invent
+    - Only reference `item_id`s that exist in the current memory. Never invent
       ids — new items get their ids assigned automatically on ADD.
 
     ## Value Priority (highest to lowest)
@@ -106,18 +105,18 @@ class CartographerSig(dspy.Signature):
     cache_candidates: list[CacheCandidate] = dspy.InputField(
         desc="Candidate items the Distiller proposed."
     )
-    current_map: ContextMap = dspy.InputField(desc="Current context map.")
+    current_map: str = dspy.InputField(desc="Current context memory (topic-grouped, with item IDs and sections).")
     question: str = dspy.InputField(desc="Question the agent was answering.")
-    token_budget: int = dspy.InputField(desc="Hard token budget for the context map.")
-    current_tokens: int = dspy.InputField(desc="Current token count of the context map.")
+    token_budget: int = dspy.InputField(desc="Hard token budget for the context memory.")
+    current_tokens: int = dspy.InputField(desc="Current token count of the context memory.")
     max_context_item_tokens: int = dspy.InputField(
-        desc="Token budget for a SINGLE context-map item. Every ADD/REPLACE content "
+        desc="Token budget for a SINGLE context memory item. Every ADD/REPLACE content "
         "must stay within it."
     )
 
     justification: str = dspy.OutputField(
         desc="Brief explanation of why these edits improve the shared understanding "
-        "cached in the context map."
+        "cached in the context memory."
     )
 
     operations: list[Operation] = dspy.OutputField(
@@ -128,7 +127,7 @@ class CartographerSig(dspy.Signature):
 
 class Cartographer(dspy.Module):
     """Translates the Distiller's structured reflection into concrete edits
-    against the context map.
+    against the context memory.
 
     Owns *what is worth keeping* — selects which tagged items to drop, which
     candidates to add, and which existing items to rewrite. Token-budget
@@ -160,4 +159,3 @@ class Cartographer(dspy.Module):
                 current_tokens=current_tokens,
                 max_context_item_tokens=max_context_item_tokens,
             )
-

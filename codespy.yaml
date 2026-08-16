@@ -61,7 +61,7 @@ gitlab:
 # MEMORY
 # ============================================================================
 # Hippocampus lets scope-based agents (scope, code_review, doc, supply_chain)
-# and the summary step consolidate their run into a ContextMap and
+# and the summary step consolidate their run into a ContextMemory and
 # persist it as an Episode. Save-only for now (no loading). Disabled by
 # default globally; enabled by default for summary — see `memory:`
 # blocks under each signature below.
@@ -87,12 +87,12 @@ memory:
 
   # Four independent token budgets, from most to least cost-sensitive:
   #
-  # 1. max_context_map_tokens — ceiling on the rendered ContextMap. This is the
+  # 1. max_context_memory_tokens — ceiling on the rendered ContextMemory. This is the
   #    persisted artifact, and it is prepended to every agent iteration, so it is
   #    re-sent ~default_max_iters times per scope. Divided by max_context_item_tokens it
-  #    gives the map's item capacity (3072 / 240 ~= 12 items).
-  # 2. max_context_item_tokens — budget for a SINGLE context-map item, given to the Distiller
-  #    and the Cartographer as a prompt input so no one item eats the whole map.
+  #    gives the memory's item capacity (3072 / 240 ~= 12 items).
+  # 2. max_context_item_tokens — budget for a SINGLE context memory item, given to the Distiller
+  #    and the Cartographer as a prompt input so no one item eats the whole memory.
   #    Soft limit (expressed to the LLM, not enforced — truncating an item could
   #    corrupt an exact constant). Lower it for more, terser items; raise it for
   #    fewer, richer ones.
@@ -103,13 +103,13 @@ memory:
   # 4. max_question_tokens — cap on the serialized agent inputs used as the reflection
   #    "question". Without it, every input field is sent in full (for code review that
   #    means the complete patch of every changed file). null = unbounded.
-  default_max_context_map_tokens: 3072    # MEMORY_DEFAULT_MAX_CONTEXT_MAP_TOKENS
+  default_max_context_memory_tokens: 3072    # MEMORY_DEFAULT_MAX_CONTEXT_MEMORY_TOKENS
   default_max_context_item_tokens: 240            # MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS
   default_max_trajectory_tokens: 8192     # MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS
   default_max_question_tokens: 2048       # MEMORY_DEFAULT_MAX_QUESTION_TOKENS
 
   # LLM settings for the reflection modules. The Distiller summarizes a
-  # trajectory; the Cartographer curates the context map. Both are compact
+  # trajectory; the Cartographer curates the context memory. Both are compact
   # summarize/curate tasks, so a cheaper tier than code review usually suffices.
   # null inherits the top-level default_* value.
   distiller:
@@ -147,9 +147,9 @@ memory:
 #   Cheap (summary): Used for PR summary generation. Simple synthesis
 #     task. Recommended: anthropic/claude-haiku-4-5-20251001 or equivalent.
 #
-#   Cheap (memory.distiller / memory.cartographer): Memory reflection —
-#     summarizing a trajectory and curating the context map. Compact, frequent
-#     tasks. Recommended: anthropic/claude-haiku-4-5-20251001 or equivalent.
+  #   Cheap (memory.distiller / memory.cartographer): Memory reflection —
+  #     summarizing a trajectory and curating the context memory. Compact, frequent
+  #     tasks. Recommended: anthropic/claude-haiku-4-5-20251001 or equivalent.
 #
 # By default, all models fall back to default_model. Override extraction_model,
 # the summary model, and the reflection models for cost optimization:
@@ -205,7 +205,7 @@ signatures:
     memory:
       enabled: null                      # SUPPLY_CHAIN_MEMORY_ENABLED (null -> memory.default_enabled)
       max_reflects: null                 # SUPPLY_CHAIN_MEMORY_MAX_REFLECTS
-      max_context_map_tokens: null       # SUPPLY_CHAIN_MEMORY_MAX_CONTEXT_MAP_TOKENS
+      max_context_memory_tokens: null       # SUPPLY_CHAIN_MEMORY_MAX_CONTEXT_MEMORY_TOKENS
       max_context_item_tokens: null              # SUPPLY_CHAIN_MEMORY_MAX_CONTEXT_ITEM_TOKENS
       max_trajectory_tokens: null        # SUPPLY_CHAIN_MEMORY_MAX_TRAJECTORY_TOKENS
       max_question_tokens: null          # SUPPLY_CHAIN_MEMORY_MAX_QUESTION_TOKENS
@@ -222,7 +222,7 @@ signatures:
     memory:
       enabled: null                      # CODE_REVIEW_MEMORY_ENABLED (null -> memory.default_enabled)
       max_reflects: null                 # CODE_REVIEW_MEMORY_MAX_REFLECTS
-      max_context_map_tokens: null       # CODE_REVIEW_MEMORY_MAX_CONTEXT_MAP_TOKENS
+      max_context_memory_tokens: null       # CODE_REVIEW_MEMORY_MAX_CONTEXT_MEMORY_TOKENS
       max_context_item_tokens: null              # CODE_REVIEW_MEMORY_MAX_CONTEXT_ITEM_TOKENS
       max_trajectory_tokens: null        # CODE_REVIEW_MEMORY_MAX_TRAJECTORY_TOKENS
       max_question_tokens: null          # CODE_REVIEW_MEMORY_MAX_QUESTION_TOKENS
@@ -238,7 +238,7 @@ signatures:
     memory:
       enabled: null                      # DOC_MEMORY_ENABLED (null -> memory.default_enabled)
       max_reflects: null                 # DOC_MEMORY_MAX_REFLECTS
-      max_context_map_tokens: null       # DOC_MEMORY_MAX_CONTEXT_MAP_TOKENS
+      max_context_memory_tokens: null       # DOC_MEMORY_MAX_CONTEXT_MEMORY_TOKENS
       max_context_item_tokens: null              # DOC_MEMORY_MAX_CONTEXT_ITEM_TOKENS
       max_trajectory_tokens: null        # DOC_MEMORY_MAX_TRAJECTORY_TOKENS
       max_question_tokens: null          # DOC_MEMORY_MAX_QUESTION_TOKENS
@@ -254,7 +254,7 @@ signatures:
     memory:
       enabled: null                      # SCOPE_MEMORY_ENABLED (null -> memory.default_enabled)
       max_reflects: null                 # SCOPE_MEMORY_MAX_REFLECTS
-      max_context_map_tokens: null       # SCOPE_MEMORY_MAX_CONTEXT_MAP_TOKENS
+      max_context_memory_tokens: null       # SCOPE_MEMORY_MAX_CONTEXT_MEMORY_TOKENS
       max_context_item_tokens: null              # SCOPE_MEMORY_MAX_CONTEXT_ITEM_TOKENS
       max_trajectory_tokens: null        # SCOPE_MEMORY_MAX_TRAJECTORY_TOKENS
       # Unused: scope passes question_field="mr_title", so no inputs are serialized.
@@ -270,7 +270,7 @@ signatures:
     memory:
       enabled: true                      # SUMMARY_MEMORY_ENABLED (null -> memory.default_enabled)
       max_reflects: null                 # SUMMARY_MEMORY_MAX_REFLECTS
-      max_context_map_tokens: null       # SUMMARY_MEMORY_MAX_CONTEXT_MAP_TOKENS
+      max_context_memory_tokens: null       # SUMMARY_MEMORY_MAX_CONTEXT_MEMORY_TOKENS
       max_context_item_tokens: null              # SUMMARY_MEMORY_MAX_CONTEXT_ITEM_TOKENS
       max_trajectory_tokens: null        # SUMMARY_MEMORY_MAX_TRAJECTORY_TOKENS
       max_question_tokens: null          # SUMMARY_MEMORY_MAX_QUESTION_TOKENS

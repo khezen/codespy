@@ -8,9 +8,9 @@ from typing import Any, Sequence
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.memory.hippocampus import Hippocampus
-from codespy.agents.memory.hippocampus import ContextMap
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
+from codespy.tools.git.models import MergeRequest
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
     issues_to_markdown,
@@ -186,7 +186,8 @@ class CodeReviewer(dspy.Module):
         repo_path: Path,
         run_id: str | None = None,
         review_context: ReviewContext | None = None,
-    ) -> tuple[list[Issue], ContextMap | None]:
+        mr: MergeRequest | None = None,
+    ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for defects, security issues, and code smells.
 
         Args:
@@ -195,9 +196,10 @@ class CodeReviewer(dspy.Module):
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run (see ``Hippocampus.run_id``)
             review_context: ReviewContext containing PR identity and inherited memory
+            mr: Optional merge request for topic ID computation
 
         Returns:
-            Tuple of (list of issues, merged context map or None)
+            Tuple of (list of issues, merged context memory or None)
         """
         if not self._settings.is_signature_enabled("code_review"):
             logger.debug("Skipping code_review: disabled")
@@ -215,7 +217,8 @@ class CodeReviewer(dspy.Module):
             return [], review_context.memory if review_context else None
 
         all_issues: list[Issue] = []
-        scope_memories: list[ContextMap] = []
+        scope_memories: list[ContextMemory] = []
+        max_iters = self._settings.get_max_iters("code_review")
         max_iters = self._settings.get_max_iters("code_review")
 
         total_files = sum(len(s.changed_files) for s in changed_scopes)
@@ -245,6 +248,7 @@ class CodeReviewer(dspy.Module):
                             f"review code change of {scope.repo}: {scope.subroot}: "
                             f"pull request {review_context.pr_context.mr_number} {review_context.pr_context.mr_title}: {review_context.pr_context.summary}"
                         ) if review_context else None
+                        topic_ids = [scope.topic(mr.repo_full_name).id] if mr else []
                         mem = Hippocampus(
                             agent,
                             budget=self._settings.get_memory_budget("code_review"),
@@ -253,6 +257,7 @@ class CodeReviewer(dspy.Module):
                             task_name="code_review",
                             run_id=run_id,
                             initial_memory=review_context.memory if review_context else None,
+                            topic_ids=topic_ids,
                         )
                         result = await mem.aforward(
                             scope=scoped,
@@ -267,9 +272,9 @@ class CodeReviewer(dspy.Module):
                             scope.scope_path(),
                             artifacts={"review": issues_to_markdown(issues)},
                         )
-                        # Collect scope's context map
+                        # Collect scope's context memory
                         if mem:
-                            scope_memories.append(mem.cmap.model_copy(deep=True))
+                            scope_memories.append(mem.cmem.model_copy(deep=True))
                     else:
                         result = await agent.acall(
                             scope=scoped,
@@ -290,9 +295,9 @@ class CodeReviewer(dspy.Module):
                 await cleanup_mcp_contexts(contexts)
 
         logger.info(f"Code review found {len(all_issues)} issues")
-        # Merge all scope context maps into one module-level map
+        # Merge all scope context memories into one module-level memory
         merged_memory = (
-            ContextMap.merge(*scope_memories)
+            ContextMemory.merge(*scope_memories)
             if scope_memories
             else (review_context.memory if review_context else None)
         )
@@ -304,7 +309,8 @@ class CodeReviewer(dspy.Module):
         repo_path: Path,
         run_id: str | None = None,
         review_context: ReviewContext | None = None,
-    ) -> tuple[list[Issue], ContextMap | None]:
+        mr: MergeRequest | None = None,
+    ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for code issues (sync wrapper).
 
         Args:
@@ -313,8 +319,9 @@ class CodeReviewer(dspy.Module):
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run
             review_context: ReviewContext containing PR identity and inherited memory
+            mr: Optional merge request for topic ID computation
 
         Returns:
-            Tuple of (list of issues, merged context map or None)
+            Tuple of (list of issues, merged context memory or None)
         """
-        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id, review_context=review_context))
+        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id, review_context=review_context, mr=mr))

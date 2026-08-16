@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.memory.hippocampus import ContextMap, Hippocampus
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 
@@ -56,7 +56,9 @@ class Summarizer(dspy.Module):
         repo_slug: str,
         run_id: str | None = None,
         scopes: list["ScopeResult"] | None = None,
-    ) -> tuple[str, ContextMap | None]:
+        initial_memory: ContextMemory | None = None,
+        topic_ids: list[str] | None = None,
+    ) -> tuple[str, ContextMemory | None]:
         """Generate a PR summary.
 
         Args:
@@ -68,14 +70,16 @@ class Summarizer(dspy.Module):
             repo_slug: Host-qualified repo slug for episode path
             run_id: Pipeline run identifier
             scopes: List of resolved scopes for per-scope episode persistence
+            initial_memory: Optional context memory from scope resolver
+            topic_ids: Optional list of topic IDs for auto-tagging
 
         Returns:
-            Tuple of (summary string, final context map or None)
+            Tuple of (summary string, final context memory or None)
         """
 
         if not self._settings.is_signature_enabled("summary"):
             logger.debug("Skipping summary: disabled")
-            return mr_title or "No title", None
+            return mr_title or "No title", initial_memory
 
         summarizer = dspy.ChainOfThought(PRSummarySignature)
         logger.info("Generating PR summary...")
@@ -92,6 +96,8 @@ class Summarizer(dspy.Module):
                     question=question,
                     task_name="summary",
                     run_id=run_id,
+                    initial_memory=initial_memory,
+                    topic_ids=topic_ids,
                 )
                 result = mem(
                     mr_title=mr_title,
@@ -113,8 +119,8 @@ class Summarizer(dspy.Module):
                 )
 
         logger.info(f"PR summary: {result.summary[:80]}...")
-        # Return final context map when memory is enabled
-        final_memory = mem.cmap.model_copy(deep=True) if mem else None
+        # Return final context memory when memory is enabled
+        final_memory = mem.cmem.model_copy(deep=True) if mem else initial_memory
 
         # Persist episode at each scope location if memory is enabled and scopes are provided
         if mem is not None and scopes:

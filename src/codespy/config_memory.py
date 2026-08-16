@@ -77,20 +77,20 @@ class MemoryConfig(BaseModel):
     default_enabled: bool = False                  # MEMORY_DEFAULT_ENABLED
     default_max_reflects: int = Field(default=0)   # MEMORY_DEFAULT_MAX_REFLECTS
 
-    # Ceiling on the rendered ContextMap. This is the *persisted* artifact and it
+    # Ceiling on the rendered ContextMemory. This is the *persisted* artifact and it
     # is prepended to every predictor of the wrapped agent, so it is re-sent on
     # every ReAct iteration (~default_max_iters times per scope) plus once per
     # reflection call. Easily the most cost-sensitive of the three budgets.
-    # Approximate item capacity is default_max_context_map_tokens divided by
+    # Approximate item capacity is default_max_context_memory_tokens divided by
     # default_max_context_item_tokens (3072 / 240 ~= 12 items).
-    # MEMORY_DEFAULT_MAX_CONTEXT_MAP_TOKENS
-    default_max_context_map_tokens: int = Field(default=3072)
+    # MEMORY_DEFAULT_MAX_CONTEXT_MEMORY_TOKENS
+    default_max_context_memory_tokens: int = Field(default=3072)
 
     # Per-item ceiling handed to the Distiller/Cartographer as a prompt input, so
-    # they keep each context-map item compact instead of spending the whole map
+    # they keep each context-memory item compact instead of spending the whole memory
     # budget on one verbose entry. Soft limit: it is expressed to the LLM rather
     # than enforced in code (truncating an item could corrupt an exact constant).
-    # The hard, map-wide limit is default_max_context_map_tokens, enforced by the
+    # The hard, memory-wide limit is default_max_context_memory_tokens, enforced by the
     # Evictor. MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS
     default_max_context_item_tokens: int = Field(default=240)
 
@@ -131,7 +131,7 @@ MEMORY_ENV_SETTINGS = {
     "S3_ENDPOINT_URL": "s3_endpoint_url",
     "DEFAULT_ENABLED": "default_enabled",
     "DEFAULT_MAX_REFLECTS": "default_max_reflects",
-    "DEFAULT_MAX_CONTEXT_MAP_TOKENS": "default_max_context_map_tokens",
+    "DEFAULT_MAX_CONTEXT_MEMORY_TOKENS": "default_max_context_memory_tokens",
     "DEFAULT_MAX_CONTEXT_ITEM_TOKENS": "default_max_context_item_tokens",
     "DEFAULT_MAX_TRAJECTORY_TOKENS": "default_max_trajectory_tokens",
     "DEFAULT_MAX_QUESTION_TOKENS": "default_max_question_tokens",
@@ -167,7 +167,7 @@ def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
 
         MEMORY_BACKEND=s3                          -> memory.backend
         MEMORY_DEFAULT_ENABLED=true                -> memory.default_enabled
-        MEMORY_DEFAULT_MAX_CONTEXT_MAP_TOKENS=512  -> memory.default_max_context_map_tokens
+        MEMORY_DEFAULT_MAX_CONTEXT_MEMORY_TOKENS=512  -> memory.default_max_context_memory_tokens
 
     Reflection module overrides use a second level of nesting::
 

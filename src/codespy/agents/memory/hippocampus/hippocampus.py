@@ -19,7 +19,7 @@ from codespy.agents.memory.hippocampus.budget import (
     format_inputs,
     format_trajectory,
 )
-from codespy.agents.memory.hippocampus.context_map import ContextMap, ItemTag, Mutation, Operation, OpType
+from codespy.agents.memory.hippocampus.context_memory import ContextMemory, ItemTag, Mutation, Operation, OpType
 from codespy.agents.memory.hippocampus.episode import Episode
 from codespy.agents.memory.hippocampus.episode import load_episode as _load_episode
 from codespy.agents.memory.hippocampus.episode import save_episode as _save_episode
@@ -28,23 +28,28 @@ from codespy.agents.memory.hippocampus.modules.distiller import Distiller
 from codespy.tools.storage.base import Storage
 
 
-def prepend_context_map(sig):
+def prepend_context_memory(sig):
+    """Prepend context_memory field to signature.
+
+    The context_memory is passed as a pre-rendered string to avoid
+    Pydantic serialization in the LLM prompt.
+    """
     return sig.prepend(
-        name="context_map",
+        name="context_memory",
         field=dspy.InputField(
-            desc="Orientation cache about the external context. Use it before redundant tool calls."
+            desc="Current context memory (topic-grouped, with item IDs and sections). Use it before redundant tool calls."
         ),
-        type_=ContextMap,
+        type_=str,
     )
 
 
 class Hippocampus(dspy.Module):
-    """Wraps a dspy.Module with a context map that evolves via LLM-driven reflection.
+    """Wraps a dspy.Module with a context memory that evolves via LLM-driven reflection.
 
-    The context map is prepended to every agent call so the agent starts each run
+    The context memory is prepended to every agent call so the agent starts each run
     with accumulated orientation knowledge (structure, entities, constants) about
     the external context. After calls, the Distiller extracts transferable
-    understanding and the Cartographer edits the map — "caching understanding,
+    understanding and the Cartographer edits the memory — "caching understanding,
     not answers."
 
     ## Two independent controls
@@ -57,7 +62,7 @@ class Hippocampus(dspy.Module):
        thereafter.
 
     2. **Calling ``end_episode()``** (or not) — whether to consolidate the buffered
-       episode into the map at the end. Every call is *always* buffered so
+       episode into the memory at the end. Every call is *always* buffered so
        ``end_episode()`` is available regardless of the online setting.
 
     Common patterns::
@@ -78,7 +83,7 @@ class Hippocampus(dspy.Module):
             pred = mem(task=task)
         mem.end_episode()
 
-        # Read-only (map never changes) — pure inference
+        # Read-only (memory never changes) — pure inference
         mem = Hippocampus(agent, max_reflects=0)
         pred = mem(task="…")    # no end_episode() call
 
@@ -114,7 +119,8 @@ class Hippocampus(dspy.Module):
         question: str | None = None,
         task_name: str | None = None,
         run_id: str | None = None,
-        initial_memory: ContextMap | None = None,
+        initial_memory: ContextMemory | None = None,
+        topic_ids: list[str] | None = None,
     ):
         """
         Args:
@@ -148,27 +154,29 @@ class Hippocampus(dspy.Module):
                 used as the ``<uuid>`` prefix in the episode filename
                 (``<run_id>-<task>.json``) and recorded on ``Episode.run_id``.
                 If ``None`` (standalone usage), a random UUID is generated.
-            initial_memory: Optional context map to seed the agent with. When
-                provided, the agent starts with this map instead of an empty one,
+            initial_memory: Optional context memory to seed the agent with. When
+                provided, the agent starts with this memory instead of an empty one,
                 inheriting accumulated understanding from upstream pipeline stages.
+            topic_ids: Optional list of topic IDs to auto-assign to all new items
+                created during this episode. Used for scope-aware memory organization.
         """
         super().__init__()
 
         module = copy.deepcopy(module)
 
-        # Prepend context_map only to predictors that receive the module's own
+        # Prepend context_memory only to predictors that receive the module's own
         # input fields.
         top_sig = getattr(module, "signature", None)
         if top_sig is not None:
             module_inputs = set(top_sig.input_fields)
-            module.signature = prepend_context_map(top_sig)
+            module.signature = prepend_context_memory(top_sig)
             for _, pred in module.named_predictors():
                 if set(pred.signature.input_fields) & module_inputs:
-                    if "context_map" not in pred.signature.input_fields:
-                        pred.signature = prepend_context_map(pred.signature)
+                    if "context_memory" not in pred.signature.input_fields:
+                        pred.signature = prepend_context_memory(pred.signature)
         else:
             for _, pred in module.named_predictors():
-                pred.signature = prepend_context_map(pred.signature)
+                pred.signature = prepend_context_memory(pred.signature)
 
         self.agent = module
         self.distill = Distiller()
@@ -176,7 +184,8 @@ class Hippocampus(dspy.Module):
         self.budget = budget or MemoryBudget()
         self.max_reflects = max_reflects
         self.question = question
-        self.cmap = initial_memory.model_copy(deep=True) if initial_memory else ContextMap()
+        self.cmem = initial_memory.model_copy(deep=True) if initial_memory else ContextMemory()
+        self._topic_ids = topic_ids or []
         self.scores: dict[str, int] = {}
         # Buffer of per-call bounded trajectory strings, cleared after end_episode().
         self._episode_trajectories: list[str] = []
@@ -219,11 +228,12 @@ class Hippocampus(dspy.Module):
         self._distill_step: int = 0
 
     @property
-    def current_map_text(self) -> str:
-        return self.cmap.render()
+    def current_memory_text(self) -> str:
+        """Return the rendered context memory as text."""
+        return self.cmem.render()
 
     def forward(self, **kwargs) -> dspy.Prediction:
-        pred = self.agent(context_map=self.cmap, **kwargs)
+        pred = self.agent(context_memory=self.cmem.render(), **kwargs)
         self._buffer_and_distill(pred, kwargs)
         return pred
 
@@ -236,7 +246,7 @@ class Hippocampus(dspy.Module):
         The Distiller/Cartographer reflection pass is still synchronous under
         the hood but is offloaded to a thread so it never blocks the loop.
         """
-        pred = await self.agent.acall(context_map=self.cmap, **kwargs)
+        pred = await self.agent.acall(context_memory=self.cmem.render(), **kwargs)
         await asyncio.to_thread(self._buffer_and_distill, pred, kwargs)
         return pred
 
@@ -299,7 +309,7 @@ class Hippocampus(dspy.Module):
             task=self._task_name,
             module=self._module_name,
             question=self._episode_question or "",
-            context_map=self.cmap.model_copy(deep=True),
+            context_memory=self.cmem.model_copy(deep=True),
             timestamp=datetime.now(UTC),
             artifacts=artifacts or {},
             run_id=self._run_id,
@@ -336,7 +346,7 @@ class Hippocampus(dspy.Module):
         dir: str | None = None,
         artifacts: dict[str, str] | None = None,
     ) -> None:
-        """Consolidate the buffered trajectories into the map and record an Episode snapshot.
+        """Consolidate the buffered trajectories into the memory and record an Episode snapshot.
 
         A single Distiller pass sees all buffered trajectories joined with
         ``=== Call k ===`` headers. If ``budget.max_trajectory_tokens`` is set, the
@@ -346,7 +356,7 @@ class Hippocampus(dspy.Module):
 
         After consolidation ``self.episode`` is set to a new :class:`Episode`
         containing the task/module identity and a deep-copy snapshot of the
-        updated context map.
+        updated context memory.
 
         If both ``store`` and ``dir`` are provided the episode is persisted
         via ``save_episode()`` after consolidation, at
@@ -427,8 +437,8 @@ class Hippocampus(dspy.Module):
     def load_episode(self, store: Storage, path: str) -> None:
         """Replace the current state with an episode loaded from ``path`` via ``store``.
 
-        Restores both ``self.episode`` and the live context map
-        (``self.cmap = episode.context_map``) so the agent resumes from the
+        Restores both ``self.episode`` and the live context memory
+        (``self.cmem = episode.context_memory``) so the agent resumes from the
         persisted state. Also resets ``scores`` and clears the trajectory
         buffer since they belong to the previous state.
 
@@ -442,7 +452,7 @@ class Hippocampus(dspy.Module):
         """
         ep = _load_episode(store, path)
         self.episode = ep
-        self.cmap = ep.context_map
+        self.cmem = ep.context_memory
         self.scores = {}
         self._episode_trajectories.clear()
         self._episode_question = None
@@ -470,7 +480,7 @@ class Hippocampus(dspy.Module):
         return format_inputs(inputs, self.budget.max_question_tokens)
 
     def _record_mutations(
-        self, ops: list[Operation], new_ids: list[str], pre_map: ContextMap
+        self, ops: list[Operation], new_ids: list[str], pre_memory: ContextMemory
     ) -> list[Mutation]:
         """Build Mutation records from operations and the new IDs generated by apply().
 
@@ -480,7 +490,7 @@ class Hippocampus(dspy.Module):
         Args:
             ops: Cartographer operations (ADD/DELETE/REPLACE).
             new_ids: IDs of items created by apply() in the same order as ADD ops.
-            pre_map: Context map state before apply() — used to look up
+            pre_memory: Context memory state before apply() — used to look up
                 previous content for DELETE/REPLACE.
 
         Returns:
@@ -490,7 +500,7 @@ class Hippocampus(dspy.Module):
         add_indices: list[int] = []
         for op in ops:
             if op.type == OpType.DELETE and op.item_id:
-                found = pre_map.find_item(op.item_id)
+                found = pre_memory.find_item(op.item_id)
                 if found:
                     section, old_item = found
                     mutations.append(
@@ -501,10 +511,11 @@ class Hippocampus(dspy.Module):
                             section=section,
                             content=None,
                             previous_content=old_item.content,
+                            topic_ids=old_item.topic_ids,
                         )
                     )
             elif op.type == OpType.REPLACE and op.item_id and op.content:
-                found = pre_map.find_item(op.item_id)
+                found = pre_memory.find_item(op.item_id)
                 if found:
                     section, old_item = found
                     mutations.append(
@@ -515,6 +526,7 @@ class Hippocampus(dspy.Module):
                             section=section,
                             content=op.content,
                             previous_content=old_item.content,
+                            topic_ids=old_item.topic_ids,
                         )
                     )
             elif op.type == OpType.ADD and op.section and op.content:
@@ -527,6 +539,7 @@ class Hippocampus(dspy.Module):
                         section=op.section,
                         content=op.content,
                         previous_content=None,
+                        topic_ids=list(self._topic_ids),
                     )
                 )
         # Back-fill ADD mutation item_ids from new_ids
@@ -537,12 +550,12 @@ class Hippocampus(dspy.Module):
     def _distill(self, trajectory: str, question: str) -> None:
         distilled = self.distill(
             trajectory=trajectory,
-            context_map=self.cmap,
+            context_memory=self.cmem.render(),
             question=question,
             max_context_item_tokens=self.budget.max_context_item_tokens,
         )
 
-        known = self.cmap.ids()
+        known = self.cmem.ids()
         tags = {k: v for k, v in (distilled.item_tags or {}).items() if k in known}
         for bid, tag in tags.items():
             if tag == ItemTag.HELPFUL:
@@ -556,26 +569,26 @@ class Hippocampus(dspy.Module):
             diagnosis=distilled.diagnosis,
             item_tags=tags,
             cache_candidates=list(distilled.cache_candidates or []),
-            current_map=self.cmap,
+            current_map=self.cmem.render(),
             question=question,
             # The Cartographer's input field keeps the generic name: it is prompt
             # text, already scoped by its description, and pairs with current_tokens.
-            token_budget=self.budget.max_context_map_tokens,
-            current_tokens=count_tokens(self.cmap.render()),
+            token_budget=self.budget.max_context_memory_tokens,
+            current_tokens=count_tokens(self.cmem.render()),
             max_context_item_tokens=self.budget.max_context_item_tokens,
         )
         ops = list(edits.operations or [])
 
         if ops:
-            pre_map = self.cmap
-            self.cmap, new_ids = self.cmap.apply(ops)
-            mutations = self._record_mutations(ops, new_ids, pre_map)
+            pre_memory = self.cmem
+            self.cmem, new_ids = self.cmem.apply(ops, topic_ids=self._topic_ids)
+            mutations = self._record_mutations(ops, new_ids, pre_memory)
             self._mutations.extend(mutations)
             for nid in new_ids:
                 self.scores[nid] = self.scores.get(nid, 0) + 1
 
         self._distill_step += 1
-        self.cmap = evict(self.cmap, self.scores, self.budget.max_context_map_tokens)
+        self.cmem = evict(self.cmem, self.scores, self.budget.max_context_memory_tokens)
 
-        live = self.cmap.ids()
+        live = self.cmem.ids()
         self.scores = {k: v for k, v in self.scores.items() if k in live}

@@ -8,9 +8,9 @@ from typing import Any, Sequence
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.memory.hippocampus import Hippocampus
-from codespy.agents.memory.hippocampus import ContextMap
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
+from codespy.tools.git.models import MergeRequest
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
     issues_to_markdown,
@@ -242,7 +242,8 @@ class SupplyChainAuditor(dspy.Module):
         repo_path: Path,
         run_id: str | None = None,
         review_context: ReviewContext | None = None,
-    ) -> tuple[list[Issue], ContextMap | None]:
+        mr: MergeRequest | None = None,
+    ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for supply chain security vulnerabilities and return issues.
 
         For each scope, filesystem/parser tools are created rooted at
@@ -256,9 +257,10 @@ class SupplyChainAuditor(dspy.Module):
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run (see ``Hippocampus.run_id``)
             review_context: ReviewContext containing PR identity and inherited memory
+            mr: Optional merge request for topic ID computation
 
         Returns:
-            Tuple of (list of issues, merged context map or None)
+            Tuple of (list of issues, merged context memory or None)
         """
         # Check if supply chain signature is enabled
         if not self._settings.is_signature_enabled("supply_chain"):
@@ -271,7 +273,7 @@ class SupplyChainAuditor(dspy.Module):
             return [], review_context.memory if review_context else None
 
         all_issues: list[Issue] = []
-        scope_memories: list[ContextMap] = []
+        scope_memories: list[ContextMemory] = []
         supply_chain_max_iters = self._settings.get_max_iters("supply_chain")
 
         # Create OSV tools once (shared across scopes, no filesystem root)
@@ -331,6 +333,7 @@ class SupplyChainAuditor(dspy.Module):
                                 f"review supply chain of {scope.repo}: {scope.subroot}: "
                                 f"pull request {review_context.pr_context.mr_number} {review_context.pr_context.mr_title}: {review_context.pr_context.summary}"
                             ) if review_context else None
+                            topic_ids = [scope.topic(mr.repo_full_name).id] if mr else []
                             mem = Hippocampus(
                                 supply_chain_agent,
                                 budget=self._settings.get_memory_budget("supply_chain"),
@@ -341,6 +344,7 @@ class SupplyChainAuditor(dspy.Module):
                                 task_name="supply_chain",
                                 run_id=run_id,
                                 initial_memory=review_context.memory if review_context else None,
+                                topic_ids=topic_ids,
                             )
                             result = await mem.aforward(
                                 manifest_path=manifest_path,
@@ -357,9 +361,9 @@ class SupplyChainAuditor(dspy.Module):
                                 scope.scope_path(),
                                 artifacts={"review": issues_to_markdown(issues)},
                             )
-                            # Collect scope's context map
-                            if mem:
-                                scope_memories.append(mem.cmap.model_copy(deep=True))
+                        # Collect scope's context memory
+                        if mem:
+                            scope_memories.append(mem.cmem.model_copy(deep=True))
                         else:
                             result = await supply_chain_agent.acall(
                                 manifest_path=manifest_path,
@@ -383,9 +387,9 @@ class SupplyChainAuditor(dspy.Module):
             await cleanup_mcp_contexts(osv_contexts)
 
         logger.info(f"Security audit found {len(all_issues)} issues")
-        # Merge all scope context maps into one module-level map
+        # Merge all scope context memories into one module-level memory
         merged_memory = (
-            ContextMap.merge(*scope_memories)
+            ContextMemory.merge(*scope_memories)
             if scope_memories
             else (review_context.memory if review_context else None)
         )
@@ -397,7 +401,8 @@ class SupplyChainAuditor(dspy.Module):
         repo_path: Path,
         run_id: str | None = None,
         review_context: ReviewContext | None = None,
-    ) -> tuple[list[Issue], ContextMap | None]:
+        mr: MergeRequest | None = None,
+    ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for supply chain security vulnerabilities (sync wrapper).
 
         Args:
@@ -406,8 +411,9 @@ class SupplyChainAuditor(dspy.Module):
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run
             review_context: ReviewContext containing PR identity and inherited memory
+            mr: Optional merge request for topic ID computation
 
         Returns:
-            Tuple of (list of issues, merged context map or None)
+            Tuple of (list of issues, merged context memory or None)
         """
-        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id, review_context=review_context))
+        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id, review_context=review_context, mr=mr))

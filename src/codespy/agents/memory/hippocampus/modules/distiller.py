@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import dspy
 
-from codespy.agents.memory.hippocampus.context_map import (
+from codespy.agents.memory.hippocampus.context_memory import (
     CacheCandidate,
-    ContextMap,
     ItemTag,
 )
 
@@ -16,7 +15,7 @@ class DistillerSig(dspy.Signature):
 
     ## Key Principle: Cache Understanding, Not Answers
 
-    The context map prepended to the agent is a compact CACHE OF
+    The context memory prepended to the agent is a compact CACHE OF
     UNDERSTANDING about the external context — NOT answers to specific
     questions. Think of it as the mental model a human builds after reading
     a document: structure, key entities, relationships, and global summaries
@@ -47,7 +46,7 @@ class DistillerSig(dspy.Signature):
        - What kind of contextual understanding the agent built that
          could transfer to future questions
 
-    2. ITEM_TAGS — For EVERY item currently in the map, tag it exactly:
+    2. ITEM_TAGS — For EVERY item currently in the context memory, tag it exactly:
        - helpful: directly helped or would directly help this run
        - harmful: misleading, incorrect, or actively hurts performance
        - neutral: correct domain knowledge not relevant to THIS question
@@ -98,7 +97,7 @@ class DistillerSig(dspy.Signature):
        names/types — these are domain constants and must remain precise.
 
     Assign each candidate to one of these exact section names (they map
-    onto the context map schema): context_understanding, domain_constants,
+    onto the context memory schema): context_understanding, domain_constants,
     context_roadmap, reusable_results, parsing_schema.
 
     Each candidate is a JSON object with exactly these fields:
@@ -115,10 +114,10 @@ class DistillerSig(dspy.Signature):
     """
 
     trajectory: str = dspy.InputField(desc="The agent's full execution trajectory.")
-    context_map: ContextMap = dspy.InputField(desc="Current context map (with item IDs).")
+    context_memory: str = dspy.InputField(desc="Current context memory (topic-grouped, with item IDs).")
     question: str = dspy.InputField(desc="The question the agent was answering.")
     max_context_item_tokens: int = dspy.InputField(
-        desc="Token budget for a SINGLE context-map item. Keep every candidate within "
+        desc="Token budget for a SINGLE context memory item. Keep every candidate within "
         "it; if one exceeds it, rewrite it more compactly or split it."
     )
 
@@ -128,7 +127,7 @@ class DistillerSig(dspy.Signature):
         "what transferable understanding the agent built. Feeds the Cartographer prompt."
     )
     item_tags: dict[str, ItemTag] = dspy.OutputField(
-        desc="Per-item-id tag for EVERY item currently in the context map. "
+        desc="Per-item-id tag for EVERY item currently in the context memory. "
         "Keys must match existing item ids exactly."
     )
     cache_candidates: list[CacheCandidate] = dspy.OutputField(
@@ -141,7 +140,7 @@ class DistillerSig(dspy.Signature):
 class Distiller(dspy.Module):
     """Extracts transferable orientation knowledge from an agent trajectory.
 
-    The context map is a prompt-resident cache of *understanding*, not
+    The context memory is a prompt-resident cache of *understanding*, not
     answers. The Distiller separates orientation work (what the context
     contains, how it's organized, which constants matter) from question-
     specific work, tags every existing item, and proposes new candidates.
@@ -157,7 +156,7 @@ class Distiller(dspy.Module):
     def forward(
         self,
         trajectory: str,
-        context_map: ContextMap,
+        context_memory: str,
         question: str,
         max_context_item_tokens: int,
     ):
@@ -171,8 +170,7 @@ class Distiller(dspy.Module):
         with SignatureContext(self.SIGNATURE, get_cost_tracker()):
             return self.predict(
                 trajectory=trajectory,
-                context_map=context_map,
+                context_memory=context_memory,
                 question=question,
                 max_context_item_tokens=max_context_item_tokens,
             )
-

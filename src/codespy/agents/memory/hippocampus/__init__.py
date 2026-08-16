@@ -1,13 +1,16 @@
 from codespy.agents.memory.hippocampus.budget import MemoryBudget
-from codespy.agents.memory.hippocampus.context_map import (
+from codespy.agents.memory.hippocampus.context_memory import (
     CacheCandidate,
-    ContextMap,
+    ContextMemory,
     Item,
     ItemTag,
     Mutation,
     Operation,
     OpType,
     SectionName,
+    Topic,
+    compute_common_ancestor_topic_id,
+    make_topic_id,
 )
 from codespy.agents.memory.hippocampus.episode import Episode
 from codespy.agents.memory.hippocampus.hippocampus import Hippocampus
@@ -18,7 +21,7 @@ __all__ = [
     "CacheCandidate",
     "Cartographer",
     "CartographerSig",
-    "ContextMap",
+    "ContextMemory",
     "Distiller",
     "DistillerSig",
     "Episode",
@@ -30,4 +33,7 @@ __all__ = [
     "Operation",
     "OpType",
     "SectionName",
+    "Topic",
+    "compute_common_ancestor_topic_id",
+    "make_topic_id",
 ]

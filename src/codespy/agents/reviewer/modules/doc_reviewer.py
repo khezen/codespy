@@ -8,9 +8,9 @@ from typing import Sequence
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.memory.hippocampus import Hippocampus
-from codespy.agents.memory.hippocampus import ContextMap
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
+from codespy.tools.git.models import MergeRequest
 from codespy.agents.reviewer.modules.doc_extractor import extract_documentation
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
@@ -119,7 +119,8 @@ class DocReviewer(dspy.Module):
         repo_path: Path,
         run_id: str | None = None,
         review_context: ReviewContext | None = None,
-    ) -> tuple[list[Issue], ContextMap | None]:
+        mr: MergeRequest | None = None,
+    ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for documentation issues.
 
         Args:
@@ -128,9 +129,10 @@ class DocReviewer(dspy.Module):
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run (see ``Hippocampus.run_id``)
             review_context: ReviewContext containing PR identity and inherited memory
+            mr: Optional merge request for topic ID computation
 
         Returns:
-            Tuple of (list of issues, merged context map or None)
+            Tuple of (list of issues, merged context memory or None)
         """
         if not self._settings.is_signature_enabled("doc"):
             logger.debug("Skipping doc: disabled")
@@ -140,7 +142,7 @@ class DocReviewer(dspy.Module):
             logger.info("No scopes with changes for doc review")
             return [], review_context.memory if review_context else None
         all_issues: list[Issue] = []
-        scope_memories: list[ContextMap] = []
+        scope_memories: list[ContextMemory] = []
         total_files = sum(len(s.changed_files) for s in changed_scopes)
         logger.info(
             f"Doc review for {len(changed_scopes)} scopes "
@@ -184,6 +186,7 @@ class DocReviewer(dspy.Module):
                             f"review documentation of {scope.repo}: {scope.subroot}: "
                             f"pull request {review_context.pr_context.mr_number} {review_context.pr_context.mr_title}: {review_context.pr_context.summary}"
                         ) if review_context else None
+                        topic_ids = [scope.topic(mr.repo_full_name).id] if mr else []
                         mem = Hippocampus(
                             reviewer,
                             budget=self._settings.get_memory_budget("doc"),
@@ -192,6 +195,7 @@ class DocReviewer(dspy.Module):
                             task_name="doc",
                             run_id=run_id,
                             initial_memory=review_context.memory if review_context else None,
+                            topic_ids=topic_ids,
                         )
                         result = await mem.aforward(
                             patches=patches,
@@ -207,9 +211,9 @@ class DocReviewer(dspy.Module):
                             scope.scope_path(),
                             artifacts={"review": issues_to_markdown(issues)},
                         )
-                        # Collect scope's context map
+                        # Collect scope's context memory
                         if mem:
-                            scope_memories.append(mem.cmap.model_copy(deep=True))
+                            scope_memories.append(mem.cmem.model_copy(deep=True))
                     else:
                         result = await asyncio.to_thread(
                             reviewer,
@@ -230,9 +234,9 @@ class DocReviewer(dspy.Module):
                 logger.error(f"Doc review failed for scope {scope.subroot}: {e}", exc_info=True)
 
         logger.info(f"Doc review found {len(all_issues)} issues")
-        # Merge all scope context maps into one module-level map
+        # Merge all scope context memories into one module-level memory
         merged_memory = (
-            ContextMap.merge(*scope_memories)
+            ContextMemory.merge(*scope_memories)
             if scope_memories
             else (review_context.memory if review_context else None)
         )
@@ -244,7 +248,8 @@ class DocReviewer(dspy.Module):
         repo_path: Path,
         run_id: str | None = None,
         review_context: ReviewContext | None = None,
-    ) -> tuple[list[Issue], ContextMap | None]:
+        mr: MergeRequest | None = None,
+    ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for documentation issues (sync wrapper).
 
         Args:
@@ -253,8 +258,9 @@ class DocReviewer(dspy.Module):
             run_id: Identifier of the pipeline run, shared across all agents
                 invoked within the same review run
             review_context: ReviewContext containing PR identity and inherited memory
+            mr: Optional merge request for topic ID computation
 
         Returns:
-            Tuple of (list of issues, merged context map or None)
+            Tuple of (list of issues, merged context memory or None)
         """
-        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id, review_context=review_context))
+        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id, review_context=review_context, mr=mr))

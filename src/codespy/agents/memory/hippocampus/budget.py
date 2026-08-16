@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import dspy
 import tiktoken
 
-from codespy.agents.memory.hippocampus.context_map import ContextMap
+from codespy.agents.memory.hippocampus.context_memory import ContextMemory
 
 _ENCODING = tiktoken.get_encoding("o200k_base")
 
@@ -25,20 +25,20 @@ class MemoryBudget:
     once (see ``Settings.get_memory_budget``) and shared across instances.
 
     Attributes:
-        max_context_map_tokens: Hard ceiling on the rendered ContextMap,
+        max_context_memory_tokens: Hard ceiling on the rendered ContextMemory,
             enforced by the Evictor after every reflection. This is the
             *persisted* artifact and it is prepended to every predictor of the
             wrapped agent, so it is re-sent on every agent iteration
             (~``max_iters`` times per run) plus once per reflection call — the
             most cost-sensitive of the four. Divided by ``max_context_item_tokens`` it
-            gives the map's approximate item capacity (3072 / 240 ~= 12 items).
-        max_context_item_tokens: Budget for a *single* context-map item, passed to the
+            gives the memory's approximate item capacity (3072 / 240 ~= 12 items).
+        max_context_item_tokens: Budget for a *single* context memory item, passed to the
             Distiller and the Cartographer as a prompt input so they keep each
-            item compact rather than spending the whole map budget on one
+            item compact rather than spending the whole memory budget on one
             verbose entry. Unlike the other three this is a **soft** budget:
             expressed to the LLM, not enforced in code, since truncating an
             item could corrupt an exact constant it holds. Lower it to fit
-            more, terser items in the same map budget; raise it for richer
+            more, terser items in the same memory budget; raise it for richer
             items.
         max_trajectory_tokens: Budget for trajectories fed to the Distiller.
             None = full trajectory, Distiller does all compression — only
@@ -59,7 +59,7 @@ class MemoryBudget:
             field cleanly captures intent.
     """
 
-    max_context_map_tokens: int = 3072
+    max_context_memory_tokens: int = 3072
     max_context_item_tokens: int = 240
     max_trajectory_tokens: int | None = 8192
     max_question_tokens: int | None = 2048
@@ -88,7 +88,7 @@ def count_tokens(s: str) -> int:
 # ---------------------------------------------------------------------------
 
 def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
-    """Serialize call inputs (excluding context_map) for the Distiller question.
+    """Serialize call inputs (excluding context_memory) for the Distiller question.
 
     All fields are included in full. If max_tokens is set, the joined result is
     head+tail bounded via _head_tail_text so both the instruction and any
@@ -97,7 +97,7 @@ def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
     """
     parts: list[str] = []
     for k, v in kwargs.items():
-        if k == "context_map":
+        if k == "context_memory":
             continue
         parts.append(f"{k}: {v}")
     text = "\n".join(parts)
@@ -110,13 +110,13 @@ def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
 # Eviction
 # ---------------------------------------------------------------------------
 
-def evict(cmap: ContextMap, scores: dict[str, int], budget: int) -> ContextMap:
-    if count_tokens(cmap.render()) <= budget:
-        return cmap
+def evict(context_memory: ContextMemory, scores: dict[str, int], budget: int) -> ContextMemory:
+    if count_tokens(context_memory.render()) <= budget:
+        return context_memory
     item_section: dict[str, str] = {
-        it.id: sec for sec in cmap.section_names() for it in cmap.section(sec)
+        it.id: sec for sec in context_memory.section_names() for it in context_memory.section(sec)
     }
-    flat = cmap.all_items()
+    flat = context_memory.all_items()
     order = {it.id: i for i, it in enumerate(flat)}
     victims = sorted(
         flat,
@@ -129,10 +129,10 @@ def evict(cmap: ContextMap, scores: dict[str, int], budget: int) -> ContextMap:
     removed: set[str] = set()
     for v in victims:
         removed.add(v.id)
-        trial = cmap.without(removed)
+        trial = context_memory.without(removed)
         if count_tokens(trial.render()) <= budget:
             return trial
-    return cmap.without(removed)
+    return context_memory.without(removed)
 
 
 # ---------------------------------------------------------------------------

@@ -207,7 +207,7 @@ def issues_to_markdown(issues: list[Issue]) -> str:
 
     Intended as an ``Episode`` artifact (see ``Hippocampus.aend_episode``)
     so a scope's episode carries a human-readable snapshot of what the
-    module found for that call, alongside the consolidated context map.
+    module found for that call, alongside the consolidated context memory.
 
     Args:
         issues: Issues found for a given scope/call.
