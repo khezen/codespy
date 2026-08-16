@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import (
+    PRContext,
     PackageManifest,
     ReviewContext,
     ScopeResult,
@@ -1115,12 +1116,9 @@ class ScopeResolver(dspy.Module):
         """
         excluded_dirs = self._settings.excluded_directories
         reviewable_files = [f for f in mr.changed_files if should_review_file(f, excluded_dirs)]
-
         if not reviewable_files:
             return [], review_context.memory if review_context else None
-
         repo = mr.repo_slug
-
         if not self._settings.is_signature_enabled("scope"):
             fallback = ScopeResult(
                 repo=repo, subroot=".", scope_type=ScopeType.APPLICATION,
@@ -1135,7 +1133,6 @@ class ScopeResolver(dspy.Module):
         try:
             await self._ensure_repo(mr, repo_path, is_local)
             scopes, orphans = self._resolve(repo_path, reviewable_files, repo)
-
             # Log deterministic scopes before LLM refinement
             if scopes:
                 det_summary = "\n".join(
@@ -1150,7 +1147,47 @@ class ScopeResolver(dspy.Module):
                 )
             if orphans:
                 logger.info("Deterministic identification produced %d orphan(s)", len(orphans))
-
+            # Load prior scope memory from the deepest common folder
+            loaded_memory: ContextMemory | None = None
+            if self._settings.get_memory_enabled("scope"):
+                from codespy.agents.memory.hippocampus.episode import find_latest_episode
+                store = get_memory_store(self._settings)
+                common_dir = _deepest_common_folder(scopes, mr.repo_slug) if scopes else f"/{mr.repo_slug}/"
+                prior_episode = find_latest_episode(store, common_dir, task="scope", exclude_run_id=run_id)
+                # Fallback: prior run may have persisted at repo root if scopes differed
+                if prior_episode is None and common_dir != f"/{mr.repo_slug}/":
+                    prior_episode = find_latest_episode(
+                        store, f"/{mr.repo_slug}/", task="scope", exclude_run_id=run_id
+                    )
+                if prior_episode is not None:
+                    loaded_memory = prior_episode.context_memory
+                    # Strip prior-run topics: current run builds authoritative topics
+                    # via bind_topics after refinement. Clearing item topic_ids ensures
+                    # bind_topics can re-bind them to the current run's stamp_topic_ids.
+                    loaded_memory.topics = []
+                    for item in loaded_memory.all_items():
+                        item.topic_ids = []
+                    logger.info(
+                        "Loaded prior scope memory (run=%s, items=%d)",
+                        prior_episode.run_id[:8], len(loaded_memory.all_items()),
+                    )
+                else:
+                    logger.debug("No prior scope episode found at %s", common_dir)
+            # Inject loaded memory into review_context for _refine_scopes
+            if loaded_memory is not None:
+                review_context = ReviewContext(
+                    pr_context=review_context.pr_context if review_context else PRContext(
+                        repo_slug=mr.repo_slug,
+                        mr_number=mr.number,
+                        mr_title=mr.title or "",
+                        summary=mr.title or "",
+                    ),
+                    memory=(
+                        ContextMemory.merge(loaded_memory, review_context.memory)
+                        if review_context and review_context.memory
+                        else loaded_memory
+                    ),
+                )
             scopes, context_memory = await self._refine_scopes(
                 scopes, orphans, mr, repo_path, review_context, run_id
             )

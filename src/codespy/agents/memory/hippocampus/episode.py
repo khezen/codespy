@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
 
 from pydantic import BaseModel, Field
 
 from codespy.agents.memory.hippocampus.context_memory import ContextMemory, Mutation
 from codespy.tools.storage.base import Storage
+from codespy.tools.storage.models import Entry, EntryType
 
 
 class Episode(BaseModel):
@@ -111,3 +112,74 @@ def load_episode(store: Storage, path: str) -> Episode:
     except Exception as exc:
         raise OSError(f"Failed to parse episode from {path!r}: {exc}") from exc
     return episode
+
+
+def find_latest_episode(
+    store: Storage,
+    dir: str,
+    task: str | None = None,
+    exclude_run_id: str | None = None,
+) -> Episode | None:
+    """Find and load the most recent episode for a given scope path.
+
+    Searches ``orgs/{owner}/episodic/.codespy/`` for episodes whose filename
+    starts with the slug derived from ``dir`` (same logic as
+    ``Hippocampus.episode_file_path``). Optionally filters by task name and
+    excludes a specific run_id.
+
+    Args:
+        store: Storage backend (FileSystem or S3Client).
+        dir: Scope directory path (e.g., "/{repo_slug}/{subroot}/").
+            Host segments (containing a dot) are stripped automatically.
+        task: Optional task filter (e.g., "scope", "summary").
+            Matches ``-{task}-`` substring in filename remainder.
+            If None, any task matches.
+        exclude_run_id: If set, skip episodes containing this run_id in
+            filename (avoids loading current pipeline's own episodes).
+
+    Returns:
+        The most recent Episode by modified_at, or None if no matches found.
+    """
+    # Compute slug and episodic directory (mirrors Hippocampus.episode_file_path)
+    segments = [s for s in dir.strip("/").split("/") if s]
+    if segments and "." in segments[0]:
+        segments = segments[1:]
+    if not segments:
+        return None
+    owner = segments[0]
+    slug = ".".join(segments)
+    episodic_dir = f"orgs/{owner}/episodic/.codespy"
+
+    try:
+        listing = store.list_directory(episodic_dir)
+    except (FileNotFoundError, OSError):
+        return None
+    # Filter entries: prefix match + optional task + exclude run_id
+    # Filename: {slug}.{run_id}-{task}-{index}.json
+    prefix = f"{slug}."
+    candidates: list[Entry] = []
+    for entry in listing.entries:
+        if entry.entry_type != EntryType.FILE:
+            continue
+        if not entry.name.startswith(prefix):
+            continue
+        remainder = entry.name[len(prefix):]
+        if task is not None and f"-{task}-" not in remainder:
+            continue
+        if exclude_run_id and exclude_run_id in remainder:
+            continue
+        candidates.append(entry)
+    if not candidates:
+        return None
+    # Sort by modified_at descending; epoch fallback for entries without timestamp
+    _epoch = datetime.min.replace(tzinfo=timezone.utc)
+    candidates.sort(
+        key=lambda e: e.modified_at if e.modified_at is not None else _epoch,
+        reverse=True,
+    )
+    # Load the newest candidate
+    path = f"{episodic_dir}/{candidates[0].name}"
+    try:
+        return load_episode(store, path)
+    except (FileNotFoundError, OSError):
+        return None

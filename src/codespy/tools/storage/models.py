@@ -67,6 +67,7 @@ class Entry(BaseModel):
     name: str = Field(description="Entry name")
     entry_type: EntryType = Field(description="Type of entry")
     size: int = Field(default=0, description="Size in bytes (0 for directories)")
+    modified_at: datetime | None = Field(default=None, description="Last modified time (UTC)")
 
 
 class Listing(BaseModel):

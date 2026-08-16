@@ -81,7 +81,22 @@ class Summarizer(dspy.Module):
         if not self._settings.is_signature_enabled("summary"):
             logger.debug("Skipping summary: disabled")
             return mr_title or "No title", initial_memory
-
+        # Load latest episode per scope and merge with inherited memory
+        if self._settings.get_memory_enabled("summary") and scopes:
+            from codespy.agents.memory.hippocampus.episode import find_latest_episode
+            store = get_memory_store(self._settings)
+            per_scope_memories: list[ContextMemory] = []
+            for scope in scopes:
+                ep = find_latest_episode(store, scope.scope_path(), task=None, exclude_run_id=run_id)
+                if ep is not None:
+                    per_scope_memories.append(ep.context_memory)
+            if per_scope_memories:
+                all_memories = ([initial_memory] if initial_memory else []) + per_scope_memories
+                initial_memory = ContextMemory.merge(*all_memories)
+                logger.info(
+                    "Merged %d prior scope episode(s) into summarizer memory",
+                    len(per_scope_memories),
+                )
         summarizer = dspy.ChainOfThought(PRSummarySignature)
         logger.info("Generating PR summary...")
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 from codespy.tools.storage.base import Storage
@@ -132,9 +133,11 @@ class FileSystem(Storage):
                     entry_type = EntryType.FILE
                     total_files += 1
 
-                size = entry.stat().st_size if entry_type == EntryType.FILE else 0
+                stat = entry.stat()
+                size = stat.st_size if entry_type == EntryType.FILE else 0
+                modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc) if entry_type == EntryType.FILE else None
 
-                entries.append(Entry(name=entry.name, entry_type=entry_type, size=size))
+                entries.append(Entry(name=entry.name, entry_type=entry_type, size=size, modified_at=modified_at))
         except PermissionError as e:
             logger.warning(f"Permission denied listing {path}: {e}")
 

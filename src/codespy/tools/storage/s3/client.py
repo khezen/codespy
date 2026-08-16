@@ -206,7 +206,12 @@ class S3Client(Storage):
                 if not include_hidden and name.startswith("."):
                     continue
                 entries.append(
-                    Entry(name=name, entry_type=EntryType.FILE, size=obj.get("Size", 0))
+                    Entry(
+                        name=name,
+                        entry_type=EntryType.FILE,
+                        size=obj.get("Size", 0),
+                        modified_at=obj.get("LastModified"),  # boto3 returns tz-aware datetime
+                    )
                 )
                 total_files += 1
 
