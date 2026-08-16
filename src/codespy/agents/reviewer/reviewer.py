@@ -259,14 +259,21 @@ class ReviewPipeline(dspy.Module):
             f"Audit input: {len(scoped_files)} in-scope files "
             f"(filtered from {len(mr.changed_files)} total)"
         )
-        quality_assessment, recommendation = self.auditor(
-            review_context=review_ctx,
-            changed_files=scoped_files,
-            all_issues=all_issues,
-            run_id=run_id,
-            scopes=scopes,
-            topic_ids=all_scope_topic_ids,
-        )
+        try:
+            quality_assessment, recommendation = self.auditor(
+                review_context=review_ctx,
+                changed_files=scoped_files,
+                all_issues=all_issues,
+                run_id=run_id,
+                scopes=scopes,
+                topic_ids=all_scope_topic_ids,
+            )
+        except dspy.ContextWindowExceededError:
+            logger.warning(
+                "Audit skipped: input exceeds model context window even without patches."
+            )
+            quality_assessment = "Audit skipped due to context window limit."
+            recommendation = "NEEDS_DISCUSSION" if all_issues else "APPROVE"
         # Collect per-signature statistics
         signature_stats_list = self._collect_signature_stats()
         return ReviewResult(
