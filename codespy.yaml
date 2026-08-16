@@ -275,6 +275,21 @@ signatures:
       max_trajectory_tokens: null        # SUMMARY_MEMORY_MAX_TRAJECTORY_TOKENS
       max_question_tokens: null          # SUMMARY_MEMORY_MAX_QUESTION_TOKENS
 
+  # Auditor signature (quality assessment + recommendation after all reviews)
+  audit:
+    enabled: true                        # AUDIT_ENABLED
+    model: null                          # AUDIT_MODEL
+    reasoning_effort: null               # AUDIT_REASONING_EFFORT
+    temperature: null                    # AUDIT_TEMPERATURE
+    max_tokens: null                     # AUDIT_MAX_TOKENS
+    memory:
+      enabled: null                      # AUDIT_MEMORY_ENABLED (null -> memory.default_enabled)
+      max_reflects: null                 # AUDIT_MEMORY_MAX_REFLECTS
+      max_context_memory_tokens: null    # AUDIT_MEMORY_MAX_CONTEXT_MEMORY_TOKENS
+      max_context_item_tokens: null      # AUDIT_MEMORY_MAX_CONTEXT_ITEM_TOKENS
+      max_trajectory_tokens: null        # AUDIT_MEMORY_MAX_TRAJECTORY_TOKENS
+      max_question_tokens: null          # AUDIT_MEMORY_MAX_QUESTION_TOKENS
+
 # ============================================================================
 # OUTPUT
 # ============================================================================
