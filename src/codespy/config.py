@@ -260,81 +260,19 @@ class Settings(BaseSettings):
             else self.memory.default_max_reflects
         )
 
-    def get_memory_max_context_memory_tokens(self, signature_name: str) -> int:
-        """Get max_context_memory_tokens for a signature's memory (signature-specific or default).
-
-        Bounds the rendered ContextMemory — the persisted artifact that is prepended
-        to every predictor of the wrapped agent, and therefore re-sent on every
-        ReAct iteration.
-        """
-        config = self.get_signature_config(signature_name).memory
-        return (
-            config.max_context_memory_tokens
-            if config.max_context_memory_tokens is not None
-            else self.memory.default_max_context_memory_tokens
-        )
-
-    def get_memory_max_context_item_tokens(self, signature_name: str) -> int:
-        """Get max_context_item_tokens for a signature's memory (signature-specific or default).
-
-        Bounds a *single* context-memory item. Handed to the Distiller and the
-        Cartographer as a prompt input so they keep each item compact instead of
-        spending the whole memory budget on one verbose entry. Soft limit — the hard,
-        memory-wide ceiling is ``get_memory_max_context_memory_tokens``.
-        """
-        config = self.get_signature_config(signature_name).memory
-        return (
-            config.max_context_item_tokens
-            if config.max_context_item_tokens is not None
-            else self.memory.default_max_context_item_tokens
-        )
-
-    def get_memory_max_trajectory_tokens(self, signature_name: str) -> int | None:
-        """Get max_trajectory_tokens for a signature's memory (signature-specific or default).
-
-        Bounds the agent trajectory fed to the Distiller.
-        """
-        config = self.get_signature_config(signature_name).memory
-        return (
-            config.max_trajectory_tokens
-            if config.max_trajectory_tokens is not None
-            else self.memory.default_max_trajectory_tokens
-        )
-
-    def get_memory_max_question_tokens(self, signature_name: str) -> int | None:
-        """Get max_question_tokens for a signature's memory (signature-specific or default).
-
-        Bounds the serialized agent inputs used as the reflection "question".
-        Ignored when the caller passes an explicit ``question`` string.
-        """
-        config = self.get_signature_config(signature_name).memory
-        return (
-            config.max_question_tokens
-            if config.max_question_tokens is not None
-            else self.memory.default_max_question_tokens
-        )
-
     def get_memory_budget(self, signature_name: str) -> "MemoryBudget":
-        """Resolve the full ``MemoryBudget`` for a signature's memory.
+        """Resolve the ``MemoryBudget`` for a signature.
 
-        Composes the four per-field getters, so each budget still resolves as
-        "signature-specific override, else ``memory.default_*``". Pass the result
-        straight to ``Hippocampus(module, budget=...)``.
-
-        Args:
-            signature_name: The signature whose memory budget to resolve.
-
-        Returns:
-            A fully resolved ``MemoryBudget`` (no None-means-default fields).
+        Token budgets are global (``memory.default_*``); only ``enabled`` and
+        ``max_reflects`` support per-signature overrides.
         """
-        # Deferred import — see the TYPE_CHECKING note at the top of this module.
         from codespy.agents.memory.hippocampus.budget import MemoryBudget
 
         return MemoryBudget(
-            max_context_memory_tokens=self.get_memory_max_context_memory_tokens(signature_name),
-            max_context_item_tokens=self.get_memory_max_context_item_tokens(signature_name),
-            max_trajectory_tokens=self.get_memory_max_trajectory_tokens(signature_name),
-            max_question_tokens=self.get_memory_max_question_tokens(signature_name),
+            max_context_memory_tokens=self.memory.default_max_context_memory_tokens,
+            max_context_item_tokens=self.memory.default_max_context_item_tokens,
+            max_trajectory_tokens=self.memory.default_max_trajectory_tokens,
+            max_question_tokens=self.memory.default_max_question_tokens,
         )
 
     def log_signature_configs(self) -> None:

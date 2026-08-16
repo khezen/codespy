@@ -26,10 +26,6 @@ class MemorySignatureConfig(BaseModel):
 
     enabled: bool | None = None                   # <SIG>_MEMORY_ENABLED
     max_reflects: int | None = None               # <SIG>_MEMORY_MAX_REFLECTS
-    max_context_memory_tokens: int | None = None     # <SIG>_MEMORY_MAX_CONTEXT_MEMORY_TOKENS
-    max_context_item_tokens: int | None = None            # <SIG>_MEMORY_MAX_CONTEXT_ITEM_TOKENS
-    max_trajectory_tokens: int | None = None      # <SIG>_MEMORY_MAX_TRAJECTORY_TOKENS
-    max_question_tokens: int | None = None        # <SIG>_MEMORY_MAX_QUESTION_TOKENS
 
 
 class SignatureConfig(BaseModel):

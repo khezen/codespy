@@ -87,10 +87,6 @@ Each signature's `memory:` block in YAML (or `<SIGNATURE>_MEMORY_*` env vars):
 |---------|---------------|-------------|
 | enabled | `_MEMORY_ENABLED` | Enable/disable memory for this signature |
 | max_reflects | `_MEMORY_MAX_REFLECTS` | Override reflection count |
-| max_context_memory_tokens | `_MEMORY_MAX_CONTEXT_MEMORY_TOKENS` | Override memory ceiling |
-| max_context_item_tokens | `_MEMORY_MAX_CONTEXT_ITEM_TOKENS` | Override item ceiling |
-| max_trajectory_tokens | `_MEMORY_MAX_TRAJECTORY_TOKENS` | Override trajectory cap |
-| max_question_tokens | `_MEMORY_MAX_QUESTION_TOKENS` | Override question cap |
 
 Example: `CODE_REVIEW_MEMORY_ENABLED=true` or `SUMMARY_MEMORY_MAX_REFLECTS=2`
 

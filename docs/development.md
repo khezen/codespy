@@ -13,7 +13,7 @@ cd codespy
 make setup
 
 # Or manually with Poetry:
-p poetry install           # Install all dependencies including dev
+poetry install           # Install all dependencies including dev
 poetry lock              # Update lock file
 ```
 
@@ -45,17 +45,35 @@ poetry run mypy src/
 
 ```
 src/codespy/
-├── cli/                  # CLI commands and argument parsing
-├── config/               # Configuration management
-├── git/                  # GitHub/GitLab platform clients
-├── llm/                  # LLM backend and DSPy integration
-├── review/               # Review pipeline and signatures
-│   ├── agents/           # ReAct and ChainOfThought agents
-│   ├── signatures/       # DSPy signature definitions
-│   └── tools/            # Agent tools (filesystem, git, web, etc.)
-├── memory/               # Hippocampus memory system
-├── output/               # Output formatters (markdown, json, git comments)
-└── utils/                # Utility functions
+├── __init__.py
+├── cli.py                    # Main CLI entrypoint
+├── cli_local.py              # Local review commands
+├── cli_remote.py             # Remote PR/MR review commands
+├── cli_mcp_server.py         # MCP server command
+├── config.py                 # Main configuration
+├── config_dspy.py            # DSPy configuration
+├── config_git.py             # Git platform configuration
+├── config_io.py              # I/O configuration
+├── config_llm.py             # LLM provider configuration
+├── config_memory.py          # Memory system configuration
+├── agents/                   # DSPy agents and pipeline
+│   ├── cost_tracker.py       # Token/cost tracking
+│   ├── dspy_config.py        # DSPy runtime config
+│   ├── memory/               # Hippocampus memory system
+│   │   └── hippocampus/      # Episode persistence, context memory, budget
+│   └── reviewer/             # Review pipeline
+│       ├── models.py         # Review data models
+│       ├── reviewer.py       # Main review orchestrator
+│       ├── server.py         # MCP server implementation
+│       ├── modules/          # Pipeline stages (scope_resolver, summarizer, code_reviewer, doc_reviewer, supply_chain_auditor, auditor)
+│       └── reporters/        # Output reporters (git comments, stdout)
+└── tools/                    # Agent tools
+    ├── git/                  # GitHub/GitLab clients, local diff, patch utils
+    ├── cyber/osv/            # OSV vulnerability scanning
+    ├── parsers/              # Ripgrep + Tree-sitter
+    ├── storage/              # Filesystem + S3
+    ├── web/                  # Web search client
+    └── mcp_utils.py          # MCP tool utilities
 ```
 
 ---
