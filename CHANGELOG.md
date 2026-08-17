@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1] - 2026-08-18
+
+### Fixed
+- Git authentication failure in GitHub Actions: changed token URL format to use `x-access-token:{token}` username scheme (was `{token}@`, causing git to prompt for password)
+- Added `GIT_TERMINAL_PROMPT=0` environment variable to all git operations to prevent hanging on authentication prompts in headless environments
+- Guarded `_expand_sparse_for_scopes` against unborn repos (when clone fails, leaving `.git/` skeleton without commits) to prevent "branch yet to be born" crashes
+
 ## [1.0.0] - 2026-08-18
 
 ### Added
