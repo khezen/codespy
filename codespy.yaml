@@ -77,9 +77,25 @@ memory:
   root: ~/.cache/codespy/memory           # MEMORY_ROOT
 
   # S3 backend (used when backend: s3)
-  s3_bucket: null                         # MEMORY_S3_BUCKET
-  s3_region: null                         # MEMORY_S3_REGION (falls back to aws_region)
-  s3_endpoint_url: null                   # MEMORY_S3_ENDPOINT_URL (for MinIO/S3-compatible)
+  # ---------------------------------------------------------------------------
+  # Use this to store memory episodes in S3-compatible object storage instead of
+  # the local filesystem. Useful for:
+  #   - Shared memory across multiple codespy instances (CI/CD, distributed setups)
+  #   - Centralized episode storage
+  #   - Integration with MinIO, AWS S3, or other S3-compatible services
+  # ---------------------------------------------------------------------------
+  s3_bucket: null                         # MEMORY_S3_BUCKET - The bucket name
+                                          # Example: "codespy-memory" or "mycompany-codespy"
+
+  s3_region: null                         # MEMORY_S3_REGION - AWS region for the bucket
+                                          # Falls back to aws_region (from llm.* section above)
+                                          # Example: "us-east-1", "eu-west-1"
+
+  s3_endpoint_url: null                   # MEMORY_S3_ENDPOINT_URL - Custom endpoint
+                                          # Only needed for MinIO or non-AWS S3-compatible storage
+                                          # Leave as null for AWS S3
+                                          # Example: "http://localhost:9000" (MinIO local)
+                                          # Example: "https://minio.example.com" (MinIO remote)
 
   # Reflection defaults — overridable per-signature via signatures.<name>.memory
   default_enabled: false                  # MEMORY_DEFAULT_ENABLED
