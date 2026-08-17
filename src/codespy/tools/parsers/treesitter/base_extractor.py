@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from codespy.tools.parsers.treesitter.models import FunctionInfo
 
 if TYPE_CHECKING:
-    from tree_sitter import Node
+    pass
 
 
 class BaseExtractor(ABC):

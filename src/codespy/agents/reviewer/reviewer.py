@@ -2,64 +2,41 @@
 
 import asyncio
 import logging
+import uuid
 from pathlib import Path
 
 import dspy  # type: ignore[import-untyped]
 
-from codespy.agents import SignatureContext, configure_dspy, get_cost_tracker, verify_model_access
-from codespy.config import Settings, get_settings
-from codespy.tools.git import GitClient, get_client, ChangedFile, MergeRequest
-from codespy.tools.git.local_diff import build_mr_from_diff
+from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
+from codespy.agents.memory.hippocampus import ContextMemory
 from codespy.agents.reviewer.models import (
     Issue,
-    SignatureStatsResult,
-    ReviewResult,
-    ReviewConfig,
-    RemoteReviewConfig,
     LocalReviewConfig,
+    PRContext,
+    RemoteReviewConfig,
+    ReviewConfig,
+    ReviewContext,
+    ReviewMetadata,
+    ReviewResult,
+    SignatureStatsResult,
 )
 from codespy.agents.reviewer.modules import (
+    Auditor,
     CodeReviewer,
     DocReviewer,
-    ScopeIdentifier,
+    ScopeResolver,
+    Summarizer,
     SupplyChainAuditor,
 )
+from codespy.agents.reviewer.modules.helpers import build_patches
+from codespy.agents.reviewer.modules.scope_resolver import MANIFEST_FILES, MANIFEST_GLOBS
+from codespy.config import Settings, get_settings
+from codespy.config_memory import verify_memory_access
+from codespy.tools.git import ChangedFile, GitClient, PullRequest, get_client
+from codespy.tools.git.local_diff import build_pr_from_diff
+from codespy.tools.git.patch_utils import compact_patches
 
 logger = logging.getLogger(__name__)
-
-
-class MRSummarySignature(dspy.Signature):
-    """Generate an overall summary and recommendation for a merge request.
-
-    You are a busy Principal Engineer. Be extremely terse. State facts only.
-
-    Based on all the issues found during review, provide:
-    - A concise summary of what the MR does
-    - An overall assessment of the code quality
-    - A recommendation (approve, request changes, or needs discussion)
-
-    OUTPUT RULES: Be direct and terse. No polite filler ("I suggest", "Great job", "Well done").
-    No conversational language. State facts and assessments only.
-    """
-
-    mr_title: str = dspy.InputField(desc="Title of the merge request")
-    mr_description: str = dspy.InputField(desc="Description/body of the MR")
-    changed_files: list[ChangedFile] = dspy.InputField(
-        desc="In-scope reviewable files (excludes binaries, vendor, lock files, etc.) with status and line counts"
-    )
-    all_issues: list[Issue] = dspy.InputField(
-        desc="All issues found during review"
-    )
-
-    summary: str = dspy.OutputField(
-        desc="2-3 sentence summary of what this MR accomplishes"
-    )
-    quality_assessment: str = dspy.OutputField(
-        desc="Overall assessment of code quality (e.g., well-structured, needs refactoring, follows best practices, etc.)"
-    )
-    recommendation: str = dspy.OutputField(
-        desc="One of: APPROVE, REQUEST_CHANGES, or NEEDS_DISCUSSION with brief justification"
-    )
 
 
 class ReviewPipeline(dspy.Module):
@@ -74,10 +51,12 @@ class ReviewPipeline(dspy.Module):
         configure_dspy(self.settings)
 
         # Initialize all modules - they internally check if their signatures are enabled
-        self.scope_identifier = ScopeIdentifier()
+        self.scope_resolver = ScopeResolver()
         self.code_reviewer = CodeReviewer()
         self.doc_reviewer = DocReviewer()
         self.supply_chain_auditor = SupplyChainAuditor()
+        self.summarizer = Summarizer()
+        self.auditor = Auditor()
 
     def _verify_model_access(self) -> None:
         """Verify LLM model access."""
@@ -87,34 +66,42 @@ class ReviewPipeline(dspy.Module):
             raise ValueError(f"Model access failed: {message}")
         logger.info(f"Model access: {message}")
 
+    def _verify_memory_access(self) -> None:
+        """Verify memory storage access."""
+        logger.info("Verifying memory storage access...")
+        success, message = verify_memory_access(self.settings)
+        if not success:
+            raise ValueError(f"Memory storage access failed: {message}")
+        logger.info(f"Memory storage: {message}")
+
     def _get_git_client(self, url: str) -> GitClient:
         """Get or create a Git client for the given URL."""
         if self._git_client is None:
             self._git_client = get_client(url, self.settings)
         return self._git_client
 
-    def _fetch_mr(self, mr_url: str) -> MergeRequest:
-        """Fetch merge request data from Git platform."""
-        client = self._get_git_client(mr_url)
-        logger.info(f"Fetching MR data from {client.platform_name}...")
-        mr = client.fetch_merge_request(mr_url)
-        logger.info(f"MR #{mr.number}: {mr.title} ({len(mr.changed_files)} files)")
-        return mr
+    def _fetch_pr(self, pr_url: str) -> PullRequest:
+        """Fetch pull request data from Git platform."""
+        client = self._get_git_client(pr_url)
+        logger.info(f"Fetching PR data from {client.platform_name}...")
+        pr = client.fetch_pull_request(pr_url)
+        logger.info(f"PR #{pr.number}: {pr.title} ({len(pr.changed_files)} files)")
+        return pr
 
-    def _get_repo_path(self, mr: MergeRequest) -> Path:
+    def _get_repo_path(self, pr: PullRequest) -> Path:
         """Get the local repository path for a MR, creating directories if needed."""
         cache_dir = self.settings.cache_dir
         cache_dir.mkdir(parents=True, exist_ok=True)
         # Handle nested namespaces for GitLab
-        owner_path = mr.repo_owner.replace("/", "_")
-        return cache_dir / owner_path / mr.repo_name
+        owner_path = pr.repo_owner.replace("/", "_")
+        return cache_dir / owner_path / pr.repo_name
 
     async def _run_review_modules(
         self,
         scopes: list,
-        repo_path: Path,
         module_names: list[str],
-    ) -> list[Issue]:
+        review_context: ReviewContext,
+    ) -> tuple[list[Issue], dict[str, ContextMemory | None]]:
         """Run review modules concurrently in a single event loop.
 
         Uses asyncio.gather instead of dspy.Parallel to avoid the
@@ -123,38 +110,41 @@ class ReviewPipeline(dspy.Module):
 
         Args:
             scopes: Identified scopes with changed files
-            repo_path: Path to the cloned repository
             module_names: Names of modules (for error logging)
+            review_context: ReviewContext for Hippocampus question and memory inheritance
 
         Returns:
-            Aggregated list of issues from all modules
+            Tuple of (aggregated list of issues, dict of module_name -> context_memory)
         """
         tasks = [
-            self.code_reviewer.aforward(scopes=scopes, repo_path=repo_path),
-            self.doc_reviewer.aforward(scopes=scopes, repo_path=repo_path),
-            self.supply_chain_auditor.aforward(scopes=scopes, repo_path=repo_path),
+            self.code_reviewer.aforward(scopes=scopes, review_context=review_context),
+            self.doc_reviewer.aforward(scopes=scopes, review_context=review_context),
+            self.supply_chain_auditor.aforward(scopes=scopes, review_context=review_context),
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_issues: list[Issue] = []
+        context_memories: dict[str, ContextMemory | None] = {}
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                logger.error(f"{module_names[i]} failed: {result}")
+                logger.error(f"{module_names[i]} failed: {result}", exc_info=result)
             elif result is not None:
-                all_issues.extend(result)
-        return all_issues
+                issues, ctx_mem = result
+                all_issues.extend(issues)
+                context_memories[module_names[i]] = ctx_mem
+        return all_issues, context_memories
 
-    def _build_local_mr(self, config: LocalReviewConfig) -> MergeRequest:
-        """Build a MergeRequest from local git changes.
-        
+    def _build_local_pr(self, config: LocalReviewConfig) -> PullRequest:
+        """Build a PullRequest from local git changes.
+
         Args:
             config: Local review configuration
-            
+
         Returns:
-            MergeRequest object built from local git changes
+            PullRequest object built from local git changes
         """
-        logger.info(f"Building MR from local changes in {config.repo_path}...")
-        return build_mr_from_diff(
+        logger.info(f"Building PR from local changes in {config.repo_path}...")
+        return build_pr_from_diff(
             repo_path=config.repo_path,
             base_ref=config.base_ref,
             include_uncommitted=config.uncommitted
@@ -170,29 +160,44 @@ class ReviewPipeline(dspy.Module):
             ReviewResult with issues, summary, costs, etc.
         """
         self.cost_tracker.reset()
-        
+
+        # Generate a single run_id shared across all agents/modules invoked
+        # within this pipeline run, used to correlate Episode records.
+        run_id = uuid.uuid4().hex
+
         # Always verify model access
         self._verify_model_access()
 
-        # Determine mode and fetch/build MR accordingly
+        # Verify memory storage access
+        self._verify_memory_access()
+
+        # Determine mode and fetch/build PR accordingly
         if isinstance(config, RemoteReviewConfig):
             # Remote mode: fetch from GitHub/GitLab
             logger.info(f"Starting review of {config.url}")
-            mr = self._fetch_mr(config.url)
-            repo_path = self._get_repo_path(mr)
+            pr = self._fetch_pr(config.url)
+            repo_path = self._get_repo_path(pr)
         elif isinstance(config, LocalReviewConfig):
-            # Local mode: build MR from local git changes
+            # Local mode: build PR from local git changes
             mode = "uncommitted changes" if config.uncommitted else f"changes vs {config.base_ref}"
             logger.info(f"Starting local review: {mode} in {config.repo_path}")
-            mr = self._build_local_mr(config)
+            pr = self._build_local_pr(config)
             repo_path = config.repo_path.resolve()
         else:
             raise ValueError(f"Invalid config type: {type(config)}")
 
-        # Identify scopes (the module internally checks if signature is enabled)
+        # Step 1: Identify scopes FIRST
         is_local = isinstance(config, LocalReviewConfig)
         logger.info("Identifying code scopes...")
-        scopes = self.scope_identifier(mr, repo_path, is_local=is_local)
+        pr_context = PRContext(
+            repo_slug=pr.repo_slug,
+            pr_number=pr.number,
+            pr_title=pr.title,
+            summary=pr.title,  # Use title as placeholder since summary hasn't run
+        )
+        metadata = ReviewMetadata(repo_path=repo_path, run_id=run_id, pr=pr, is_local=is_local)
+        review_ctx = ReviewContext(pr_context=pr_context, memory=None, metadata=metadata)
+        scopes, initial_memory = self.scope_resolver(review_context=review_ctx)
         for scope in scopes:
             logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
             if scope.package_manifest:
@@ -201,59 +206,67 @@ class ReviewPipeline(dspy.Module):
                 if manifest.lock_file_path:
                     logger.info(f"    Lock file: {manifest.lock_file_path}")
                 if manifest.dependencies_changed:
-                    logger.info(f"    Dependencies changed: Yes")
-
-        # Run review modules concurrently via asyncio.gather
+                    logger.info("    Dependencies changed: Yes")
+        # Expand sparse checkout to cover full scope subtrees
+        if not is_local:
+            self._expand_sparse_for_scopes(scopes, repo_path)
+        # Compact patches: expand context to function bodies for better review context
+        logger.info("Compacting patches to function boundaries...")
+        changed_file_paths = [f.filename for f in pr.changed_files]
+        patches = build_patches(pr.changed_files)
+        compact_patches(scopes, repo_path)
+        # Step 2: Run Summarizer (now receives scopes for per-scope episode persistence)
+        # Compute all scope topic IDs for summarizer
+        all_scope_topic_ids = [s.topic(pr.repo_full_name).id for s in scopes]
+        pr_summary, summarizer_memory = self.summarizer(
+            pr_title=pr.title,
+            pr_description=pr.body or "No description provided.",
+            pr_number=pr.number,
+            changed_file_paths=changed_file_paths,
+            patches=patches,
+            repo_slug=pr.repo_slug,
+            run_id=run_id,
+            scopes=scopes,
+            initial_memory=initial_memory,
+            topic_ids=all_scope_topic_ids,
+        )
+        # Enrich review_ctx with actual summary and memory from summarizer
+        pr_context.summary = pr_summary
+        review_ctx = ReviewContext(pr_context=pr_context, memory=summarizer_memory, metadata=metadata)
+        # Step 3: Run review modules concurrently via asyncio.gather (inherit Scope Identifier memory)
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
-        all_issues = asyncio.run(
-            self._run_review_modules(scopes, repo_path, module_names)
+        all_issues, parallel_memories = asyncio.run(
+            self._run_review_modules(scopes, module_names, review_context=review_ctx)
         )
         logger.info(f"Found {len(all_issues)} issues")
-
-        # Collect in-scope files from identified scopes (excludes binaries, vendor, lock files, etc.)
+        # Merge parallel context memories for Auditor
+        memories_to_merge = [m for m in parallel_memories.values() if m is not None]
+        merged_memory = ContextMemory.merge(*memories_to_merge) if memories_to_merge else summarizer_memory
+        review_ctx = ReviewContext(pr_context=pr_context, memory=merged_memory, metadata=metadata)
+        # Step 4: Run Audit (inherits merged memory from parallel modules)
         scoped_files = self._collect_scoped_files(scopes)
         logger.info(
-            f"Summary input: {len(scoped_files)} in-scope files "
-            f"(filtered from {len(mr.changed_files)} total)"
+            f"Audit input: {len(scoped_files)} in-scope files "
+            f"(filtered from {len(pr.changed_files)} total)"
         )
-        # Generate summary, quality assessment, and recommendation
-        if self.settings.is_signature_enabled("summarization"):
-            logger.info("Generating MR summary...")
-            try:
-                summarizer = dspy.ChainOfThought(MRSummarySignature)
-                # Track the summarization signature's costs
-                with SignatureContext("summarization", self.cost_tracker):
-                    result = summarizer(
-                        mr_title=mr.title,
-                        mr_description=mr.body or "No description provided.",
-                        changed_files=scoped_files,
-                        all_issues=all_issues,
-                    )
-                summary = result.summary
-                quality_assessment = result.quality_assessment
-                recommendation = result.recommendation
-            except Exception as e:
-                logger.error(f"Failed to generate summary: {e}")
-                summary = f"Reviewed {len(scoped_files)} files with {len(all_issues)} issues."
-                quality_assessment = "Unable to assess due to error."
-                recommendation = "NEEDS_DISCUSSION: Summary generation failed."
-        else:
-            logger.debug("Skipping summarization: disabled")
-            summary = f"Reviewed {len(scoped_files)} files with {len(all_issues)} issues."
-            quality_assessment = "Summarization disabled."
-            recommendation = "NEEDS_DISCUSSION" if all_issues else "APPROVE"
+        quality_assessment, recommendation = self.auditor(
+            review_context=review_ctx,
+            changed_files=scoped_files,
+            all_issues=all_issues,
+            run_id=run_id,
+        )
         # Collect per-signature statistics
         signature_stats_list = self._collect_signature_stats()
-
         return ReviewResult(
-            mr_number=mr.number,
-            mr_title=mr.title,
-            mr_url=mr.url,
-            repo=mr.repo_full_name,
+            pr_number=pr.number,
+            pr_title=pr.title,
+            pr_url=pr.url,
+            repo=pr.repo_full_name,
+            run_id=run_id,
             model_used=self.settings.default_model,
             issues=all_issues,
-            overall_summary=summary,
+            overall_summary=pr_summary,
             quality_assessment=quality_assessment,
             recommendation=recommendation,
             total_cost=self.cost_tracker.total_cost,
@@ -271,7 +284,7 @@ class ReviewPipeline(dspy.Module):
         summarizer operates on the same focused set as the review modules.
 
         Args:
-            scopes: Identified scopes from scope_identifier
+            scopes: Identified scopes from scope_resolver
 
         Returns:
             De-duplicated list of ChangedFile objects from all scopes
@@ -304,3 +317,42 @@ class ReviewPipeline(dspy.Module):
             ))
 
         return stats_list
+
+    def _expand_sparse_for_scopes(
+        self, scopes: list, repo_path: Path
+    ) -> None:
+        """Expand sparse checkout to cover full subtree of each identified scope.
+
+        Called after scope identification, before compact_patches and review modules,
+        to ensure read_file and patch compaction have full scope context available.
+        """
+        from git import Repo
+
+        git_dir = repo_path / ".git"
+        if not git_dir.exists():
+            return
+
+        # Build scope-aware sparse paths
+        sparse_paths: set[str] = set()
+        for scope in scopes:
+            if scope.subroot == ".":
+                # Root scope — need everything; disable sparse checkout effectively
+                sparse_paths.add("/*")
+                sparse_paths.add("*/")
+                break
+            else:
+                sparse_paths.add(scope.subroot.rstrip("/") + "/")
+
+        # Always include root-level files and manifests
+        sparse_paths.add("/*")
+        for manifest in MANIFEST_FILES:
+            sparse_paths.add(manifest)
+        for pattern in MANIFEST_GLOBS:
+            sparse_paths.add(pattern)
+
+        sparse_file = git_dir / "info" / "sparse-checkout"
+        sparse_file.write_text("\n".join(sorted(sparse_paths)) + "\n")
+
+        # Re-checkout to materialize newly included paths
+        repo = Repo(repo_path)
+        repo.git.checkout()

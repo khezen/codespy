@@ -1,14 +1,14 @@
-"""Data models for Git merge requests (GitHub PRs and GitLab MRs)."""
+"""Data models for Git pull requests (GitHub PRs and GitLab MRs)."""
 
 import re
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class FileStatus(str, Enum):
-    """Status of a file in a merge request."""
+class FileStatus(StrEnum):
+    """Status of a file in a pull request."""
 
     ADDED = "added"
     MODIFIED = "modified"
@@ -16,7 +16,7 @@ class FileStatus(str, Enum):
     RENAMED = "renamed"
 
 
-class GitPlatform(str, Enum):
+class GitPlatform(StrEnum):
     """Supported Git platforms."""
 
     GITHUB = "github"
@@ -59,7 +59,7 @@ LOCK_FILE_NAMES = {
 
 
 class ChangedFile(BaseModel):
-    """Represents a file changed in a merge request."""
+    """Represents a file changed in a pull request."""
 
     filename: str = Field(description="Path to the file")
     status: FileStatus = Field(description="Type of change (added, modified, removed, renamed)")
@@ -135,7 +135,7 @@ class ChangedFile(BaseModel):
 
     def is_in_excluded_directory(self, excluded_directories: list[str]) -> bool:
         """Check if this file is in an excluded directory.
-        
+
         Args:
             excluded_directories: List of directory names to exclude (from settings)
         """
@@ -146,11 +146,11 @@ class ChangedFile(BaseModel):
     @property
     def valid_new_line_numbers(self) -> set[int]:
         """Get line numbers in the new file that are valid for inline comments.
-        
+
         Parses the unified diff patch to extract line numbers where inline comments
         can be placed. Only lines that appear in the diff (additions and context lines)
         are valid for GitHub/GitLab review comments.
-        
+
         Returns:
             Set of valid line numbers in the new version of the file
         """
@@ -172,11 +172,7 @@ class ChangedFile(BaseModel):
                 continue
 
             # Context line (unchanged) - valid for comments
-            if line.startswith(" "):
-                valid_lines.add(current_new_line)
-                current_new_line += 1
-            # Addition line - valid for comments
-            elif line.startswith("+"):
+            if line.startswith(" ") or line.startswith("+"):
                 valid_lines.add(current_new_line)
                 current_new_line += 1
             # Deletion line - doesn't increment new line counter (not in new file)
@@ -190,10 +186,10 @@ class ChangedFile(BaseModel):
 
     def is_line_in_diff(self, line_number: int) -> bool:
         """Check if a line number is valid for inline comments.
-        
+
         Args:
             line_number: Line number to check
-            
+
         Returns:
             True if the line is part of the diff and can receive inline comments
         """
@@ -202,11 +198,11 @@ class ChangedFile(BaseModel):
 
 def should_review_file(file: ChangedFile, excluded_directories: list[str]) -> bool:
     """Check if a file should be included in code review.
-    
+
     Args:
         file: The ChangedFile to check
         excluded_directories: List of directory names to exclude (from settings)
-        
+
     Returns:
         True if file should be reviewed, False if it should be skipped
     """
@@ -218,31 +214,36 @@ def should_review_file(file: ChangedFile, excluded_directories: list[str]) -> bo
         return False
     if file.is_source_map:
         return False
-    if file.is_in_excluded_directory(excluded_directories):
-        return False
-    return True
+    return not file.is_in_excluded_directory(excluded_directories)
 
 
-class MergeRequest(BaseModel):
-    """Represents a merge request (GitHub PR or GitLab MR)."""
+class PullRequest(BaseModel):
+    """Represents a pull request (GitHub PR or GitLab MR)."""
 
-    number: int = Field(description="MR/PR number")
-    title: str = Field(description="MR/PR title")
-    body: str | None = Field(default=None, description="MR/PR description/body")
-    state: str = Field(description="MR/PR state (open, closed, merged)")
-    author: str = Field(description="MR/PR author username")
+    number: int = Field(description="PR number")
+    title: str = Field(description="PR title")
+    body: str | None = Field(default=None, description="PR description/body")
+    state: str = Field(description="PR state (open, closed, merged)")
+    author: str = Field(description="PR author username")
     base_branch: str = Field(description="Target branch")
     head_branch: str = Field(description="Source branch")
     base_sha: str = Field(description="Base commit SHA")
     head_sha: str = Field(description="Head commit SHA")
-    created_at: datetime = Field(description="MR/PR creation timestamp")
-    updated_at: datetime = Field(description="MR/PR last update timestamp")
+    created_at: datetime = Field(description="PR creation timestamp")
+    updated_at: datetime = Field(description="PR last update timestamp")
     repo_owner: str = Field(description="Repository owner/namespace")
     repo_name: str = Field(description="Repository name")
+    host: str = Field(
+        default="",
+        description=(
+            "Repo host (e.g. 'github.com', 'gitlab.example.com'). "
+            "Empty when unknown (e.g. local repo with no git remote)."
+        ),
+    )
     changed_files: list[ChangedFile] = Field(
         default_factory=list, description="List of changed files"
     )
-    labels: list[str] = Field(default_factory=list, description="MR/PR labels")
+    labels: list[str] = Field(default_factory=list, description="PR labels")
     platform: GitPlatform = Field(description="Git platform (github, gitlab)")
 
     @property
@@ -251,8 +252,20 @@ class MergeRequest(BaseModel):
         return f"{self.repo_owner}/{self.repo_name}"
 
     @property
+    def repo_slug(self) -> str:
+        """Get the host-qualified repository identifier (e.g. 'github.com/owner/repo').
+
+        Falls back to ``repo_full_name`` (no host prefix) when ``host`` is
+        unknown — e.g. a local repository with no git remote configured.
+        Used by Hippocampus memory to build a stable, host-qualified episode
+        path so local and remote reviews of the same repository share memory.
+        """
+        base = self.repo_full_name
+        return f"{self.host}/{base}" if self.host else base
+
+    @property
     def url(self) -> str:
-        """Get the MR/PR URL."""
+        """Get the PR URL."""
         if self.platform == GitPlatform.GITLAB:
             return f"https://gitlab.com/{self.repo_full_name}/-/merge_requests/{self.number}"
         return f"https://github.com/{self.repo_full_name}/pull/{self.number}"
@@ -268,10 +281,6 @@ class MergeRequest(BaseModel):
         return [f for f in self.changed_files if f.is_code_file]
 
 
-# Alias for backward compatibility
-PullRequest = MergeRequest
-
-
 class CallerInfo(BaseModel):
     """Information about a caller of a function/method."""
 
@@ -284,7 +293,7 @@ class CallerInfo(BaseModel):
 class ReviewContext(BaseModel):
     """Context information for code review."""
 
-    merge_request: MergeRequest = Field(description="The merge request being reviewed")
+    pull_request: PullRequest = Field(description="The pull request being reviewed")
     related_files: dict[str, str] = Field(
         default_factory=dict,
         description="Related files content (imports, dependencies)",
@@ -296,12 +305,6 @@ class ReviewContext(BaseModel):
         default_factory=dict,
         description="Callers of changed functions, keyed by filename",
     )
-
-    # Alias for backward compatibility
-    @property
-    def pull_request(self) -> MergeRequest:
-        """Alias for merge_request (backward compatibility)."""
-        return self.merge_request
 
     def get_context_for_file(self, filename: str) -> str:
         """Get context string for a specific file."""

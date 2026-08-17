@@ -2,15 +2,25 @@
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
-from codespy.agents.reviewer.modules.helpers import MIN_CONFIDENCE, resolve_scope_root, strip_prefix, restore_repo_paths
+from codespy.agents.context_safe import ContextSafe
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
+from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
+from codespy.agents.reviewer.modules.helpers import (
+    MIN_CONFIDENCE,
+    issues_to_markdown,
+    resolve_scope_root,
+    restore_repo_paths,
+    strip_prefix,
+)
 from codespy.config import get_settings
+from codespy.config_memory import get_memory_store
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -183,7 +193,7 @@ class SupplyChainAuditor(dspy.Module):
 
         # Add filesystem tools for reading files and exploring structure
         tools.extend(await connect_mcp_server(
-            tools_dir / "filesystem" / "server.py",
+            tools_dir / "storage" / "filesystem" / "server.py",
             [scope_root_str],
             contexts,
             caller,
@@ -227,7 +237,11 @@ class SupplyChainAuditor(dspy.Module):
 
         return tools, contexts
 
-    async def aforward(self, scopes: Sequence[ScopeResult], repo_path: Path) -> list[Issue]:
+    async def aforward(
+        self,
+        scopes: Sequence[ScopeResult],
+        review_context: ReviewContext,
+    ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for supply chain security vulnerabilities and return issues.
 
         For each scope, filesystem/parser tools are created rooted at
@@ -237,22 +251,29 @@ class SupplyChainAuditor(dspy.Module):
 
         Args:
             scopes: The scopes containing changed files to analyze
-            repo_path: Path to the cloned repository for reading manifest files
+            review_context: ReviewContext containing PR identity, inherited memory,
+                and runtime pipeline metadata (repo_path, run_id, mr)
 
         Returns:
-            List of security issues found across all scopes
+            Tuple of (list of issues, merged context memory or None)
         """
+        # Local bindings from review_context metadata
+        repo_path = review_context.metadata.repo_path
+        run_id = review_context.metadata.run_id
+        pr = review_context.metadata.pr
+
         # Check if supply chain signature is enabled
         if not self._settings.is_signature_enabled("supply_chain"):
             logger.debug("Skipping supply_chain: disabled")
-            return []
+            return [], review_context.memory
 
         # Check if any scope has supply-chain-relevant changes
         if not self._needs_analysis(scopes):
             logger.info("Skipping supply chain analysis: no dependency changes or Dockerfiles modified")
-            return []
+            return [], review_context.memory
 
         all_issues: list[Issue] = []
+        scope_memories: list[ContextMemory] = []
         supply_chain_max_iters = self._settings.get_max_iters("supply_chain")
 
         # Create OSV tools once (shared across scopes, no filesystem root)
@@ -294,10 +315,15 @@ class SupplyChainAuditor(dspy.Module):
                 try:
                     # Combine scoped filesystem tools with shared OSV tools
                     all_tools = scoped_tools + osv_tools
-                    supply_chain_agent = dspy.ReAct(
-                        signature=SupplyChainSecuritySignature,
+                    supply_chain_agent = ContextSafe(
+                        dspy.ReAct(
+                            signature=SupplyChainSecuritySignature,
+                            tools=all_tools,
+                            max_iters=supply_chain_max_iters,
+                        ),
+                        SupplyChainSecuritySignature,
                         tools=all_tools,
-                        max_iters=supply_chain_max_iters,
+                        name="supply_chain",
                     )
 
                     logger.debug(
@@ -305,39 +331,88 @@ class SupplyChainAuditor(dspy.Module):
                         f"manifest={bool(manifest_path)}"
                     )
                     # Track supply_chain signature costs separately
+                    mem: Hippocampus | None = None
                     async with SignatureContext("supply_chain", self._cost_tracker):
-                        result = await supply_chain_agent.acall(
-                            manifest_path=manifest_path,
-                            lock_file_path=lock_file_path,
-                            package_manager=package_manager,
-                            category=IssueCategory.SECURITY,
-                        )
-                    issues = [
-                        issue for issue in result.issues
-                        if issue.confidence >= MIN_CONFIDENCE
-                    ]
+                        if self._settings.get_memory_enabled("supply_chain"):
+                            question = (
+                                f"review supply chain of {scope.repo}: {scope.subroot}: "
+                                f"pull request {review_context.pr_context.pr_number} {review_context.pr_context.pr_title}: {review_context.pr_context.summary}"
+                            )
+                            topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
+                            mem = Hippocampus(
+                                supply_chain_agent,
+                                budget=self._settings.get_memory_budget("supply_chain"),
+                                max_reflects=self._settings.get_memory_max_reflects(
+                                    "supply_chain"
+                                ),
+                                question=question,
+                                task_name="supply_chain",
+                                run_id=run_id,
+                                initial_memory=review_context.memory,
+                                topic_ids=topic_ids,
+                            )
+                            result = await mem.aforward(
+                                manifest_path=manifest_path,
+                                lock_file_path=lock_file_path,
+                                package_manager=package_manager,
+                                category=IssueCategory.SECURITY,
+                            )
+                            issues = [
+                                issue for issue in result.issues
+                                if issue.confidence >= MIN_CONFIDENCE
+                            ]
+                            await mem.aend_episode(
+                                get_memory_store(self._settings),
+                                scope.scope_path(),
+                                artifacts={"review": issues_to_markdown(issues)},
+                            )
+                            # Collect scope's context memory
+                            if mem:
+                                scope_memories.append(mem.cmem.model_copy(deep=True))
+                        else:
+                            result = await supply_chain_agent.acall(
+                                manifest_path=manifest_path,
+                                lock_file_path=lock_file_path,
+                                package_manager=package_manager,
+                                category=IssueCategory.SECURITY,
+                            )
+                            issues = [
+                                issue for issue in result.issues
+                                if issue.confidence >= MIN_CONFIDENCE
+                            ]
                     # Restore repo-root-relative paths in reported issues
                     restore_repo_paths(issues, scope.subroot)
                     all_issues.extend(issues)
                     logger.debug(f"  Supply chain security in scope {scope.subroot}: {len(issues)} issues")
                 except Exception as e:
-                    logger.error(f"Error analyzing supply chain in scope {scope.subroot}: {e}")
+                    logger.error(f"Error analyzing supply chain in scope {scope.subroot}: {e}", exc_info=True)
                 finally:
                     await cleanup_mcp_contexts(scoped_contexts)
         finally:
             await cleanup_mcp_contexts(osv_contexts)
 
         logger.info(f"Security audit found {len(all_issues)} issues")
-        return all_issues
+        # Merge all scope context memories into one module-level memory
+        merged_memory = (
+            ContextMemory.merge(*scope_memories)
+            if scope_memories
+            else review_context.memory
+        )
+        return all_issues, merged_memory
 
-    def forward(self, scopes: Sequence[ScopeResult], repo_path: Path) -> list[Issue]:
+    def forward(
+        self,
+        scopes: Sequence[ScopeResult],
+        review_context: ReviewContext,
+    ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for supply chain security vulnerabilities (sync wrapper).
 
         Args:
             scopes: The scopes containing changed files to analyze
-            repo_path: Path to the cloned repository for reading manifest files
+            review_context: ReviewContext containing PR identity, inherited memory,
+                and runtime pipeline metadata (repo_path, run_id, mr)
 
         Returns:
-            List of security issues found across all scopes
+            Tuple of (list of issues, merged context memory or None)
         """
-        return asyncio.run(self.aforward(scopes, repo_path))
+        return asyncio.run(self.aforward(scopes, review_context))

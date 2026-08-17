@@ -41,6 +41,7 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
+.ruff_cache
 nosetests.xml
 coverage.xml
 *.cover
@@ -54,6 +55,9 @@ coverage.xml
 
 # Environments
 .env
+.env.bak*
+.env.*.bak
+.env.local
 .venv
 env/
 venv/
@@ -89,3 +93,4 @@ Thumbs.db
 
 # Project specific
 .cache/
+.kilo/

@@ -1,11 +1,11 @@
-"""Build MergeRequest objects from local git state (no GitHub/GitLab needed)."""
+"""Build PullRequest objects from local git state (no GitHub/GitLab needed)."""
 
 import logging
 import subprocess
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
-from codespy.tools.git.models import ChangedFile, FileStatus, GitPlatform, MergeRequest
+from codespy.tools.git.models import ChangedFile, FileStatus, GitPlatform, PullRequest
 
 logger = logging.getLogger(__name__)
 
@@ -49,33 +49,39 @@ def _count_diff_lines(patch: str) -> tuple[int, int]:
     return additions, deletions
 
 
-def _get_repo_info(repo_path: Path) -> tuple[str, str]:
-    """Extract owner and repo name from git remote or directory name.
+def _get_repo_info(repo_path: Path) -> tuple[str, str, str]:
+    """Extract host, owner, and repo name from git remote or directory name.
 
     Returns:
-        Tuple of (owner, repo_name)
+        Tuple of (host, owner, repo_name). ``host`` is empty when it cannot
+        be determined (e.g. no ``origin`` remote configured).
     """
     try:
         remote_url = _run_git(repo_path, "remote", "get-url", "origin")
         # Handle SSH: git@github.com:owner/repo.git
         if remote_url.startswith("git@"):
-            path_part = remote_url.split(":", 1)[1]
+            host_part, path_part = remote_url.split(":", 1)
+            host = host_part.split("@", 1)[-1]
         # Handle HTTPS: https://github.com/owner/repo.git
         elif "://" in remote_url:
-            path_part = remote_url.split("://", 1)[1].split("/", 1)[1]
+            after_scheme = remote_url.split("://", 1)[1]
+            host, path_part = after_scheme.split("/", 1)
+            # Strip any embedded credentials (e.g. user@host or token@host)
+            host = host.split("@")[-1]
         else:
+            host = ""
             path_part = remote_url
 
         # Remove .git suffix
         path_part = path_part.removesuffix(".git")
         parts = path_part.strip("/").split("/")
         if len(parts) >= 2:
-            return parts[-2], parts[-1]
+            return host, parts[-2], parts[-1]
     except (RuntimeError, IndexError, ValueError):
         pass
 
-    # Fallback to directory name
-    return "local", repo_path.name
+    # Fallback to directory name, no known host
+    return "", "local", repo_path.name
 
 
 def _get_current_branch(repo_path: Path) -> str:
@@ -94,12 +100,12 @@ def _get_current_user(repo_path: Path) -> str:
         return "local-user"
 
 
-def build_mr_from_diff(
+def build_pr_from_diff(
     repo_path: Path,
     base_ref: str = "main",
     include_uncommitted: bool = False,
-) -> MergeRequest:
-    """Build a MergeRequest from local git diff.
+) -> PullRequest:
+    """Build a PullRequest from local git diff.
 
     Args:
         repo_path: Path to the local git repository
@@ -108,7 +114,7 @@ def build_mr_from_diff(
                            If False, diff current branch against base_ref.
 
     Returns:
-        A MergeRequest object representing the local changes
+        A PullRequest object representing the local changes
 
     Raises:
         RuntimeError: If git commands fail
@@ -118,7 +124,7 @@ def build_mr_from_diff(
     if not (repo_path / ".git").exists():
         raise FileNotFoundError(f"Not a git repository: {repo_path}")
 
-    owner, repo_name = _get_repo_info(repo_path)
+    host, owner, repo_name = _get_repo_info(repo_path)
     head_branch = _get_current_branch(repo_path)
     author = _get_current_user(repo_path)
 
@@ -147,7 +153,7 @@ def build_mr_from_diff(
     name_status_output = _run_git(repo_path, "diff", "--name-status", diff_ref)
     if not name_status_output:
         logger.info("No changes found")
-        return MergeRequest(
+        return PullRequest(
             number=0,
             title=title,
             body=f"Local diff: {diff_ref}...HEAD",
@@ -157,10 +163,11 @@ def build_mr_from_diff(
             head_branch=head_branch,
             base_sha=base_sha,
             head_sha=head_sha,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             repo_owner=owner,
             repo_name=repo_name,
+            host=host,
             changed_files=[],
             platform=GitPlatform.GITHUB,  # Doesn't matter for local review
         )
@@ -198,9 +205,9 @@ def build_mr_from_diff(
             previous_filename=previous_filename,
         ))
 
-    logger.info(f"Built local MR with {len(changed_files)} changed files")
+    logger.info(f"Built local PR with {len(changed_files)} changed files")
 
-    return MergeRequest(
+    return PullRequest(
         number=0,
         title=title,
         body=f"Local diff: {diff_ref}...HEAD in {repo_path}",
@@ -210,10 +217,11 @@ def build_mr_from_diff(
         head_branch=head_branch,
         base_sha=base_sha,
         head_sha=head_sha,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
         repo_owner=owner,
         repo_name=repo_name,
+        host=host,
         changed_files=changed_files,
         platform=GitPlatform.GITHUB,  # Doesn't matter for local review
     )

@@ -3,12 +3,12 @@
 import logging
 import os
 import sys
+from collections import OrderedDict
 from functools import lru_cache
-from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from codespy.tools.filesystem.client import FileSystem
+from codespy.tools.storage.filesystem.client import FileSystem
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,10 @@ _caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 mcp = FastMCP("filesystem")
 _fs: FileSystem | None = None
 
+# Manual cache for read_file to skip caching error results
+_READ_FILE_CACHE_MAX = 512
+_read_file_cache: OrderedDict[tuple[str, int, int | None], tuple] = OrderedDict()
+
 
 def _get_fs() -> FileSystem:
     """Get the FileSystem instance, raising if not initialized."""
@@ -26,11 +30,19 @@ def _get_fs() -> FileSystem:
     return _fs
 
 
-@lru_cache(maxsize=256)
 def _read_file_cached(path: str, max_bytes: int, max_lines: int | None) -> tuple:
-    """Cached version of read_file."""
+    """Cached version of read_file that doesn't cache error results."""
+    key = (path, max_bytes, max_lines)
+    if key in _read_file_cache:
+        _read_file_cache.move_to_end(key)
+        return _read_file_cache[key]
     result = _get_fs().read_file(path, max_bytes, max_lines)
-    return tuple(sorted(result.model_dump().items()))
+    dumped = tuple(sorted(result.model_dump().items()))
+    if not result.error:
+        _read_file_cache[key] = dumped
+        if len(_read_file_cache) > _READ_FILE_CACHE_MAX:
+            _read_file_cache.popitem(last=False)
+    return dumped
 
 
 @mcp.tool()
@@ -148,7 +160,7 @@ if __name__ == "__main__":
     # Suppress noisy MCP server "Processing request" logs
     logging.getLogger("mcp.server").setLevel(logging.WARNING)
     logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
-    
+
     root = sys.argv[1] if len(sys.argv) > 1 else "."
     _fs = FileSystem(root)
     mcp.run()

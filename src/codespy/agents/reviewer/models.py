@@ -1,13 +1,29 @@
 """Data models for code review results."""
 
-from datetime import datetime
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
+
+from codespy.agents.memory.hippocampus import ContextMemory
 
 
-class IssueSeverity(str, Enum):
+class PRContext(BaseModel):
+    """Shared PR identity passed to all review modules after summarization.
+
+    Built by the pipeline orchestrator after the Summarizer runs, then
+    threaded through scope identification, review modules, and audit.
+    Each module constructs its own Hippocampus question from these fields.
+    """
+
+    repo_slug: str = Field(description="Host-qualified repo identifier (e.g. github.com/owner/repo)")
+    pr_number: int = Field(description="PR number")
+    pr_title: str = Field(description="PR title")
+    summary: str = Field(description="2-3 sentence PR summary produced by Summarizer")
+
+
+class IssueSeverity(StrEnum):
     """Severity level of an issue."""
 
     CRITICAL = "critical"
@@ -17,7 +33,7 @@ class IssueSeverity(str, Enum):
     INFO = "info"
 
 
-class IssueCategory(str, Enum):
+class IssueCategory(StrEnum):
     """Category of an issue."""
 
     SECURITY = "security"
@@ -26,7 +42,7 @@ class IssueCategory(str, Enum):
     SMELL = "smell"
 
 
-class ScopeType(str, Enum):
+class ScopeType(StrEnum):
     """Type of code scope in a repository."""
 
     LIBRARY = "library"  # Shared code that others import
@@ -46,14 +62,44 @@ class PackageManifest(BaseModel):
     dependencies_changed: bool = Field(
         default=False, description="Whether PR modified this manifest or lock file"
     )
+    package_name: str | None = Field(default=None, description="Package identity from manifest")
 
 
-from codespy.tools.git.models import ChangedFile
+from codespy.tools.git.models import ChangedFile, PullRequest
+
+
+class ReviewMetadata(BaseModel):
+    """Runtime pipeline state, stable once constructed at pipeline start.
+
+    Groups repo_path, run_id, pr, and is_local to reduce parameter
+    proliferation across module method signatures.
+    """
+
+    repo_path: Path
+    run_id: str | None = None
+    pr: PullRequest | None = None
+    is_local: bool = False
+
+
+class ReviewContext(BaseModel):
+    """Evolving pipeline state threaded through review stages.
+
+    Carries both the immutable PR identity and the inherited context memory
+    from upstream pipeline stages. Updated at each stage boundary
+    so downstream modules inherit accumulated understanding.
+    """
+
+    pr_context: PRContext = Field(description="Immutable PR identity (repo, number, title, summary)")
+    memory: ContextMemory | None = Field(default=None, description="Inherited context memory from upstream stages")
+    metadata: ReviewMetadata | None = Field(default=None, description="Runtime pipeline state")
 
 
 class ScopeResult(BaseModel):
     """A detected scope/subroot in the repository."""
 
+    repo: str = Field(
+        default="", description="Repo identifier: 'owner/repo' (remote) or local dir name"
+    )
     subroot: str = Field(description="Path relative to repo root (e.g., packages/auth)")
     scope_type: ScopeType = Field(description="Type of scope (library, service, etc.)")
     has_changes: bool = Field(
@@ -61,9 +107,6 @@ class ScopeResult(BaseModel):
     )
     is_dependency: bool = Field(
         default=False, description="Whether this scope depends on a changed scope"
-    )
-    confidence: float = Field(
-        default=0.8, ge=0.0, le=1.0, description="Confidence score for scope identification"
     )
     language: str | None = Field(default=None, description="Primary language detected")
     package_manifest: PackageManifest | None = Field(
@@ -73,8 +116,39 @@ class ScopeResult(BaseModel):
         default_factory=list, description="Changed files belonging to this scope"
     )
     reason: str = Field(description="Explanation for why this scope was identified")
+    skills: str | None = Field(
+        default=None, description="Project/scope instructions inherited from ancestor directories"
+    )
+    description: str = Field(
+        default="", description="Description of scope's role in the project (max 500 chars)"
+    )
 
     model_config = {"arbitrary_types_allowed": True}
+
+    def scope_path(self) -> str:
+        """Return the storage-relative path for this scope.
+
+        Used by Hippocampus memory as the base directory for episode files.
+        ``subroot == "."`` (repo root) results in ``/{repo}/``.
+        """
+        if self.subroot in (".", ""):
+            return f"/{self.repo}/"
+        return f"/{self.repo}/{self.subroot.strip('/')}/"
+
+    def topic(self, repo_full_name: str) -> "Topic":
+        """Build the Topic for this scope.
+
+        Args:
+            repo_full_name: Repository full name (owner/repo)
+
+        Returns:
+            Topic object with id and description
+        """
+        from codespy.agents.memory.hippocampus.context_memory import Topic, make_topic_id
+
+        package_name = self.package_manifest.package_name if self.package_manifest else None
+        topic_id = make_topic_id(repo_full_name, self.subroot, package_name)
+        return Topic(id=topic_id, description=self.description)
 
 
 class Issue(BaseModel):
@@ -108,7 +182,7 @@ class Issue(BaseModel):
 class SignatureStatsResult(BaseModel):
     """Statistics for a single signature's execution during review."""
 
-    name: str = Field(description="Signature name (e.g., code_review, doc, scope, supply_chain, summarization)")
+    name: str = Field(description="Signature name (e.g., code_review, doc, scope, supply_chain, summary, audit)")
     cost: float = Field(default=0.0, description="Cost in USD for this signature")
     tokens: int = Field(default=0, description="Tokens used by this signature")
     call_count: int = Field(default=0, description="Number of LLM calls made by this signature")
@@ -130,14 +204,20 @@ class SignatureStatsResult(BaseModel):
 
 
 class ReviewResult(BaseModel):
-    """Complete review results for a merge request (GitHub PR or GitLab MR)."""
+    """Complete review results for a pull request (GitHub PR or GitLab MR)."""
 
-    mr_number: int = Field(description="MR number")
-    mr_title: str = Field(description="MR title")
-    mr_url: str = Field(description="MR URL")
+    pr_number: int = Field(description="PR number")
+    pr_title: str = Field(description="PR title")
+    pr_url: str = Field(description="PR URL")
     repo: str = Field(description="Repository name (owner/repo)")
+    run_id: str = Field(
+        default="",
+        description="Identifier of the pipeline run that produced this result, "
+        "shared with all Episode records persisted during this run",
+    )
     reviewed_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Review timestamp"
+        default_factory=lambda: datetime.now(UTC),
+        description="Review timestamp",
     )
     model_used: str = Field(description="LLM model used for review")
     issues: list[Issue] = Field(
@@ -199,9 +279,9 @@ class ReviewResult(BaseModel):
     def to_markdown(self) -> str:
         """Format review results as Markdown."""
         lines = [
-            f"# Code Review: {self.mr_title}",
+            f"# Code Review: {self.pr_title}",
             "",
-            f"**MR:** [{self.repo}#{self.mr_number}]({self.mr_url})",
+            f"**PR:** [{self.repo}#{self.pr_number}]({self.pr_url})",
             f"**Reviewed at:** {self.reviewed_at.strftime('%Y-%m-%d %H:%M UTC')}",
             f"**Model:** {self.model_used}",
             "",

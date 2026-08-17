@@ -1,7 +1,6 @@
 """OSV (Open Source Vulnerabilities) API integration for codespy."""
 
 from codespy.tools.cyber.osv.client import OSVClient
-from codespy.tools.cyber.osv.server import mcp as osv_mcp
 from codespy.tools.cyber.osv.models import (
     AffectedPackage,
     BatchQueryResponse,
@@ -22,6 +21,7 @@ from codespy.tools.cyber.osv.models import (
     VulnerabilityQuery,
     VulnerabilityResponse,
 )
+from codespy.tools.cyber.osv.server import mcp as osv_mcp
 
 __all__ = [
     # Client

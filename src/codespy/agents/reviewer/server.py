@@ -77,13 +77,13 @@ def _do_uncommitted_review(repo_path: str, output_format: str) -> str:
     return result.to_markdown()
 
 
-def _do_pr_review(mr_url: str, output_format: str) -> str:
+def _do_pr_review(pr_url: str, output_format: str) -> str:
     """Synchronous PR review — runs in thread pool."""
     import json
 
     from codespy.agents.reviewer.models import RemoteReviewConfig
 
-    config = RemoteReviewConfig(url=mr_url)
+    config = RemoteReviewConfig(url=pr_url)
 
     pipeline = _get_pipeline()
     result = pipeline(config)
@@ -104,7 +104,7 @@ async def review_local_changes(
     No PR or remote platform required — works with any local git repository.
     Diffs the current HEAD against the base_ref to find changed files, then runs
     the full codespy review pipeline (scope identification, code & doc review,
-    supply chain audit, and summarization).
+    supply chain audit, summary, and audit).
 
     Args:
         repo_path: Absolute path to the local git repository to review
@@ -154,7 +154,7 @@ async def review_uncommitted(
 
 @mcp.tool()
 async def review_pr(
-    mr_url: str,
+    pr_url: str,
     output_format: str = "markdown",
 ) -> str:
     """Review a GitHub Pull Request or GitLab Merge Request by URL.
@@ -163,7 +163,7 @@ async def review_pr(
     the full codespy review pipeline.
 
     Args:
-        mr_url: Full URL of the PR/MR to review.
+        pr_url: Full URL of the PR/MR to review.
                 GitHub: https://github.com/owner/repo/pull/123
                 GitLab: https://gitlab.com/namespace/project/-/merge_requests/123
         output_format: Output format — "markdown" for human-readable or "json" for structured data.
@@ -173,7 +173,7 @@ async def review_pr(
         Review results as markdown or JSON string
     """
     try:
-        return await _run_in_thread(_do_pr_review, mr_url, output_format)
+        return await _run_in_thread(_do_pr_review, pr_url, output_format)
     except Exception as e:
         logger.exception("Review failed")
         return f"Review failed: {e}"

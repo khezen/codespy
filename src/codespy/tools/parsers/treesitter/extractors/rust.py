@@ -56,10 +56,7 @@ class RustExtractor(BaseExtractor):
         params_node = node.child_by_field_name("parameters")
         if params_node:
             for child in params_node.children:
-                if child.type == "parameter":
-                    param_text = self._get_node_text(child, source)
-                    params.append(param_text.strip())
-                elif child.type == "self_parameter":
+                if child.type == "parameter" or child.type == "self_parameter":
                     param_text = self._get_node_text(child, source)
                     params.append(param_text.strip())
         return params

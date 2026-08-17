@@ -130,6 +130,13 @@ jobs:
           git tag -f "${{ needs.detect-version-bump.outputs.version }}"
           git push --force origin "${{ needs.detect-version-bump.outputs.version }}"
 
+      - name: Update major version tag
+        run: |
+          VERSION="${{ needs.detect-version-bump.outputs.version }}"
+          MAJOR="${VERSION%%.*}"
+          git tag -f "v${MAJOR}"
+          git push --force origin "v${MAJOR}"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 

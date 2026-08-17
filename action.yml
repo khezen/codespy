@@ -68,20 +68,16 @@ inputs:
     required: false
     default: '3'
   
-  default-max-context-size:
-    description: 'Default maximum context size for all signatures'
+  default-reasoning-effort:
+    description: 'Default reasoning effort for all signatures (minimal|low|medium|high)'
     required: false
-    default: '50000'
-  
-  default-max-reasoning-tokens:
-    description: 'Default maximum reasoning tokens for all signatures'
-    required: false
-    default: '8000'
+    default: 'medium'
   
   default-temperature:
-    description: 'Default temperature for LLM calls (0.0-1.0)'
+    description: 'Default temperature for LLM calls'
     required: false
-    default: '0.1'
+    default: '0.2'
+
   
   llm-retries:
     description: 'Number of retries for LLM API calls'
@@ -114,12 +110,8 @@ inputs:
     description: 'Max iterations for scope identification'
     required: false
   
-  scope-max-context-size:
-    description: 'Max context size for scope identification'
-    required: false
-  
-  scope-max-reasoning-tokens:
-    description: 'Max reasoning tokens for scope identification'
+  scope-reasoning-effort:
+    description: 'Reasoning effort for scope (minimal|low|medium|high)'
     required: false
   
   scope-temperature:
@@ -142,12 +134,8 @@ inputs:
     description: 'Max iterations for code review'
     required: false
   
-  code-review-max-context-size:
-    description: 'Max context size for code review'
-    required: false
-  
-  code-review-max-reasoning-tokens:
-    description: 'Max reasoning tokens for code review'
+  code-review-reasoning-effort:
+    description: 'Reasoning effort for code review (minimal|low|medium|high)'
     required: false
   
   code-review-temperature:
@@ -166,16 +154,8 @@ inputs:
     description: 'Model for doc review (empty = use default)'
     required: false
   
-  doc-max-iters:
-    description: 'Max iterations for doc review'
-    required: false
-  
-  doc-max-context-size:
-    description: 'Max context size for doc review'
-    required: false
-  
-  doc-max-reasoning-tokens:
-    description: 'Max reasoning tokens for doc review'
+  doc-reasoning-effort:
+    description: 'Reasoning effort for doc (minimal|low|medium|high)'
     required: false
   
   doc-temperature:
@@ -198,12 +178,8 @@ inputs:
     description: 'Max iterations for supply chain security'
     required: false
   
-  supply-chain-max-context-size:
-    description: 'Max context size for supply chain security'
-    required: false
-  
-  supply-chain-max-reasoning-tokens:
-    description: 'Max reasoning tokens for supply chain security'
+  supply-chain-reasoning-effort:
+    description: 'Reasoning effort for supply chain (minimal|low|medium|high)'
     required: false
   
   supply-chain-temperature:
@@ -216,33 +192,104 @@ inputs:
     default: 'false'
   
   # ==========================================
-  # SIGNATURE: summarization
+  # SIGNATURE: summary
   # ==========================================
-  summarization-enabled:
-    description: 'Enable PR summarization signature'
+  summary-enabled:
+    description: 'Enable PR summary signature'
     required: false
     default: 'true'
-  
-  summarization-model:
-    description: 'Model for summarization (empty = use default)'
+
+  summary-model:
+    description: 'Model for summary (empty = use default)'
     required: false
-  
-  summarization-max-iters:
-    description: 'Max iterations for summarization'
+
+  summary-reasoning-effort:
+    description: 'Reasoning effort for summary (minimal|low|medium|high)'
     required: false
-  
-  summarization-max-context-size:
-    description: 'Max context size for summarization'
+
+  summary-temperature:
+    description: 'Temperature for summary'
     required: false
-  
-  summarization-max-reasoning-tokens:
-    description: 'Max reasoning tokens for summarization'
+
+  # ==========================================
+  # MEMORY (Hippocampus)
+  # ==========================================
+  memory-enabled:
+    description: 'Enable memory (Hippocampus) globally for cross-run learning (default: false)'
     required: false
-  
-  summarization-temperature:
-    description: 'Temperature for summarization'
+    default: 'false'
+
+  memory-backend:
+    description: 'Memory storage backend: filesystem or s3. Note: filesystem is ephemeral in Docker; use s3 for persistence across runs.'
     required: false
-  
+    default: 'filesystem'
+
+  memory-root:
+    description: 'Filesystem path for memory storage (only used with filesystem backend; ephemeral in Docker)'
+    required: false
+
+  memory-s3-bucket:
+    description: 'S3 bucket for memory storage (required when backend is s3). Requires aws-access-key-id/aws-secret-access-key inputs.'
+    required: false
+
+  memory-s3-region:
+    description: 'S3 region for memory bucket (defaults to aws-region input)'
+    required: false
+
+  memory-s3-endpoint-url:
+    description: 'S3 endpoint URL for S3-compatible stores (e.g., MinIO)'
+    required: false
+
+  memory-max-reflects:
+    description: 'Max online reflections per agent call (0 = batch-only, default: 0)'
+    required: false
+    default: '0'
+
+  memory-distiller-model:
+    description: 'Model for the Distiller reflection module (smaller model recommended)'
+    required: false
+
+  memory-distiller-reasoning-effort:
+    description: 'Reasoning effort for Distiller (minimal|low|medium|high)'
+    required: false
+
+  memory-distiller-temperature:
+    description: 'Temperature for Distiller'
+    required: false
+
+  memory-cartographer-model:
+    description: 'Model for the Cartographer reflection module (smaller model recommended)'
+    required: false
+
+  memory-cartographer-reasoning-effort:
+    description: 'Reasoning effort for Cartographer (minimal|low|medium|high)'
+    required: false
+
+  memory-cartographer-temperature:
+    description: 'Temperature for Cartographer'
+    required: false
+
+  # Per-signature memory overrides
+  scope-memory-enabled:
+    description: 'Enable memory for scope identification (overrides global memory-enabled)'
+    required: false
+
+  code-review-memory-enabled:
+    description: 'Enable memory for code review (overrides global memory-enabled)'
+    required: false
+
+  doc-memory-enabled:
+    description: 'Enable memory for doc review (overrides global memory-enabled)'
+    required: false
+
+  supply-chain-memory-enabled:
+    description: 'Enable memory for supply chain (overrides global memory-enabled)'
+    required: false
+
+  summary-memory-enabled:
+    description: 'Enable memory for summary (overrides global memory-enabled)'
+    required: false
+
   excluded-directories:
     description: 'JSON array of directories to exclude from review (e.g., ["vendor", "dist"])'
     required: false
@@ -309,8 +356,7 @@ runs:
         
         # Global defaults
         DEFAULT_MAX_ITERS: ${{ inputs.default-max-iters }}
-        DEFAULT_MAX_CONTEXT_SIZE: ${{ inputs.default-max-context-size }}
-        DEFAULT_MAX_REASONING_TOKENS: ${{ inputs.default-max-reasoning-tokens }}
+        DEFAULT_REASONING_EFFORT: ${{ inputs.default-reasoning-effort }}
         DEFAULT_TEMPERATURE: ${{ inputs.default-temperature }}
         LLM_RETRIES: ${{ inputs.llm-retries }}
         LLM_TIMEOUT: ${{ inputs.llm-timeout }}
@@ -320,45 +366,58 @@ runs:
         SCOPE_ENABLED: ${{ inputs.scope-enabled }}
         SCOPE_MODEL: ${{ inputs.scope-model }}
         SCOPE_MAX_ITERS: ${{ inputs.scope-max-iters }}
-        SCOPE_MAX_CONTEXT_SIZE: ${{ inputs.scope-max-context-size }}
-        SCOPE_MAX_REASONING_TOKENS: ${{ inputs.scope-max-reasoning-tokens }}
+        SCOPE_REASONING_EFFORT: ${{ inputs.scope-reasoning-effort }}
         SCOPE_TEMPERATURE: ${{ inputs.scope-temperature }}
         
         # Code review signature
         CODE_REVIEW_ENABLED: ${{ inputs.code-review-enabled }}
         CODE_REVIEW_MODEL: ${{ inputs.code-review-model }}
         CODE_REVIEW_MAX_ITERS: ${{ inputs.code-review-max-iters }}
-        CODE_REVIEW_MAX_CONTEXT_SIZE: ${{ inputs.code-review-max-context-size }}
-        CODE_REVIEW_MAX_REASONING_TOKENS: ${{ inputs.code-review-max-reasoning-tokens }}
+        CODE_REVIEW_REASONING_EFFORT: ${{ inputs.code-review-reasoning-effort }}
         CODE_REVIEW_TEMPERATURE: ${{ inputs.code-review-temperature }}
         
         # Doc review signature
         DOC_ENABLED: ${{ inputs.doc-enabled }}
         DOC_MODEL: ${{ inputs.doc-model }}
-        DOC_MAX_ITERS: ${{ inputs.doc-max-iters }}
-        DOC_MAX_CONTEXT_SIZE: ${{ inputs.doc-max-context-size }}
-        DOC_MAX_REASONING_TOKENS: ${{ inputs.doc-max-reasoning-tokens }}
+        DOC_REASONING_EFFORT: ${{ inputs.doc-reasoning-effort }}
         DOC_TEMPERATURE: ${{ inputs.doc-temperature }}
         
         # Supply chain signature
         SUPPLY_CHAIN_ENABLED: ${{ inputs.supply-chain-enabled }}
         SUPPLY_CHAIN_MODEL: ${{ inputs.supply-chain-model }}
         SUPPLY_CHAIN_MAX_ITERS: ${{ inputs.supply-chain-max-iters }}
-        SUPPLY_CHAIN_MAX_CONTEXT_SIZE: ${{ inputs.supply-chain-max-context-size }}
-        SUPPLY_CHAIN_MAX_REASONING_TOKENS: ${{ inputs.supply-chain-max-reasoning-tokens }}
+        SUPPLY_CHAIN_REASONING_EFFORT: ${{ inputs.supply-chain-reasoning-effort }}
         SUPPLY_CHAIN_TEMPERATURE: ${{ inputs.supply-chain-temperature }}
         SUPPLY_CHAIN_SCAN_UNCHANGED: ${{ inputs.supply-chain-scan-unchanged }}
         
-        # Summarization signature
-        SUMMARIZATION_ENABLED: ${{ inputs.summarization-enabled }}
-        SUMMARIZATION_MODEL: ${{ inputs.summarization-model }}
-        SUMMARIZATION_MAX_ITERS: ${{ inputs.summarization-max-iters }}
-        SUMMARIZATION_MAX_CONTEXT_SIZE: ${{ inputs.summarization-max-context-size }}
-        SUMMARIZATION_MAX_REASONING_TOKENS: ${{ inputs.summarization-max-reasoning-tokens }}
-        SUMMARIZATION_TEMPERATURE: ${{ inputs.summarization-temperature }}
+        # Summary signature
+        SUMMARY_ENABLED: ${{ inputs.summary-enabled }}
+        SUMMARY_MODEL: ${{ inputs.summary-model }}
+        SUMMARY_REASONING_EFFORT: ${{ inputs.summary-reasoning-effort }}
+        SUMMARY_TEMPERATURE: ${{ inputs.summary-temperature }}
         
         # Other settings
         EXCLUDED_DIRECTORIES: ${{ inputs.excluded-directories }}
+
+        # Memory (Hippocampus)
+        MEMORY_DEFAULT_ENABLED: ${{ inputs.memory-enabled }}
+        MEMORY_BACKEND: ${{ inputs.memory-backend }}
+        MEMORY_ROOT: ${{ inputs.memory-root }}
+        MEMORY_S3_BUCKET: ${{ inputs.memory-s3-bucket }}
+        MEMORY_S3_REGION: ${{ inputs.memory-s3-region }}
+        MEMORY_S3_ENDPOINT_URL: ${{ inputs.memory-s3-endpoint-url }}
+        MEMORY_DEFAULT_MAX_REFLECTS: ${{ inputs.memory-max-reflects }}
+        MEMORY_DISTILLER_MODEL: ${{ inputs.memory-distiller-model }}
+        MEMORY_DISTILLER_REASONING_EFFORT: ${{ inputs.memory-distiller-reasoning-effort }}
+        MEMORY_DISTILLER_TEMPERATURE: ${{ inputs.memory-distiller-temperature }}
+        MEMORY_CARTOGRAPHER_MODEL: ${{ inputs.memory-cartographer-model }}
+        MEMORY_CARTOGRAPHER_REASONING_EFFORT: ${{ inputs.memory-cartographer-reasoning-effort }}
+        MEMORY_CARTOGRAPHER_TEMPERATURE: ${{ inputs.memory-cartographer-temperature }}
+        SCOPE_MEMORY_ENABLED: ${{ inputs.scope-memory-enabled }}
+        CODE_REVIEW_MEMORY_ENABLED: ${{ inputs.code-review-memory-enabled }}
+        DOC_MEMORY_ENABLED: ${{ inputs.doc-memory-enabled }}
+        SUPPLY_CHAIN_MEMORY_ENABLED: ${{ inputs.supply-chain-memory-enabled }}
+        SUMMARY_MEMORY_ENABLED: ${{ inputs.summary-memory-enabled }}
       run: |
         set -eo pipefail
         
@@ -377,8 +436,7 @@ runs:
         
         # Global defaults
         [ -n "$DEFAULT_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_ITERS"
-        [ -n "$DEFAULT_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_CONTEXT_SIZE"
-        [ -n "$DEFAULT_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_REASONING_TOKENS"
+        [ -n "$DEFAULT_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_REASONING_EFFORT"
         [ -n "$DEFAULT_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_TEMPERATURE"
         [ -n "$LLM_RETRIES" ] && DOCKER_ARGS="$DOCKER_ARGS -e LLM_RETRIES"
         [ -n "$LLM_TIMEOUT" ] && DOCKER_ARGS="$DOCKER_ARGS -e LLM_TIMEOUT"
@@ -388,46 +446,59 @@ runs:
         [ -n "$SCOPE_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_ENABLED"
         [ -n "$SCOPE_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MODEL"
         [ -n "$SCOPE_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MAX_ITERS"
-        [ -n "$SCOPE_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MAX_CONTEXT_SIZE"
-        [ -n "$SCOPE_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MAX_REASONING_TOKENS"
+        [ -n "$SCOPE_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_REASONING_EFFORT"
         [ -n "$SCOPE_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_TEMPERATURE"
         
         # Code review
         [ -n "$CODE_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_ENABLED"
         [ -n "$CODE_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MODEL"
         [ -n "$CODE_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_ITERS"
-        [ -n "$CODE_REVIEW_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_CONTEXT_SIZE"
-        [ -n "$CODE_REVIEW_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_REASONING_TOKENS"
+        [ -n "$CODE_REVIEW_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_REASONING_EFFORT"
         [ -n "$CODE_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_TEMPERATURE"
         
         # Doc review
         [ -n "$DOC_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_ENABLED"
         [ -n "$DOC_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MODEL"
-        [ -n "$DOC_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MAX_ITERS"
-        [ -n "$DOC_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MAX_CONTEXT_SIZE"
-        [ -n "$DOC_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MAX_REASONING_TOKENS"
+        [ -n "$DOC_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_REASONING_EFFORT"
         [ -n "$DOC_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_TEMPERATURE"
         
         # Supply chain
         [ -n "$SUPPLY_CHAIN_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_ENABLED"
         [ -n "$SUPPLY_CHAIN_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MODEL"
         [ -n "$SUPPLY_CHAIN_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_ITERS"
-        [ -n "$SUPPLY_CHAIN_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_CONTEXT_SIZE"
-        [ -n "$SUPPLY_CHAIN_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_REASONING_TOKENS"
+        [ -n "$SUPPLY_CHAIN_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_REASONING_EFFORT"
         [ -n "$SUPPLY_CHAIN_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_TEMPERATURE"
         [ -n "$SUPPLY_CHAIN_SCAN_UNCHANGED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_SCAN_UNCHANGED"
         
-        # Summarization
-        [ -n "$SUMMARIZATION_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_ENABLED"
-        [ -n "$SUMMARIZATION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_MODEL"
-        [ -n "$SUMMARIZATION_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_MAX_ITERS"
-        [ -n "$SUMMARIZATION_MAX_CONTEXT_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_MAX_CONTEXT_SIZE"
-        [ -n "$SUMMARIZATION_MAX_REASONING_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_MAX_REASONING_TOKENS"
-        [ -n "$SUMMARIZATION_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARIZATION_TEMPERATURE"
+        # Summary
+        [ -n "$SUMMARY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_ENABLED"
+        [ -n "$SUMMARY_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_MODEL"
+        [ -n "$SUMMARY_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_REASONING_EFFORT"
+        [ -n "$SUMMARY_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_TEMPERATURE"
         
         # Other settings
         [ -n "$EXCLUDED_DIRECTORIES" ] && DOCKER_ARGS="$DOCKER_ARGS -e EXCLUDED_DIRECTORIES"
-        
+
+        # Memory (Hippocampus)
+        [ -n "$MEMORY_DEFAULT_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DEFAULT_ENABLED"
+        [ -n "$MEMORY_BACKEND" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_BACKEND"
+        [ -n "$MEMORY_ROOT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_ROOT"
+        [ -n "$MEMORY_S3_BUCKET" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_S3_BUCKET"
+        [ -n "$MEMORY_S3_REGION" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_S3_REGION"
+        [ -n "$MEMORY_S3_ENDPOINT_URL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_S3_ENDPOINT_URL"
+        [ -n "$MEMORY_DEFAULT_MAX_REFLECTS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DEFAULT_MAX_REFLECTS"
+        [ -n "$MEMORY_DISTILLER_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MODEL"
+        [ -n "$MEMORY_DISTILLER_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_REASONING_EFFORT"
+        [ -n "$MEMORY_DISTILLER_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_TEMPERATURE"
+        [ -n "$MEMORY_CARTOGRAPHER_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MODEL"
+        [ -n "$MEMORY_CARTOGRAPHER_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_REASONING_EFFORT"
+        [ -n "$MEMORY_CARTOGRAPHER_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_TEMPERATURE"
+        [ -n "$SCOPE_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MEMORY_ENABLED"
+        [ -n "$CODE_REVIEW_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MEMORY_ENABLED"
+        [ -n "$DOC_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MEMORY_ENABLED"
+        [ -n "$SUPPLY_CHAIN_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MEMORY_ENABLED"
+        [ -n "$SUMMARY_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_MEMORY_ENABLED"
+
         # Build codespy command arguments
         CMD_ARGS="review ${{ steps.pr-url.outputs.url }}"
         CMD_ARGS="$CMD_ARGS --output ${{ inputs.output-format }}"

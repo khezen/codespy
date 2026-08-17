@@ -13,7 +13,7 @@ from codespy.tools.git.models import (
     ChangedFile,
     FileStatus,
     GitPlatform,
-    MergeRequest,
+    PullRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,14 +72,14 @@ class GitHubClient(GitClient):
             )
         return match.group("owner"), match.group("repo"), int(match.group("number"))
 
-    def fetch_merge_request(self, url: str) -> MergeRequest:
+    def fetch_pull_request(self, url: str) -> PullRequest:
         """Fetch pull request data from GitHub.
 
         Args:
             url: GitHub PR URL
 
         Returns:
-            MergeRequest model with all data
+            PullRequest model with all data
         """
         owner, repo_name, pr_number = self.parse_url(url)
 
@@ -102,7 +102,7 @@ class GitHubClient(GitClient):
                 )
             )
 
-        return MergeRequest(
+        return PullRequest(
             number=gh_pr.number,
             title=gh_pr.title,
             body=gh_pr.body,
@@ -116,6 +116,7 @@ class GitHubClient(GitClient):
             updated_at=gh_pr.updated_at,
             repo_owner=owner,
             repo_name=repo_name,
+            host="github.com",
             changed_files=changed_files,
             labels=[label.name for label in gh_pr.labels],
             platform=GitPlatform.GITHUB,

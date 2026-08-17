@@ -2,20 +2,25 @@
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
+from codespy.agents.context_safe import ContextSafe
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
+from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
+    issues_to_markdown,
     make_scope_relative,
     resolve_scope_root,
     restore_repo_paths,
 )
 from codespy.config import get_settings
+from codespy.config_memory import get_memory_store
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -141,9 +146,6 @@ class CodeReviewSignature(dspy.Signature):
 class CodeReviewer(dspy.Module):
     """Unified code reviewer — defects, security, and smells in a single pass.
 
-    Merges DefectDetector and SmellDetector into one agent to avoid redundant
-    README reads, tool sessions, and input token costs per scope.
-
     MCP tools are scope-restricted: for each scope, tools are rooted at
     repo_path/scope.subroot so the agent cannot access files outside the scope.
     """
@@ -165,7 +167,7 @@ class CodeReviewer(dspy.Module):
         caller = "code_reviewer"
 
         tools.extend(await connect_mcp_server(
-            tools_dir / "filesystem" / "server.py",
+            tools_dir / "storage" / "filesystem" / "server.py",
             [scope_root_str], contexts, caller,
         ))
         tools.extend(await connect_mcp_server(
@@ -179,20 +181,28 @@ class CodeReviewer(dspy.Module):
         return tools, contexts
 
     async def aforward(
-        self, scopes: Sequence[ScopeResult], repo_path: Path
-    ) -> list[Issue]:
+        self,
+        scopes: Sequence[ScopeResult],
+        review_context: ReviewContext,
+    ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for defects, security issues, and code smells.
 
         Args:
             scopes: List of identified scopes with their changed files
-            repo_path: Path to the cloned repository
+            review_context: ReviewContext containing PR identity, inherited memory,
+                and runtime pipeline metadata (repo_path, run_id, mr)
 
         Returns:
-            List of bug, security, and smell issues found across all scopes
+            Tuple of (list of issues, merged context memory or None)
         """
+        # Local bindings from review_context metadata
+        repo_path = review_context.metadata.repo_path
+        run_id = review_context.metadata.run_id
+        pr = review_context.metadata.pr
+
         if not self._settings.is_signature_enabled("code_review"):
             logger.debug("Skipping code_review: disabled")
-            return []
+            return [], review_context.memory
 
         # Determine which categories are active
         categories: list[IssueCategory] = []
@@ -203,9 +213,10 @@ class CodeReviewer(dspy.Module):
         changed_scopes = [s for s in scopes if s.has_changes and s.changed_files]
         if not changed_scopes:
             logger.info("No scopes with changes for code review")
-            return []
+            return [], review_context.memory
 
         all_issues: list[Issue] = []
+        scope_memories: list[ContextMemory] = []
         max_iters = self._settings.get_max_iters("code_review")
 
         total_files = sum(len(s.changed_files) for s in changed_scopes)
@@ -218,49 +229,96 @@ class CodeReviewer(dspy.Module):
             scope_root = resolve_scope_root(repo_path, scope.subroot)
             tools, contexts = await self._create_tools(scope_root)
             try:
-                agent = dspy.ReAct(
-                    signature=CodeReviewSignature,
+                agent = ContextSafe(
+                    dspy.ReAct(
+                        signature=CodeReviewSignature,
+                        tools=tools,
+                        max_iters=max_iters,
+                    ),
+                    CodeReviewSignature,
                     tools=tools,
-                    max_iters=max_iters,
+                    name="code_review",
                 )
                 scoped = make_scope_relative(scope)
                 logger.info(
                     f"  Code review: scope {scope.subroot} "
                     f"({len(scope.changed_files)} files)"
                 )
+                mem: Hippocampus | None = None
                 async with SignatureContext("code_review", self._cost_tracker):
-                    result = await agent.acall(
-                        scope=scoped,
-                        categories=categories,
-                    )
-
-                issues = [
-                    issue for issue in (result.issues or [])
-                    if issue.confidence >= MIN_CONFIDENCE
-                ]
+                    if self._settings.get_memory_enabled("code_review"):
+                        question = (
+                            f"review code change of {scope.repo}: {scope.subroot}: "
+                            f"pull request {review_context.pr_context.pr_number} {review_context.pr_context.pr_title}: {review_context.pr_context.summary}"
+                        )
+                        topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
+                        mem = Hippocampus(
+                            agent,
+                            budget=self._settings.get_memory_budget("code_review"),
+                            max_reflects=self._settings.get_memory_max_reflects("code_review"),
+                            question=question,
+                            task_name="code_review",
+                            run_id=run_id,
+                            initial_memory=review_context.memory,
+                            topic_ids=topic_ids,
+                        )
+                        result = await mem.aforward(
+                            scope=scoped,
+                            categories=categories,
+                        )
+                        issues = [
+                            issue for issue in (result.issues or [])
+                            if issue.confidence >= MIN_CONFIDENCE
+                        ]
+                        await mem.aend_episode(
+                            get_memory_store(self._settings),
+                            scope.scope_path(),
+                            artifacts={"review": issues_to_markdown(issues)},
+                        )
+                        # Collect scope's context memory
+                        if mem:
+                            scope_memories.append(mem.cmem.model_copy(deep=True))
+                    else:
+                        result = await agent.acall(
+                            scope=scoped,
+                            categories=categories,
+                        )
+                        issues = [
+                            issue for issue in (result.issues or [])
+                            if issue.confidence >= MIN_CONFIDENCE
+                        ]
                 restore_repo_paths(issues, scope.subroot)
                 all_issues.extend(issues)
                 logger.debug(
                     f"  Scope {scope.subroot}: {len(issues)} code review issues"
                 )
             except Exception as e:
-                logger.error(f"Code review failed for scope {scope.subroot}: {e}")
+                logger.error(f"Code review failed for scope {scope.subroot}: {e}", exc_info=True)
             finally:
                 await cleanup_mcp_contexts(contexts)
 
         logger.info(f"Code review found {len(all_issues)} issues")
-        return all_issues
+        # Merge all scope context memories into one module-level memory
+        merged_memory = (
+            ContextMemory.merge(*scope_memories)
+            if scope_memories
+            else review_context.memory
+        )
+        return all_issues, merged_memory
 
     def forward(
-        self, scopes: Sequence[ScopeResult], repo_path: Path
-    ) -> list[Issue]:
+        self,
+        scopes: Sequence[ScopeResult],
+        review_context: ReviewContext,
+    ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for code issues (sync wrapper).
 
         Args:
             scopes: List of identified scopes with their changed files
-            repo_path: Path to the cloned repository
+            review_context: ReviewContext containing PR identity, inherited memory,
+                and runtime pipeline metadata (repo_path, run_id, mr)
 
         Returns:
-            List of bug, security, and smell issues found across all scopes
+            Tuple of (list of issues, merged context memory or None)
         """
-        return asyncio.run(self.aforward(scopes, repo_path))
+        return asyncio.run(self.aforward(scopes, review_context))

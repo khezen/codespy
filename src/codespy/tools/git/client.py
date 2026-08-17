@@ -26,7 +26,7 @@ def get_client(url: str, settings: "Settings | None" = None) -> GitClient:
     and returns the appropriate client instance.
 
     Args:
-        url: Merge request URL (GitHub PR or GitLab MR)
+        url: Pull request URL (GitHub PR or GitLab MR)
         settings: Application settings. Uses global settings if not provided.
 
     Returns:
@@ -53,7 +53,7 @@ def detect_platform(url: str) -> str:
     """Detect the Git platform from a URL.
 
     Args:
-        url: Merge request URL
+        url: Pull request URL
 
     Returns:
         Platform name ('github' or 'gitlab')

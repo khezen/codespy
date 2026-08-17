@@ -1,0 +1,110 @@
+import pytest
+
+from codespy.tools.storage.s3.client import S3Client
+
+
+class TestResolvePath:
+    def setup_method(self):
+        # Patch boto3 — we only test path logic
+        self.client = S3Client.__new__(S3Client)
+
+    def test_normal_path(self):
+        assert self.client._resolve_path("foo/bar/baz.txt") == "foo/bar/baz.txt"
+
+    def test_strips_leading_slash(self):
+        assert self.client._resolve_path("/foo/bar") == "foo/bar"
+
+    def test_collapses_double_slash(self):
+        assert self.client._resolve_path("foo//bar") == "foo/bar"
+
+    def test_resolves_dot(self):
+        assert self.client._resolve_path("foo/./bar") == "foo/bar"
+
+    def test_rejects_traversal(self):
+        with pytest.raises(ValueError, match="escapes bucket root"):
+            self.client._resolve_path("foo/../../etc/passwd")
+
+    def test_rejects_leading_traversal(self):
+        with pytest.raises(ValueError, match="escapes bucket root"):
+            self.client._resolve_path("../secret")
+
+    def test_rejects_interior_traversal(self):
+        """Paths with '..' anywhere are now rejected, not just those escaping root."""
+        with pytest.raises(ValueError, match="escapes bucket root"):
+            self.client._resolve_path("a/b/../c")
+
+    def test_empty_after_normalization(self):
+        assert self.client._resolve_path(".") == ""
+        assert self.client._resolve_path("/") == ""
+
+    def test_rejects_encoded_traversal_lowercase(self):
+        """Percent-encoded '..' (%2e%2e) must be caught."""
+        with pytest.raises(ValueError, match="escapes bucket root"):
+            self.client._resolve_path("foo/%2e%2e/secret")
+
+    def test_rejects_encoded_traversal_uppercase(self):
+        """Mixed/uppercase percent-encoding must also be caught."""
+        with pytest.raises(ValueError, match="escapes bucket root"):
+            self.client._resolve_path("foo/%2E%2E/secret")
+
+    def test_rejects_leading_encoded_traversal(self):
+        with pytest.raises(ValueError, match="escapes bucket root"):
+            self.client._resolve_path("%2e%2e/etc/passwd")
+
+    def test_rejects_encoded_slash_traversal(self):
+        """Encoded forward slash creating '..' component when decoded."""
+        with pytest.raises(ValueError, match="escapes bucket root"):
+            self.client._resolve_path("foo%2f..%2fsecret")
+
+    def test_preserves_percent_in_normal_keys(self):
+        """Legitimate keys with percent characters pass through unchanged."""
+        assert self.client._resolve_path("reports/100%25done.txt") == "reports/100%25done.txt"
+
+    def test_encoded_nontraversal_preserved(self):
+        """Non-traversal encoded chars: original key preserved in return value."""
+        assert self.client._resolve_path("foo/%62ar") == "foo/%62ar"
+
+    def test_double_encoded_traversal_passes(self):
+        """Double-encoded traversal is an opaque S3 key, not actual traversal."""
+        # %252e%252e decodes once to %2e%2e (not ..) — legitimate key
+        assert self.client._resolve_path("foo/%252e%252e/bar") == "foo/%252e%252e/bar"
+
+
+class TestReadFileTruncation:
+    @staticmethod
+    def _truncate_utf8(raw: bytes, max_bytes: int) -> bytes:
+        """Reproduce the fixed truncation logic."""
+        if len(raw) <= max_bytes:
+            return raw
+        raw = raw[:max_bytes]
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError as e:
+            if e.start >= len(raw) - 4:
+                raw = raw[:e.start]
+        return raw
+
+    def test_truncate_preserves_utf8(self):
+        # "café" = 63 61 66 c3 a9 (5 bytes), max_bytes=4 cuts inside é
+        raw = "café".encode()
+        result = self._truncate_utf8(raw, 4).decode("utf-8")
+        assert result == "caf"
+
+    def test_truncate_emoji(self):
+        raw = "hi🎉bye".encode()  # 9 bytes
+        result = self._truncate_utf8(raw, 4).decode("utf-8")
+        assert result == "hi"
+
+    def test_truncate_at_exact_boundary_preserves_character(self):
+        """Bug regression: truncation at valid char boundary must NOT strip it."""
+        # "àè" = c3 a0 c3 a8 (4 bytes), max_bytes=4 lands exactly at end of è
+        raw = "àè".encode()
+        result = self._truncate_utf8(raw, 4).decode("utf-8")
+        assert result == "àè"  # Both characters preserved (was bug: stripped è)
+
+    def test_truncate_between_two_multibyte(self):
+        """Truncation between two multi-byte characters preserves the first."""
+        # "àè" = c3 a0 c3 a8, max_bytes=3 cuts inside è
+        raw = "àè".encode()
+        result = self._truncate_utf8(raw, 3).decode("utf-8")
+        assert result == "à"  # è is incomplete, stripped

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from codespy.tools.git.models import ChangedFile
 from codespy.agents.reviewer.models import Issue
+from codespy.tools.git.models import ChangedFile
 
 if TYPE_CHECKING:
     from codespy.agents.reviewer.models import ScopeResult
@@ -58,10 +59,10 @@ def is_markdown_file(filename: str) -> bool:
 
 def get_language(file: ChangedFile) -> str:
     """Get the programming language for a file based on extension.
-    
+
     Args:
         file: The changed file
-        
+
     Returns:
         Language name or "Unknown"
     """
@@ -118,7 +119,8 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
         New ScopeResult with scope-relative file paths in changed_files.
         The subroot is set to "." since paths are now relative to it.
     """
-    from codespy.agents.reviewer.models import PackageManifest, ScopeResult as SR
+    from codespy.agents.reviewer.models import PackageManifest
+    from codespy.agents.reviewer.models import ScopeResult as SR
 
     if scope.subroot == ".":
         return scope  # Already at repo root, no transformation needed
@@ -151,15 +153,16 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
             dependencies_changed=scope.package_manifest.dependencies_changed,
         )
     return SR(
+        repo=scope.repo,
         subroot=".",
         scope_type=scope.scope_type,
         has_changes=scope.has_changes,
         is_dependency=scope.is_dependency,
-        confidence=scope.confidence,
         language=scope.language,
         package_manifest=manifest,
         changed_files=relative_files,
         reason=scope.reason,
+        skills=scope.skills,
     )
 
 
@@ -179,3 +182,62 @@ def restore_repo_paths(issues: list[Issue], subroot: str) -> None:
     for issue in issues:
         if issue.filename and not issue.filename.startswith(prefix):
             issue.filename = prefix + issue.filename
+
+
+def build_patches(files: Sequence[ChangedFile]) -> str:
+    """Build a patches string from a sequence of changed files.
+
+    Each patch is prefixed with its filename in the format:
+    --- {filename} ---
+    {patch content}
+
+    Args:
+        files: Sequence of ChangedFile objects
+
+    Returns:
+        Concatenated patches string, or empty string if no patches
+    """
+    parts: list[str] = []
+    for f in files:
+        if f.patch:
+            parts.append(f"--- {f.filename} ---\n{f.patch}")
+    return "\n\n".join(parts)
+
+
+def issues_to_markdown(issues: list[Issue]) -> str:
+    """Format a list of issues as a compact Markdown report.
+
+    Intended as an ``Episode`` artifact (see ``Hippocampus.aend_episode``)
+    so a scope's episode carries a human-readable snapshot of what the
+    module found for that call, alongside the consolidated context memory.
+
+    Args:
+        issues: Issues found for a given scope/call.
+
+    Returns:
+        Markdown text. If ``issues`` is empty, a short "no issues" note.
+    """
+    if not issues:
+        return "No issues found."
+
+    lines = [f"## Issues ({len(issues)})", ""]
+    for issue in issues:
+        lines.extend([
+            f"### {issue.title}",
+            "",
+            f"**Location:** `{issue.location}`",
+            f"**Category:** {issue.category.value}",
+            f"**Severity:** {issue.severity.value}",
+            "",
+            issue.description,
+            "",
+        ])
+        if issue.suggestion:
+            lines.extend(["**Suggestion:**", issue.suggestion, ""])
+        if issue.cwe_id:
+            lines.append(f"**Reference:** {issue.cwe_id}")
+            lines.append("")
+        lines.append("---")
+        lines.append("")
+    return "\n".join(lines)
+

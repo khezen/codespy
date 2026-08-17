@@ -58,10 +58,95 @@ gitlab:
   auto_discover_token: true              # GITLAB_AUTO_DISCOVER_TOKEN (set to false to disable auto-discovery)
 
 # ============================================================================
+# MEMORY
+# ============================================================================
+# Hippocampus lets scope-based agents (scope, code_review, doc, supply_chain)
+# and the summary step consolidate their run into a ContextMemory and
+# persist it as an Episode. Save-only for now (no loading). Disabled by
+# default globally; enabled by default for summary — see `memory:`
+# blocks under each signature below.
+
+#
+# Episodes are written to:
+#   global/episodic/<repo>/<scope-subroot>/codespy-<task>-<timestamp>.json
+# under `root` (filesystem) or `s3_bucket` (s3).
+memory:
+  backend: filesystem                     # MEMORY_BACKEND (filesystem | s3)
+
+  # Filesystem backend
+  root: ~/.cache/codespy/memory           # MEMORY_ROOT
+
+  # S3 backend (used when backend: s3)
+  # ---------------------------------------------------------------------------
+  # Use this to store memory episodes in S3-compatible object storage instead of
+  # the local filesystem. Useful for:
+  #   - Shared memory across multiple codespy instances (CI/CD, distributed setups)
+  #   - Centralized episode storage
+  #   - Integration with MinIO, AWS S3, or other S3-compatible services
+  # ---------------------------------------------------------------------------
+  s3_bucket: null                         # MEMORY_S3_BUCKET - The bucket name
+                                          # Example: "codespy-memory" or "mycompany-codespy"
+
+  s3_region: null                         # MEMORY_S3_REGION - AWS region for the bucket
+                                          # Falls back to aws_region (from llm.* section above)
+                                          # Example: "us-east-1", "eu-west-1"
+
+  s3_endpoint_url: null                   # MEMORY_S3_ENDPOINT_URL - Custom endpoint
+                                          # Only needed for MinIO or non-AWS S3-compatible storage
+                                          # Leave as null for AWS S3
+                                          # Example: "http://localhost:9000" (MinIO local)
+                                          # Example: "https://minio.example.com" (MinIO remote)
+
+  # Reflection defaults — overridable per-signature via signatures.<name>.memory
+  default_enabled: false                  # MEMORY_DEFAULT_ENABLED
+  default_max_reflects: 0                 # MEMORY_DEFAULT_MAX_REFLECTS (0 = reflect once at end_episode)
+
+  # Four independent token budgets, from most to least cost-sensitive:
+  #
+  # 1. max_context_memory_tokens — ceiling on the rendered ContextMemory. This is the
+  #    persisted artifact, and it is prepended to every agent iteration, so it is
+  #    re-sent ~default_max_iters times per scope. Divided by max_context_item_tokens it
+  #    gives the memory's item capacity (8192 / 410 ~= 19 items).
+  # 2. max_context_item_tokens — budget for a SINGLE context memory item, given to the Distiller
+  #    and the Cartographer as a prompt input so no one item eats the whole memory.
+  #    Soft limit (expressed to the LLM, not enforced — truncating an item could
+  #    corrupt an exact constant). Lower it for more, terser items; raise it for
+  #    fewer, richer ones.
+  # 3. max_trajectory_tokens — cap on the trajectory fed to the Distiller. Tool-using
+  #    agents can produce 100k+ token trajectories and TwoStepAdapter sends the value
+  #    twice, so keep this to ~5-10% of the reflection model's context window.
+  #    null = full trajectory (unbounded — not recommended for tool-using agents).
+  # 4. max_question_tokens — cap on the serialized agent inputs used as the reflection
+  #    "question". Without it, every input field is sent in full (for code review that
+  #    means the complete patch of every changed file). null = unbounded.
+  default_max_context_memory_tokens: 8192    # MEMORY_DEFAULT_MAX_CONTEXT_MEMORY_TOKENS
+  default_max_context_item_tokens: 410            # MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS
+  default_max_trajectory_tokens: 8192     # MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS
+  default_max_question_tokens: 2048       # MEMORY_DEFAULT_MAX_QUESTION_TOKENS
+
+  # LLM settings for the reflection modules. The Distiller summarizes a
+  # trajectory; the Cartographer curates the context memory. Both are compact
+  # summarize/curate tasks, so a cheaper tier than code review usually suffices.
+  # null inherits the top-level default_* value.
+  distiller:
+    model: null                           # MEMORY_DISTILLER_MODEL
+    reasoning_effort: null                # MEMORY_DISTILLER_REASONING_EFFORT
+    temperature: null                     # MEMORY_DISTILLER_TEMPERATURE
+    max_tokens: null                      # MEMORY_DISTILLER_MAX_TOKENS
+  cartographer:
+    model: null                           # MEMORY_CARTOGRAPHER_MODEL
+    reasoning_effort: null                # MEMORY_CARTOGRAPHER_REASONING_EFFORT
+    temperature: null                     # MEMORY_CARTOGRAPHER_TEMPERATURE
+    max_tokens: null                      # MEMORY_CARTOGRAPHER_MAX_TOKENS
+
+
+# ============================================================================
 # SIGNATURES
 # ============================================================================
-# Each signature config supports: enabled, max_iters, model, max_context_size
-# Set to null to use defaults
+
+# Each signature config supports: enabled, max_iters, model, reasoning_effort,
+# temperature, max_tokens. Set to null to inherit the corresponding default_* value.
+
 #
 # RECOMMENDED MODEL STRATEGY
 # ============================================================================
@@ -75,26 +160,47 @@ gitlab:
 #     extraction (TwoStepAdapter). Needs accuracy but not deep reasoning.
 #     Recommended: anthropic/claude-sonnet-4-5-20250929 or equivalent.
 #
-#   Cheap (summarization): Used for PR summary generation. Simple synthesis
+#   Cheap (summary): Used for PR summary generation. Simple synthesis
 #     task. Recommended: anthropic/claude-haiku-4-5-20251001 or equivalent.
 #
-# By default, all models fall back to default_model. Override extraction_model
-# and summarization model for cost optimization:
+  #   Mid-tier (memory.distiller / memory.cartographer): Memory reflection —
+  #     summarizing a trajectory and curating the context memory. Requires nuance.
+  #     Recommended: anthropic/claude-sonnet-4-5-20250929 or equivalent.
+#
+# By default, all models fall back to default_model. Override extraction_model,
+# the summary model, and the reflection models for cost optimization:
 #
 #   default_model: anthropic/claude-opus-4-6
 #   extraction_model: anthropic/claude-sonnet-4-5-20250929
 #   signatures:
-#     summarization:
+#     summary:
 #       model: anthropic/claude-haiku-4-5-20251001
+#   memory:
+#     distiller:
+#       model: anthropic/claude-sonnet-4-5-20250929
+#     cartographer:
+#       model: anthropic/claude-sonnet-4-5-20250929
 # ============================================================================
 
-# These apply to all signatures unless overridden per-signature
+
+# These apply to all signatures and reflection modules unless overridden
 default_model: anthropic/claude-opus-4-6        # DEFAULT_MODEL
 extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model)
-default_max_iters: 20                           # DEFAULT_MAX_ITERS
-default_max_context_size: 100000                # DEFAULT_MAX_CONTEXT_SIZE
-default_max_reasoning_tokens: 6000             # DEFAULT_MAX_REASONING_TOKENS (limits LLM reasoning verbosity)
-default_temperature: 0                          # DEFAULT_TEMPERATURE (lower = more deterministic output)
+default_max_iters: 10                           # DEFAULT_MAX_ITERS
+default_reasoning_effort: medium                # DEFAULT_REASONING_EFFORT (minimal | low | medium | high)
+default_temperature: 0.2                        # DEFAULT_TEMPERATURE
+
+# Output token budget for a single completion. This is an OUTPUT ceiling, not a
+# context window, and reasoning/thinking tokens are charged against it — so it
+# must be well above the expected answer size whenever reasoning_effort is set.
+# Leaving it unset is not an option: LiteLLM then silently falls back to its own
+# 4096 default, which truncates responses mid-answer (DSPy warns
+# "LM response was truncated ... max_tokens=None").
+# The value is clamped down to each model's real output ceiling before use, so a
+# generous setting stays valid on smaller models. Models LiteLLM doesn't know
+# (Ollama, custom endpoints) receive it unchanged.
+default_max_tokens: 64000                       # DEFAULT_MAX_TOKENS
+
 
 # Global LLM reliability settings
 llm_retries: 3                           # LLM_RETRIES (number of retries for LLM API calls)
@@ -106,12 +212,15 @@ signatures:
     enabled: true                        # SUPPLY_CHAIN_ENABLED
     max_iters: null                      # SUPPLY_CHAIN_MAX_ITERS
     model: null                          # SUPPLY_CHAIN_MODEL (Haiku 4.5)
-    max_context_size: null               # SUPPLY_CHAIN_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # SUPPLY_CHAIN_MAX_REASONING_TOKENS
+    reasoning_effort: null               # SUPPLY_CHAIN_REASONING_EFFORT
     temperature: null                    # SUPPLY_CHAIN_TEMPERATURE
+    max_tokens: null                     # SUPPLY_CHAIN_MAX_TOKENS
     scan_unchanged: false                # SUPPLY_CHAIN_SCAN_UNCHANGED
     # When true: scans ALL artifacts (Dockerfiles, etc.) and manifests
     # When false (default): only scans artifacts/manifests that were modified in the MR
+    memory:
+      enabled: null                      # SUPPLY_CHAIN_MEMORY_ENABLED (null -> memory.default_enabled)
+      max_reflects: null                 # SUPPLY_CHAIN_MEMORY_MAX_REFLECTS
 
   # Code Reviewer signature (bugs, security, removed defensive code, code smells)
   # Unified code review: bugs, security vulnerabilities, and code smells in a single agent pass per scope
@@ -119,35 +228,58 @@ signatures:
     enabled: true                        # CODE_REVIEW_ENABLED
     max_iters: null                      # CODE_REVIEW_MAX_ITERS
     model: null                          # CODE_REVIEW_MODEL
-    max_context_size: null               # CODE_REVIEW_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # CODE_REVIEW_MAX_REASONING_TOKENS
+    reasoning_effort: null               # CODE_REVIEW_REASONING_EFFORT
     temperature: null                    # CODE_REVIEW_TEMPERATURE
+    max_tokens: null                     # CODE_REVIEW_MAX_TOKENS
+    memory:
+      enabled: null                      # CODE_REVIEW_MEMORY_ENABLED (null -> memory.default_enabled)
+      max_reflects: null                 # CODE_REVIEW_MEMORY_MAX_REFLECTS
 
   # Documentation Reviewer signature (compares patches against extracted documentation)
   # Note: doc extraction is now deterministic (no LLM) — see doc_extractor.py
   doc:
     enabled: true                        # DOC_ENABLED
     model: null                          # DOC_MODEL
-    max_context_size: null               # DOC_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # DOC_MAX_REASONING_TOKENS
+    reasoning_effort: null               # DOC_REASONING_EFFORT
     temperature: null                    # DOC_TEMPERATURE
+    max_tokens: null                     # DOC_MAX_TOKENS
+    memory:
+      enabled: null                      # DOC_MEMORY_ENABLED (null -> memory.default_enabled)
+      max_reflects: null                 # DOC_MEMORY_MAX_REFLECTS
 
   # Scope Identifier signature
   scope:
     enabled: true                        # SCOPE_ENABLED
-    max_iters: null                      # SCOPE_MAX_ITERS
+    max_iters: 20                        # SCOPE_MAX_ITERS
     model: null                          # SCOPE_MODEL
-    max_context_size: null               # SCOPE_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # SCOPE_MAX_REASONING_TOKENS
+    reasoning_effort: null               # SCOPE_REASONING_EFFORT
     temperature: null                    # SCOPE_TEMPERATURE
+    max_tokens: null                     # SCOPE_MAX_TOKENS
+    memory:
+      enabled: null                      # SCOPE_MEMORY_ENABLED (null -> memory.default_enabled)
+      max_reflects: null                 # SCOPE_MEMORY_MAX_REFLECTS
 
   # Summarizer signature
-  summarization:
-    enabled: true                        # SUMMARIZATION_ENABLED
-    model: null                          # SUMMARIZATION_MODEL (falls back to default_model)
-    max_context_size: null               # SUMMARIZATION_MAX_CONTEXT_SIZE
-    max_reasoning_tokens: null           # SUMMARIZATION_MAX_REASONING_TOKENS
-    temperature: null                    # SUMMARIZATION_TEMPERATURE
+  summary:
+    enabled: true                        # SUMMARY_ENABLED
+    model: null                          # SUMMARY_MODEL (falls back to default_model)
+    reasoning_effort: null               # SUMMARY_REASONING_EFFORT
+    temperature: null                    # SUMMARY_TEMPERATURE
+    max_tokens: null                     # SUMMARY_MAX_TOKENS
+    memory:
+      enabled: true                      # SUMMARY_MEMORY_ENABLED (null -> memory.default_enabled)
+      max_reflects: null                 # SUMMARY_MEMORY_MAX_REFLECTS
+
+  # Auditor signature (quality assessment + recommendation after all reviews)
+  audit:
+    enabled: true                        # AUDIT_ENABLED
+    model: null                          # AUDIT_MODEL
+    reasoning_effort: null               # AUDIT_REASONING_EFFORT
+    temperature: null                    # AUDIT_TEMPERATURE
+    max_tokens: null                     # AUDIT_MAX_TOKENS
+    memory:
+      enabled: null                      # AUDIT_MEMORY_ENABLED (null -> memory.default_enabled)
+      max_reflects: null                 # AUDIT_MEMORY_MAX_REFLECTS
 
 # ============================================================================
 # OUTPUT

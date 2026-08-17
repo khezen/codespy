@@ -2,13 +2,17 @@
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from codespy.config_dspy import SignatureConfig, apply_signature_env_overrides
+from codespy.config_dspy import (
+    ReasoningEffort,
+    SignatureConfig,
+    apply_signature_env_overrides,
+)
 from codespy.config_git import (
     GitHubConfig,
     GitLabConfig,
@@ -27,6 +31,23 @@ from codespy.config_llm import (
     discover_gemini_api_key,
     discover_openai_api_key,
 )
+from codespy.config_memory import (
+    REFLECTION_MODULES,
+    LLMSettings,
+    MemoryConfig,
+    apply_memory_env_overrides,
+    reset_memory_store,
+)
+
+if TYPE_CHECKING:
+    # Imported lazily inside get_memory_budget(): importing this at module level
+    # pulls in codespy.agents, whose __init__ imports dspy_config, which imports
+    # this module — a circular import that breaks every entrypoint.
+    from codespy.agents.memory.hippocampus.budget import MemoryBudget
+
+
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +65,7 @@ __all__ = [
     "GitHubConfig",
     "GitLabConfig",
     "SignatureConfig",
+    "MemoryConfig",
     "OutputFormat",
 ]
 
@@ -92,17 +114,26 @@ class Settings(BaseSettings):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     github: GitHubConfig = Field(default_factory=GitHubConfig)
     gitlab: GitLabConfig = Field(default_factory=GitLabConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
 
     # Flat signature configs (signature_name -> SignatureConfig)
     signatures: dict[str, SignatureConfig] = Field(default_factory=dict)
 
     # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
     default_model: str = "anthropic/claude-opus-4-6"
-    extraction_model: str | None = None  # For TwoStepAdapter field extraction (falls back to default_model)
-    default_max_iters: int = 3
-    default_max_context_size: int = 50000
-    default_max_reasoning_tokens: int = 8000  # Limit reasoning verbosity for adapter reliability
-    default_temperature: float = 0.1  # Lower = more deterministic JSON output
+    extraction_model: str | None = None  # TwoStepAdapter extraction (falls back to default_model)
+    default_max_iters: int = 10
+    # Provider reasoning budget; LiteLLM maps this to each provider's native parameter.
+    default_reasoning_effort: ReasoningEffort = "medium"
+    default_temperature: float = 0.2
+    # Output token budget per completion. Must be set explicitly: when it is
+    # omitted LiteLLM silently falls back to its own 4096 default, which
+    # truncates reasoning models (thinking tokens are charged against this
+    # budget) and long structured outputs. 64000 matches the output ceiling of
+    # the Claude 4.x tier and satisfies dspy.LM's >=16000 guard for OpenAI
+    # reasoning models; new_lm() clamps it down to each model's real ceiling.
+    default_max_tokens: int = 64000
+
 
     # Global LLM reliability settings
     llm_retries: int = 3  # Number of retries for LLM API calls
@@ -156,30 +187,48 @@ class Settings(BaseSettings):
         """Check if a signature is enabled."""
         return self.get_signature_config(signature_name).enabled
 
-    def get_model(self, signature_name: str) -> str:
-        """Get model for a signature (signature-specific or default)."""
-        config = self.get_signature_config(signature_name)
-        return config.model or self.default_model
-
     def get_max_iters(self, signature_name: str) -> int:
         """Get max_iters for a signature (signature-specific or default)."""
         config = self.get_signature_config(signature_name)
         return config.max_iters or self.default_max_iters
 
-    def get_max_context_size(self, signature_name: str) -> int:
-        """Get max_context_size for a signature (signature-specific or default)."""
-        config = self.get_signature_config(signature_name)
-        return config.max_context_size or self.default_max_context_size
+    def get_llm_config(self, name: str) -> LLMSettings:
+        """Resolve the LLM settings for one named unit of LLM work.
 
-    def get_max_reasoning_tokens(self, signature_name: str) -> int:
-        """Get max_reasoning_tokens for a signature (signature-specific or default)."""
-        config = self.get_signature_config(signature_name)
-        return config.max_reasoning_tokens or self.default_max_reasoning_tokens
+        ``name`` addresses either a signature or a memory reflection module::
 
-    def get_temperature(self, signature_name: str) -> float:
-        """Get temperature for a signature (signature-specific or default)."""
-        config = self.get_signature_config(signature_name)
-        return config.temperature if config.temperature is not None else self.default_temperature
+            "code_review"  -> signatures.code_review
+            "distiller"    -> memory.distiller
+
+        Every field falls back to its top-level ``default_*`` counterpart, so
+        the result has no ``None`` fields and callers never re-apply fallbacks.
+
+        Args:
+            name: A signature name, or a reflection module name
+                (see ``REFLECTION_MODULES``).
+
+        Returns:
+            The fully resolved settings for ``name``.
+        """
+        if name in REFLECTION_MODULES:
+            config = getattr(self.memory, name)
+        else:
+            config = self.get_signature_config(name)
+
+        model = config.model or self.default_model
+        module_extraction = getattr(config, "extraction_model", None)
+        return LLMSettings(
+            model=model,
+            extraction_model=module_extraction or self.extraction_model or model,
+            reasoning_effort=config.reasoning_effort or self.default_reasoning_effort,
+            temperature=(
+                config.temperature
+                if config.temperature is not None
+                else self.default_temperature
+            ),
+            max_tokens=config.max_tokens or self.default_max_tokens,
+        )
+
 
     def get_scan_unchanged(self, signature_name: str) -> bool:
         """Get scan_unchanged for a signature (signature-specific, default: False).
@@ -190,19 +239,60 @@ class Settings(BaseSettings):
         config = self.get_signature_config(signature_name)
         return config.scan_unchanged if config.scan_unchanged is not None else False
 
+    # Helper methods for per-signature memory config (Hippocampus)
+    def get_memory_enabled(self, signature_name: str) -> bool:
+        """Whether Hippocampus memory is enabled for a signature.
+
+        Per-signature ``memory.enabled`` overrides ``memory.default_enabled``.
+        """
+        config = self.get_signature_config(signature_name).memory
+        return config.enabled if config.enabled is not None else self.memory.default_enabled
+
+    def get_memory_max_reflects(self, signature_name: str) -> int | None:
+        """Get max_reflects for a signature's memory (signature-specific or default)."""
+        config = self.get_signature_config(signature_name).memory
+        return (
+            config.max_reflects
+            if config.max_reflects is not None
+            else self.memory.default_max_reflects
+        )
+
+    def get_memory_budget(self, signature_name: str) -> "MemoryBudget":
+        """Resolve the ``MemoryBudget`` for a signature.
+
+        Token budgets are global (``memory.default_*``); only ``enabled`` and
+        ``max_reflects`` support per-signature overrides.
+        """
+        from codespy.agents.memory.hippocampus.budget import MemoryBudget
+
+        return MemoryBudget(
+            max_context_memory_tokens=self.memory.default_max_context_memory_tokens,
+            max_context_item_tokens=self.memory.default_max_context_item_tokens,
+            max_trajectory_tokens=self.memory.default_max_trajectory_tokens,
+            max_question_tokens=self.memory.default_max_question_tokens,
+        )
+
     def log_signature_configs(self) -> None:
-        """Log all signature configurations."""
+        """Log all signature and reflection module LLM configurations."""
         logger.info("Signature configurations:")
         for sig_name, sig_config in self.signatures.items():
             status = "enabled" if sig_config.enabled else "disabled"
-            model = sig_config.model or self.default_model
-            max_iters = sig_config.max_iters or self.default_max_iters
-            max_reasoning = sig_config.max_reasoning_tokens or self.default_max_reasoning_tokens
-            temp = sig_config.temperature if sig_config.temperature is not None else self.default_temperature
+            llm = self.get_llm_config(sig_name)
             logger.info(
-                f"  {sig_name}: {status}, model={model}, max_iters={max_iters}, "
-                f"max_reasoning_tokens={max_reasoning}, temperature={temp}"
+                f"  {sig_name}: {status}, model={llm.model}, "
+                f"max_iters={self.get_max_iters(sig_name)}, "
+                f"reasoning_effort={llm.reasoning_effort}, temperature={llm.temperature}, "
+                f"max_tokens={llm.max_tokens}"
             )
+        for module in REFLECTION_MODULES:
+            llm = self.get_llm_config(module)
+            logger.info(
+                f"  {module}: model={llm.model}, "
+                f"extraction_model={llm.extraction_model}, "
+                f"reasoning_effort={llm.reasoning_effort}, temperature={llm.temperature}, "
+                f"max_tokens={llm.max_tokens}"
+            )
+
 
     @model_validator(mode="before")
     @classmethod
@@ -213,6 +303,10 @@ class Settings(BaseSettings):
         """
         yaml_config = _load_yaml_config()
         yaml_config = apply_signature_env_overrides(yaml_config)
+        # MEMORY_* env vars target the nested `memory` model, which
+        # pydantic-settings cannot populate on its own (no env_nested_delimiter).
+        yaml_config = apply_memory_env_overrides(yaml_config)
+
 
         # Merge YAML config into values only if not already set (env vars take precedence)
         for key, val in yaml_config.items():
@@ -450,6 +544,9 @@ def get_settings(config_file: str | None = None) -> Settings:
 def reload_settings(config_file: str | None = None) -> Settings:
     """Reload settings (useful after environment changes).
 
+    Also resets the cached Hippocampus memory store so a changed
+    ``memory`` configuration takes effect on next access.
+
     Args:
         config_file: Optional path to a YAML config file. If provided,
             uses that file instead of the default locations.
@@ -458,4 +555,5 @@ def reload_settings(config_file: str | None = None) -> Settings:
     if config_file is not None:
         _custom_config_path = config_file
     settings = Settings()
+    reset_memory_store()
     return settings

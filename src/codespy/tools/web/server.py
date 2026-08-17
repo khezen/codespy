@@ -72,6 +72,6 @@ if __name__ == "__main__":
     # Suppress noisy MCP server "Processing request" logs
     logging.getLogger("mcp.server").setLevel(logging.WARNING)
     logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
-    
+
     _browser = WebBrowser()
     mcp.run()

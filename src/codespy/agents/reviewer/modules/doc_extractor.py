@@ -4,8 +4,7 @@ import logging
 import re
 from pathlib import Path
 
-from codespy.tools.filesystem.client import FileSystem
-from codespy.tools.filesystem.models import EntryType, TreeNode
+from codespy.tools.storage import EntryType, FileSystem, TreeNode
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +59,9 @@ def extract_documentation(scope_root: Path) -> str:
         Concatenated documentation with ``=== filename ===`` headers,
         or empty string if no documentation exists.
     """
+    if not scope_root.exists():
+        logger.debug("Scope root does not exist, skipping: %s", scope_root)
+        return ""
     fs = FileSystem(scope_root, create_if_missing=False)
 
     # One tree scan — depth 2 covers root files + immediate subdirs.
@@ -73,8 +75,24 @@ def extract_documentation(scope_root: Path) -> str:
     for path in doc_paths:
         try:
             content = fs.read_file(path)
-            parts.append(f"=== {path} ===\n{content.content}")
         except Exception as e:  # noqa: BLE001
+            # read_file returns an error Content rather than raising for missing
+            # or unreadable files, but path resolution and stat() can still raise.
             logger.warning(f"Could not read doc file {path}: {e}")
+            continue
+
+        # read_file signals failure via Content.error, leaving content empty. An
+        # unchecked append would emit a header with a blank body, which reads to
+        # the LLM as "this doc exists and is empty" rather than "not available"
+        # — prompting false "add missing docs" findings.
+        if not content.success:
+            logger.debug(f"Skipping unreadable doc file {path}: {content.error}")
+            continue
+
+        if not content.content.strip():
+            logger.debug(f"Skipping empty doc file {path}")
+            continue
+
+        parts.append(f"=== {path} ===\n{content.content}")
 
     return "\n\n".join(parts)

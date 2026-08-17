@@ -2,21 +2,25 @@
 
 import asyncio
 import logging
-from pathlib import Path
-from typing import Sequence
+from collections.abc import Sequence
 
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.reviewer.models import Issue, IssueCategory, ScopeResult
+from codespy.agents.context_safe import ContextSafe
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
+from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
 from codespy.agents.reviewer.modules.doc_extractor import extract_documentation
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
+    build_patches,
+    issues_to_markdown,
     make_scope_relative,
     resolve_scope_root,
     restore_repo_paths,
 )
 from codespy.config import get_settings
+from codespy.config_memory import get_memory_store
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +68,7 @@ class DocReviewSignature(dspy.Signature):
 
     OUTPUT RULES:
     - Set category to "documentation"
+    - filename: the documentation file that needs updating (use path from === path === headers)
     - description: ≤25 words, imperative tone ("Update X section", "Add Y to README")
     - Empty list if documentation is up to date. No approval text ("LGTM", "looks good")
     - No polite or conversational language
@@ -83,6 +88,8 @@ class DocReviewSignature(dspy.Signature):
 
     issues: list[Issue] = dspy.OutputField(
         desc="Documentation issues. Category must be 'documentation'. "
+        "Each issue MUST include 'filename' set to the documentation file that needs "
+        "updating (from the === filename === headers in the documentation input). "
         "Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none."
     )
 
@@ -102,33 +109,38 @@ class DocReviewer(dspy.Module):
         self._settings = get_settings()
 
     def _build_patches(self, scope: ScopeResult) -> str:
-        """Build compact patches representation."""
-        parts: list[str] = []
-        for f in scope.changed_files:
-            if f.patch:
-                parts.append(f"--- {f.filename} ---\n{f.patch}")
-        return "\n\n".join(parts)
+        """Build patches representation for review."""
+        return build_patches(scope.changed_files)
 
     async def aforward(
-        self, scopes: Sequence[ScopeResult], repo_path: Path
-    ) -> list[Issue]:
+        self,
+        scopes: Sequence[ScopeResult],
+        review_context: ReviewContext,
+    ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for documentation issues.
 
         Args:
             scopes: List of identified scopes with their changed files
-            repo_path: Path to the cloned repository
+            review_context: ReviewContext containing PR identity, inherited memory,
+                and runtime pipeline metadata (repo_path, run_id, mr)
 
         Returns:
-            List of documentation issues found across all scopes
+            Tuple of (list of issues, merged context memory or None)
         """
+        # Local bindings from review_context metadata
+        repo_path = review_context.metadata.repo_path
+        run_id = review_context.metadata.run_id
+        pr = review_context.metadata.pr
+
         if not self._settings.is_signature_enabled("doc"):
             logger.debug("Skipping doc: disabled")
-            return []
+            return [], review_context.memory
         changed_scopes = [s for s in scopes if s.has_changes and s.changed_files]
         if not changed_scopes:
             logger.info("No scopes with changes for doc review")
-            return []
+            return [], review_context.memory
         all_issues: list[Issue] = []
+        scope_memories: list[ContextMemory] = []
         total_files = sum(len(s.changed_files) for s in changed_scopes)
         logger.info(
             f"Doc review for {len(changed_scopes)} scopes "
@@ -136,12 +148,17 @@ class DocReviewer(dspy.Module):
         )
         for scope in changed_scopes:
             scope_root = resolve_scope_root(repo_path, scope.subroot)
+            if not scope_root.exists():
+                logger.debug(
+                    f"  Scope directory does not exist (deleted/moved files): {scope.subroot}"
+                )
+                continue
             # Step 1: Extract documentation (deterministic — no LLM)
             logger.info(f"  Doc extraction: scope {scope.subroot}")
             try:
                 documentation = extract_documentation(scope_root)
             except Exception as e:
-                logger.error(f"Doc extraction failed for scope {scope.subroot}: {e}")
+                logger.error(f"Doc extraction failed for scope {scope.subroot}: {e}", exc_info=True)
                 documentation = ""
             if not documentation.strip():
                 logger.debug(
@@ -155,43 +172,87 @@ class DocReviewer(dspy.Module):
                 logger.debug(f"  No patches in {scope.subroot}, skipping doc review")
                 continue
             try:
-                reviewer = dspy.ChainOfThought(DocReviewSignature)
+                reviewer = ContextSafe(dspy.ChainOfThought(DocReviewSignature), DocReviewSignature, name="doc")
                 logger.info(
                     f"  Doc review: scope {scope.subroot} "
                     f"({len(scope.changed_files)} files)"
                 )
+                mem: Hippocampus | None = None
                 async with SignatureContext("doc", self._cost_tracker):
-                    result = await asyncio.to_thread(
-                        reviewer,
-                        patches=patches,
-                        documentation=documentation,
-                        categories=[IssueCategory.DOCUMENTATION],
-                    )
-                issues = [
-                    issue for issue in (result.issues or [])
-                    if issue.confidence >= MIN_CONFIDENCE
-                ]
+                    if self._settings.get_memory_enabled("doc"):
+                        question = (
+                            f"review documentation of {scope.repo}: {scope.subroot}: "
+                            f"pull request {review_context.pr_context.pr_number} {review_context.pr_context.pr_title}: {review_context.pr_context.summary}"
+                        )
+                        topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
+                        mem = Hippocampus(
+                            reviewer,
+                            budget=self._settings.get_memory_budget("doc"),
+                            max_reflects=self._settings.get_memory_max_reflects("doc"),
+                            question=question,
+                            task_name="doc",
+                            run_id=run_id,
+                            initial_memory=review_context.memory,
+                            topic_ids=topic_ids,
+                        )
+                        result = await mem.aforward(
+                            patches=patches,
+                            documentation=documentation,
+                            categories=[IssueCategory.DOCUMENTATION],
+                        )
+                        issues = [
+                            issue for issue in (result.issues or [])
+                            if issue.confidence >= MIN_CONFIDENCE
+                        ]
+                        await mem.aend_episode(
+                            get_memory_store(self._settings),
+                            scope.scope_path(),
+                            artifacts={"review": issues_to_markdown(issues)},
+                        )
+                        # Collect scope's context memory
+                        if mem:
+                            scope_memories.append(mem.cmem.model_copy(deep=True))
+                    else:
+                        result = await asyncio.to_thread(
+                            reviewer,
+                            patches=patches,
+                            documentation=documentation,
+                            categories=[IssueCategory.DOCUMENTATION],
+                        )
+                        issues = [
+                            issue for issue in (result.issues or [])
+                            if issue.confidence >= MIN_CONFIDENCE
+                        ]
                 restore_repo_paths(issues, scope.subroot)
                 all_issues.extend(issues)
                 logger.debug(
                     f"  Scope {scope.subroot}: {len(issues)} doc issues"
                 )
             except Exception as e:
-                logger.error(f"Doc review failed for scope {scope.subroot}: {e}")
+                logger.error(f"Doc review failed for scope {scope.subroot}: {e}", exc_info=True)
 
         logger.info(f"Doc review found {len(all_issues)} issues")
-        return all_issues
+        # Merge all scope context memories into one module-level memory
+        merged_memory = (
+            ContextMemory.merge(*scope_memories)
+            if scope_memories
+            else review_context.memory
+        )
+        return all_issues, merged_memory
 
     def forward(
-        self, scopes: Sequence[ScopeResult], repo_path: Path
-    ) -> list[Issue]:
+        self,
+        scopes: Sequence[ScopeResult],
+        review_context: ReviewContext,
+    ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for documentation issues (sync wrapper).
 
         Args:
             scopes: List of identified scopes with their changed files
-            repo_path: Path to the cloned repository
+            review_context: ReviewContext containing PR identity, inherited memory,
+                and runtime pipeline metadata (repo_path, run_id, mr)
 
         Returns:
-            List of documentation issues found across all scopes
+            Tuple of (list of issues, merged context memory or None)
         """
-        return asyncio.run(self.aforward(scopes, repo_path))
+        return asyncio.run(self.aforward(scopes, review_context))
