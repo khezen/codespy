@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 
-class ItemTag(str, Enum):
+class ItemTag(StrEnum):
     """How a context-memory item performed in the trajectory just observed.
 
     - helpful: directly aided orientation or answering; keep.
@@ -26,7 +26,7 @@ class ItemTag(str, Enum):
     STALE = "stale"
 
 
-class OpType(str, Enum):
+class OpType(StrEnum):
     """Cartographer edit operations against the context memory."""
 
     ADD = "ADD"
@@ -339,7 +339,7 @@ class ContextMemory(BaseModel):
         return cls.model_validate_json(text)
 
     @classmethod
-    def merge(cls, *memories: "ContextMemory") -> "ContextMemory":
+    def merge(cls, *memories: ContextMemory) -> ContextMemory:
         """Merge multiple context memories into a single memory.
 
         Later memories win on ID collision (items with duplicate IDs are

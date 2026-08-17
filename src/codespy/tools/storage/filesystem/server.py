@@ -5,7 +5,6 @@ import os
 import sys
 from collections import OrderedDict
 from functools import lru_cache
-from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 

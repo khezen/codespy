@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from codespy.tools.storage.base import Storage
@@ -151,7 +151,7 @@ class FileSystem(Storage):
 
                 stat = entry.stat()
                 size = stat.st_size if entry_type == EntryType.FILE else 0
-                modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc) if entry_type == EntryType.FILE else None
+                modified_at = datetime.fromtimestamp(stat.st_mtime, tz=UTC) if entry_type == EntryType.FILE else None
 
                 entries.append(Entry(name=entry.name, entry_type=entry_type, size=size, modified_at=modified_at))
         except PermissionError as e:

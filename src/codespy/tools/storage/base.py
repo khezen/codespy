@@ -6,7 +6,6 @@ from abc import ABC, abstractmethod
 
 from codespy.tools.storage.models import (
     Content,
-    Entry,
     Info,
     Listing,
     OperationResult,

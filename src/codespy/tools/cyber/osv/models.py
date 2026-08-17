@@ -1,12 +1,12 @@
 """Models for OSV (Open Source Vulnerabilities) API."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class Ecosystem(str, Enum):
+class Ecosystem(StrEnum):
     """Supported package ecosystems in OSV."""
 
     GO = "Go"
@@ -38,7 +38,7 @@ class Ecosystem(str, Enum):
     WOLFI = "Wolfi"
 
 
-class SeverityType(str, Enum):
+class SeverityType(StrEnum):
     """Severity scoring systems."""
 
     CVSS_V2 = "CVSS_V2"
@@ -46,7 +46,7 @@ class SeverityType(str, Enum):
     CVSS_V4 = "CVSS_V4"
 
 
-class ReferenceType(str, Enum):
+class ReferenceType(StrEnum):
     """Types of references in vulnerability records."""
 
     ADVISORY = "ADVISORY"

@@ -10,7 +10,6 @@ import re
 import dspy  # type: ignore[import-untyped]
 import litellm  # type: ignore[import-untyped]
 
-
 logger = logging.getLogger(__name__)
 
 # Regex for detecting context window overflow in error messages

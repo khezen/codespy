@@ -53,9 +53,7 @@ class CppExtractor(BaseExtractor):
             # Get name from the declarator
             name_part = declarator.child_by_field_name("declarator")
             if name_part:
-                if name_part.type == "identifier":
-                    name_node = name_part
-                elif name_part.type == "field_identifier":
+                if name_part.type == "identifier" or name_part.type == "field_identifier":
                     name_node = name_part
                 elif name_part.type == "qualified_identifier":
                     # C++ class method: Class::method

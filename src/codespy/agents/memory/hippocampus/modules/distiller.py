@@ -9,7 +9,6 @@ from codespy.agents.memory.hippocampus.context_memory import (
 )
 
 
-
 class DistillerSig(dspy.Signature):
     """You are an expert analyst reviewing an agent's execution trajectory
     after it interacted with a long external context to answer a question.

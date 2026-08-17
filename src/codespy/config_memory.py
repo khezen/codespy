@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 from codespy.config_dspy import ReasoningEffort
 from codespy.tools.storage.base import Storage
 
-
 if TYPE_CHECKING:
     from codespy.config import Settings
 

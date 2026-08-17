@@ -93,10 +93,7 @@ def _should_compact_file(file: ChangedFile) -> bool:
         return False
 
     # Skip binary and lock files
-    if file.is_binary or file.is_lock_file:
-        return False
-
-    return True
+    return not (file.is_binary or file.is_lock_file)
 
 
 def compact_patch(
@@ -278,12 +275,11 @@ def _expand_hunk_to_functions(
         # Find innermost enclosing function
         best_match: FunctionInfo | None = None
         for func in functions:
-            if func.line_start <= line_num <= func.line_end:
-                if best_match is None or (
-                    func.line_start >= best_match.line_start
-                    and func.line_end <= best_match.line_end
-                ):
-                    best_match = func
+            if func.line_start <= line_num <= func.line_end and (best_match is None or (
+                func.line_start >= best_match.line_start
+                and func.line_end <= best_match.line_end
+            )):
+                best_match = func
 
         if best_match and best_match not in enclosing_functions:
             enclosing_functions.append(best_match)

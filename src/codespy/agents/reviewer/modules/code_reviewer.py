@@ -2,8 +2,9 @@
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 
@@ -11,7 +12,6 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
-
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
     issues_to_markdown,
@@ -19,7 +19,6 @@ from codespy.agents.reviewer.modules.helpers import (
     resolve_scope_root,
     restore_repo_paths,
 )
-
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server

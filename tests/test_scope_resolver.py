@@ -1,6 +1,5 @@
 """Tests for scope_resolver module."""
 
-import os
 import tempfile
 from pathlib import Path
 
@@ -248,7 +247,7 @@ class TestManifestScoping:
             scopes, orphans = resolver._resolve(repo_path, changed_files, "owner/repo")
 
             # scripts/ indicator is suppressed when root is the only manifest (single-package repo)
-            scope_subroots = [s.subroot for s in scopes]
+            [s.subroot for s in scopes]
             assert len(scopes) == 1
             assert scopes[0].subroot == "."
 

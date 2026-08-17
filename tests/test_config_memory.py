@@ -1,12 +1,10 @@
 """Tests for memory storage access verification."""
 
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from codespy.config_dspy import SIGNATURE_NAMES
 from codespy.config_memory import verify_memory_access
 from codespy.tools.storage.filesystem.client import FileSystem
 from codespy.tools.storage.s3.client import S3Client

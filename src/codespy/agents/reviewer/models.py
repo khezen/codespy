@@ -1,10 +1,10 @@
 """Data models for code review results."""
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from codespy.agents.memory.hippocampus import ContextMemory
 
@@ -23,7 +23,7 @@ class PRContext(BaseModel):
     summary: str = Field(description="2-3 sentence PR summary produced by Summarizer")
 
 
-class IssueSeverity(str, Enum):
+class IssueSeverity(StrEnum):
     """Severity level of an issue."""
 
     CRITICAL = "critical"
@@ -33,7 +33,7 @@ class IssueSeverity(str, Enum):
     INFO = "info"
 
 
-class IssueCategory(str, Enum):
+class IssueCategory(StrEnum):
     """Category of an issue."""
 
     SECURITY = "security"
@@ -42,7 +42,7 @@ class IssueCategory(str, Enum):
     SMELL = "smell"
 
 
-class ScopeType(str, Enum):
+class ScopeType(StrEnum):
     """Type of code scope in a repository."""
 
     LIBRARY = "library"  # Shared code that others import
@@ -144,7 +144,7 @@ class ScopeResult(BaseModel):
         Returns:
             Topic object with id and description
         """
-        from codespy.agents.memory.hippocampus.context_memory import make_topic_id, Topic
+        from codespy.agents.memory.hippocampus.context_memory import Topic, make_topic_id
 
         package_name = self.package_manifest.package_name if self.package_manifest else None
         topic_id = make_topic_id(repo_full_name, self.subroot, package_name)

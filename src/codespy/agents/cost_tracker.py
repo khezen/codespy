@@ -11,7 +11,7 @@ import time
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Optional
+from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 
@@ -26,8 +26,8 @@ class SignatureStats:
     cost: float = 0.0
     tokens: int = 0
     call_count: int = 0
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
+    start_time: float | None = None
+    end_time: float | None = None
 
     @property
     def duration_seconds(self) -> float:
@@ -50,7 +50,7 @@ class SignatureStats:
 
 class CostTracker:
     """Track LLM costs across multiple calls with per-signature attribution.
-    
+
     Uses DSPy's LM history for per-signature tracking, which works reliably
     even during parallel execution.
     """
@@ -67,7 +67,7 @@ class CostTracker:
 
     def start_signature(self, signature_name: str) -> None:
         """Mark the start of a signature's execution.
-        
+
         Args:
             signature_name: Name of the signature starting execution
         """
@@ -79,7 +79,7 @@ class CostTracker:
 
     def end_signature(self, signature_name: str, cost: float, tokens: int, call_count: int) -> None:
         """Mark the end of a signature's execution with its costs.
-        
+
         Args:
             signature_name: Name of the signature ending execution
             cost: Total cost for this signature's LLM calls
@@ -113,12 +113,12 @@ class CostTracker:
         with self._lock:
             return sum(s.call_count for s in self._signature_stats.values())
 
-    def get_signature_stats(self, signature_name: str) -> Optional[SignatureStats]:
+    def get_signature_stats(self, signature_name: str) -> SignatureStats | None:
         """Get stats for a specific signature.
-        
+
         Args:
             signature_name: Name of the signature
-            
+
         Returns:
             SignatureStats or None if signature not found
         """
@@ -127,7 +127,7 @@ class CostTracker:
 
     def get_all_signature_stats(self) -> dict[str, SignatureStats]:
         """Get stats for all signatures.
-        
+
         Returns:
             Dictionary of signature name to SignatureStats
         """
@@ -145,7 +145,7 @@ class CostTracker:
 
 def _get_history_entries() -> list[dict]:
     """Get current LM history entries from DSPy.
-    
+
     Returns:
         List of history entries, or empty list if LM not configured
     """
@@ -160,7 +160,7 @@ def _get_history_entries() -> list[dict]:
 
 def _get_history_uuids() -> set[str]:
     """Get UUIDs of current history entries.
-    
+
     Returns:
         Set of UUIDs from current history
     """
@@ -201,7 +201,7 @@ def _calculate_costs_from_entries(entries: list[dict], exclude_uuids: set[str]) 
     Args:
         entries: List of history entries
         exclude_uuids: Set of UUIDs to exclude from calculation
-        
+
     Returns:
         Tuple of (total_cost, total_tokens, call_count)
     """
@@ -248,7 +248,7 @@ class SignatureContext:
 
     def __init__(self, signature_name: str, tracker: "CostTracker") -> None:
         """Initialize the signature context.
-        
+
         Args:
             signature_name: Name of the signature
             tracker: CostTracker instance

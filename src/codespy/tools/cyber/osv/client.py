@@ -7,7 +7,6 @@ import httpx
 
 from codespy.tools.cyber.osv.models import (
     BatchQueryResponse,
-    BatchQueryResult,
     PackageQuery,
     ScanResult,
     ScanSummary,
@@ -336,7 +335,7 @@ class OSVClient:
         try:
             batch_response = self.query_batch(dependencies)
 
-            for i, (dep, query_result) in enumerate(
+            for _i, (dep, query_result) in enumerate(
                 zip(dependencies, batch_response.results, strict=False)
             ):
                 result = ScanResult(

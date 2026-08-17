@@ -1,7 +1,6 @@
 """Tools for code parsing, Git platform integration, filesystem operations, web browsing, and security scanning."""
 
 from codespy.tools.cyber import OSVClient, ScanResult, ScanSummary, Vulnerability
-from codespy.tools.storage import FileSystem, S3Client, Storage
 from codespy.tools.git import (
     ChangedFile,
     GitClient,
@@ -10,6 +9,7 @@ from codespy.tools.git import (
     get_client,
 )
 from codespy.tools.parsers import RipgrepSearch, SearchResult, TreeSitterParser
+from codespy.tools.storage import FileSystem, S3Client, Storage
 from codespy.tools.web import SearchResults, WebBrowser, WebPage
 
 # Note: GitReporter is not exported here to avoid circular imports.

@@ -131,7 +131,7 @@ def extract_dependencies(manifest_path: str, repo_path: Path) -> tuple[list[str]
 def _extract_deps_from_package_json(path: Path) -> tuple[list[str], dict[str, str]]:
     """Extract deps from package.json (production only, skip dev/peer/optional)."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
 
         deps = data.get("dependencies", {})
@@ -161,7 +161,7 @@ def _extract_deps_from_package_json(path: Path) -> tuple[list[str], dict[str, st
 def _extract_deps_from_go_mod(path: Path) -> tuple[list[str], dict[str, str]]:
     """Extract deps from go.mod (filter // indirect lines)."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
 
         names: list[str] = []
@@ -326,14 +326,14 @@ def _extract_deps_from_pom_xml(path: Path) -> tuple[list[str], dict[str, str]]:
 def _extract_deps_from_composer_json(path: Path) -> tuple[list[str], dict[str, str]]:
     """Extract deps from composer.json (exclude php, ext-*)."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
 
         require = data.get("require", {})
         if not isinstance(require, dict):
             return [], {}
 
-        names = [name for name in require.keys()
+        names = [name for name in require
                  if not name.startswith("php") and not name.startswith("ext-")]
 
         return names, {}
@@ -346,7 +346,7 @@ def _extract_deps_from_pubspec_yaml(path: Path) -> tuple[list[str], dict[str, st
     try:
         import yaml
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         deps = data.get("dependencies", {})
@@ -382,7 +382,7 @@ def _extract_deps_from_pubspec_yaml(path: Path) -> tuple[list[str], dict[str, st
 def _extract_deps_from_gemfile(path: Path) -> tuple[list[str], dict[str, str]]:
     """Extract deps from Gemfile (skip dev/test groups)."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
 
         names: list[str] = []
@@ -437,7 +437,7 @@ def _extract_deps_from_gemfile(path: Path) -> tuple[list[str], dict[str, str]]:
 def _extract_deps_from_mix_exs(path: Path) -> tuple[list[str], dict[str, str]]:
     """Extract deps from mix.exs (skip dev/test only)."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
 
         names: list[str] = []
@@ -511,7 +511,7 @@ def _extract_deps_from_csproj(path: Path) -> tuple[list[str], dict[str, str]]:
 def _extract_deps_from_swift_package(path: Path) -> tuple[list[str], dict[str, str]]:
     """Extract deps from Package.swift."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
 
         names: list[str] = []
@@ -541,7 +541,7 @@ def _extract_deps_from_swift_package(path: Path) -> tuple[list[str], dict[str, s
 def _extract_deps_from_gradle(path: Path) -> tuple[list[str], dict[str, str]]:
     """Extract deps from build.gradle/build.gradle.kts (skip test/debug)."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
 
         names: list[str] = []
@@ -603,9 +603,7 @@ def extract_package_name(manifest_path: str, repo_path: Path) -> str | None:
     filename = Path(manifest_path).name
 
     try:
-        if filename == "package.json":
-            return _extract_from_json(full_path, ["name"])
-        elif filename == "composer.json":
+        if filename == "package.json" or filename == "composer.json":
             return _extract_from_json(full_path, ["name"])
         elif filename == "go.mod":
             return _extract_from_go_mod(full_path)
@@ -613,9 +611,7 @@ def extract_package_name(manifest_path: str, repo_path: Path) -> str | None:
             return _extract_from_pyproject_toml(full_path)
         elif filename == "Cargo.toml":
             return _extract_from_toml(full_path, ["package", "name"])
-        elif filename == "pubspec.yaml":
-            return _extract_from_yaml(full_path, ["name"])
-        elif filename == "Chart.yaml":
+        elif filename == "pubspec.yaml" or filename == "Chart.yaml":
             return _extract_from_yaml(full_path, ["name"])
         elif filename == "pom.xml":
             return _extract_from_pom_xml(full_path)
@@ -640,7 +636,7 @@ def extract_package_name(manifest_path: str, repo_path: Path) -> str | None:
 def _extract_from_json(path: Path, keys: list[str]) -> str | None:
     """Extract value from JSON file following key path."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         value = data
         for key in keys:
@@ -657,7 +653,7 @@ def _extract_from_json(path: Path, keys: list[str]) -> str | None:
 def _extract_from_go_mod(path: Path) -> str | None:
     """Extract module name from go.mod file."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             first_line = f.readline().strip()
         match = re.match(r"^module\s+(\S+)", first_line)
         return match.group(1) if match else None
@@ -721,7 +717,7 @@ def _extract_from_yaml(path: Path, keys: list[str]) -> str | None:
     try:
         import yaml
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         value = data
         for key in keys:
@@ -820,7 +816,7 @@ def _extract_from_gradle(repo_path: Path, manifest_path: str) -> str | None:
         settings_path = repo_path / manifest_dir / settings_file
         if settings_path.exists():
             try:
-                with open(settings_path, "r", encoding="utf-8") as f:
+                with open(settings_path, encoding="utf-8") as f:
                     content = f.read()
                 # Look for rootProject.name = 'name' or rootProject.name = "name"
                 match = re.search(
@@ -852,7 +848,7 @@ def _extract_from_swift_package(path: Path) -> str | None:
     Looks for 'name: "..."' in the Package initialization.
     """
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
         # Look for Package(name: "...")
         match = re.search(
@@ -873,7 +869,7 @@ def _extract_from_mix_exs(path: Path) -> str | None:
     Looks for 'def project do' and extracts the 'app:' value.
     """
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
         # Look for app: :name or app: "name"
         match = re.search(r"app:\s*[:\"]([^\"\s,)]+)[\"\s,)]", content)

@@ -3,8 +3,6 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
 from codespy.agents.reviewer.models import ScopeResult, ScopeType
 from codespy.tools.git.models import ChangedFile, FileStatus
 from codespy.tools.git.patch_utils import (

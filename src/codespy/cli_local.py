@@ -86,11 +86,11 @@ def review_local(
         settings.output_format = output  # type: ignore
 
     repo = Path(repo_path if repo_path else os.getcwd()).resolve()
-    
+
     if not repo.exists():
         console.print(f"[red]Error:[/red] Directory does not exist: {repo}")
         raise typer.Exit(1)
-    
+
     if not (repo / ".git").exists():
         console.print(f"[red]Error:[/red] Not a git repository: {repo}")
         raise typer.Exit(1)
@@ -107,8 +107,8 @@ def review_local(
     )
 
     try:
-        from codespy.agents.reviewer.reviewer import ReviewPipeline
         from codespy.agents.reviewer.models import LocalReviewConfig
+        from codespy.agents.reviewer.reviewer import ReviewPipeline
 
         pipeline = ReviewPipeline(settings)
 
@@ -118,7 +118,7 @@ def review_local(
             base_ref=base_ref,
             uncommitted=False
         )
-        
+
         # Run review (model access always verified in pipeline)
         result = pipeline(config)
 
@@ -203,11 +203,11 @@ def review_uncommitted(
         settings.output_format = output  # type: ignore
 
     repo = Path(repo_path if repo_path else os.getcwd()).resolve()
-    
+
     if not repo.exists():
         console.print(f"[red]Error:[/red] Directory does not exist: {repo}")
         raise typer.Exit(1)
-    
+
     if not (repo / ".git").exists():
         console.print(f"[red]Error:[/red] Not a git repository: {repo}")
         raise typer.Exit(1)
@@ -223,8 +223,8 @@ def review_uncommitted(
     )
 
     try:
-        from codespy.agents.reviewer.reviewer import ReviewPipeline
         from codespy.agents.reviewer.models import LocalReviewConfig
+        from codespy.agents.reviewer.reviewer import ReviewPipeline
 
         pipeline = ReviewPipeline(settings)
 
@@ -233,7 +233,7 @@ def review_uncommitted(
             repo_path=repo,
             uncommitted=True
         )
-        
+
         # Run review (model access always verified in pipeline)
         result = pipeline(config)
 

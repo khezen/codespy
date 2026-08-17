@@ -1,4 +1,5 @@
 import pytest
+
 from codespy.tools.storage.s3.client import S3Client
 
 
@@ -53,25 +54,25 @@ class TestReadFileTruncation:
 
     def test_truncate_preserves_utf8(self):
         # "café" = 63 61 66 c3 a9 (5 bytes), max_bytes=4 cuts inside é
-        raw = "café".encode("utf-8")
+        raw = "café".encode()
         result = self._truncate_utf8(raw, 4).decode("utf-8")
         assert result == "caf"
 
     def test_truncate_emoji(self):
-        raw = "hi🎉bye".encode("utf-8")  # 9 bytes
+        raw = "hi🎉bye".encode()  # 9 bytes
         result = self._truncate_utf8(raw, 4).decode("utf-8")
         assert result == "hi"
 
     def test_truncate_at_exact_boundary_preserves_character(self):
         """Bug regression: truncation at valid char boundary must NOT strip it."""
         # "àè" = c3 a0 c3 a8 (4 bytes), max_bytes=4 lands exactly at end of è
-        raw = "àè".encode("utf-8")
+        raw = "àè".encode()
         result = self._truncate_utf8(raw, 4).decode("utf-8")
         assert result == "àè"  # Both characters preserved (was bug: stripped è)
 
     def test_truncate_between_two_multibyte(self):
         """Truncation between two multi-byte characters preserves the first."""
         # "àè" = c3 a0 c3 a8, max_bytes=3 cuts inside è
-        raw = "àè".encode("utf-8")
+        raw = "àè".encode()
         result = self._truncate_utf8(raw, 3).decode("utf-8")
         assert result == "à"  # è is incomplete, stripped

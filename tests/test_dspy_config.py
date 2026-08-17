@@ -4,9 +4,7 @@ These tests use a standalone copy of the _supports_cache_control function
  to avoid heavy import dependencies on dspy, litellm, and other modules.
 """
 
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import patch
 
 
 # Standalone copy of the function for isolated testing
@@ -27,18 +25,14 @@ def _supports_cache_control(model: str) -> bool:
     import litellm  # noqa: F401 - this is mocked
     try:
         info = litellm.get_model_info(model)
-        if info.get("cache_creation_input_token_cost") is not None:
-            return True
-        return False
+        return info.get("cache_creation_input_token_cost") is not None
     except Exception:
         # Model not in LiteLLM DB (Ollama offline, custom endpoint).
         # Fall back to prefix heuristic.
         lower = model.lower()
         if lower.startswith("anthropic/"):
             return True
-        if lower.startswith("bedrock/") and "anthropic" in lower:
-            return True
-        return False
+        return bool(lower.startswith("bedrock/") and "anthropic" in lower)
 
 
 class TestSupportsCacheControl:

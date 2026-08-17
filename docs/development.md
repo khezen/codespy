@@ -57,6 +57,7 @@ src/codespy/
 ├── config_llm.py             # LLM provider configuration
 ├── config_memory.py          # Memory system configuration
 ├── agents/                   # DSPy agents and pipeline
+│   ├── context_safe.py       # Context window overflow resilience (RLM fallback)
 │   ├── cost_tracker.py       # Token/cost tracking
 │   ├── dspy_config.py        # DSPy runtime config
 │   ├── memory/               # Hippocampus memory system

@@ -8,10 +8,10 @@ changed lines.
 Algorithm:
     1. Run ripgrep on the file with generic definition patterns
        → sorted list of (line_number, function_name)
-    
+
     2. Derive implicit boundaries: each function spans from its definition
        line to the line before the next definition (or EOF)
-    
+
     3. Intersect these boundaries with changed_line_ranges
        → return functions that contain at least one changed line
 
@@ -29,7 +29,6 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
 
 from codespy.tools.parsers.treesitter.models import FunctionInfo
 
@@ -222,7 +221,7 @@ class RipgrepHeuristicsExtractor:
                 content = parts[2]
 
                 # Try each pattern to extract function name
-                for pattern_name, pattern in patterns:
+                for _pattern_name, pattern in patterns:
                     match = pattern.match(content)
                     if match:
                         func_name = match.group(1) if match.lastindex else None
@@ -266,10 +265,7 @@ class RipgrepHeuristicsExtractor:
         boundaries = []
         for i, (line_num, func_name, full_line) in enumerate(definitions):
             # End is line before next definition, or EOF
-            if i + 1 < len(definitions):
-                end_line = definitions[i + 1][0] - 1
-            else:
-                end_line = total_lines
+            end_line = definitions[i + 1][0] - 1 if i + 1 < len(definitions) else total_lines
 
             boundaries.append((line_num, end_line, func_name, full_line))
 

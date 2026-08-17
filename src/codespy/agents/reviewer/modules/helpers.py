@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING
 
-from codespy.tools.git.models import ChangedFile
 from codespy.agents.reviewer.models import Issue
+from codespy.tools.git.models import ChangedFile
 
 if TYPE_CHECKING:
     from codespy.agents.reviewer.models import ScopeResult
@@ -58,10 +59,10 @@ def is_markdown_file(filename: str) -> bool:
 
 def get_language(file: ChangedFile) -> str:
     """Get the programming language for a file based on extension.
-    
+
     Args:
         file: The changed file
-        
+
     Returns:
         Language name or "Unknown"
     """
@@ -118,7 +119,8 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
         New ScopeResult with scope-relative file paths in changed_files.
         The subroot is set to "." since paths are now relative to it.
     """
-    from codespy.agents.reviewer.models import PackageManifest, ScopeResult as SR
+    from codespy.agents.reviewer.models import PackageManifest
+    from codespy.agents.reviewer.models import ScopeResult as SR
 
     if scope.subroot == ".":
         return scope  # Already at repo root, no transformation needed

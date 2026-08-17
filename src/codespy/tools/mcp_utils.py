@@ -53,7 +53,7 @@ async def connect_mcp_server(
     await session.__aenter__()
     contexts.append(session)
     await session.initialize()
-    
+
     tools_response = await session.list_tools()
     return [dspy.Tool.from_mcp_tool(session, tool) for tool in tools_response.tools]
 

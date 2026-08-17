@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-
 import yaml
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,7 +13,6 @@ from codespy.config_dspy import (
     SignatureConfig,
     apply_signature_env_overrides,
 )
-
 from codespy.config_git import (
     GitHubConfig,
     GitLabConfig,
@@ -34,9 +32,9 @@ from codespy.config_llm import (
     discover_openai_api_key,
 )
 from codespy.config_memory import (
+    REFLECTION_MODULES,
     LLMSettings,
     MemoryConfig,
-    REFLECTION_MODULES,
     apply_memory_env_overrides,
     reset_memory_store,
 )

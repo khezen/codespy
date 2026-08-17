@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 
 import dspy
 
-
 logger = logging.getLogger(__name__)
 
 from codespy.agents.memory.hippocampus.budget import (
@@ -19,7 +18,13 @@ from codespy.agents.memory.hippocampus.budget import (
     format_inputs,
     format_trajectory,
 )
-from codespy.agents.memory.hippocampus.context_memory import ContextMemory, ItemTag, Mutation, Operation, OpType
+from codespy.agents.memory.hippocampus.context_memory import (
+    ContextMemory,
+    ItemTag,
+    Mutation,
+    Operation,
+    OpType,
+)
 from codespy.agents.memory.hippocampus.episode import Episode
 from codespy.agents.memory.hippocampus.episode import load_episode as _load_episode
 from codespy.agents.memory.hippocampus.episode import save_episode as _save_episode

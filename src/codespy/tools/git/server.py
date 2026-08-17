@@ -2,13 +2,12 @@
 
 import logging
 import os
-import sys
 
 from mcp.server.fastmcp import FastMCP
 
 from codespy.config import Settings
-from codespy.tools.git.client import get_client, detect_platform, is_supported_url
 from codespy.tools.git.base import GitClient
+from codespy.tools.git.client import detect_platform, get_client, is_supported_url
 
 logger = logging.getLogger(__name__)
 
@@ -102,11 +101,11 @@ def clone_repository(
         Path to the cloned repository
     """
     from pathlib import Path
-    from codespy.tools.git.models import GitPlatform
-    
+
+
     if _settings is None:
         raise RuntimeError("Settings not initialized")
-    
+
     # Build a URL to get the right client
     if platform.lower() == "gitlab":
         # Use the configured GitLab URL or default
@@ -114,7 +113,7 @@ def clone_repository(
         dummy_url = f"{gitlab_base}/{owner}/{repo_name}/-/merge_requests/1"
     else:
         dummy_url = f"https://github.com/{owner}/{repo_name}/pull/1"
-    
+
     client = _get_client(dummy_url)
     logger.info(f"[GIT] {_caller_module} -> clone_repository: {owner}/{repo_name}@{ref[:8]} ({platform})")
     path = client.clone_repository(
@@ -155,7 +154,7 @@ if __name__ == "__main__":
     # Suppress noisy MCP server "Processing request" logs
     logging.getLogger("mcp.server").setLevel(logging.WARNING)
     logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
-    
+
     # Initialize with settings from environment
     _settings = Settings()
     mcp.run()

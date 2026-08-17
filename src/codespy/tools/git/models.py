@@ -2,12 +2,12 @@
 
 import re
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class FileStatus(str, Enum):
+class FileStatus(StrEnum):
     """Status of a file in a pull request."""
 
     ADDED = "added"
@@ -16,7 +16,7 @@ class FileStatus(str, Enum):
     RENAMED = "renamed"
 
 
-class GitPlatform(str, Enum):
+class GitPlatform(StrEnum):
     """Supported Git platforms."""
 
     GITHUB = "github"
@@ -135,7 +135,7 @@ class ChangedFile(BaseModel):
 
     def is_in_excluded_directory(self, excluded_directories: list[str]) -> bool:
         """Check if this file is in an excluded directory.
-        
+
         Args:
             excluded_directories: List of directory names to exclude (from settings)
         """
@@ -146,11 +146,11 @@ class ChangedFile(BaseModel):
     @property
     def valid_new_line_numbers(self) -> set[int]:
         """Get line numbers in the new file that are valid for inline comments.
-        
+
         Parses the unified diff patch to extract line numbers where inline comments
         can be placed. Only lines that appear in the diff (additions and context lines)
         are valid for GitHub/GitLab review comments.
-        
+
         Returns:
             Set of valid line numbers in the new version of the file
         """
@@ -172,11 +172,7 @@ class ChangedFile(BaseModel):
                 continue
 
             # Context line (unchanged) - valid for comments
-            if line.startswith(" "):
-                valid_lines.add(current_new_line)
-                current_new_line += 1
-            # Addition line - valid for comments
-            elif line.startswith("+"):
+            if line.startswith(" ") or line.startswith("+"):
                 valid_lines.add(current_new_line)
                 current_new_line += 1
             # Deletion line - doesn't increment new line counter (not in new file)
@@ -190,10 +186,10 @@ class ChangedFile(BaseModel):
 
     def is_line_in_diff(self, line_number: int) -> bool:
         """Check if a line number is valid for inline comments.
-        
+
         Args:
             line_number: Line number to check
-            
+
         Returns:
             True if the line is part of the diff and can receive inline comments
         """
@@ -202,11 +198,11 @@ class ChangedFile(BaseModel):
 
 def should_review_file(file: ChangedFile, excluded_directories: list[str]) -> bool:
     """Check if a file should be included in code review.
-    
+
     Args:
         file: The ChangedFile to check
         excluded_directories: List of directory names to exclude (from settings)
-        
+
     Returns:
         True if file should be reviewed, False if it should be skipped
     """
@@ -218,9 +214,7 @@ def should_review_file(file: ChangedFile, excluded_directories: list[str]) -> bo
         return False
     if file.is_source_map:
         return False
-    if file.is_in_excluded_directory(excluded_directories):
-        return False
-    return True
+    return not file.is_in_excluded_directory(excluded_directories)
 
 
 class PullRequest(BaseModel):

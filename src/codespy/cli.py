@@ -7,13 +7,13 @@ from rich.console import Console
 from rich.panel import Panel
 
 from codespy import __version__
-from codespy.config import get_settings
-from codespy.config_git import get_github_token_source, get_gitlab_token_source
+from codespy.cli_local import review_local, review_uncommitted
+from codespy.cli_mcp_server import serve
 
 # Import command functions from submodules
 from codespy.cli_remote import review
-from codespy.cli_local import review_local, review_uncommitted
-from codespy.cli_mcp_server import serve
+from codespy.config import get_settings
+from codespy.config_git import get_github_token_source, get_gitlab_token_source
 
 app = typer.Typer(
     name="codespy",

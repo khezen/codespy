@@ -1,15 +1,14 @@
 """Tests for ContextMemory with Topics."""
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from codespy.agents.memory.hippocampus import (
     ContextMemory,
     Item,
-    OpType,
     Operation,
+    OpType,
     Topic,
     compute_common_ancestor_topic_id,
     make_topic_id,
@@ -460,7 +459,6 @@ class TestTopicDependencies:
 
     def test_topic_deserialization_without_dependencies(self):
         """Old episodes without dependencies deserialize to empty list."""
-        import json
         old_data = '{"id": "owner/repo/auth", "description": "Auth service"}'
         topic = Topic.model_validate_json(old_data)
         assert topic.dependencies == []

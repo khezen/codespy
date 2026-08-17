@@ -87,7 +87,7 @@ def review(
 
     # Print config at startup (secrets are hidden via repr=False)
     logging.info(f"Loaded config: {settings}")
-    
+
     # Log module configurations
     settings.log_signature_configs()
 
@@ -113,7 +113,7 @@ def review(
 
     # Detect platform and validate token
     platform = detect_platform(pr_url)
-    
+
     if platform == "github":
         token = settings.github_token
         token_source = get_github_token_source()
@@ -156,14 +156,14 @@ def review(
     )
 
     try:
-        from codespy.agents.reviewer.reviewer import ReviewPipeline
         from codespy.agents.reviewer.models import RemoteReviewConfig
+        from codespy.agents.reviewer.reviewer import ReviewPipeline
 
         pipeline = ReviewPipeline(settings)
 
         # Create remote review config
         config = RemoteReviewConfig(url=pr_url)
-        
+
         # Run review (model access always verified in pipeline)
         result = pipeline(config)
 

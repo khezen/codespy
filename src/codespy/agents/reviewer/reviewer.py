@@ -4,27 +4,21 @@ import asyncio
 import logging
 import uuid
 from pathlib import Path
-from typing import Sequence
 
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
-from codespy.config import Settings, get_settings
-from codespy.config_memory import verify_memory_access
-from codespy.tools.git import GitClient, get_client, ChangedFile, PullRequest
-from codespy.tools.git.local_diff import build_pr_from_diff
-from codespy.tools.git.patch_utils import compact_patches
 from codespy.agents.memory.hippocampus import ContextMemory
 from codespy.agents.reviewer.models import (
     Issue,
+    LocalReviewConfig,
     PRContext,
+    RemoteReviewConfig,
+    ReviewConfig,
     ReviewContext,
     ReviewMetadata,
-    SignatureStatsResult,
     ReviewResult,
-    ReviewConfig,
-    RemoteReviewConfig,
-    LocalReviewConfig,
+    SignatureStatsResult,
 )
 from codespy.agents.reviewer.modules import (
     Auditor,
@@ -36,6 +30,11 @@ from codespy.agents.reviewer.modules import (
 )
 from codespy.agents.reviewer.modules.helpers import build_patches
 from codespy.agents.reviewer.modules.scope_resolver import MANIFEST_FILES, MANIFEST_GLOBS
+from codespy.config import Settings, get_settings
+from codespy.config_memory import verify_memory_access
+from codespy.tools.git import ChangedFile, GitClient, PullRequest, get_client
+from codespy.tools.git.local_diff import build_pr_from_diff
+from codespy.tools.git.patch_utils import compact_patches
 
 logger = logging.getLogger(__name__)
 
@@ -137,10 +136,10 @@ class ReviewPipeline(dspy.Module):
 
     def _build_local_pr(self, config: LocalReviewConfig) -> PullRequest:
         """Build a PullRequest from local git changes.
-        
+
         Args:
             config: Local review configuration
-            
+
         Returns:
             PullRequest object built from local git changes
         """
@@ -207,7 +206,7 @@ class ReviewPipeline(dspy.Module):
                 if manifest.lock_file_path:
                     logger.info(f"    Lock file: {manifest.lock_file_path}")
                 if manifest.dependencies_changed:
-                    logger.info(f"    Dependencies changed: Yes")
+                    logger.info("    Dependencies changed: Yes")
         # Expand sparse checkout to cover full scope subtrees
         if not is_local:
             self._expand_sparse_for_scopes(scopes, repo_path)

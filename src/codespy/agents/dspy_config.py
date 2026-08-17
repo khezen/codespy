@@ -3,12 +3,11 @@
 import logging
 
 import dspy  # type: ignore[import-untyped]
-from dspy.adapters.two_step_adapter import TwoStepAdapter  # type: ignore[import-untyped]
 import litellm  # type: ignore[import-untyped]
+from dspy.adapters.two_step_adapter import TwoStepAdapter  # type: ignore[import-untyped]
 
 from codespy.config import Settings, get_settings
-from codespy.config_memory import LLMSettings, REFLECTION_MODULES
-
+from codespy.config_memory import REFLECTION_MODULES, LLMSettings
 
 logger = logging.getLogger(__name__)
 
@@ -56,18 +55,14 @@ def _supports_cache_control(model: str) -> bool:
     """
     try:
         info = litellm.get_model_info(model)
-        if info.get("cache_creation_input_token_cost") is not None:
-            return True
-        return False
+        return info.get("cache_creation_input_token_cost") is not None
     except Exception:
         # Model not in LiteLLM DB (Ollama offline, custom endpoint).
         # Fall back to prefix heuristic.
         lower = model.lower()
         if lower.startswith("anthropic/"):
             return True
-        if lower.startswith("bedrock/") and "anthropic" in lower:
-            return True
-        return False
+        return bool(lower.startswith("bedrock/") and "anthropic" in lower)
 
 
 def new_lm(settings: Settings, config: LLMSettings) -> dspy.LM:
@@ -230,9 +225,9 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
     """
     # Collect all unique models from config
     models_to_check: set[str] = {settings.default_model}
-    
+
     # Check all signature-specific models
-    for sig_name, sig_config in settings.signatures.items():
+    for _sig_name, sig_config in settings.signatures.items():
         if sig_config.model:
             models_to_check.add(sig_config.model)
 
@@ -248,7 +243,7 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
     # Check each model
     verified: list[str] = []
     failed: list[str] = []
-    
+
     for model in models_to_check:
         try:
             litellm.completion(
@@ -266,26 +261,24 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
             failed.append(f"{model}: connection error - {e}")
         except Exception as e:
             failed.append(f"{model}: {e}")
-    
+
     if failed:
         return False, f"Model verification failed: {'; '.join(failed)}"
-    
+
     return True, f"Verified {len(verified)} model(s): {', '.join(verified)}"
 
 
 class _TaskDestroyedFilter(logging.Filter):
     """Filter to suppress 'Task was destroyed' messages from asyncio."""
-    
+
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
-        if "Task was destroyed" in msg and "LoggingWorker" in msg:
-            return False
-        return True
+        return not ("Task was destroyed" in msg and "LoggingWorker" in msg)
 
 
 class _MCPRequestFilter(logging.Filter):
     """Filter to suppress all noisy 'Processing request of type' MCP server messages."""
-    
+
     def filter(self, record: logging.LogRecord) -> bool:
         return "Processing request of type" not in record.getMessage()
 

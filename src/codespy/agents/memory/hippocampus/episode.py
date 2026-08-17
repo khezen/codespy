@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
@@ -172,7 +172,7 @@ def find_latest_episode(
     if not candidates:
         return None
     # Sort by modified_at descending; epoch fallback for entries without timestamp
-    _epoch = datetime.min.replace(tzinfo=timezone.utc)
+    _epoch = datetime.min.replace(tzinfo=UTC)
     candidates.sort(
         key=lambda e: e.modified_at if e.modified_at is not None else _epoch,
         reverse=True,

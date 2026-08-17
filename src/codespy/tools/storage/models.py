@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 
-class EntryType(str, Enum):
+class EntryType(StrEnum):
     """Type of storage entry."""
 
     FILE = "file"
@@ -84,7 +84,7 @@ class TreeNode(BaseModel):
 
     name: str = Field(description="Entry name")
     entry_type: EntryType = Field(description="Type of entry")
-    children: list["TreeNode"] = Field(default_factory=list, description="Child nodes")
+    children: list[TreeNode] = Field(default_factory=list, description="Child nodes")
 
     def to_string(self, prefix: str = "", is_last: bool = True) -> str:
         """Convert tree node to string representation.

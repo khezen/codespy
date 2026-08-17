@@ -22,23 +22,22 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import (
-    PRContext,
     PackageManifest,
     ReviewContext,
     ScopeResult,
     ScopeType,
+)
+from codespy.agents.reviewer.modules.manifest_parser import (
+    PACKAGE_MANAGER_TO_ECOSYSTEM,
+    extract_dependencies,
+    extract_package_name,
+    infer_repo_from_name,
 )
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 from codespy.tools.git.client import get_client
 from codespy.tools.git.models import ChangedFile, PullRequest, should_review_file
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
-from codespy.agents.reviewer.modules.manifest_parser import (
-    extract_package_name,
-    extract_dependencies,
-    PACKAGE_MANAGER_TO_ECOSYSTEM,
-    infer_repo_from_name,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -908,7 +907,7 @@ class ScopeResolver(dspy.Module):
         scopes: list[ScopeResult],
         orphans: list[ChangedFile],
         review_context: ReviewContext,
-    ) -> tuple[list[ScopeResult], "ContextMemory | None"]:
+    ) -> tuple[list[ScopeResult], ContextMemory | None]:
         """Use ReAct agent to refine scope assignments from deterministic candidates.
 
         Args:
@@ -921,7 +920,10 @@ class ScopeResolver(dspy.Module):
                       ContextMemory with topics and items from Hippocampus)
         """
         from codespy.agents.memory.hippocampus import (
-            ContextMemory, Topic, compute_common_ancestor_topic_id, make_topic_id,
+            ContextMemory,
+            Topic,
+            compute_common_ancestor_topic_id,
+            make_topic_id,
         )
 
         # Local bindings from review_context metadata
@@ -1102,7 +1104,7 @@ class ScopeResolver(dspy.Module):
     async def aforward(
         self,
         review_context: ReviewContext,
-    ) -> tuple[list[ScopeResult], "ContextMemory | None"]:
+    ) -> tuple[list[ScopeResult], ContextMemory | None]:
         """Resolve scopes in the repository for the given PR.
 
         Args:

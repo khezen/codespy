@@ -51,11 +51,15 @@ codespy review-local /path/to/repo      # Review specific repo
 codespy review-local --base develop     # Compare against develop
 codespy review-local --base origin/main # Compare against origin/main
 codespy review-local --base HEAD~5      # Compare against 5 commits back
+codespy review-local --model anthropic/claude-sonnet-4-5-20250929
+codespy review-local --output json --config staging.yaml
 
 # Review uncommitted changes (staged + unstaged)
 codespy review-uncommitted              # Review current dir
 codespy review-uncommitted /path/to/repo
 codespy review-uncommitted --output json
+codespy review-uncommitted --model anthropic/claude-sonnet-4-5-20250929
+codespy review-uncommitted --config staging.yaml
 ```
 
 ## IDE Integration (MCP Server)

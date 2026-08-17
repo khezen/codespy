@@ -114,7 +114,7 @@ See [Memory System](memory.md) for implementation details.
 
 ## Tools Layer
 
-- **Filesystem**: `read_file`, `list_dir`
+- **Filesystem**: `read_file`, `list_directory`, `find_files`, `search_text`, `get_file_summary`
 - **Git**: GitHub + GitLab clients, sparse checkout
 - **Parsers**: Ripgrep (code search) + Tree-sitter (multi-language AST)
 - **Web**: Browser-based web search
