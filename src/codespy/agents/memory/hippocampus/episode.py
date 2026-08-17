@@ -118,6 +118,7 @@ def find_latest_episode(
     store: Storage,
     dir: str,
     task: str | None = None,
+    exclude_task: str | None = None,
     exclude_run_id: str | None = None,
 ) -> Episode | None:
     """Find and load the most recent episode for a given scope path.
@@ -134,6 +135,8 @@ def find_latest_episode(
         task: Optional task filter (e.g., "scope", "summary").
             Matches ``-{task}-`` substring in filename remainder.
             If None, any task matches.
+        exclude_task: Optional task to exclude (e.g., "scope").
+            Episodes containing ``-{exclude_task}-`` in filename are skipped.
         exclude_run_id: If set, skip episodes containing this run_id in
             filename (avoids loading current pipeline's own episodes).
 
@@ -165,6 +168,8 @@ def find_latest_episode(
             continue
         remainder = entry.name[len(prefix):]
         if task is not None and f"-{task}-" not in remainder:
+            continue
+        if exclude_task is not None and f"-{exclude_task}-" in remainder:
             continue
         if exclude_run_id and exclude_run_id in remainder:
             continue

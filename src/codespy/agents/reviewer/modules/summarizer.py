@@ -88,7 +88,7 @@ class Summarizer(dspy.Module):
             store = get_memory_store(self._settings)
             per_scope_memories: list[ContextMemory] = []
             for scope in scopes:
-                ep = find_latest_episode(store, scope.scope_path(), task=None, exclude_run_id=run_id)
+                ep = find_latest_episode(store, scope.scope_path(), task=None, exclude_task="scope", exclude_run_id=run_id)
                 if ep is not None:
                     per_scope_memories.append(ep.context_memory)
             if per_scope_memories:
