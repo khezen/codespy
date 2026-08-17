@@ -239,10 +239,7 @@ class SupplyChainAuditor(dspy.Module):
     async def aforward(
         self,
         scopes: Sequence[ScopeResult],
-        repo_path: Path,
-        run_id: str | None = None,
-        review_context: ReviewContext | None = None,
-        mr: MergeRequest | None = None,
+        review_context: ReviewContext,
     ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for supply chain security vulnerabilities and return issues.
 
@@ -253,24 +250,26 @@ class SupplyChainAuditor(dspy.Module):
 
         Args:
             scopes: The scopes containing changed files to analyze
-            repo_path: Path to the cloned repository for reading manifest files
-            run_id: Identifier of the pipeline run, shared across all agents
-                invoked within the same review run (see ``Hippocampus.run_id``)
-            review_context: ReviewContext containing PR identity and inherited memory
-            mr: Optional merge request for topic ID computation
+            review_context: ReviewContext containing PR identity, inherited memory,
+                and runtime pipeline metadata (repo_path, run_id, mr)
 
         Returns:
             Tuple of (list of issues, merged context memory or None)
         """
+        # Local bindings from review_context metadata
+        repo_path = review_context.metadata.repo_path
+        run_id = review_context.metadata.run_id
+        mr = review_context.metadata.mr
+
         # Check if supply chain signature is enabled
         if not self._settings.is_signature_enabled("supply_chain"):
             logger.debug("Skipping supply_chain: disabled")
-            return [], review_context.memory if review_context else None
+            return [], review_context.memory
 
         # Check if any scope has supply-chain-relevant changes
         if not self._needs_analysis(scopes):
             logger.info("Skipping supply chain analysis: no dependency changes or Dockerfiles modified")
-            return [], review_context.memory if review_context else None
+            return [], review_context.memory
 
         all_issues: list[Issue] = []
         scope_memories: list[ContextMemory] = []
@@ -332,7 +331,7 @@ class SupplyChainAuditor(dspy.Module):
                             question = (
                                 f"review supply chain of {scope.repo}: {scope.subroot}: "
                                 f"pull request {review_context.pr_context.mr_number} {review_context.pr_context.mr_title}: {review_context.pr_context.summary}"
-                            ) if review_context else None
+                            )
                             topic_ids = [scope.topic(mr.repo_full_name).id] if mr else []
                             mem = Hippocampus(
                                 supply_chain_agent,
@@ -343,7 +342,7 @@ class SupplyChainAuditor(dspy.Module):
                                 question=question,
                                 task_name="supply_chain",
                                 run_id=run_id,
-                                initial_memory=review_context.memory if review_context else None,
+                                initial_memory=review_context.memory,
                                 topic_ids=topic_ids,
                             )
                             result = await mem.aforward(
@@ -361,9 +360,9 @@ class SupplyChainAuditor(dspy.Module):
                                 scope.scope_path(),
                                 artifacts={"review": issues_to_markdown(issues)},
                             )
-                        # Collect scope's context memory
-                        if mem:
-                            scope_memories.append(mem.cmem.model_copy(deep=True))
+                            # Collect scope's context memory
+                            if mem:
+                                scope_memories.append(mem.cmem.model_copy(deep=True))
                         else:
                             result = await supply_chain_agent.acall(
                                 manifest_path=manifest_path,
@@ -391,29 +390,23 @@ class SupplyChainAuditor(dspy.Module):
         merged_memory = (
             ContextMemory.merge(*scope_memories)
             if scope_memories
-            else (review_context.memory if review_context else None)
+            else review_context.memory
         )
         return all_issues, merged_memory
 
     def forward(
         self,
         scopes: Sequence[ScopeResult],
-        repo_path: Path,
-        run_id: str | None = None,
-        review_context: ReviewContext | None = None,
-        mr: MergeRequest | None = None,
+        review_context: ReviewContext,
     ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for supply chain security vulnerabilities (sync wrapper).
 
         Args:
             scopes: The scopes containing changed files to analyze
-            repo_path: Path to the cloned repository for reading manifest files
-            run_id: Identifier of the pipeline run, shared across all agents
-                invoked within the same review run
-            review_context: ReviewContext containing PR identity and inherited memory
-            mr: Optional merge request for topic ID computation
+            review_context: ReviewContext containing PR identity, inherited memory,
+                and runtime pipeline metadata (repo_path, run_id, mr)
 
         Returns:
             Tuple of (list of issues, merged context memory or None)
         """
-        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id, review_context=review_context, mr=mr))
+        return asyncio.run(self.aforward(scopes, review_context))

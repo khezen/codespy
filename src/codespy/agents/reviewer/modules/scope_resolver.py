@@ -906,20 +906,14 @@ class ScopeResolver(dspy.Module):
         self,
         scopes: list[ScopeResult],
         orphans: list[ChangedFile],
-        mr: MergeRequest,
-        repo_path: Path,
-        review_context: ReviewContext | None,
-        run_id: str | None,
+        review_context: ReviewContext,
     ) -> tuple[list[ScopeResult], "ContextMemory | None"]:
         """Use ReAct agent to refine scope assignments from deterministic candidates.
 
         Args:
             scopes: Already-resolved scope results
             orphans: Orphan files that couldn't be assigned
-            mr: The merge request
-            repo_path: Path to the repository root
-            review_context: Optional review context with memory
-            run_id: Pipeline run identifier
+            review_context: Review context with memory and metadata
 
         Returns:
             Tuple of (list of ScopeResult with agent-resolved assignments,
@@ -928,6 +922,11 @@ class ScopeResolver(dspy.Module):
         from codespy.agents.memory.hippocampus import (
             ContextMemory, Topic, compute_common_ancestor_topic_id, make_topic_id,
         )
+
+        # Local bindings from review_context metadata
+        mr = review_context.metadata.mr
+        repo_path = review_context.metadata.repo_path
+        run_id = review_context.metadata.run_id
 
         # Build candidates string from already-resolved scopes
         candidates_str = "\n".join(self._format_candidate(s) for s in scopes)
@@ -946,7 +945,7 @@ class ScopeResolver(dspy.Module):
             mem: Hippocampus | None = None
 
             async with SignatureContext("scope", self._cost_tracker):
-                if self._settings.get_memory_enabled("scope") and review_context:
+                if self._settings.get_memory_enabled("scope"):
                     question = (
                         f"refine scopes of {review_context.pr_context.repo_slug}: "
                         f"PR #{review_context.pr_context.mr_number} "
@@ -960,7 +959,7 @@ class ScopeResolver(dspy.Module):
                         question=question,
                         task_name="scope",
                         run_id=run_id,
-                        initial_memory=review_context.memory if review_context else None,
+                        initial_memory=review_context.memory,
                     )
                     result = await mem.aforward(
                         candidates=candidates_str,
@@ -1096,28 +1095,26 @@ class ScopeResolver(dspy.Module):
 
     async def aforward(
         self,
-        mr: MergeRequest,
-        repo_path: Path,
-        is_local: bool = False,
-        run_id: str | None = None,
-        review_context: ReviewContext | None = None,
+        review_context: ReviewContext,
     ) -> tuple[list[ScopeResult], "ContextMemory | None"]:
         """Resolve scopes in the repository for the given MR.
 
         Args:
-            mr: The merge request to analyze
-            repo_path: Path to the repository root
-            is_local: If True, repo is already on disk
-            run_id: Pipeline run identifier
-            review_context: Review context with inherited memory
+            review_context: Review context with inherited memory and metadata
 
         Returns:
             Tuple of (list of ScopeResult, final context memory or None)
         """
+        # Local bindings from review_context metadata
+        mr = review_context.metadata.mr
+        repo_path = review_context.metadata.repo_path
+        is_local = review_context.metadata.is_local
+        run_id = review_context.metadata.run_id
+
         excluded_dirs = self._settings.excluded_directories
         reviewable_files = [f for f in mr.changed_files if should_review_file(f, excluded_dirs)]
         if not reviewable_files:
-            return [], review_context.memory if review_context else None
+            return [], review_context.memory
         repo = mr.repo_slug
         if not self._settings.is_signature_enabled("scope"):
             fallback = ScopeResult(
@@ -1175,21 +1172,18 @@ class ScopeResolver(dspy.Module):
                     logger.debug("No prior scope episode found at %s", common_dir)
             # Inject loaded memory into review_context for _refine_scopes
             if loaded_memory is not None:
+                merged_memory = (
+                    ContextMemory.merge(loaded_memory, review_context.memory)
+                    if review_context.memory
+                    else loaded_memory
+                )
                 review_context = ReviewContext(
-                    pr_context=review_context.pr_context if review_context else PRContext(
-                        repo_slug=mr.repo_slug,
-                        mr_number=mr.number,
-                        mr_title=mr.title or "",
-                        summary=mr.title or "",
-                    ),
-                    memory=(
-                        ContextMemory.merge(loaded_memory, review_context.memory)
-                        if review_context and review_context.memory
-                        else loaded_memory
-                    ),
+                    pr_context=review_context.pr_context,
+                    memory=merged_memory,
+                    metadata=review_context.metadata,
                 )
             scopes, context_memory = await self._refine_scopes(
-                scopes, orphans, mr, repo_path, review_context, run_id
+                scopes, orphans, review_context
             )
             # Log final scopes for visibility
             scope_summary = "\n".join(
@@ -1212,15 +1206,7 @@ class ScopeResolver(dspy.Module):
 
     def forward(
         self,
-        mr: MergeRequest,
-        repo_path: Path,
-        is_local: bool = False,
-        run_id: str | None = None,
-        review_context: ReviewContext | None = None,
+        review_context: ReviewContext,
     ) -> tuple[list[ScopeResult], ContextMemory | None]:
         """Resolve scopes (sync wrapper)."""
-        return asyncio.run(
-            self.aforward(
-                mr, repo_path, is_local=is_local, run_id=run_id, review_context=review_context
-            )
-        )
+        return asyncio.run(self.aforward(review_context))

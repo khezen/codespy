@@ -23,18 +23,6 @@ class PRContext(BaseModel):
     summary: str = Field(description="2-3 sentence PR summary produced by Summarizer")
 
 
-class ReviewContext(BaseModel):
-    """Evolving pipeline state threaded through review stages.
-
-    Carries both the immutable PR identity and the inherited context memory
-    from upstream pipeline stages. Updated at each stage boundary
-    so downstream modules inherit accumulated understanding.
-    """
-
-    pr_context: PRContext = Field(description="Immutable PR identity (repo, number, title, summary)")
-    memory: ContextMemory | None = Field(default=None, description="Inherited context memory from upstream stages")
-
-
 class IssueSeverity(str, Enum):
     """Severity level of an issue."""
 
@@ -77,7 +65,33 @@ class PackageManifest(BaseModel):
     package_name: str | None = Field(default=None, description="Package identity from manifest")
 
 
-from codespy.tools.git.models import ChangedFile
+from codespy.tools.git.models import ChangedFile, MergeRequest
+
+
+class ReviewMetadata(BaseModel):
+    """Runtime pipeline state, stable once constructed at pipeline start.
+
+    Groups repo_path, run_id, mr, and is_local to reduce parameter
+    proliferation across module method signatures.
+    """
+
+    repo_path: Path
+    run_id: str | None = None
+    mr: MergeRequest | None = None
+    is_local: bool = False
+
+
+class ReviewContext(BaseModel):
+    """Evolving pipeline state threaded through review stages.
+
+    Carries both the immutable PR identity and the inherited context memory
+    from upstream pipeline stages. Updated at each stage boundary
+    so downstream modules inherit accumulated understanding.
+    """
+
+    pr_context: PRContext = Field(description="Immutable PR identity (repo, number, title, summary)")
+    memory: ContextMemory | None = Field(default=None, description="Inherited context memory from upstream stages")
+    metadata: ReviewMetadata | None = Field(default=None, description="Runtime pipeline state")
 
 
 class ScopeResult(BaseModel):

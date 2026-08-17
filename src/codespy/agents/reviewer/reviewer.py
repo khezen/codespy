@@ -19,6 +19,7 @@ from codespy.agents.reviewer.models import (
     Issue,
     PRContext,
     ReviewContext,
+    ReviewMetadata,
     SignatureStatsResult,
     ReviewResult,
     ReviewConfig,
@@ -99,11 +100,8 @@ class ReviewPipeline(dspy.Module):
     async def _run_review_modules(
         self,
         scopes: list,
-        repo_path: Path,
         module_names: list[str],
-        run_id: str | None = None,
-        review_context: ReviewContext | None = None,
-        mr: MergeRequest | None = None,
+        review_context: ReviewContext,
     ) -> tuple[list[Issue], dict[str, ContextMemory | None]]:
         """Run review modules concurrently in a single event loop.
 
@@ -113,33 +111,16 @@ class ReviewPipeline(dspy.Module):
 
         Args:
             scopes: Identified scopes with changed files
-            repo_path: Path to the cloned repository
             module_names: Names of modules (for error logging)
-            run_id: Identifier of the pipeline run, shared across all agents
-                invoked within the same review run
             review_context: ReviewContext for Hippocampus question and memory inheritance
 
         Returns:
             Tuple of (aggregated list of issues, dict of module_name -> context_memory)
         """
-        # Compute all scope topic IDs for summary/auditor modules
-        all_scope_topic_ids: list[str] = []
-        if mr:
-            all_scope_topic_ids = [s.topic(mr.repo_full_name).id for s in scopes]
-
         tasks = [
-            self.code_reviewer.aforward(
-                scopes=scopes, repo_path=repo_path, run_id=run_id,
-                review_context=review_context, mr=mr
-            ),
-            self.doc_reviewer.aforward(
-                scopes=scopes, repo_path=repo_path, run_id=run_id,
-                review_context=review_context, mr=mr
-            ),
-            self.supply_chain_auditor.aforward(
-                scopes=scopes, repo_path=repo_path, run_id=run_id,
-                review_context=review_context, mr=mr
-            ),
+            self.code_reviewer.aforward(scopes=scopes, review_context=review_context),
+            self.doc_reviewer.aforward(scopes=scopes, review_context=review_context),
+            self.supply_chain_auditor.aforward(scopes=scopes, review_context=review_context),
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -215,10 +196,9 @@ class ReviewPipeline(dspy.Module):
             mr_title=mr.title,
             summary=mr.title,  # Use title as placeholder since summary hasn't run
         )
-        review_ctx = ReviewContext(pr_context=pr_context, memory=None)
-        scopes, initial_memory = self.scope_resolver(
-            mr, repo_path, is_local=is_local, run_id=run_id, review_context=review_ctx
-        )
+        metadata = ReviewMetadata(repo_path=repo_path, run_id=run_id, mr=mr, is_local=is_local)
+        review_ctx = ReviewContext(pr_context=pr_context, memory=None, metadata=metadata)
+        scopes, initial_memory = self.scope_resolver(review_context=review_ctx)
         for scope in scopes:
             logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
             if scope.package_manifest:
@@ -258,13 +238,13 @@ class ReviewPipeline(dspy.Module):
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
         all_issues, parallel_memories = asyncio.run(
-            self._run_review_modules(scopes, repo_path, module_names, run_id=run_id, review_context=review_ctx, mr=mr)
+            self._run_review_modules(scopes, module_names, review_context=review_ctx)
         )
         logger.info(f"Found {len(all_issues)} issues")
         # Merge parallel context memories for Auditor
         memories_to_merge = [m for m in parallel_memories.values() if m is not None]
         merged_memory = ContextMemory.merge(*memories_to_merge) if memories_to_merge else summarizer_memory
-        review_ctx = ReviewContext(pr_context=pr_context, memory=merged_memory)
+        review_ctx = ReviewContext(pr_context=pr_context, memory=merged_memory, metadata=metadata)
         # Step 4: Run Audit (inherits merged memory from parallel modules)
         scoped_files = self._collect_scoped_files(scopes)
         logger.info(

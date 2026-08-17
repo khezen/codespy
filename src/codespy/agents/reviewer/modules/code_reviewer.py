@@ -183,27 +183,26 @@ class CodeReviewer(dspy.Module):
     async def aforward(
         self,
         scopes: Sequence[ScopeResult],
-        repo_path: Path,
-        run_id: str | None = None,
-        review_context: ReviewContext | None = None,
-        mr: MergeRequest | None = None,
+        review_context: ReviewContext,
     ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for defects, security issues, and code smells.
 
         Args:
             scopes: List of identified scopes with their changed files
-            repo_path: Path to the cloned repository
-            run_id: Identifier of the pipeline run, shared across all agents
-                invoked within the same review run (see ``Hippocampus.run_id``)
-            review_context: ReviewContext containing PR identity and inherited memory
-            mr: Optional merge request for topic ID computation
+            review_context: ReviewContext containing PR identity, inherited memory,
+                and runtime pipeline metadata (repo_path, run_id, mr)
 
         Returns:
             Tuple of (list of issues, merged context memory or None)
         """
+        # Local bindings from review_context metadata
+        repo_path = review_context.metadata.repo_path
+        run_id = review_context.metadata.run_id
+        mr = review_context.metadata.mr
+
         if not self._settings.is_signature_enabled("code_review"):
             logger.debug("Skipping code_review: disabled")
-            return [], review_context.memory if review_context else None
+            return [], review_context.memory
 
         # Determine which categories are active
         categories: list[IssueCategory] = []
@@ -214,11 +213,10 @@ class CodeReviewer(dspy.Module):
         changed_scopes = [s for s in scopes if s.has_changes and s.changed_files]
         if not changed_scopes:
             logger.info("No scopes with changes for code review")
-            return [], review_context.memory if review_context else None
+            return [], review_context.memory
 
         all_issues: list[Issue] = []
         scope_memories: list[ContextMemory] = []
-        max_iters = self._settings.get_max_iters("code_review")
         max_iters = self._settings.get_max_iters("code_review")
 
         total_files = sum(len(s.changed_files) for s in changed_scopes)
@@ -247,7 +245,7 @@ class CodeReviewer(dspy.Module):
                         question = (
                             f"review code change of {scope.repo}: {scope.subroot}: "
                             f"pull request {review_context.pr_context.mr_number} {review_context.pr_context.mr_title}: {review_context.pr_context.summary}"
-                        ) if review_context else None
+                        )
                         topic_ids = [scope.topic(mr.repo_full_name).id] if mr else []
                         mem = Hippocampus(
                             agent,
@@ -256,7 +254,7 @@ class CodeReviewer(dspy.Module):
                             question=question,
                             task_name="code_review",
                             run_id=run_id,
-                            initial_memory=review_context.memory if review_context else None,
+                            initial_memory=review_context.memory,
                             topic_ids=topic_ids,
                         )
                         result = await mem.aforward(
@@ -299,29 +297,23 @@ class CodeReviewer(dspy.Module):
         merged_memory = (
             ContextMemory.merge(*scope_memories)
             if scope_memories
-            else (review_context.memory if review_context else None)
+            else review_context.memory
         )
         return all_issues, merged_memory
 
     def forward(
         self,
         scopes: Sequence[ScopeResult],
-        repo_path: Path,
-        run_id: str | None = None,
-        review_context: ReviewContext | None = None,
-        mr: MergeRequest | None = None,
+        review_context: ReviewContext,
     ) -> tuple[list[Issue], ContextMemory | None]:
         """Analyze scopes for code issues (sync wrapper).
 
         Args:
             scopes: List of identified scopes with their changed files
-            repo_path: Path to the cloned repository
-            run_id: Identifier of the pipeline run, shared across all agents
-                invoked within the same review run
-            review_context: ReviewContext containing PR identity and inherited memory
-            mr: Optional merge request for topic ID computation
+            review_context: ReviewContext containing PR identity, inherited memory,
+                and runtime pipeline metadata (repo_path, run_id, mr)
 
         Returns:
             Tuple of (list of issues, merged context memory or None)
         """
-        return asyncio.run(self.aforward(scopes, repo_path, run_id=run_id, review_context=review_context, mr=mr))
+        return asyncio.run(self.aforward(scopes, review_context))
