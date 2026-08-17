@@ -74,9 +74,9 @@ inputs:
     default: 'medium'
   
   default-temperature:
-    description: 'Default temperature for LLM calls (must be 1 while reasoning is enabled)'
+    description: 'Default temperature for LLM calls'
     required: false
-    default: '1'
+    default: '0.2'
 
   
   llm-retries:

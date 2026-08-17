@@ -125,8 +125,7 @@ class Settings(BaseSettings):
     default_max_iters: int = 10
     # Provider reasoning budget; LiteLLM maps this to each provider's native parameter.
     default_reasoning_effort: ReasoningEffort = "medium"
-    # Providers require temperature=1 when reasoning is enabled.
-    default_temperature: float = 1.0
+    default_temperature: float = 0.2
     # Output token budget per completion. Must be set explicitly: when it is
     # omitted LiteLLM silently falls back to its own 4096 default, which
     # truncates reasoning models (thinking tokens are charged against this

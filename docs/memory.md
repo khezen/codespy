@@ -102,10 +102,10 @@ CODE_REVIEW_MEMORY_ENABLED=true
 SUMMARY_MEMORY_ENABLED=true
 ```
 
-Optimize with cheap reflection model:
+Recommended mid-tier reflection model:
 ```bash
-MEMORY_DISTILLER_MODEL=anthropic/claude-haiku-4-5-20251001
-MEMORY_CARTOGRAPHER_MODEL=anthropic/claude-haiku-4-5-20251001
+MEMORY_DISTILLER_MODEL=anthropic/claude-sonnet-4-5-20250929
+MEMORY_CARTOGRAPHER_MODEL=anthropic/claude-sonnet-4-5-20250929
 ```
 
 ---

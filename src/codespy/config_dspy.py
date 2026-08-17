@@ -34,7 +34,7 @@ class SignatureConfig(BaseModel):
     max_iters: int | None = None
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None  # Provider reasoning budget
-    temperature: float | None = None  # Must be 1 when reasoning is enabled
+    temperature: float | None = None
     max_tokens: int | None = None  # Output token budget (reasoning tokens included)
     scan_unchanged: bool | None = None  # For supply_chain: scan unmodified artifacts/manifests
 

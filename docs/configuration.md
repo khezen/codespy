@@ -109,7 +109,7 @@ AUTO_DISCOVER_GEMINI=false
 | Model | `DEFAULT_MODEL` | `anthropic/claude-opus-4-6` | Primary model for all signatures |
 | Reasoning effort | `DEFAULT_REASONING_EFFORT` | `medium` | Provider reasoning budget: `minimal`, `low`, `medium`, `high` |
 | Max tokens | `DEFAULT_MAX_TOKENS` | `64000` | Output token budget per completion (reasoning tokens included) |
-| Temperature | `DEFAULT_TEMPERATURE` | `1` | Must be 1 while reasoning is enabled |
+| Temperature | `DEFAULT_TEMPERATURE` | `0.2` | Default temperature for LLM calls |
 | Max iterations | `DEFAULT_MAX_ITERS` | `10` | Maximum ReAct iterations for tool-using agents |
 | Prompt caching | `ENABLE_PROMPT_CACHING` | `true` | Provider-side prompt caching (Anthropic, OpenAI, Bedrock) |
 
@@ -120,7 +120,7 @@ AUTO_DISCOVER_GEMINI=false
 | Smart | Core analysis & reasoning | `DEFAULT_MODEL` | `anthropic/claude-opus-4-6` | Claude Opus / GPT-5 |
 | Mid-tier | Field extraction | `EXTRACTION_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
 | Cheap | PR summary | `SUMMARY_MODEL` | Falls back to DEFAULT_MODEL | Claude Haiku |
-| Cheap | Memory reflection | `MEMORY_DISTILLER_MODEL` / `MEMORY_CARTOGRAPHER_MODEL` | Falls back to DEFAULT_MODEL | Claude Haiku |
+| Mid-tier | Memory reflection | `MEMORY_DISTILLER_MODEL` / `MEMORY_CARTOGRAPHER_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
 
 ## Per-Signature Configuration
 
