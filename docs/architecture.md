@@ -79,7 +79,7 @@ CodeSpy's review pipeline follows a 4-step flow:
 
 | Signature | Config Key | Type | Description |
 |-----------|------------|------|-------------|
-| **ScopeIdentifierSignature** | `scope` | ReAct | Identifies code scopes (frontend, backend, infra, microservice in monorepo, etc.) |
+| **ScopeRefinementSignature** | `scope` | ReAct | Identifies code scopes (frontend, backend, infra, microservice in monorepo, etc.) |
 | **PRSummarySignature** | `summary` | ChainOfThought | Generates PR summary |
 | **CodeReviewSignature** | `code_review` | ReAct | Detects verified bugs, security vulnerabilities, removed defensive code, and code smells |
 | **DocReviewSignature** | `doc` | ChainOfThought | Detects stale or wrong documentation caused by code changes |
