@@ -38,6 +38,18 @@ class Storage(ABC):
         ...
 
     @abstractmethod
+    def verify_access(self) -> None:
+        """Verify the storage backend is accessible.
+
+        Raises:
+            FileNotFoundError: If the storage root does not exist.
+            NotADirectoryError: If the storage root is not a directory.
+            PermissionError: If the storage root is not readable.
+            Exception: Backend-specific errors (e.g., S3 credentials, bucket access).
+        """
+        ...
+
+    @abstractmethod
     def get_info(self, path: str = "") -> Info:
         """Get metadata about a file or directory.
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -94,6 +95,21 @@ class FileSystem(Storage):
             return resolved.exists()
         except ValueError:
             return False
+
+    def verify_access(self) -> None:
+        """Verify the filesystem root is accessible.
+
+        Raises:
+            FileNotFoundError: If the memory root does not exist.
+            NotADirectoryError: If the memory root is not a directory.
+            PermissionError: If the memory root is not readable.
+        """
+        if not self.root.exists():
+            raise FileNotFoundError(f"Memory root does not exist: {self.root}")
+        if not self.root.is_dir():
+            raise NotADirectoryError(f"Memory root is not a directory: {self.root}")
+        if not os.access(self.root, os.R_OK):
+            raise PermissionError(f"Memory root is not readable: {self.root}")
 
     def get_info(self, path: str = "") -> Info:
         """Get information about a file or directory."""

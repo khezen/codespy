@@ -82,6 +82,16 @@ class S3Client(Storage):
             return name.rsplit(".", 1)[-1]
         return ""
 
+    def verify_access(self) -> None:
+        """Verify S3 bucket is accessible (credentials + bucket existence).
+
+        Raises:
+            ClientError: If the bucket doesn't exist, credentials are invalid,
+                or IAM lacks ListBucket permission. Let the caller handle this.
+        """
+        # Let ClientError propagate — NoSuchBucket, AccessDenied, InvalidAccessKeyId, etc.
+        self._s3.list_objects_v2(Bucket=self.bucket, MaxKeys=1)
+
     def _client_error_code(self, exc: Exception) -> str:
         try:
             return exc.response["Error"]["Code"]  # type: ignore[attr-defined]

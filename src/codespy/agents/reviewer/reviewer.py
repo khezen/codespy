@@ -10,6 +10,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 from codespy.config import Settings, get_settings
+from codespy.config_memory import verify_memory_access
 from codespy.tools.git import GitClient, get_client, ChangedFile, MergeRequest
 from codespy.tools.git.local_diff import build_mr_from_diff
 from codespy.tools.git.patch_utils import compact_patches
@@ -64,6 +65,14 @@ class ReviewPipeline(dspy.Module):
         if not success:
             raise ValueError(f"Model access failed: {message}")
         logger.info(f"Model access: {message}")
+
+    def _verify_memory_access(self) -> None:
+        """Verify memory storage access."""
+        logger.info("Verifying memory storage access...")
+        success, message = verify_memory_access(self.settings)
+        if not success:
+            raise ValueError(f"Memory storage access failed: {message}")
+        logger.info(f"Memory storage: {message}")
 
     def _get_git_client(self, url: str) -> GitClient:
         """Get or create a Git client for the given URL."""
@@ -178,6 +187,9 @@ class ReviewPipeline(dspy.Module):
 
         # Always verify model access
         self._verify_model_access()
+
+        # Verify memory storage access
+        self._verify_memory_access()
 
         # Determine mode and fetch/build MR accordingly
         if isinstance(config, RemoteReviewConfig):

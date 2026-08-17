@@ -308,3 +308,31 @@ def reset_memory_store() -> None:
     global _store, _store_built
     _store = None
     _store_built = False
+
+
+def verify_memory_access(settings: Settings) -> tuple[bool, str]:
+    """Verify memory storage is accessible when memory is active.
+
+    Returns:
+        Tuple of (success, message). Success is True when memory is disabled
+        (no active signatures use it) or when the storage backend responds.
+    """
+    from codespy.config_dspy import SIGNATURE_NAMES
+
+    # Skip if no enabled signature uses memory
+    if not any(
+        settings.is_signature_enabled(sig) and settings.get_memory_enabled(sig)
+        for sig in SIGNATURE_NAMES
+    ):
+        return True, "Memory disabled — skipping storage check"
+
+    store = get_memory_store(settings)
+    if store is None:
+        return False, "Memory is enabled but storage is not configured (missing S3 bucket?)"
+
+    try:
+        store.verify_access()
+    except Exception as e:
+        return False, f"Memory storage not accessible: {e}"
+
+    return True, f"Memory storage verified ({settings.memory.backend})"
