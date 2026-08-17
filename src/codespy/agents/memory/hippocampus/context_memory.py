@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class ItemTag(str, Enum):
@@ -292,12 +295,22 @@ class ContextMemory(BaseModel):
                     lst[:] = [it for it in lst if it.id != op.item_id]
 
             elif op.type == OpType.REPLACE and op.item_id and op.content:
+                replaced = False
                 for sec in cm.section_names():
                     lst = cm.section(sec)
                     for i, it in enumerate(lst):
                         if it.id == op.item_id:
                             # Preserve existing topic_ids on REPLACE
                             lst[i] = Item(id=it.id, content=op.content, topic_ids=it.topic_ids)
+                            replaced = True
+                            break
+                    if replaced:
+                        break
+                if not replaced:
+                    logger.warning(
+                        "REPLACE target %r not found in context memory; skipping",
+                        op.item_id,
+                    )
 
             elif op.type == OpType.ADD and op.section and op.content:
                 prefix = _SECTION_PREFIX.get(op.section, op.section[:2])

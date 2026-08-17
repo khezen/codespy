@@ -366,6 +366,27 @@ class TestContextMemoryApply:
 
         assert len(new_memory.context_understanding) == 0
 
+    def test_replace_nonexistent_logs_warning(self, caplog):
+        """REPLACE on non-existent item logs warning and leaves memory unchanged."""
+        import logging
+
+        memory = ContextMemory(
+            context_understanding=[
+                Item(id="cu-abc", content="Existing", topic_ids=["t1"]),
+            ],
+        )
+        ops = [Operation(type=OpType.REPLACE, item_id="cu-GONE", content="New content")]
+        with caplog.at_level(
+            logging.WARNING,
+            logger="codespy.agents.memory.hippocampus.context_memory",
+        ):
+            new_memory, new_ids = memory.apply(ops, topic_ids=["t2"])
+
+        assert new_ids == []
+        assert new_memory.context_understanding[0].content == "Existing"
+        assert "cu-GONE" in caplog.text
+        assert "not found" in caplog.text
+
 
 class TestContextMemoryMerge:
     """Tests for ContextMemory.merge() method."""

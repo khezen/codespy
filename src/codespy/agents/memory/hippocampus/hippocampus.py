@@ -498,7 +498,7 @@ class Hippocampus(dspy.Module):
             List of Mutation records for this step.
         """
         mutations: list[Mutation] = []
-        add_indices: list[int] = []
+        add_mutations: list[Mutation] = []
         for op in ops:
             if op.type == OpType.DELETE and op.item_id:
                 found = pre_memory.find_item(op.item_id)
@@ -531,22 +531,34 @@ class Hippocampus(dspy.Module):
                         )
                     )
             elif op.type == OpType.ADD and op.section and op.content:
-                add_indices.append(len(mutations))
-                mutations.append(
-                    Mutation(
-                        step=self._distill_step,
-                        type=OpType.ADD,
-                        item_id="",
-                        section=op.section,
-                        content=op.content,
-                        previous_content=None,
-                        topic_ids=list(self._topic_ids),
-                    )
+                mut = Mutation(
+                    step=self._distill_step,
+                    type=OpType.ADD,
+                    item_id="",
+                    section=op.section,
+                    content=op.content,
+                    previous_content=None,
+                    topic_ids=list(self._topic_ids),
                 )
+                mutations.append(mut)
+                add_mutations.append(mut)
         # Back-fill ADD mutation item_ids from new_ids
-        for i, new_id in zip(add_indices, new_ids):
-            mutations[i].item_id = new_id
+        for mut, new_id in zip(add_mutations, new_ids, strict=True):
+            mut.item_id = new_id
         return mutations
+
+    def _update_item_scores(self, tags: dict[str, ItemTag]) -> None:
+        """Adjust item scores based on Distiller-assigned tags.
+
+        HELPFUL: +1, HARMFUL/STALE: -1, NEUTRAL: ensure entry exists (default 0).
+        """
+        for bid, tag in tags.items():
+            if tag == ItemTag.HELPFUL:
+                self.scores[bid] = self.scores.get(bid, 0) + 1
+            elif tag in (ItemTag.HARMFUL, ItemTag.STALE):
+                self.scores[bid] = self.scores.get(bid, 0) - 1
+            else:
+                self.scores.setdefault(bid, 0)
 
     def _distill(self, trajectory: str, question: str) -> None:
         distilled = self.distill(
@@ -558,13 +570,7 @@ class Hippocampus(dspy.Module):
 
         known = self.cmem.ids()
         tags = {k: v for k, v in (distilled.item_tags or {}).items() if k in known}
-        for bid, tag in tags.items():
-            if tag == ItemTag.HELPFUL:
-                self.scores[bid] = self.scores.get(bid, 0) + 1
-            elif tag in (ItemTag.HARMFUL, ItemTag.STALE):
-                self.scores[bid] = self.scores.get(bid, 0) - 1
-            else:
-                self.scores.setdefault(bid, 0)
+        self._update_item_scores(tags)
 
         edits = self.cartograph(
             diagnosis=distilled.diagnosis,
