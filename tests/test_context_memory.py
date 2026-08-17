@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from pydantic import TypeAdapter
 
 from codespy.agents.memory.hippocampus import (
     ContextMemory,
@@ -14,6 +15,32 @@ from codespy.agents.memory.hippocampus import (
     make_topic_id,
 )
 from codespy.agents.reviewer.modules.manifest_parser import extract_package_name
+
+
+class TestOperationAliases:
+    """Operation model accepts both 'type' and 'op' keys from LLM output."""
+
+    def test_validates_type_key(self):
+        op = Operation.model_validate({"type": "ADD", "section": "context_understanding", "content": "x"})
+        assert op.type == OpType.ADD
+
+    def test_validates_op_key(self):
+        op = Operation.model_validate({"op": "ADD", "section": "context_understanding", "content": "x"})
+        assert op.type == OpType.ADD
+
+    def test_keyword_construction_unchanged(self):
+        op = Operation(type=OpType.DELETE, item_id="cu-abc")
+        assert op.type == OpType.DELETE
+
+    def test_type_adapter_list_mixed_keys(self):
+        """Replicates DSPy's TypeAdapter(list[Operation]).validate_python() path."""
+        ta = TypeAdapter(list[Operation])
+        ops = ta.validate_python([
+            {"op": "ADD", "section": "domain_constants", "content": "test"},
+            {"type": "DELETE", "item_id": "cu-123"},
+            {"op": "REPLACE", "item_id": "cu-456", "content": "new"},
+        ])
+        assert [o.type for o in ops] == [OpType.ADD, OpType.DELETE, OpType.REPLACE]
 
 
 class TestMakeTopicId:
