@@ -7,7 +7,7 @@
 CodeSpy's review pipeline follows a 4-step flow:
 
 1. **Scope Identifier** (ReAct + tools) — Identifies code scopes (frontend, backend, infra, microservice in monorepo, etc.)
-2. **Summarizer** (ChainOfThought) — Generates 2-3 sentence PR summary
+2. **PR Summary** (ChainOfThought) — Generates 2-3 sentence PR summary
 3. **Parallel Review Modules** — Supply Chain Auditor, Code Reviewer, and Doc Reviewer run simultaneously
 4. **Auditor** (ChainOfThought) — Generates quality assessment + recommendation (APPROVE / REQUEST_CHANGES / NEEDS_DISCUSSION)
 
@@ -35,7 +35,7 @@ CodeSpy's review pipeline follows a 4-step flow:
 │  └──────────────────────────┬─────────────────────────────────┘     │
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
-│  │ 2. Summarizer (ChainOfThought)                             │     │
+│  │ 2. PR Summary (ChainOfThought)                             │     │
 │  │    Generates 2-3 sentence PR summary                       │     │
 │  └──────────────────────────┬─────────────────────────────────┘     │
 │                             │                                       │

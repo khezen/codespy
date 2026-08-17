@@ -171,6 +171,10 @@ Brief overview:
 | Root path | `MEMORY_ROOT` | `~/.cache/codespy/memory` | Filesystem storage location |
 | Default enabled | `MEMORY_DEFAULT_ENABLED` | `false` | Enable memory globally |
 | Max reflects | `MEMORY_DEFAULT_MAX_REFLECTS` | `0` | Reflection iterations (0 = once at end) |
+| Context memory tokens | `MEMORY_DEFAULT_MAX_CONTEXT_MEMORY_TOKENS` | `8192` | Max tokens for persisted context memory |
+| Item tokens | `MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS` | `410` | Soft per-item token limit |
+| Trajectory tokens | `MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS` | `8192` | Cap on trajectory fed to Distiller |
+| Question tokens | `MEMORY_DEFAULT_MAX_QUESTION_TOKENS` | `2048` | Cap on serialized reflection inputs |
 
 See [Memory System](memory.md) for full memory configuration details.
 
