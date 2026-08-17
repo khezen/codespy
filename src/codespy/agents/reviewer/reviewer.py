@@ -327,6 +327,7 @@ class ReviewPipeline(dspy.Module):
         to ensure read_file and patch compaction have full scope context available.
         """
         from git import Repo
+        from git.exc import GitCommandError
 
         git_dir = repo_path / ".git"
         if not git_dir.exists():
@@ -354,5 +355,13 @@ class ReviewPipeline(dspy.Module):
         sparse_file.write_text("\n".join(sorted(sparse_paths)) + "\n")
 
         # Re-checkout to materialize newly included paths
-        repo = Repo(repo_path)
-        repo.git.checkout()
+        try:
+            repo = Repo(repo_path)
+            repo.git.update_environment(GIT_TERMINAL_PROMPT="0")
+            # Guard: repo.head.is_valid() is False for unborn branches (no commits fetched)
+            if not repo.head.is_valid():
+                logger.warning("Skipping sparse expansion: HEAD is not valid (clone may have failed)")
+                return
+            repo.git.checkout()
+        except (GitCommandError, ValueError, TypeError) as e:
+            logger.warning("Sparse checkout expansion failed (non-fatal): %s", e)

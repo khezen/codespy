@@ -154,11 +154,12 @@ class GitHubClient(GitClient):
 
         repo_url = f"https://github.com/{owner}/{repo_name}.git"
         if self.settings.github_token:
-            repo_url = f"https://{self.settings.github_token}@github.com/{owner}/{repo_name}.git"
+            repo_url = f"https://x-access-token:{self.settings.github_token}@github.com/{owner}/{repo_name}.git"
 
         if repo_dir.exists() and (repo_dir / ".git").exists():
             # Update existing clone
             repo = Repo(repo_dir)
+            repo.git.update_environment(GIT_TERMINAL_PROMPT="0")
             repo.remotes.origin.fetch()
             # Checkout the specific ref
             repo.git.checkout(ref)
@@ -169,6 +170,7 @@ class GitHubClient(GitClient):
             if sparse_paths:
                 # Sparse checkout: init repo, configure sparse, then fetch
                 repo = Repo.init(repo_dir)
+                repo.git.update_environment(GIT_TERMINAL_PROMPT="0")
                 repo.create_remote("origin", repo_url)
 
                 # Enable sparse checkout
@@ -195,7 +197,11 @@ class GitHubClient(GitClient):
                 if depth:
                     clone_kwargs["depth"] = depth
 
-                repo = Repo.clone_from(repo_url, repo_dir, **clone_kwargs)
+                repo = Repo.clone_from(
+                    repo_url, repo_dir,
+                    env={"GIT_TERMINAL_PROMPT": "0"},
+                    **clone_kwargs,
+                )
                 repo.git.checkout(ref)
 
         return repo_dir
