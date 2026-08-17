@@ -455,6 +455,7 @@ class ScopeResolver(dspy.Module):
             sparse_file.write_text("\n".join(sparse_paths) + "\n")
             # Fetch and checkout correct ref
             repo = Repo(repo_path)
+            repo.git.update_environment(GIT_TERMINAL_PROMPT="0")
             repo.git.fetch("origin", pr.head_sha, "--depth", "1")
             repo.git.checkout(pr.head_sha)
             # Ensure manifests at root + parent dirs
