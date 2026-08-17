@@ -5,7 +5,7 @@ from codespy.tools.storage import FileSystem, S3Client, Storage
 from codespy.tools.git import (
     ChangedFile,
     GitClient,
-    MergeRequest,
+    PullRequest,
     detect_platform,
     get_client,
 )
@@ -23,7 +23,7 @@ __all__ = [
     "get_client",
     "detect_platform",
     "ChangedFile",
-    "MergeRequest",
+    "PullRequest",
     "OSVClient",
     "Vulnerability",
     "ScanResult",

@@ -11,7 +11,7 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
-from codespy.tools.git.models import MergeRequest
+
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
     issues_to_markdown,
@@ -199,7 +199,7 @@ class CodeReviewer(dspy.Module):
         # Local bindings from review_context metadata
         repo_path = review_context.metadata.repo_path
         run_id = review_context.metadata.run_id
-        mr = review_context.metadata.mr
+        pr = review_context.metadata.pr
 
         if not self._settings.is_signature_enabled("code_review"):
             logger.debug("Skipping code_review: disabled")
@@ -250,9 +250,9 @@ class CodeReviewer(dspy.Module):
                     if self._settings.get_memory_enabled("code_review"):
                         question = (
                             f"review code change of {scope.repo}: {scope.subroot}: "
-                            f"pull request {review_context.pr_context.mr_number} {review_context.pr_context.mr_title}: {review_context.pr_context.summary}"
+                            f"pull request {review_context.pr_context.pr_number} {review_context.pr_context.pr_title}: {review_context.pr_context.summary}"
                         )
-                        topic_ids = [scope.topic(mr.repo_full_name).id] if mr else []
+                        topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
                         mem = Hippocampus(
                             agent,
                             budget=self._settings.get_memory_budget("code_review"),

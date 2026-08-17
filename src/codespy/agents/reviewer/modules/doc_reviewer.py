@@ -11,7 +11,7 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
-from codespy.tools.git.models import MergeRequest
+
 from codespy.agents.reviewer.modules.doc_extractor import extract_documentation
 from codespy.agents.reviewer.modules.helpers import (
     MIN_CONFIDENCE,
@@ -132,7 +132,7 @@ class DocReviewer(dspy.Module):
         # Local bindings from review_context metadata
         repo_path = review_context.metadata.repo_path
         run_id = review_context.metadata.run_id
-        mr = review_context.metadata.mr
+        pr = review_context.metadata.pr
 
         if not self._settings.is_signature_enabled("doc"):
             logger.debug("Skipping doc: disabled")
@@ -184,9 +184,9 @@ class DocReviewer(dspy.Module):
                     if self._settings.get_memory_enabled("doc"):
                         question = (
                             f"review documentation of {scope.repo}: {scope.subroot}: "
-                            f"pull request {review_context.pr_context.mr_number} {review_context.pr_context.mr_title}: {review_context.pr_context.summary}"
+                            f"pull request {review_context.pr_context.pr_number} {review_context.pr_context.pr_title}: {review_context.pr_context.summary}"
                         )
-                        topic_ids = [scope.topic(mr.repo_full_name).id] if mr else []
+                        topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
                         mem = Hippocampus(
                             reviewer,
                             budget=self._settings.get_memory_budget("doc"),

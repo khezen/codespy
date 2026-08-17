@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from codespy.config import Settings
-    from codespy.tools.git.models import MergeRequest
+    from codespy.tools.git.models import PullRequest
 
 
 class GitClient(ABC):
@@ -24,13 +24,13 @@ class GitClient(ABC):
 
     @abstractmethod
     def parse_url(self, url: str) -> tuple[str, str, int]:
-        """Parse a merge request URL into owner, repo, and MR number.
+        """Parse a pull request URL into owner, repo, and PR number.
 
         Args:
-            url: Merge request URL
+            url: Pull request URL
 
         Returns:
-            Tuple of (owner, repo, mr_number)
+            Tuple of (owner, repo, pr_number)
 
         Raises:
             ValueError: If URL is not valid for this platform
@@ -38,14 +38,14 @@ class GitClient(ABC):
         ...
 
     @abstractmethod
-    def fetch_merge_request(self, url: str) -> "MergeRequest":
-        """Fetch merge request data from the platform.
+    def fetch_pull_request(self, url: str) -> "PullRequest":
+        """Fetch pull request data from the platform.
 
         Args:
-            url: Merge request URL
+            url: Pull request URL
 
         Returns:
-            MergeRequest model with all data
+            PullRequest model with all data
         """
         ...
 
@@ -82,10 +82,10 @@ class GitClient(ABC):
         comments: list[dict] | None = None,
         commit_sha: str | None = None,
     ) -> None:
-        """Submit a review on a merge request.
+        """Submit a review on a pull request.
 
         Args:
-            url: Merge request URL
+            url: Pull request URL
             body: Review body/summary text
             comments: List of inline comment dicts with keys:
                 - path: File path

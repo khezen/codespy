@@ -12,7 +12,7 @@ from codespy.tools.git.models import (
     ChangedFile,
     FileStatus,
     GitPlatform,
-    MergeRequest,
+    PullRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class GitLabClient(GitClient):
             url: GitLab MR URL
 
         Returns:
-            Tuple of (namespace, project, mr_number)
+            Tuple of (namespace, project, pr_number)
             Note: namespace may contain slashes for nested groups
 
         Raises:
@@ -79,7 +79,7 @@ class GitLabClient(GitClient):
             )
 
         path = match.group("path")
-        mr_number = int(match.group("number"))
+        pr_number = int(match.group("number"))
 
         # Split path into namespace and project
         # Handle nested namespaces (e.g., group/subgroup/project)
@@ -90,7 +90,7 @@ class GitLabClient(GitClient):
             namespace = ""
             project = parts[0]
 
-        return namespace, project, mr_number
+        return namespace, project, pr_number
 
     def _get_project_path(self, url: str) -> str:
         """Get the full project path from URL."""
@@ -115,22 +115,22 @@ class GitLabClient(GitClient):
         }
         return status_map.get(diff_status, FileStatus.MODIFIED)
 
-    def fetch_merge_request(self, url: str) -> MergeRequest:
+    def fetch_pull_request(self, url: str) -> PullRequest:
         """Fetch merge request data from GitLab.
 
         Args:
             url: GitLab MR URL
 
         Returns:
-            MergeRequest model with all data
+            PullRequest model with all data
         """
-        namespace, project_name, mr_number = self.parse_url(url)
+        namespace, project_name, pr_number = self.parse_url(url)
         project_path = self._get_project_path(url)
         host = self._get_host(url)
 
         # Get project and MR
         project = self.gitlab_client.projects.get(project_path)
-        gl_mr = project.mergerequests.get(mr_number)
+        gl_mr = project.mergerequests.get(pr_number)
 
         # Get diff/changes
         changes = gl_mr.changes()
@@ -168,7 +168,7 @@ class GitLabClient(GitClient):
         state_map = {"opened": "open", "closed": "closed", "merged": "merged"}
         state = state_map.get(gl_mr.state, gl_mr.state)
 
-        return MergeRequest(
+        return PullRequest(
             number=gl_mr.iid,
             title=gl_mr.title,
             body=gl_mr.description,
@@ -292,10 +292,10 @@ class GitLabClient(GitClient):
             commit_sha: Commit SHA to review (defaults to head SHA)
         """
         project_path = self._get_project_path(url)
-        _, _, mr_number = self.parse_url(url)
+        _, _, pr_number = self.parse_url(url)
 
         project = self.gitlab_client.projects.get(project_path)
-        gl_mr = project.mergerequests.get(mr_number)
+        gl_mr = project.mergerequests.get(pr_number)
 
         # Get changes and commit SHA for positioning
         changes = gl_mr.changes()
@@ -387,11 +387,11 @@ class GitLabClient(GitClient):
         # Post main review body as a note (with any failed comments appended)
         if final_body:
             gl_mr.notes.create({"body": final_body})
-            logger.info(f"Posted review on {project_path}!{mr_number}")
+            logger.info(f"Posted review on {project_path}!{pr_number}")
 
         if comments:
             logger.info(
-                f"Submitted {successful_count}/{len(comments)} inline comments on {project_path}!{mr_number}"
+                f"Submitted {successful_count}/{len(comments)} inline comments on {project_path}!{pr_number}"
             )
 
     def _append_comments_to_body(self, body: str, comments: list[dict]) -> str:

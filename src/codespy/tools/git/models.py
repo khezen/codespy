@@ -1,4 +1,4 @@
-"""Data models for Git merge requests (GitHub PRs and GitLab MRs)."""
+"""Data models for Git pull requests (GitHub PRs and GitLab MRs)."""
 
 import re
 from datetime import datetime
@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 
 class FileStatus(str, Enum):
-    """Status of a file in a merge request."""
+    """Status of a file in a pull request."""
 
     ADDED = "added"
     MODIFIED = "modified"
@@ -59,7 +59,7 @@ LOCK_FILE_NAMES = {
 
 
 class ChangedFile(BaseModel):
-    """Represents a file changed in a merge request."""
+    """Represents a file changed in a pull request."""
 
     filename: str = Field(description="Path to the file")
     status: FileStatus = Field(description="Type of change (added, modified, removed, renamed)")
@@ -223,20 +223,20 @@ def should_review_file(file: ChangedFile, excluded_directories: list[str]) -> bo
     return True
 
 
-class MergeRequest(BaseModel):
-    """Represents a merge request (GitHub PR or GitLab MR)."""
+class PullRequest(BaseModel):
+    """Represents a pull request (GitHub PR or GitLab MR)."""
 
-    number: int = Field(description="MR/PR number")
-    title: str = Field(description="MR/PR title")
-    body: str | None = Field(default=None, description="MR/PR description/body")
-    state: str = Field(description="MR/PR state (open, closed, merged)")
-    author: str = Field(description="MR/PR author username")
+    number: int = Field(description="PR number")
+    title: str = Field(description="PR title")
+    body: str | None = Field(default=None, description="PR description/body")
+    state: str = Field(description="PR state (open, closed, merged)")
+    author: str = Field(description="PR author username")
     base_branch: str = Field(description="Target branch")
     head_branch: str = Field(description="Source branch")
     base_sha: str = Field(description="Base commit SHA")
     head_sha: str = Field(description="Head commit SHA")
-    created_at: datetime = Field(description="MR/PR creation timestamp")
-    updated_at: datetime = Field(description="MR/PR last update timestamp")
+    created_at: datetime = Field(description="PR creation timestamp")
+    updated_at: datetime = Field(description="PR last update timestamp")
     repo_owner: str = Field(description="Repository owner/namespace")
     repo_name: str = Field(description="Repository name")
     host: str = Field(
@@ -249,7 +249,7 @@ class MergeRequest(BaseModel):
     changed_files: list[ChangedFile] = Field(
         default_factory=list, description="List of changed files"
     )
-    labels: list[str] = Field(default_factory=list, description="MR/PR labels")
+    labels: list[str] = Field(default_factory=list, description="PR labels")
     platform: GitPlatform = Field(description="Git platform (github, gitlab)")
 
     @property
@@ -271,7 +271,7 @@ class MergeRequest(BaseModel):
 
     @property
     def url(self) -> str:
-        """Get the MR/PR URL."""
+        """Get the PR URL."""
         if self.platform == GitPlatform.GITLAB:
             return f"https://gitlab.com/{self.repo_full_name}/-/merge_requests/{self.number}"
         return f"https://github.com/{self.repo_full_name}/pull/{self.number}"
@@ -287,10 +287,6 @@ class MergeRequest(BaseModel):
         return [f for f in self.changed_files if f.is_code_file]
 
 
-# Alias for backward compatibility
-PullRequest = MergeRequest
-
-
 class CallerInfo(BaseModel):
     """Information about a caller of a function/method."""
 
@@ -303,7 +299,7 @@ class CallerInfo(BaseModel):
 class ReviewContext(BaseModel):
     """Context information for code review."""
 
-    merge_request: MergeRequest = Field(description="The merge request being reviewed")
+    pull_request: PullRequest = Field(description="The pull request being reviewed")
     related_files: dict[str, str] = Field(
         default_factory=dict,
         description="Related files content (imports, dependencies)",
@@ -315,12 +311,6 @@ class ReviewContext(BaseModel):
         default_factory=dict,
         description="Callers of changed functions, keyed by filename",
     )
-
-    # Alias for backward compatibility
-    @property
-    def pull_request(self) -> MergeRequest:
-        """Alias for merge_request (backward compatibility)."""
-        return self.merge_request
 
     def get_context_for_file(self, filename: str) -> str:
         """Get context string for a specific file."""

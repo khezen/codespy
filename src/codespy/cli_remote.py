@@ -16,10 +16,10 @@ console = Console()
 
 
 def review(
-    mr_url: Annotated[
+    pr_url: Annotated[
         str,
         typer.Argument(
-            help="Merge request URL (GitHub PR or GitLab MR)",
+            help="Pull request URL (GitHub PR or GitLab MR)",
         ),
     ],
     config_file: Annotated[
@@ -102,7 +102,7 @@ def review(
         settings.output_git = git_comment
 
     # Validate URL format
-    if not is_supported_url(mr_url):
+    if not is_supported_url(pr_url):
         console.print(
             "[red]Error:[/red] Unsupported URL format.\n\n"
             "Supported formats:\n"
@@ -112,7 +112,7 @@ def review(
         raise typer.Exit(1)
 
     # Detect platform and validate token
-    platform = detect_platform(mr_url)
+    platform = detect_platform(pr_url)
     
     if platform == "github":
         token = settings.github_token
@@ -146,7 +146,7 @@ def review(
 
     console.print(
         Panel(
-            f"[bold blue]Reviewing MR:[/bold blue] {mr_url}\n"
+            f"[bold blue]Reviewing PR:[/bold blue] {pr_url}\n"
             f"[bold]Platform:[/bold] {platform.title()}\n"
             f"[bold]Model:[/bold] {settings.default_model}\n"
             f"[bold]Output:[/bold] {output_display}\n"
@@ -162,7 +162,7 @@ def review(
         pipeline = ReviewPipeline(settings)
 
         # Create remote review config
-        config = RemoteReviewConfig(url=mr_url)
+        config = RemoteReviewConfig(url=pr_url)
         
         # Run review (model access always verified in pipeline)
         result = pipeline(config)
@@ -188,7 +188,7 @@ def review(
 
         if settings.output_git:
             console.print(f"[dim]Posting review to {platform.title()}...[/dim]")
-            git_reporter = GitReporter(url=mr_url, settings=settings)
+            git_reporter = GitReporter(url=pr_url, settings=settings)
             git_reporter.report(result)
             console.print(f"[green]✓[/green] {platform.title()} review posted successfully")
 

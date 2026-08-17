@@ -31,7 +31,7 @@ from codespy.agents.reviewer.models import (
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 from codespy.tools.git.client import get_client
-from codespy.tools.git.models import ChangedFile, MergeRequest, should_review_file
+from codespy.tools.git.models import ChangedFile, PullRequest, should_review_file
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 from codespy.agents.reviewer.modules.manifest_parser import (
     extract_package_name,
@@ -327,8 +327,8 @@ class ScopeRefinementSignature(dspy.Signature):
     orphan_files: list[str] = dspy.InputField(
         desc="Changed files not assigned to any candidate (may be empty list)"
     )
-    mr_title: str = dspy.InputField(desc="PR title for intent context")
-    mr_description: str = dspy.InputField(desc="PR description for intent context")
+    pr_title: str = dspy.InputField(desc="PR title for intent context")
+    pr_description: str = dspy.InputField(desc="PR description for intent context")
     project_instructions: str = dspy.InputField(
         desc="Project coding guidelines and structure context from config files (AGENTS.md, .kilo/, etc.). May be empty."
     )
@@ -432,12 +432,12 @@ class ScopeResolver(dspy.Module):
         return tools, contexts
 
     async def _ensure_repo(
-        self, mr: MergeRequest, repo_path: Path, is_local: bool
+        self, pr: PullRequest, repo_path: Path, is_local: bool
     ) -> None:
         """Clone repo programmatically if not already on disk.
 
         Args:
-            mr: The merge request
+            pr: The pull request
             repo_path: Path where repo should be cloned
             is_local: If True, skip cloning (repo already on disk)
         """
@@ -448,7 +448,7 @@ class ScopeResolver(dspy.Module):
         if repo_path.exists() and (repo_path / ".git").exists():
             from git import Repo
             logger.debug("Updating existing clone at %s", repo_path)
-            changed_file_paths = [f.filename for f in mr.changed_files]
+            changed_file_paths = [f.filename for f in pr.changed_files]
             sparse_paths = derive_sparse_paths(changed_file_paths)
             # Update sparse-checkout config
             sparse_file = repo_path / ".git" / "info" / "sparse-checkout"
@@ -456,32 +456,32 @@ class ScopeResolver(dspy.Module):
             sparse_file.write_text("\n".join(sparse_paths) + "\n")
             # Fetch and checkout correct ref
             repo = Repo(repo_path)
-            repo.git.fetch("origin", mr.head_sha, "--depth", "1")
-            repo.git.checkout(mr.head_sha)
+            repo.git.fetch("origin", pr.head_sha, "--depth", "1")
+            repo.git.checkout(pr.head_sha)
             # Ensure manifests at root + parent dirs
             await self._ensure_manifests(repo_path, changed_file_paths)
             return
 
-        changed_file_paths = [f.filename for f in mr.changed_files]
+        changed_file_paths = [f.filename for f in pr.changed_files]
         sparse_paths = derive_sparse_paths(changed_file_paths)
         logger.info("Sparse checkout paths: %s", sparse_paths)
 
         # Build a dummy URL to get the right client
-        if mr.platform == "gitlab":
+        if pr.platform == "gitlab":
             gitlab_url = self._settings.gitlab_url.rstrip("/")
-            dummy_url = f"{gitlab_url}/{mr.repo_owner}/{mr.repo_name}/-/merge_requests/1"
+            dummy_url = f"{gitlab_url}/{pr.repo_owner}/{pr.repo_name}/-/merge_requests/1"
         else:
-            dummy_url = f"https://github.com/{mr.repo_owner}/{mr.repo_name}/pull/1"
+            dummy_url = f"https://github.com/{pr.repo_owner}/{pr.repo_name}/pull/1"
 
         client = get_client(dummy_url, self._settings)
         logger.info(
-            "Cloning %s/%s@%s...", mr.repo_owner, mr.repo_name, mr.head_sha[:8]
+            "Cloning %s/%s@%s...", pr.repo_owner, pr.repo_name, pr.head_sha[:8]
         )
 
         client.clone_repository(
-            owner=mr.repo_owner,
-            repo_name=mr.repo_name,
-            ref=mr.head_sha,
+            owner=pr.repo_owner,
+            repo_name=pr.repo_name,
+            ref=pr.head_sha,
             target_path=repo_path,
             depth=1,
             sparse_paths=sparse_paths,
@@ -925,7 +925,7 @@ class ScopeResolver(dspy.Module):
         )
 
         # Local bindings from review_context metadata
-        mr = review_context.metadata.mr
+        pr = review_context.metadata.pr
         repo_path = review_context.metadata.repo_path
         run_id = review_context.metadata.run_id
 
@@ -954,8 +954,8 @@ class ScopeResolver(dspy.Module):
                 if self._settings.get_memory_enabled("scope"):
                     question = (
                         f"refine scopes of {review_context.pr_context.repo_slug}: "
-                        f"PR #{review_context.pr_context.mr_number} "
-                        f"{review_context.pr_context.mr_title}: "
+                        f"PR #{review_context.pr_context.pr_number} "
+                        f"{review_context.pr_context.pr_title}: "
                         f"{review_context.pr_context.summary}"
                     )
                     mem = Hippocampus(
@@ -970,16 +970,16 @@ class ScopeResolver(dspy.Module):
                     result = await mem.aforward(
                         candidates=candidates_str,
                         orphan_files=[f.filename for f in orphans],
-                        mr_title=mr.title or "No title",
-                        mr_description=mr.body or "No description",
+                        pr_title=pr.title or "No title",
+                        pr_description=pr.body or "No description",
                         project_instructions=project_instructions,
                     )
                 else:
                     result = await agent.acall(
                         candidates=candidates_str,
                         orphan_files=[f.filename for f in orphans],
-                        mr_title=mr.title or "No title",
-                        mr_description=mr.body or "No description",
+                        pr_title=pr.title or "No title",
+                        pr_description=pr.body or "No description",
                         project_instructions=project_instructions,
                     )
 
@@ -988,7 +988,7 @@ class ScopeResolver(dspy.Module):
 
             # Apply LLM boundaries with manifest guardrail and deterministic file assignment
             final_scopes = self._apply_boundaries(
-                result.scopes, all_files, scopes, mr.repo_slug
+                result.scopes, all_files, scopes, pr.repo_slug
             )
 
             # Copy ScopeBoundary.description to ScopeResult.description (overrides deterministic fallback)
@@ -1002,7 +1002,7 @@ class ScopeResolver(dspy.Module):
             scope_topic_ids: dict[str, str] = {}
             for scope in final_scopes:
                 pkg_name = scope.package_manifest.package_name if scope.package_manifest else None
-                tid = make_topic_id(mr.repo_full_name, scope.subroot, pkg_name)
+                tid = make_topic_id(pr.repo_full_name, scope.subroot, pkg_name)
                 scope_topic_ids[scope.subroot] = tid
                 if pkg_name:
                     internal_packages[pkg_name] = tid
@@ -1041,7 +1041,7 @@ class ScopeResolver(dspy.Module):
 
             # Compute common ancestor topic if >1 scope
             common_ancestor_topic_id = compute_common_ancestor_topic_id(
-                mr.repo_full_name, [s.subroot for s in final_scopes]
+                pr.repo_full_name, [s.subroot for s in final_scopes]
             )
             if common_ancestor_topic_id:
                 # Build description: "Common context for scopes: subroot1, subroot2, ..."
@@ -1079,7 +1079,7 @@ class ScopeResolver(dspy.Module):
 
             # Persist episode at deepest common folder when memory is enabled
             if mem is not None:
-                common_dir = _deepest_common_folder(final_scopes, mr.repo_slug)
+                common_dir = _deepest_common_folder(final_scopes, pr.repo_slug)
                 scope_desc = "\n".join(
                     f"- {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
                     for s in final_scopes
@@ -1103,7 +1103,7 @@ class ScopeResolver(dspy.Module):
         self,
         review_context: ReviewContext,
     ) -> tuple[list[ScopeResult], "ContextMemory | None"]:
-        """Resolve scopes in the repository for the given MR.
+        """Resolve scopes in the repository for the given PR.
 
         Args:
             review_context: Review context with inherited memory and metadata
@@ -1112,16 +1112,16 @@ class ScopeResolver(dspy.Module):
             Tuple of (list of ScopeResult, final context memory or None)
         """
         # Local bindings from review_context metadata
-        mr = review_context.metadata.mr
+        pr = review_context.metadata.pr
         repo_path = review_context.metadata.repo_path
         is_local = review_context.metadata.is_local
         run_id = review_context.metadata.run_id
 
         excluded_dirs = self._settings.excluded_directories
-        reviewable_files = [f for f in mr.changed_files if should_review_file(f, excluded_dirs)]
+        reviewable_files = [f for f in pr.changed_files if should_review_file(f, excluded_dirs)]
         if not reviewable_files:
             return [], review_context.memory
-        repo = mr.repo_slug
+        repo = pr.repo_slug
         if not self._settings.is_signature_enabled("scope"):
             fallback = ScopeResult(
                 repo=repo, subroot=".", scope_type=ScopeType.APPLICATION,
@@ -1130,11 +1130,11 @@ class ScopeResolver(dspy.Module):
                 description="Repository root",
             )
             fallback.skills = collect_skills(repo_path, ".")
-            root_topic = fallback.topic(mr.repo_full_name)
+            root_topic = fallback.topic(pr.repo_full_name)
             return [fallback], ContextMemory(topics=[root_topic])
 
         try:
-            await self._ensure_repo(mr, repo_path, is_local)
+            await self._ensure_repo(pr, repo_path, is_local)
             scopes, orphans = self._resolve(repo_path, reviewable_files, repo)
             # Log deterministic scopes before LLM refinement
             if scopes:
@@ -1155,12 +1155,12 @@ class ScopeResolver(dspy.Module):
             if self._settings.get_memory_enabled("scope"):
                 from codespy.agents.memory.hippocampus.episode import find_latest_episode
                 store = get_memory_store(self._settings)
-                common_dir = _deepest_common_folder(scopes, mr.repo_slug) if scopes else f"/{mr.repo_slug}/"
+                common_dir = _deepest_common_folder(scopes, pr.repo_slug) if scopes else f"/{pr.repo_slug}/"
                 prior_episode = find_latest_episode(store, common_dir, task="scope", exclude_run_id=run_id)
                 # Fallback: prior run may have persisted at repo root if scopes differed
-                if prior_episode is None and common_dir != f"/{mr.repo_slug}/":
+                if prior_episode is None and common_dir != f"/{pr.repo_slug}/":
                     prior_episode = find_latest_episode(
-                        store, f"/{mr.repo_slug}/", task="scope", exclude_run_id=run_id
+                        store, f"/{pr.repo_slug}/", task="scope", exclude_run_id=run_id
                     )
                 if prior_episode is not None:
                     loaded_memory = prior_episode.context_memory
@@ -1196,7 +1196,7 @@ class ScopeResolver(dspy.Module):
                 f"  - {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
                 for s in scopes
             )
-            logger.info("Resolved %d scope(s) for %s:\n%s", len(scopes), mr.repo_slug, scope_summary)
+            logger.info("Resolved %d scope(s) for %s:\n%s", len(scopes), pr.repo_slug, scope_summary)
             return scopes, context_memory
 
         except Exception as e:
@@ -1207,7 +1207,7 @@ class ScopeResolver(dspy.Module):
                 reason=f"Fallback due to error: {e}",
                 description="Repository root",
             )
-            root_topic = fallback.topic(mr.repo_full_name)
+            root_topic = fallback.topic(pr.repo_full_name)
             return [fallback], ContextMemory(topics=[root_topic])
 
     def forward(

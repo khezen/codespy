@@ -19,24 +19,24 @@ logger = logging.getLogger(__name__)
 
 
 class PRSummarySignature(dspy.Signature):
-    """Summarize what a merge request does in 2-3 sentences.
+    """Summarize what a pull request does in 2-3 sentences.
 
     You are a busy Principal Engineer. Be extremely terse. State facts only.
     Based on the title, description, changed file paths, and code patches,
-    describe what this MR accomplishes. No polite filler. No conversational language.
+    describe what this PR accomplishes. No polite filler. No conversational language.
     """
 
-    mr_title: str = dspy.InputField(desc="Title of the merge request")
-    mr_description: str = dspy.InputField(desc="Description/body of the MR")
+    pr_title: str = dspy.InputField(desc="Title of the pull request")
+    pr_description: str = dspy.InputField(desc="Description/body of the PR")
     changed_file_paths: list[str] = dspy.InputField(
-        desc="List of changed file paths from the MR"
+        desc="List of changed file paths from the PR"
     )
     patches: str = dspy.InputField(
         desc="Unified diff patches showing code changes. Each patch is prefixed with the filename."
     )
 
     summary: str = dspy.OutputField(
-        desc="2-3 sentence summary of what this MR accomplishes"
+        desc="2-3 sentence summary of what this PR accomplishes"
     )
 
 
@@ -50,9 +50,9 @@ class Summarizer(dspy.Module):
 
     def forward(
         self,
-        mr_title: str,
-        mr_description: str,
-        mr_number: int,
+        pr_title: str,
+        pr_description: str,
+        pr_number: int,
         changed_file_paths: list[str],
         patches: str,
         repo_slug: str,
@@ -64,9 +64,9 @@ class Summarizer(dspy.Module):
         """Generate a PR summary.
 
         Args:
-            mr_title: Title of the merge request
-            mr_description: Description/body of the MR
-            mr_number: MR/PR number
+            pr_title: Title of the pull request
+            pr_description: Description/body of the PR
+            pr_number: PR number
             changed_file_paths: List of changed file paths
             patches: Unified diff patches showing code changes
             repo_slug: Host-qualified repo slug for episode path
@@ -81,7 +81,7 @@ class Summarizer(dspy.Module):
 
         if not self._settings.is_signature_enabled("summary"):
             logger.debug("Skipping summary: disabled")
-            return mr_title or "No title", initial_memory
+            return pr_title or "No title", initial_memory
         # Load latest episode per scope and merge with inherited memory
         if self._settings.get_memory_enabled("summary") and scopes:
             from codespy.agents.memory.hippocampus.episode import find_latest_episode
@@ -101,7 +101,7 @@ class Summarizer(dspy.Module):
         summarizer = ContextSafe(dspy.ChainOfThought(PRSummarySignature), PRSummarySignature, name="summary")
         logger.info("Generating PR summary...")
 
-        question = f"summarize {repo_slug}: pull request {mr_number} {mr_title}"
+        question = f"summarize {repo_slug}: pull request {pr_number} {pr_title}"
 
         mem: Hippocampus | None = None
         with SignatureContext("summary", self._cost_tracker):
@@ -117,8 +117,8 @@ class Summarizer(dspy.Module):
                     topic_ids=topic_ids,
                 )
                 result = mem(
-                    mr_title=mr_title,
-                    mr_description=mr_description,
+                    pr_title=pr_title,
+                    pr_description=pr_description,
                     changed_file_paths=changed_file_paths,
                     patches=patches,
                 )
@@ -129,8 +129,8 @@ class Summarizer(dspy.Module):
                 )
             else:
                 result = summarizer(
-                    mr_title=mr_title,
-                    mr_description=mr_description,
+                    pr_title=pr_title,
+                    pr_description=pr_description,
                     changed_file_paths=changed_file_paths,
                     patches=patches,
                 )

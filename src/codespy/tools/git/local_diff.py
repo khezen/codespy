@@ -1,11 +1,11 @@
-"""Build MergeRequest objects from local git state (no GitHub/GitLab needed)."""
+"""Build PullRequest objects from local git state (no GitHub/GitLab needed)."""
 
 import logging
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-from codespy.tools.git.models import ChangedFile, FileStatus, GitPlatform, MergeRequest
+from codespy.tools.git.models import ChangedFile, FileStatus, GitPlatform, PullRequest
 
 logger = logging.getLogger(__name__)
 
@@ -100,12 +100,12 @@ def _get_current_user(repo_path: Path) -> str:
         return "local-user"
 
 
-def build_mr_from_diff(
+def build_pr_from_diff(
     repo_path: Path,
     base_ref: str = "main",
     include_uncommitted: bool = False,
-) -> MergeRequest:
-    """Build a MergeRequest from local git diff.
+) -> PullRequest:
+    """Build a PullRequest from local git diff.
 
     Args:
         repo_path: Path to the local git repository
@@ -114,7 +114,7 @@ def build_mr_from_diff(
                            If False, diff current branch against base_ref.
 
     Returns:
-        A MergeRequest object representing the local changes
+        A PullRequest object representing the local changes
 
     Raises:
         RuntimeError: If git commands fail
@@ -153,7 +153,7 @@ def build_mr_from_diff(
     name_status_output = _run_git(repo_path, "diff", "--name-status", diff_ref)
     if not name_status_output:
         logger.info("No changes found")
-        return MergeRequest(
+        return PullRequest(
             number=0,
             title=title,
             body=f"Local diff: {diff_ref}...HEAD",
@@ -205,9 +205,9 @@ def build_mr_from_diff(
             previous_filename=previous_filename,
         ))
 
-    logger.info(f"Built local MR with {len(changed_files)} changed files")
+    logger.info(f"Built local PR with {len(changed_files)} changed files")
 
-    return MergeRequest(
+    return PullRequest(
         number=0,
         title=title,
         body=f"Local diff: {diff_ref}...HEAD in {repo_path}",

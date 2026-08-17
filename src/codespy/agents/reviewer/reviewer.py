@@ -11,8 +11,8 @@ import dspy  # type: ignore[import-untyped]
 from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 from codespy.config import Settings, get_settings
 from codespy.config_memory import verify_memory_access
-from codespy.tools.git import GitClient, get_client, ChangedFile, MergeRequest
-from codespy.tools.git.local_diff import build_mr_from_diff
+from codespy.tools.git import GitClient, get_client, ChangedFile, PullRequest
+from codespy.tools.git.local_diff import build_pr_from_diff
 from codespy.tools.git.patch_utils import compact_patches
 from codespy.agents.memory.hippocampus import ContextMemory
 from codespy.agents.reviewer.models import (
@@ -81,21 +81,21 @@ class ReviewPipeline(dspy.Module):
             self._git_client = get_client(url, self.settings)
         return self._git_client
 
-    def _fetch_mr(self, mr_url: str) -> MergeRequest:
-        """Fetch merge request data from Git platform."""
-        client = self._get_git_client(mr_url)
-        logger.info(f"Fetching MR data from {client.platform_name}...")
-        mr = client.fetch_merge_request(mr_url)
-        logger.info(f"MR #{mr.number}: {mr.title} ({len(mr.changed_files)} files)")
-        return mr
+    def _fetch_pr(self, pr_url: str) -> PullRequest:
+        """Fetch pull request data from Git platform."""
+        client = self._get_git_client(pr_url)
+        logger.info(f"Fetching PR data from {client.platform_name}...")
+        pr = client.fetch_pull_request(pr_url)
+        logger.info(f"PR #{pr.number}: {pr.title} ({len(pr.changed_files)} files)")
+        return pr
 
-    def _get_repo_path(self, mr: MergeRequest) -> Path:
+    def _get_repo_path(self, pr: PullRequest) -> Path:
         """Get the local repository path for a MR, creating directories if needed."""
         cache_dir = self.settings.cache_dir
         cache_dir.mkdir(parents=True, exist_ok=True)
         # Handle nested namespaces for GitLab
-        owner_path = mr.repo_owner.replace("/", "_")
-        return cache_dir / owner_path / mr.repo_name
+        owner_path = pr.repo_owner.replace("/", "_")
+        return cache_dir / owner_path / pr.repo_name
 
     async def _run_review_modules(
         self,
@@ -135,17 +135,17 @@ class ReviewPipeline(dspy.Module):
                 context_memories[module_names[i]] = ctx_mem
         return all_issues, context_memories
 
-    def _build_local_mr(self, config: LocalReviewConfig) -> MergeRequest:
-        """Build a MergeRequest from local git changes.
+    def _build_local_pr(self, config: LocalReviewConfig) -> PullRequest:
+        """Build a PullRequest from local git changes.
         
         Args:
             config: Local review configuration
             
         Returns:
-            MergeRequest object built from local git changes
+            PullRequest object built from local git changes
         """
-        logger.info(f"Building MR from local changes in {config.repo_path}...")
-        return build_mr_from_diff(
+        logger.info(f"Building PR from local changes in {config.repo_path}...")
+        return build_pr_from_diff(
             repo_path=config.repo_path,
             base_ref=config.base_ref,
             include_uncommitted=config.uncommitted
@@ -172,17 +172,17 @@ class ReviewPipeline(dspy.Module):
         # Verify memory storage access
         self._verify_memory_access()
 
-        # Determine mode and fetch/build MR accordingly
+        # Determine mode and fetch/build PR accordingly
         if isinstance(config, RemoteReviewConfig):
             # Remote mode: fetch from GitHub/GitLab
             logger.info(f"Starting review of {config.url}")
-            mr = self._fetch_mr(config.url)
-            repo_path = self._get_repo_path(mr)
+            pr = self._fetch_pr(config.url)
+            repo_path = self._get_repo_path(pr)
         elif isinstance(config, LocalReviewConfig):
-            # Local mode: build MR from local git changes
+            # Local mode: build PR from local git changes
             mode = "uncommitted changes" if config.uncommitted else f"changes vs {config.base_ref}"
             logger.info(f"Starting local review: {mode} in {config.repo_path}")
-            mr = self._build_local_mr(config)
+            pr = self._build_local_pr(config)
             repo_path = config.repo_path.resolve()
         else:
             raise ValueError(f"Invalid config type: {type(config)}")
@@ -191,12 +191,12 @@ class ReviewPipeline(dspy.Module):
         is_local = isinstance(config, LocalReviewConfig)
         logger.info("Identifying code scopes...")
         pr_context = PRContext(
-            repo_slug=mr.repo_slug,
-            mr_number=mr.number,
-            mr_title=mr.title,
-            summary=mr.title,  # Use title as placeholder since summary hasn't run
+            repo_slug=pr.repo_slug,
+            pr_number=pr.number,
+            pr_title=pr.title,
+            summary=pr.title,  # Use title as placeholder since summary hasn't run
         )
-        metadata = ReviewMetadata(repo_path=repo_path, run_id=run_id, mr=mr, is_local=is_local)
+        metadata = ReviewMetadata(repo_path=repo_path, run_id=run_id, pr=pr, is_local=is_local)
         review_ctx = ReviewContext(pr_context=pr_context, memory=None, metadata=metadata)
         scopes, initial_memory = self.scope_resolver(review_context=review_ctx)
         for scope in scopes:
@@ -213,19 +213,19 @@ class ReviewPipeline(dspy.Module):
             self._expand_sparse_for_scopes(scopes, repo_path)
         # Compact patches: expand context to function bodies for better review context
         logger.info("Compacting patches to function boundaries...")
-        changed_file_paths = [f.filename for f in mr.changed_files]
-        patches = build_patches(mr.changed_files)
+        changed_file_paths = [f.filename for f in pr.changed_files]
+        patches = build_patches(pr.changed_files)
         compact_patches(scopes, repo_path)
         # Step 2: Run Summarizer (now receives scopes for per-scope episode persistence)
         # Compute all scope topic IDs for summarizer
-        all_scope_topic_ids = [s.topic(mr.repo_full_name).id for s in scopes]
+        all_scope_topic_ids = [s.topic(pr.repo_full_name).id for s in scopes]
         pr_summary, summarizer_memory = self.summarizer(
-            mr_title=mr.title,
-            mr_description=mr.body or "No description provided.",
-            mr_number=mr.number,
+            pr_title=pr.title,
+            pr_description=pr.body or "No description provided.",
+            pr_number=pr.number,
             changed_file_paths=changed_file_paths,
             patches=patches,
-            repo_slug=mr.repo_slug,
+            repo_slug=pr.repo_slug,
             run_id=run_id,
             scopes=scopes,
             initial_memory=initial_memory,
@@ -249,23 +249,21 @@ class ReviewPipeline(dspy.Module):
         scoped_files = self._collect_scoped_files(scopes)
         logger.info(
             f"Audit input: {len(scoped_files)} in-scope files "
-            f"(filtered from {len(mr.changed_files)} total)"
+            f"(filtered from {len(pr.changed_files)} total)"
         )
         quality_assessment, recommendation = self.auditor(
             review_context=review_ctx,
             changed_files=scoped_files,
             all_issues=all_issues,
             run_id=run_id,
-            scopes=scopes,
-            topic_ids=all_scope_topic_ids,
         )
         # Collect per-signature statistics
         signature_stats_list = self._collect_signature_stats()
         return ReviewResult(
-            mr_number=mr.number,
-            mr_title=mr.title,
-            mr_url=mr.url,
-            repo=mr.repo_full_name,
+            pr_number=pr.number,
+            pr_title=pr.title,
+            pr_url=pr.url,
+            repo=pr.repo_full_name,
             run_id=run_id,
             model_used=self.settings.default_model,
             issues=all_issues,

@@ -27,47 +27,47 @@ def _get_client(url: str) -> GitClient:
 
 
 @mcp.tool()
-def parse_mr_url(url: str) -> dict:
-    """Parse a Git merge request URL into owner, repo, and MR number.
+def parse_pr_url(url: str) -> dict:
+    """Parse a Git pull request URL into owner, repo, and PR number.
 
     Works with both GitHub Pull Requests and GitLab Merge Requests.
 
     Args:
-        url: Git MR URL
+        url: Git PR/MR URL
              - GitHub: https://github.com/owner/repo/pull/123
              - GitLab: https://gitlab.com/group/project/-/merge_requests/123
 
     Returns:
-        Dict with owner (or namespace), repo, mr_number, and platform
+        Dict with owner (or namespace), repo, pr_number, and platform
     """
     platform = detect_platform(url)
     client = _get_client(url)
-    owner, repo, mr_number = client.parse_url(url)
+    owner, repo, pr_number = client.parse_url(url)
     return {
         "owner": owner,
         "repo": repo,
-        "mr_number": mr_number,
+        "pr_number": pr_number,
         "platform": platform.value,
     }
 
 
 @mcp.tool()
-def fetch_merge_request(mr_url: str) -> dict:
-    """Fetch merge request data from GitHub or GitLab.
+def fetch_pull_request(pr_url: str) -> dict:
+    """Fetch pull request data from GitHub or GitLab.
 
     Works with both GitHub Pull Requests and GitLab Merge Requests.
 
     Args:
-        mr_url: Git MR URL
+        pr_url: Git PR/MR URL
                 - GitHub: https://github.com/owner/repo/pull/123
                 - GitLab: https://gitlab.com/group/project/-/merge_requests/123
 
     Returns:
-        Dict with MR data including title, body, changed files, etc.
+        Dict with PR data including title, body, changed files, etc.
     """
-    client = _get_client(mr_url)
-    mr = client.fetch_merge_request(mr_url)
-    return mr.model_dump()
+    client = _get_client(pr_url)
+    pr = client.fetch_pull_request(pr_url)
+    return pr.model_dump()
 
 
 @mcp.tool()

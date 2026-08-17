@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class AuditSignature(dspy.Signature):
-    """Assess code quality and provide a recommendation for a merge request.
+    """Assess code quality and provide a recommendation for a pull request.
 
     You are a busy Principal Engineer. Be extremely terse. State facts only.
     Based on the summary, changed files, and issues found during review, provide:
@@ -31,8 +31,8 @@ class AuditSignature(dspy.Signature):
     No polite filler. No conversational language.
     """
 
-    mr_title: str = dspy.InputField(desc="Title of the merge request")
-    summary: str = dspy.InputField(desc="Summary of what this MR accomplishes")
+    pr_title: str = dspy.InputField(desc="Title of the pull request")
+    summary: str = dspy.InputField(desc="Summary of what this PR accomplishes")
     changed_files: list[ChangedFile] = dspy.InputField(
         desc="In-scope reviewable files with status and line counts"
     )
@@ -69,8 +69,8 @@ class Auditor(dspy.Module):
         """Execute the auditor predictor (with or without Hippocampus memory)."""
         question = (
             f"final audit of {review_context.pr_context.repo_slug}: "
-            f"pull request {review_context.pr_context.mr_number} "
-            f"{review_context.pr_context.mr_title}: {review_context.pr_context.summary}"
+            f"pull request {review_context.pr_context.pr_number} "
+            f"{review_context.pr_context.pr_title}: {review_context.pr_context.summary}"
         )
 
         if self._settings.get_memory_enabled("audit"):
@@ -85,7 +85,7 @@ class Auditor(dspy.Module):
                 topic_ids=topic_ids,
             )
             result = mem(
-                mr_title=review_context.pr_context.mr_title,
+                pr_title=review_context.pr_context.pr_title,
                 summary=review_context.pr_context.summary,
                 changed_files=audit_files,
                 all_issues=all_issues,
@@ -108,7 +108,7 @@ class Auditor(dspy.Module):
                     mem.save_episode(store, path)
         else:
             result = auditor(
-                mr_title=review_context.pr_context.mr_title,
+                pr_title=review_context.pr_context.pr_title,
                 summary=review_context.pr_context.summary,
                 changed_files=audit_files,
                 all_issues=all_issues,

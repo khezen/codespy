@@ -18,8 +18,8 @@ class PRContext(BaseModel):
     """
 
     repo_slug: str = Field(description="Host-qualified repo identifier (e.g. github.com/owner/repo)")
-    mr_number: int = Field(description="MR/PR number")
-    mr_title: str = Field(description="MR/PR title")
+    pr_number: int = Field(description="PR number")
+    pr_title: str = Field(description="PR title")
     summary: str = Field(description="2-3 sentence PR summary produced by Summarizer")
 
 
@@ -65,19 +65,19 @@ class PackageManifest(BaseModel):
     package_name: str | None = Field(default=None, description="Package identity from manifest")
 
 
-from codespy.tools.git.models import ChangedFile, MergeRequest
+from codespy.tools.git.models import ChangedFile, PullRequest
 
 
 class ReviewMetadata(BaseModel):
     """Runtime pipeline state, stable once constructed at pipeline start.
 
-    Groups repo_path, run_id, mr, and is_local to reduce parameter
+    Groups repo_path, run_id, pr, and is_local to reduce parameter
     proliferation across module method signatures.
     """
 
     repo_path: Path
     run_id: str | None = None
-    mr: MergeRequest | None = None
+    pr: PullRequest | None = None
     is_local: bool = False
 
 
@@ -204,11 +204,11 @@ class SignatureStatsResult(BaseModel):
 
 
 class ReviewResult(BaseModel):
-    """Complete review results for a merge request (GitHub PR or GitLab MR)."""
+    """Complete review results for a pull request (GitHub PR or GitLab MR)."""
 
-    mr_number: int = Field(description="MR number")
-    mr_title: str = Field(description="MR title")
-    mr_url: str = Field(description="MR URL")
+    pr_number: int = Field(description="PR number")
+    pr_title: str = Field(description="PR title")
+    pr_url: str = Field(description="PR URL")
     repo: str = Field(description="Repository name (owner/repo)")
     run_id: str = Field(
         default="",
@@ -279,9 +279,9 @@ class ReviewResult(BaseModel):
     def to_markdown(self) -> str:
         """Format review results as Markdown."""
         lines = [
-            f"# Code Review: {self.mr_title}",
+            f"# Code Review: {self.pr_title}",
             "",
-            f"**MR:** [{self.repo}#{self.mr_number}]({self.mr_url})",
+            f"**PR:** [{self.repo}#{self.pr_number}]({self.pr_url})",
             f"**Reviewed at:** {self.reviewed_at.strftime('%Y-%m-%d %H:%M UTC')}",
             f"**Model:** {self.model_used}",
             "",

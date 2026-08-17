@@ -109,7 +109,7 @@ Or for AWS Bedrock:
 **Available MCP Tools:**
 - `review_local_changes(repo_path, base_ref)` — Review branch changes vs base (e.g., vs `main`)
 - `review_uncommitted(repo_path)` — Review staged + unstaged working tree changes
-- `review_pr(mr_url)` — Review a GitHub PR or GitLab MR by URL
+- `review_pr(pr_url)` — Review a GitHub PR or GitLab MR by URL
 
 Then ask your AI assistant: *"Review my local changes"* or *"Review uncommitted work in /path/to/repo"*
 
