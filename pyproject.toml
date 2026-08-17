@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "codespy-ai"
-version = "0.4.1"
+version = "1.0.0"
 description = "Code review agent powered by DSPy"
 readme = "README.md"
 license = "MIT"
@@ -11,12 +11,13 @@ documentation = "https://github.com/khezen/codespy#readme"
 keywords = ["code-review", "ai", "dspy", "llm", "github", "pull-request", "security", "bug-detection", "static-analysis"]
 packages = [{ include = "codespy", from = "src" }]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 
 [tool.poetry.dependencies]
