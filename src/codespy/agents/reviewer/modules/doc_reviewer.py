@@ -8,6 +8,7 @@ from typing import Sequence
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
+from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
 from codespy.tools.git.models import MergeRequest
@@ -173,7 +174,7 @@ class DocReviewer(dspy.Module):
                 logger.debug(f"  No patches in {scope.subroot}, skipping doc review")
                 continue
             try:
-                reviewer = dspy.ChainOfThought(DocReviewSignature)
+                reviewer = ContextSafe(dspy.ChainOfThought(DocReviewSignature), DocReviewSignature, name="doc")
                 logger.info(
                     f"  Doc review: scope {scope.subroot} "
                     f"({len(scope.changed_files)} files)"

@@ -1,0 +1,159 @@
+"""ContextSafe wrapper for context window overflow resilience.
+
+Provides transparent fallback to RLM (Recursive Language Model) when inputs
+exceed the model's context window. Used to wrap all DSPy signature modules.
+"""
+
+import logging
+import re
+
+import dspy  # type: ignore[import-untyped]
+import litellm  # type: ignore[import-untyped]
+
+
+logger = logging.getLogger(__name__)
+
+# Regex for detecting context window overflow in error messages
+_RE_CONTEXT_LENGTH = re.compile(r"maximum context length is \d+ tokens", re.IGNORECASE)
+
+
+def estimate_context_overflow(model: str, max_tokens: int, input_text: str) -> bool:
+    """Estimate whether input + max_tokens would exceed the model's context window.
+
+    Returns True if overflow is likely. Returns False if no overflow expected
+    or if the model is not in litellm's DB (can't estimate).
+    """
+    SAFETY_MARGIN = 4096
+    try:
+        info = litellm.get_model_info(model)
+        max_input = info.get("max_input_tokens") or 0
+        if not max_input:
+            return False
+        estimated_input = litellm.token_counter(model=model, text=input_text)
+        return (estimated_input + max_tokens + SAFETY_MARGIN) > max_input
+    except Exception:
+        return False
+
+
+def is_context_overflow_error(exc: Exception) -> bool:
+    """Detect context window overflow from any source.
+
+    Handles two cases:
+    - Known models: dspy raises dspy.ContextWindowExceededError
+    - Unknown models (nvidia/zai Bedrock): litellm raises BadRequestError,
+      dspy wraps as LMInvalidRequestError — detected via error message regex.
+    """
+    if isinstance(exc, dspy.ContextWindowExceededError):
+        return True
+    return bool(_RE_CONTEXT_LENGTH.search(str(exc)))
+
+
+class ContextSafe(dspy.Module):
+    """Wraps a dspy.Module and falls back to RLM on context window overflow.
+
+    Two-layer defense:
+    - Pre-flight: estimates input tokens via litellm; if overflow is predicted
+      for a known model, skips the inner module and uses RLM directly.
+    - Try/catch: if the inner module raises a context overflow error (unknown
+      models where pre-flight can't estimate), catches it and retries with RLM.
+
+    Transparent to Hippocampus — delegates .signature to inner module.
+    """
+
+    def __init__(self, module: dspy.Module, signature, tools: list | None = None, name: str = ""):
+        super().__init__()
+        self.module = module
+        self._orig_signature = signature
+        self._tools = tools
+        self._name = name or signature.__name__
+
+    @property
+    def signature(self):
+        return getattr(self.module, "signature", None)
+
+    @signature.setter
+    def signature(self, value):
+        self.module.signature = value
+
+    def forward(self, **kwargs) -> dspy.Prediction:
+        if self._would_overflow(kwargs):
+            logger.warning(
+                "ContextSafe[%s]: pre-flight detected context overflow for model=%s; "
+                "falling back to RLM",
+                self._name,
+                getattr(dspy.settings.lm, "model", "unknown"),
+            )
+            return self._create_rlm_fallback()(**kwargs)
+
+        try:
+            return self.module(**kwargs)
+        except Exception as exc:
+            if not is_context_overflow_error(exc):
+                raise
+            logger.warning(
+                "ContextSafe[%s]: context window overflow on model=%s; "
+                "falling back to RLM (error: %s)",
+                self._name,
+                getattr(dspy.settings.lm, "model", "unknown"),
+                str(exc)[:200],
+            )
+            return self._create_rlm_fallback()(**kwargs)
+
+    async def aforward(self, **kwargs) -> dspy.Prediction:
+        """Async path — used by code_review, scope, supply_chain via Hippocampus.aforward."""
+        if self._would_overflow(kwargs):
+            logger.warning(
+                "ContextSafe[%s]: pre-flight detected context overflow for model=%s; "
+                "falling back to RLM",
+                self._name,
+                getattr(dspy.settings.lm, "model", "unknown"),
+            )
+            return await self._create_rlm_fallback().acall(**kwargs)
+
+        try:
+            return await self.module.acall(**kwargs)
+        except Exception as exc:
+            if not is_context_overflow_error(exc):
+                raise
+            logger.warning(
+                "ContextSafe[%s]: context window overflow on model=%s; "
+                "falling back to RLM (error: %s)",
+                self._name,
+                getattr(dspy.settings.lm, "model", "unknown"),
+                str(exc)[:200],
+            )
+            return await self._create_rlm_fallback().acall(**kwargs)
+
+    def _would_overflow(self, kwargs: dict) -> bool:
+        """Pre-flight: estimate overflow from current LM config and input size."""
+        try:
+            lm = dspy.settings.lm
+            if lm is None:
+                return False
+            model = lm.model
+            max_tokens = lm.kwargs.get("max_tokens") or 0
+            if not max_tokens:
+                return False
+            input_text = "\n".join(str(v) for v in kwargs.values())
+            return estimate_context_overflow(model, max_tokens, input_text)
+        except Exception:
+            return False
+
+    def _get_current_signature(self):
+        """Get current signature (may include context_memory if Hippocampus modified it)."""
+        sig = getattr(self.module, "signature", None)
+        if sig is not None:
+            return sig
+        preds = list(self.module.named_predictors())
+        if preds:
+            return preds[0][1].signature
+        return self._orig_signature
+
+    def _create_rlm_fallback(self) -> dspy.RLM:
+        """Create RLM with current signature and tools."""
+        return dspy.RLM(
+            self._get_current_signature(),
+            tools=self._tools,
+            max_iters=10,
+            max_llm_calls=20,
+        )

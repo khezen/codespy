@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
+from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.modules.scope_resolver import _deepest_common_folder
 from codespy.config import get_settings
@@ -97,7 +98,7 @@ class Summarizer(dspy.Module):
                     "Merged %d prior scope episode(s) into summarizer memory",
                     len(per_scope_memories),
                 )
-        summarizer = dspy.ChainOfThought(PRSummarySignature)
+        summarizer = ContextSafe(dspy.ChainOfThought(PRSummarySignature), PRSummarySignature, name="summary")
         logger.info("Generating PR summary...")
 
         question = f"summarize {repo_slug}: pull request {mr_number} {mr_title}"

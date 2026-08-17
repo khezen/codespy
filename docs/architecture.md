@@ -88,6 +88,24 @@ CodeSpy's review pipeline follows a 4-step flow:
 
 See [Configuration](configuration.md) for per-signature settings.
 
+### Context Window Overflow Resilience
+
+All signature modules are wrapped in `ContextSafe`, which provides transparent
+fallback to `dspy.RLM` (Recursive Language Model) when the input exceeds the
+model's context window.
+
+- **Pre-flight**: For models in litellm's database, estimates input tokens
+  before calling the module. If overflow is predicted, skips directly to RLM.
+- **Try/catch**: For models not in litellm's database, catches the provider
+  error and retries with RLM automatically.
+
+RLM puts inputs into a sandboxed Python interpreter rather than the LLM prompt.
+The model writes code to access and process variables (e.g., chunking large
+patches via `llm_query()`), eliminating context window limits entirely.
+
+The composition order is: `Hippocampus(ContextSafe(Module))` — Hippocampus
+handles memory, ContextSafe handles overflow, each with single responsibility.
+
 ## Hippocampus Memory
 
 Episode-based memory that wraps DSPy agents with persistent context across reviews. Agents accumulate knowledge about a codebase scope over time — patterns, constants, parsing schemas, and reuse it in subsequent reviews of the same code area.

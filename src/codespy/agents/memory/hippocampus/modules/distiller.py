@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dspy
 
+from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus.context_memory import (
     CacheCandidate,
     ItemTag,
@@ -151,7 +152,7 @@ class Distiller(dspy.Module):
 
     def __init__(self):
         super().__init__()
-        self.predict = dspy.ChainOfThought(DistillerSig)
+        self.predict = ContextSafe(dspy.ChainOfThought(DistillerSig), DistillerSig, name="distiller")
 
     def forward(
         self,

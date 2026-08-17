@@ -1,18 +1,18 @@
 # syntax=docker/dockerfile:1
 
-# Build stage with Poetry
-FROM python:3.11-alpine AS builder
+# Build stage
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Install build dependencies for Python packages with native extensions
-RUN apk add --no-cache \
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     gcc \
-    musl-dev \
     libffi-dev \
-    && pip install --no-cache-dir poetry
+    && pip install --no-cache-dir poetry \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy project files
 COPY pyproject.toml poetry.lock* README.md ./
@@ -23,15 +23,19 @@ RUN poetry config virtualenvs.create false \
     && poetry install --only main --no-interaction --no-ansi
 
 # Runtime stage
-FROM python:3.11-alpine
+FROM python:3.11-slim
 
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ripgrep \
-    && adduser -D -u 1000 codespy
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -u 1000 codespy
+
+# Copy Deno binary (glibc works natively on Debian)
+COPY --from=denoland/deno:bin-2.9.5 /deno /usr/local/bin/deno
 
 # Copy installed packages from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
@@ -43,19 +47,20 @@ COPY src/ ./src/
 # Copy config to user's home directory
 COPY codespy.yaml /home/codespy/codespy.yaml
 
-# Set up cache directory and DSPy local_cache directory
-RUN mkdir -p /home/codespy/.cache/codespy && \
-    chown -R codespy:codespy /home/codespy/.cache /home/codespy/codespy.yaml
+# Pre-cache Deno/Pyodide dependencies and set up directories
+ENV DENO_DIR=/home/codespy/.cache/deno
+RUN mkdir -p /home/codespy/.cache/codespy \
+    && (deno cache /usr/local/lib/python3.11/site-packages/dspy/primitives/runner.js || true) \
+    && chown -R codespy:codespy /home/codespy/.cache /home/codespy/codespy.yaml
 
 # Switch to non-root user
 USER codespy
 
-# Change to writable directory for DSPy's local_cache
 WORKDIR /home/codespy
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV HOME=/home/codespy
+ENV DENO_DIR=/home/codespy/.cache/deno
 
 ENTRYPOINT ["codespy"]
 CMD ["--help"]

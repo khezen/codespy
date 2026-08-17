@@ -233,7 +233,7 @@ class ReviewPipeline(dspy.Module):
         )
         # Enrich review_ctx with actual summary and memory from summarizer
         pr_context.summary = pr_summary
-        review_ctx = ReviewContext(pr_context=pr_context, memory=summarizer_memory)
+        review_ctx = ReviewContext(pr_context=pr_context, memory=summarizer_memory, metadata=metadata)
         # Step 3: Run review modules concurrently via asyncio.gather (inherit Scope Identifier memory)
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
@@ -251,21 +251,14 @@ class ReviewPipeline(dspy.Module):
             f"Audit input: {len(scoped_files)} in-scope files "
             f"(filtered from {len(mr.changed_files)} total)"
         )
-        try:
-            quality_assessment, recommendation = self.auditor(
-                review_context=review_ctx,
-                changed_files=scoped_files,
-                all_issues=all_issues,
-                run_id=run_id,
-                scopes=scopes,
-                topic_ids=all_scope_topic_ids,
-            )
-        except dspy.ContextWindowExceededError:
-            logger.warning(
-                "Audit skipped: input exceeds model context window even without patches."
-            )
-            quality_assessment = "Audit skipped due to context window limit."
-            recommendation = "NEEDS_DISCUSSION" if all_issues else "APPROVE"
+        quality_assessment, recommendation = self.auditor(
+            review_context=review_ctx,
+            changed_files=scoped_files,
+            all_issues=all_issues,
+            run_id=run_id,
+            scopes=scopes,
+            topic_ids=all_scope_topic_ids,
+        )
         # Collect per-signature statistics
         signature_stats_list = self._collect_signature_stats()
         return ReviewResult(

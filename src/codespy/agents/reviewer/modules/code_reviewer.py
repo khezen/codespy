@@ -8,6 +8,7 @@ from typing import Any, Sequence
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
+from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
 from codespy.tools.git.models import MergeRequest
@@ -229,10 +230,15 @@ class CodeReviewer(dspy.Module):
             scope_root = resolve_scope_root(repo_path, scope.subroot)
             tools, contexts = await self._create_tools(scope_root)
             try:
-                agent = dspy.ReAct(
-                    signature=CodeReviewSignature,
+                agent = ContextSafe(
+                    dspy.ReAct(
+                        signature=CodeReviewSignature,
+                        tools=tools,
+                        max_iters=max_iters,
+                    ),
+                    CodeReviewSignature,
                     tools=tools,
-                    max_iters=max_iters,
+                    name="code_review",
                 )
                 scoped = make_scope_relative(scope)
                 logger.info(

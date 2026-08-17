@@ -19,6 +19,7 @@ import dspy  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
+from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import (
     PRContext,
@@ -937,10 +938,15 @@ class ScopeResolver(dspy.Module):
         max_iters = self._settings.get_max_iters("scope")
         tools, contexts = await self._create_tools(repo_path)
         try:
-            agent = dspy.ReAct(
-                signature=ScopeRefinementSignature,
+            agent = ContextSafe(
+                dspy.ReAct(
+                    signature=ScopeRefinementSignature,
+                    tools=tools,
+                    max_iters=max_iters,
+                ),
+                ScopeRefinementSignature,
                 tools=tools,
-                max_iters=max_iters,
+                name="scope",
             )
             mem: Hippocampus | None = None
 

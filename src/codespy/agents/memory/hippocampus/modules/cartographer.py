@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dspy
 
+from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus.context_memory import (
     CacheCandidate,
     ItemTag,
@@ -139,7 +140,7 @@ class Cartographer(dspy.Module):
 
     def __init__(self):
         super().__init__()
-        self.predict = dspy.ChainOfThought(CartographerSig)
+        self.predict = ContextSafe(dspy.ChainOfThought(CartographerSig), CartographerSig, name="cartographer")
 
     def forward(self, diagnosis, item_tags, cache_candidates, current_map, question,
                 token_budget, current_tokens, max_context_item_tokens):
