@@ -22,7 +22,7 @@ classifiers = [
 [tool.poetry.dependencies]
 python = ">=3.11,<3.14"
 dspy = {version = "^3.3.0", extras = ["mcp"]}
-litellm = "^1.81.6"
+litellm = "^1.84.0"
 cachetools = ">=5.0.0"
 PyGithub = ">=2.5.0"
 python-gitlab = ">=4.0.0"
@@ -30,11 +30,11 @@ typer = ">=0.12.0"
 rich = ">=13.9.0"
 pydantic = ">=2.10.0"
 pydantic-settings = ">=2.6.0"
-gitpython = ">=3.1.0"
+gitpython = ">=3.1.41"
 httpx = ">=0.28.0"
 boto3 = ">=1.35.0"  # Required for AWS Bedrock
 cloudpickle = "^3.1.2"
-json-repair = "^0.55.1"
+json-repair = ">=0.56.0"
 tree-sitter = ">=0.23"
 tree-sitter-go = ">=0.23"
 tree-sitter-python = ">=0.23"
@@ -48,7 +48,7 @@ tree-sitter-rust = ">=0.23"
 tree-sitter-hcl = ">=1.2.0"
 mcp = ">=1.29.0,<2.0.0"
 beautifulsoup4 = ">=4.12.0"
-markdownify = ">=0.13.0"
+markdownify = ">=0.14.0"
 ddgs = ">=8.0.0"
 
 [tool.poetry.group.dev.dependencies]

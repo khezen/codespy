@@ -37,6 +37,38 @@ class TestResolvePath:
         assert self.client._resolve_path(".") == ""
         assert self.client._resolve_path("/") == ""
 
+    def test_rejects_encoded_traversal_lowercase(self):
+        """Percent-encoded '..' (%2e%2e) must be caught."""
+        with pytest.raises(ValueError, match="escapes bucket root"):
+            self.client._resolve_path("foo/%2e%2e/secret")
+
+    def test_rejects_encoded_traversal_uppercase(self):
+        """Mixed/uppercase percent-encoding must also be caught."""
+        with pytest.raises(ValueError, match="escapes bucket root"):
+            self.client._resolve_path("foo/%2E%2E/secret")
+
+    def test_rejects_leading_encoded_traversal(self):
+        with pytest.raises(ValueError, match="escapes bucket root"):
+            self.client._resolve_path("%2e%2e/etc/passwd")
+
+    def test_rejects_encoded_slash_traversal(self):
+        """Encoded forward slash creating '..' component when decoded."""
+        with pytest.raises(ValueError, match="escapes bucket root"):
+            self.client._resolve_path("foo%2f..%2fsecret")
+
+    def test_preserves_percent_in_normal_keys(self):
+        """Legitimate keys with percent characters pass through unchanged."""
+        assert self.client._resolve_path("reports/100%25done.txt") == "reports/100%25done.txt"
+
+    def test_encoded_nontraversal_preserved(self):
+        """Non-traversal encoded chars: original key preserved in return value."""
+        assert self.client._resolve_path("foo/%62ar") == "foo/%62ar"
+
+    def test_double_encoded_traversal_passes(self):
+        """Double-encoded traversal is an opaque S3 key, not actual traversal."""
+        # %252e%252e decodes once to %2e%2e (not ..) — legitimate key
+        assert self.client._resolve_path("foo/%252e%252e/bar") == "foo/%252e%252e/bar"
+
 
 class TestReadFileTruncation:
     @staticmethod

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import posixpath
+from urllib.parse import unquote
 
 from codespy.tools.storage.base import Storage
 from codespy.tools.storage.models import (
@@ -61,10 +62,22 @@ class S3Client(Storage):
     # ------------------------------------------------------------------
 
     def _resolve_path(self, path: str) -> str:
-        stripped = path.strip("/")
-        # Reject '..' in any path component before normalization
-        if any(part == ".." for part in stripped.split("/")):
+        """Resolve and validate a relative path for use as an S3 key.
+
+        Rejects path traversal attempts including percent-encoded variants
+        (e.g. %2e%2e, %2f..%2f). Returns the normalized original path,
+        preserving S3 key semantics.
+        """
+        # Decode percent-encoded characters for security validation only.
+        # This catches encoded traversal attempts (e.g. %2e%2e -> ..)
+        # without altering the returned S3 key.
+        decoded = unquote(path)
+        decoded_stripped = decoded.strip("/")
+        if any(part == ".." for part in decoded_stripped.split("/")):
             raise ValueError(f"Path escapes bucket root: {path!r}")
+
+        # Normalize the original (non-decoded) path for the actual S3 key
+        stripped = path.strip("/")
         normalised = posixpath.normpath(stripped)
         if normalised == ".":
             return ""
