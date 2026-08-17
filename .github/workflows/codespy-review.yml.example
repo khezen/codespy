@@ -151,3 +151,21 @@ jobs:
 #       run: |
 #         echo "Too many issues found!"
 #         exit 1
+
+# --- Using Memory (S3 persistence across runs) ---
+#     - name: Run CodeSpy Review
+#       uses: khezen/codespy@main
+#       with:
+#         model: 'anthropic/claude-opus-4-6'
+#         anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+#         # AWS credentials for S3 memory backend
+#         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#         aws-region: 'us-east-1'
+#         # Enable memory globally
+#         memory-enabled: 'true'
+#         memory-backend: 's3'
+#         memory-s3-bucket: 'my-codespy-memory'
+#         # Use cheap model for reflection
+#         memory-distiller-model: 'anthropic/claude-haiku-4-5-20251001'
+#         memory-cartographer-model: 'anthropic/claude-haiku-4-5-20251001'

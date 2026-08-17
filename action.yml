@@ -210,7 +210,86 @@ inputs:
   summary-temperature:
     description: 'Temperature for summary'
     required: false
-  
+
+  # ==========================================
+  # MEMORY (Hippocampus)
+  # ==========================================
+  memory-enabled:
+    description: 'Enable memory (Hippocampus) globally for cross-run learning (default: false)'
+    required: false
+    default: 'false'
+
+  memory-backend:
+    description: 'Memory storage backend: filesystem or s3. Note: filesystem is ephemeral in Docker; use s3 for persistence across runs.'
+    required: false
+    default: 'filesystem'
+
+  memory-root:
+    description: 'Filesystem path for memory storage (only used with filesystem backend; ephemeral in Docker)'
+    required: false
+
+  memory-s3-bucket:
+    description: 'S3 bucket for memory storage (required when backend is s3). Requires aws-access-key-id/aws-secret-access-key inputs.'
+    required: false
+
+  memory-s3-region:
+    description: 'S3 region for memory bucket (defaults to aws-region input)'
+    required: false
+
+  memory-s3-endpoint-url:
+    description: 'S3 endpoint URL for S3-compatible stores (e.g., MinIO)'
+    required: false
+
+  memory-max-reflects:
+    description: 'Max online reflections per agent call (0 = batch-only, default: 0)'
+    required: false
+    default: '0'
+
+  memory-distiller-model:
+    description: 'Model for the Distiller reflection module (smaller model recommended)'
+    required: false
+
+  memory-distiller-reasoning-effort:
+    description: 'Reasoning effort for Distiller (minimal|low|medium|high)'
+    required: false
+
+  memory-distiller-temperature:
+    description: 'Temperature for Distiller'
+    required: false
+
+  memory-cartographer-model:
+    description: 'Model for the Cartographer reflection module (smaller model recommended)'
+    required: false
+
+  memory-cartographer-reasoning-effort:
+    description: 'Reasoning effort for Cartographer (minimal|low|medium|high)'
+    required: false
+
+  memory-cartographer-temperature:
+    description: 'Temperature for Cartographer'
+    required: false
+
+  # Per-signature memory overrides
+  scope-memory-enabled:
+    description: 'Enable memory for scope identification (overrides global memory-enabled)'
+    required: false
+
+  code-review-memory-enabled:
+    description: 'Enable memory for code review (overrides global memory-enabled)'
+    required: false
+
+  doc-memory-enabled:
+    description: 'Enable memory for doc review (overrides global memory-enabled)'
+    required: false
+
+  supply-chain-memory-enabled:
+    description: 'Enable memory for supply chain (overrides global memory-enabled)'
+    required: false
+
+  summary-memory-enabled:
+    description: 'Enable memory for summary (overrides global memory-enabled)'
+    required: false
+
   excluded-directories:
     description: 'JSON array of directories to exclude from review (e.g., ["vendor", "dist"])'
     required: false
@@ -319,6 +398,26 @@ runs:
         
         # Other settings
         EXCLUDED_DIRECTORIES: ${{ inputs.excluded-directories }}
+
+        # Memory (Hippocampus)
+        MEMORY_DEFAULT_ENABLED: ${{ inputs.memory-enabled }}
+        MEMORY_BACKEND: ${{ inputs.memory-backend }}
+        MEMORY_ROOT: ${{ inputs.memory-root }}
+        MEMORY_S3_BUCKET: ${{ inputs.memory-s3-bucket }}
+        MEMORY_S3_REGION: ${{ inputs.memory-s3-region }}
+        MEMORY_S3_ENDPOINT_URL: ${{ inputs.memory-s3-endpoint-url }}
+        MEMORY_DEFAULT_MAX_REFLECTS: ${{ inputs.memory-max-reflects }}
+        MEMORY_DISTILLER_MODEL: ${{ inputs.memory-distiller-model }}
+        MEMORY_DISTILLER_REASONING_EFFORT: ${{ inputs.memory-distiller-reasoning-effort }}
+        MEMORY_DISTILLER_TEMPERATURE: ${{ inputs.memory-distiller-temperature }}
+        MEMORY_CARTOGRAPHER_MODEL: ${{ inputs.memory-cartographer-model }}
+        MEMORY_CARTOGRAPHER_REASONING_EFFORT: ${{ inputs.memory-cartographer-reasoning-effort }}
+        MEMORY_CARTOGRAPHER_TEMPERATURE: ${{ inputs.memory-cartographer-temperature }}
+        SCOPE_MEMORY_ENABLED: ${{ inputs.scope-memory-enabled }}
+        CODE_REVIEW_MEMORY_ENABLED: ${{ inputs.code-review-memory-enabled }}
+        DOC_MEMORY_ENABLED: ${{ inputs.doc-memory-enabled }}
+        SUPPLY_CHAIN_MEMORY_ENABLED: ${{ inputs.supply-chain-memory-enabled }}
+        SUMMARY_MEMORY_ENABLED: ${{ inputs.summary-memory-enabled }}
       run: |
         set -eo pipefail
         
@@ -379,7 +478,27 @@ runs:
         
         # Other settings
         [ -n "$EXCLUDED_DIRECTORIES" ] && DOCKER_ARGS="$DOCKER_ARGS -e EXCLUDED_DIRECTORIES"
-        
+
+        # Memory (Hippocampus)
+        [ -n "$MEMORY_DEFAULT_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DEFAULT_ENABLED"
+        [ -n "$MEMORY_BACKEND" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_BACKEND"
+        [ -n "$MEMORY_ROOT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_ROOT"
+        [ -n "$MEMORY_S3_BUCKET" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_S3_BUCKET"
+        [ -n "$MEMORY_S3_REGION" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_S3_REGION"
+        [ -n "$MEMORY_S3_ENDPOINT_URL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_S3_ENDPOINT_URL"
+        [ -n "$MEMORY_DEFAULT_MAX_REFLECTS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DEFAULT_MAX_REFLECTS"
+        [ -n "$MEMORY_DISTILLER_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MODEL"
+        [ -n "$MEMORY_DISTILLER_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_REASONING_EFFORT"
+        [ -n "$MEMORY_DISTILLER_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_TEMPERATURE"
+        [ -n "$MEMORY_CARTOGRAPHER_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MODEL"
+        [ -n "$MEMORY_CARTOGRAPHER_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_REASONING_EFFORT"
+        [ -n "$MEMORY_CARTOGRAPHER_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_TEMPERATURE"
+        [ -n "$SCOPE_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MEMORY_ENABLED"
+        [ -n "$CODE_REVIEW_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MEMORY_ENABLED"
+        [ -n "$DOC_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MEMORY_ENABLED"
+        [ -n "$SUPPLY_CHAIN_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MEMORY_ENABLED"
+        [ -n "$SUMMARY_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_MEMORY_ENABLED"
+
         # Build codespy command arguments
         CMD_ARGS="review ${{ steps.pr-url.outputs.url }}"
         CMD_ARGS="$CMD_ARGS --output ${{ inputs.output-format }}"

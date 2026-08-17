@@ -108,6 +108,45 @@ MEMORY_DISTILLER_MODEL=anthropic/claude-sonnet-4-5-20250929
 MEMORY_CARTOGRAPHER_MODEL=anthropic/claude-sonnet-4-5-20250929
 ```
 
+### GitHub Action
+
+Enable memory with S3 persistence:
+```yaml
+- name: Run CodeSpy Review
+  uses: khezen/codespy@v1
+  with:
+    model: 'anthropic/claude-opus-4-6'
+    anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+    # AWS credentials (required for S3 memory backend)
+    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    aws-region: 'us-east-1'
+    # Memory
+    memory-enabled: 'true'
+    memory-backend: 's3'
+    memory-s3-bucket: 'my-codespy-memory'
+    memory-distiller-model: 'anthropic/claude-haiku-4-5-20251001'
+    memory-cartographer-model: 'anthropic/claude-haiku-4-5-20251001'
+```
+
+Enable only for code review (per-signature override):
+```yaml
+- name: Run CodeSpy Review
+  uses: khezen/codespy@v1
+  with:
+    model: 'anthropic/claude-opus-4-6'
+    anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    memory-backend: 's3'
+    memory-s3-bucket: 'my-codespy-memory'
+    code-review-memory-enabled: 'true'
+    memory-distiller-model: 'anthropic/claude-haiku-4-5-20251001'
+    memory-cartographer-model: 'anthropic/claude-haiku-4-5-20251001'
+```
+
+> **Note:** The `filesystem` backend is ephemeral in the GitHub Action (Docker container is removed after each run). Use `s3` for persistent memory across reviews.
+
 ---
 
 [← Back to README](../README.md#documentation)
