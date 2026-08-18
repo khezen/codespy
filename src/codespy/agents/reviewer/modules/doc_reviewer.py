@@ -67,6 +67,7 @@ class DocReviewSignature(dspy.Signature):
 
     OUTPUT RULES:
     - Set category to "documentation"
+    - Set severity: "low" for missing/incomplete docs, "medium" for wrong/stale docs
     - filename: the documentation file that needs updating (use path from === path === headers)
     - description: ≤25 words, imperative tone ("Update X section", "Add Y to README")
     - Empty list if documentation is up to date. No approval text ("LGTM", "looks good")

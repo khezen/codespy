@@ -155,7 +155,10 @@ class Issue(BaseModel):
     """Represents a single issue found during review."""
 
     category: IssueCategory = Field(description="Issue category")
-    severity: IssueSeverity = Field(description="Issue severity")
+    severity: IssueSeverity = Field(
+        default=IssueSeverity.MEDIUM,
+        description="Issue severity: critical, high, medium, low, or info",
+    )
     title: str = Field(description="Brief title of the issue")
     description: str = Field(description="≤25 word imperative description. No filler.")
     filename: str = Field(description="File where the issue was found")
