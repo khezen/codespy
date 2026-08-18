@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.6] - 2026-08-18
+
+### Changed
+- Removed default value for `extraction-model` GitHub Action input (was `anthropic/claude-haiku-4-5-20251001`)
+
 ## [1.0.5] - 2026-08-18
 
 ### Added
