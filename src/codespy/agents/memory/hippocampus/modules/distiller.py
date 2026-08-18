@@ -100,7 +100,7 @@ class DistillerSig(dspy.Signature):
     onto the context memory schema): context_understanding, domain_constants,
     context_roadmap, reusable_results, parsing_schema.
 
-    Each candidate is a JSON object with exactly these fields:
+    Each candidate is an object with exactly these fields:
     - section: one of the five section names above
     - value: the compact cached content (stay within max_context_item_tokens)
     - transferability: what kinds of future questions this would help

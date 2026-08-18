@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.4] - 2026-08-18
+
+### Fixed
+- LLM output parse failure: `Issue.severity` field now defaults to `medium` when omitted by the model (was hard-required, causing 0 issues returned)
+- Enum case normalization: `OpType` and `ItemTag` now accept any casing via `_missing_` hooks (e.g., `"add"` → `ADD`, `"NEUTRAL"` → `neutral`)
+- `CacheCandidate` fields (`section`, `transferability`, `rationale`) now have defaults so partial LLM output still parses
+- Reviewer signatures now include explicit severity guidance in OUTPUT RULES (doc: low/medium, code: critical/high/medium/low)
+- Cartographer signature: removed "JSON" terminology from Operation rules (aligns with Distiller change)
+- `Operation.type` field description now lists allowed values explicitly
+
 ## [1.0.3] - 2026-08-18
 
 ### Added

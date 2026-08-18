@@ -117,6 +117,7 @@ class CodeReviewSignature(dspy.Signature):
     ═══════════════════════════════════════════════════════════════════════════════
 
     - Set category to one of the values provided in the categories input
+    - Set severity: "critical" or "high" for bugs/security, "medium" for code smells, "low" for minor smells
     - For security issues, include cwe_id where applicable
     - Reference files by name and line number only — never copy source code into issues
     - Do not repeat patch content in reasoning steps. Keep each step to 1-2 sentences

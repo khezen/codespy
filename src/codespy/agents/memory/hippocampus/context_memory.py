@@ -25,6 +25,15 @@ class ItemTag(StrEnum):
     NEUTRAL = "neutral"
     STALE = "stale"
 
+    @classmethod
+    def _missing_(cls, value: object) -> ItemTag | None:
+        if isinstance(value, str):
+            lower = value.lower()
+            for member in cls:
+                if member.value == lower:
+                    return member
+        return None
+
 
 class OpType(StrEnum):
     """Cartographer edit operations against the context memory."""
@@ -32,6 +41,15 @@ class OpType(StrEnum):
     ADD = "ADD"
     DELETE = "DELETE"
     REPLACE = "REPLACE"
+
+    @classmethod
+    def _missing_(cls, value: object) -> OpType | None:
+        if isinstance(value, str):
+            upper = value.upper()
+            for member in cls:
+                if member.value == upper:
+                    return member
+        return None
 
 
 SectionName = Literal[
@@ -82,17 +100,26 @@ class Item(BaseModel):
 class CacheCandidate(BaseModel):
     """A candidate item to be added to the context memory."""
 
-    section: SectionName = Field(description="Section to add the item to")
+    section: SectionName = Field(
+        default="context_understanding",
+        description="Target section: context_understanding, domain_constants, context_roadmap, reusable_results, or parsing_schema",
+    )
     value: str = Field(description="Compact candidate cache item, within the max_context_item_tokens budget.")
-    transferability: str = Field(description="Kinds of future questions this would help.")
-    rationale: str = Field(description="Why this is shared understanding, not a one-off fact.")
+    transferability: str = Field(
+        default="",
+        description="Kinds of future questions this would help.",
+    )
+    rationale: str = Field(
+        default="",
+        description="Why this is shared understanding, not a one-off fact.",
+    )
 
 
 class Operation(BaseModel):
     """A single edit operation against the context memory."""
 
     type: OpType = Field(
-        description="Type of operation",
+        description="Operation type: ADD, DELETE, or REPLACE",
         validation_alias=AliasChoices("type", "op"),
     )
     section: SectionName | None = Field(default=None, description="Required for ADD.")

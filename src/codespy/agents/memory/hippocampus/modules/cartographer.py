@@ -52,7 +52,7 @@ class CartographerSig(dspy.Signature):
 
     ## Operation rules
 
-    Each operation is a JSON object with exactly these fields:
+    Each operation has exactly these fields:
     - type: one of "ADD", "DELETE", or "REPLACE"
     - section: (ADD only) one of the five section names
     - item_id: (DELETE/REPLACE only) existing item ID from current memory
