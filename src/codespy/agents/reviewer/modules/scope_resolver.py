@@ -950,6 +950,8 @@ class ScopeResolver(dspy.Module):
                 ScopeRefinementSignature,
                 tools=tools,
                 name="scope",
+                max_iters=max_iters,
+                max_llm_calls=self._settings.get_max_llm_calls("scope"),
             )
             mem: Hippocampus | None = None
 

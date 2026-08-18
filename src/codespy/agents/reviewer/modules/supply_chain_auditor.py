@@ -13,7 +13,6 @@ from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
 from codespy.agents.reviewer.modules.helpers import (
-    MIN_CONFIDENCE,
     issues_to_markdown,
     resolve_scope_root,
     restore_repo_paths,
@@ -324,6 +323,8 @@ class SupplyChainAuditor(dspy.Module):
                         SupplyChainSecuritySignature,
                         tools=all_tools,
                         name="supply_chain",
+                        max_iters=supply_chain_max_iters,
+                        max_llm_calls=self._settings.get_max_llm_calls("supply_chain"),
                     )
 
                     logger.debug(
@@ -359,7 +360,7 @@ class SupplyChainAuditor(dspy.Module):
                             )
                             issues = [
                                 issue for issue in result.issues
-                                if issue.confidence >= MIN_CONFIDENCE
+                                if issue.confidence >= self._settings.min_confidence
                             ]
                             await mem.aend_episode(
                                 get_memory_store(self._settings),
@@ -378,7 +379,7 @@ class SupplyChainAuditor(dspy.Module):
                             )
                             issues = [
                                 issue for issue in result.issues
-                                if issue.confidence >= MIN_CONFIDENCE
+                                if issue.confidence >= self._settings.min_confidence
                             ]
                     # Restore repo-root-relative paths in reported issues
                     restore_repo_paths(issues, scope.subroot)

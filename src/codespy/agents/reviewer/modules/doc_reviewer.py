@@ -12,7 +12,6 @@ from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
 from codespy.agents.reviewer.modules.doc_extractor import extract_documentation
 from codespy.agents.reviewer.modules.helpers import (
-    MIN_CONFIDENCE,
     build_patches,
     issues_to_markdown,
     make_scope_relative,
@@ -172,7 +171,12 @@ class DocReviewer(dspy.Module):
                 logger.debug(f"  No patches in {scope.subroot}, skipping doc review")
                 continue
             try:
-                reviewer = ContextSafe(dspy.ChainOfThought(DocReviewSignature), DocReviewSignature, name="doc")
+                reviewer = ContextSafe(
+                    dspy.ChainOfThought(DocReviewSignature),
+                    DocReviewSignature,
+                    name="doc",
+                    max_llm_calls=self._settings.get_max_llm_calls("doc"),
+                )
                 logger.info(
                     f"  Doc review: scope {scope.subroot} "
                     f"({len(scope.changed_files)} files)"
@@ -202,7 +206,7 @@ class DocReviewer(dspy.Module):
                         )
                         issues = [
                             issue for issue in (result.issues or [])
-                            if issue.confidence >= MIN_CONFIDENCE
+                            if issue.confidence >= self._settings.min_confidence
                         ]
                         await mem.aend_episode(
                             get_memory_store(self._settings),
@@ -221,7 +225,7 @@ class DocReviewer(dspy.Module):
                         )
                         issues = [
                             issue for issue in (result.issues or [])
-                            if issue.confidence >= MIN_CONFIDENCE
+                            if issue.confidence >= self._settings.min_confidence
                         ]
                 restore_repo_paths(issues, scope.subroot)
                 all_issues.extend(issues)

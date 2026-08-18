@@ -98,7 +98,12 @@ class Summarizer(dspy.Module):
                     "Merged %d prior scope episode(s) into summarizer memory",
                     len(per_scope_memories),
                 )
-        summarizer = ContextSafe(dspy.ChainOfThought(PRSummarySignature), PRSummarySignature, name="summary")
+        summarizer = ContextSafe(
+            dspy.ChainOfThought(PRSummarySignature),
+            PRSummarySignature,
+            name="summary",
+            max_llm_calls=self._settings.get_max_llm_calls("summary"),
+        )
         logger.info("Generating PR summary...")
 
         question = f"summarize {repo_slug}: pull request {pr_number} {pr_title}"

@@ -32,6 +32,7 @@ class SignatureConfig(BaseModel):
 
     enabled: bool = True
     max_iters: int | None = None
+    max_llm_calls: int | None = None  # RLM fallback max calls (default_max_llm_calls if None)
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None  # Provider reasoning budget
     temperature: float | None = None

@@ -13,7 +13,6 @@ from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
 from codespy.agents.reviewer.modules.helpers import (
-    MIN_CONFIDENCE,
     issues_to_markdown,
     make_scope_relative,
     resolve_scope_root,
@@ -238,6 +237,8 @@ class CodeReviewer(dspy.Module):
                     CodeReviewSignature,
                     tools=tools,
                     name="code_review",
+                    max_iters=max_iters,
+                    max_llm_calls=self._settings.get_max_llm_calls("code_review"),
                 )
                 scoped = make_scope_relative(scope)
                 logger.info(
@@ -268,7 +269,7 @@ class CodeReviewer(dspy.Module):
                         )
                         issues = [
                             issue for issue in (result.issues or [])
-                            if issue.confidence >= MIN_CONFIDENCE
+                            if issue.confidence >= self._settings.min_confidence
                         ]
                         await mem.aend_episode(
                             get_memory_store(self._settings),
@@ -285,7 +286,7 @@ class CodeReviewer(dspy.Module):
                         )
                         issues = [
                             issue for issue in (result.issues or [])
-                            if issue.confidence >= MIN_CONFIDENCE
+                            if issue.confidence >= self._settings.min_confidence
                         ]
                 restore_repo_paths(issues, scope.subroot)
                 all_issues.extend(issues)
