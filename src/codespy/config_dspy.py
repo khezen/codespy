@@ -15,6 +15,20 @@ logger = logging.getLogger(__name__)
 ReasoningEffort = Literal["minimal", "low", "medium", "high"]
 
 
+class RLMFallbackConfig(BaseModel):
+    """Proactive RLM fallback thresholds to avoid context rot.
+
+    When input tokens exceed threshold * max_input_tokens, ContextSafe
+    switches to RLM before quality degrades. Thresholds differ by DSPy
+    module type because multi-step reasoning (ReAct) is more vulnerable
+    to context rot than single-pass (ChainOfThought/Predict).
+    """
+    enabled: bool = True
+    react_threshold: float = Field(default=0.30, ge=0.0, le=1.0)
+    chain_of_thought_threshold: float = Field(default=0.40, ge=0.0, le=1.0)
+    predict_threshold: float = Field(default=0.50, ge=0.0, le=1.0)
+
+
 class MemorySignatureConfig(BaseModel):
 
     """Per-signature Hippocampus memory overrides.
@@ -63,6 +77,40 @@ SIGNATURE_SETTINGS = set(SignatureConfig.model_fields) - {"memory"}
 # Known per-signature memory settings, routed via <SIG>_MEMORY_<SETTING>
 MEMORY_SIGNATURE_SETTINGS = set(MemorySignatureConfig.model_fields)
 
+
+# Env var name (without RLM_FALLBACK_ prefix) -> RLMFallbackConfig field name.
+RLM_FALLBACK_ENV_SETTINGS = {
+    "ENABLED": "enabled",
+    "REACT_THRESHOLD": "react_threshold",
+    "CHAIN_OF_THOUGHT_THRESHOLD": "chain_of_thought_threshold",
+    "PREDICT_THRESHOLD": "predict_threshold",
+}
+
+
+def apply_rlm_fallback_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
+    """Apply RLM_FALLBACK_* environment variable overrides.
+
+    Maps: RLM_FALLBACK_REACT_THRESHOLD=0.30 -> rlm_fallback.react_threshold
+    """
+    from dotenv import dotenv_values
+    env_vars = {**dotenv_values(".env"), **os.environ}
+
+    for key, value in env_vars.items():
+        if value is None:
+            continue
+        key_upper = key.upper()
+        if not key_upper.startswith("RLM_FALLBACK_"):
+            continue
+        remainder = key_upper[len("RLM_FALLBACK_"):]
+        field = RLM_FALLBACK_ENV_SETTINGS.get(remainder)
+        if field is None:
+            continue
+        rlm_config = config.setdefault("rlm_fallback", {})
+        if not isinstance(rlm_config, dict):
+            continue
+        rlm_config[field] = convert_env_value(value)
+
+    return config
 
 
 def convert_env_value(value: str) -> Any:

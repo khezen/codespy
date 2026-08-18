@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.5] - 2026-08-18
+
+### Added
+- Proactive RLM fallback with configurable context rot thresholds per module type (ReAct: 0.30, ChainOfThought: 0.40, Predict: 0.50)
+- New `rlm_fallback` config section with `enabled`, `react_threshold`, `chain_of_thought_threshold`, `predict_threshold`
+- GitHub Action inputs: `rlm-fallback-enabled`, `rlm-fallback-react-threshold`, `rlm-fallback-chain-of-thought-threshold`, `rlm-fallback-predict-threshold`
+
+### Changed
+- `ContextSafe` now checks proactive context rot threshold before checking hard overflow (existing overflow detection retained as safety net)
+- `ContextSafe._would_overflow` renamed to `_should_use_rlm` with expanded three-layer logic
+
 ## [1.0.4] - 2026-08-18
 
 ### Fixed

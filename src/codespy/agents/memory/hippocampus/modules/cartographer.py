@@ -142,7 +142,11 @@ class Cartographer(dspy.Module):
 
     def __init__(self):
         super().__init__()
-        self.predict = ContextSafe(dspy.ChainOfThought(CartographerSig), CartographerSig, name="cartographer")
+        from codespy.config import settings  # lazy to avoid circular import
+        self.predict = ContextSafe(
+            dspy.ChainOfThought(CartographerSig), CartographerSig, name="cartographer",
+            rlm_threshold=settings.get_rlm_threshold("chain_of_thought"),
+        )
 
     def forward(self, diagnosis, item_tags, cache_candidates, current_map, question,
                 token_budget, current_tokens, max_context_item_tokens):

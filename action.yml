@@ -99,6 +99,27 @@ inputs:
     required: false
     default: '30'
 
+  # RLM fallback (context rot prevention)
+  rlm-fallback-enabled:
+    description: 'Enable proactive RLM fallback before context window overflow'
+    required: false
+    default: 'true'
+
+  rlm-fallback-react-threshold:
+    description: 'Context ratio for ReAct modules (0.0-1.0). RLM used when input exceeds this ratio of max_input_tokens.'
+    required: false
+    default: '0.30'
+
+  rlm-fallback-chain-of-thought-threshold:
+    description: 'Context ratio for ChainOfThought modules (0.0-1.0). RLM used when input exceeds this ratio.'
+    required: false
+    default: '0.40'
+
+  rlm-fallback-predict-threshold:
+    description: 'Context ratio for Predict modules (0.0-1.0). RLM used when input exceeds this ratio.'
+    required: false
+    default: '0.50'
+
   min-confidence:
     description: 'Minimum confidence threshold (0.0-1.0) for reported issues'
     required: false
@@ -390,6 +411,12 @@ runs:
         DEFAULT_MAX_LLM_CALLS: ${{ inputs.default-max-llm-calls }}
         MIN_CONFIDENCE: ${{ inputs.min-confidence }}
 
+        # RLM fallback
+        RLM_FALLBACK_ENABLED: ${{ inputs.rlm-fallback-enabled }}
+        RLM_FALLBACK_REACT_THRESHOLD: ${{ inputs.rlm-fallback-react-threshold }}
+        RLM_FALLBACK_CHAIN_OF_THOUGHT_THRESHOLD: ${{ inputs.rlm-fallback-chain-of-thought-threshold }}
+        RLM_FALLBACK_PREDICT_THRESHOLD: ${{ inputs.rlm-fallback-predict-threshold }}
+
         # Scope identification signature
         SCOPE_ENABLED: ${{ inputs.scope-enabled }}
         SCOPE_MODEL: ${{ inputs.scope-model }}
@@ -475,6 +502,12 @@ runs:
         [ -n "$ENABLE_PROMPT_CACHING" ] && DOCKER_ARGS="$DOCKER_ARGS -e ENABLE_PROMPT_CACHING"
         [ -n "$DEFAULT_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_LLM_CALLS"
         [ -n "$MIN_CONFIDENCE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MIN_CONFIDENCE"
+
+        # RLM fallback
+        [ -n "$RLM_FALLBACK_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e RLM_FALLBACK_ENABLED"
+        [ -n "$RLM_FALLBACK_REACT_THRESHOLD" ] && DOCKER_ARGS="$DOCKER_ARGS -e RLM_FALLBACK_REACT_THRESHOLD"
+        [ -n "$RLM_FALLBACK_CHAIN_OF_THOUGHT_THRESHOLD" ] && DOCKER_ARGS="$DOCKER_ARGS -e RLM_FALLBACK_CHAIN_OF_THOUGHT_THRESHOLD"
+        [ -n "$RLM_FALLBACK_PREDICT_THRESHOLD" ] && DOCKER_ARGS="$DOCKER_ARGS -e RLM_FALLBACK_PREDICT_THRESHOLD"
 
         # Scope identification
         [ -n "$SCOPE_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_ENABLED"

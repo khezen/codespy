@@ -103,6 +103,7 @@ class Summarizer(dspy.Module):
             PRSummarySignature,
             name="summary",
             max_llm_calls=self._settings.get_max_llm_calls("summary"),
+            rlm_threshold=self._settings.get_rlm_threshold("chain_of_thought"),
         )
         logger.info("Generating PR summary...")
 

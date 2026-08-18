@@ -952,6 +952,7 @@ class ScopeResolver(dspy.Module):
                 name="scope",
                 max_iters=max_iters,
                 max_llm_calls=self._settings.get_max_llm_calls("scope"),
+                rlm_threshold=self._settings.get_rlm_threshold("react"),
             )
             mem: Hippocampus | None = None
 

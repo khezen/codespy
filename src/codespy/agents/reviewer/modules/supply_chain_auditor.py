@@ -325,6 +325,7 @@ class SupplyChainAuditor(dspy.Module):
                         name="supply_chain",
                         max_iters=supply_chain_max_iters,
                         max_llm_calls=self._settings.get_max_llm_calls("supply_chain"),
+                        rlm_threshold=self._settings.get_rlm_threshold("react"),
                     )
 
                     logger.debug(

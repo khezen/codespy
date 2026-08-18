@@ -177,6 +177,7 @@ class DocReviewer(dspy.Module):
                     DocReviewSignature,
                     name="doc",
                     max_llm_calls=self._settings.get_max_llm_calls("doc"),
+                    rlm_threshold=self._settings.get_rlm_threshold("chain_of_thought"),
                 )
                 logger.info(
                     f"  Doc review: scope {scope.subroot} "

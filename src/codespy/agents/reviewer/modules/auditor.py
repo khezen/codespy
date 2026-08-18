@@ -151,6 +151,7 @@ class Auditor(dspy.Module):
             AuditSignature,
             name="audit",
             max_llm_calls=self._settings.get_max_llm_calls("audit"),
+            rlm_threshold=self._settings.get_rlm_threshold("chain_of_thought"),
         )
         logger.info("Running audit...")
 

@@ -10,7 +10,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from codespy.config_dspy import (
     ReasoningEffort,
+    RLMFallbackConfig,
     SignatureConfig,
+    apply_rlm_fallback_env_overrides,
     apply_signature_env_overrides,
 )
 from codespy.config_git import (
@@ -115,6 +117,7 @@ class Settings(BaseSettings):
     github: GitHubConfig = Field(default_factory=GitHubConfig)
     gitlab: GitLabConfig = Field(default_factory=GitLabConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    rlm_fallback: RLMFallbackConfig = Field(default_factory=RLMFallbackConfig)
 
     # Flat signature configs (signature_name -> SignatureConfig)
     signatures: dict[str, SignatureConfig] = Field(default_factory=dict)
@@ -282,8 +285,28 @@ class Settings(BaseSettings):
             max_question_tokens=self.memory.default_max_question_tokens,
         )
 
+    def get_rlm_threshold(self, module_type: str) -> float:
+        """Resolve RLM fallback threshold for a module type.
+
+        Args:
+            module_type: "react" | "chain_of_thought" | "predict"
+
+        Returns:
+            Threshold ratio (0.0-1.0), or 1.0 if disabled.
+        """
+        if not self.rlm_fallback.enabled:
+            return 1.0
+        return getattr(self.rlm_fallback, f"{module_type}_threshold", 1.0)
+
     def log_signature_configs(self) -> None:
         """Log all signature and reflection module LLM configurations."""
+        logger.info("RLM fallback configuration:")
+        logger.info(
+            f"  enabled={self.rlm_fallback.enabled}, "
+            f"react_threshold={self.rlm_fallback.react_threshold}, "
+            f"chain_of_thought_threshold={self.rlm_fallback.chain_of_thought_threshold}, "
+            f"predict_threshold={self.rlm_fallback.predict_threshold}"
+        )
         logger.info("Signature configurations:")
         for sig_name, sig_config in self.signatures.items():
             status = "enabled" if sig_config.enabled else "disabled"
@@ -316,7 +339,8 @@ class Settings(BaseSettings):
         # MEMORY_* env vars target the nested `memory` model, which
         # pydantic-settings cannot populate on its own (no env_nested_delimiter).
         yaml_config = apply_memory_env_overrides(yaml_config)
-
+        # RLM_FALLBACK_* env vars target the nested `rlm_fallback` model.
+        yaml_config = apply_rlm_fallback_env_overrides(yaml_config)
 
         # Merge YAML config into values only if not already set (env vars take precedence)
         for key, val in yaml_config.items():
