@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-08-18
+
+### Security
+- S3 StreamingBody resource leak fix: wrapped `resp["Body"].read()` in try/finally to ensure `body.close()` is called, preventing connection pool exhaustion on partial read failures
+- SecretStr migration for all credential fields: tokens and API keys now use Pydantic `SecretStr` type to prevent accidental logging of sensitive values
+  - Affected fields: `github_token`, `gh_token`, `gitlab_token`, `aws_access_key_id`, `aws_secret_access_key`, `openai_api_key`, `anthropic_api_key`, `gemini_api_key`
+  - New `config_utils.secret_value()` helper extracts plain text at API boundaries
+  - `model_dump()` masks secrets as `'**********'`
+- GitLab client timeout: added `timeout=30` to `gitlab.Gitlab()` instantiation to prevent indefinite hangs (python-gitlab >=4.0.0 defaults to `None`)
+- Dependency floor bumps to fix known vulnerabilities:
+  - `gitpython` >=3.1.42 — RCE via malicious git repo (CVE-2024-22190)
+  - `json-repair` >=0.60.1 — DoS via circular $ref (GHSA-xf7x-x43h-rpqh)
+  - `markdownify` >=0.15.0 — ReDoS vulnerability (GHSA-7mpr-5m44-h73h)
+
 ## [1.0.7] - 2026-08-18
 
 ### Fixed

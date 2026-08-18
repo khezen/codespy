@@ -5,7 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 logger = logging.getLogger(__name__)
 
@@ -187,13 +187,13 @@ def discover_gitlab_token() -> tuple[str | None, str]:
 class GitHubConfig(BaseModel):
     """GitHub configuration."""
 
-    token: str | None = Field(default=None, repr=False)
+    token: SecretStr | None = None
     auto_discover_token: bool = True
 
 
 class GitLabConfig(BaseModel):
     """GitLab configuration."""
 
-    token: str | None = Field(default=None, repr=False)
+    token: SecretStr | None = None
     url: str = "https://gitlab.com"  # Can be changed for self-hosted instances
     auto_discover_token: bool = True

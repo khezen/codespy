@@ -7,6 +7,7 @@ from pathlib import Path
 import gitlab
 from git import Repo
 
+from codespy.config_utils import secret_value
 from codespy.tools.git.base import GitClient
 from codespy.tools.git.models import (
     ChangedFile,
@@ -50,11 +51,11 @@ class GitLabClient(GitClient):
     def gitlab_client(self) -> gitlab.Gitlab:
         """Get or create GitLab client instance."""
         if self._gitlab is None:
-            token = getattr(self.settings, "gitlab_token", None)
+            token = secret_value(getattr(self.settings, "gitlab_token", None))
             if token:
-                self._gitlab = gitlab.Gitlab(self.gitlab_url, private_token=token)
+                self._gitlab = gitlab.Gitlab(self.gitlab_url, private_token=token, timeout=30)
             else:
-                self._gitlab = gitlab.Gitlab(self.gitlab_url)
+                self._gitlab = gitlab.Gitlab(self.gitlab_url, timeout=30)
             self._gitlab.auth()
         return self._gitlab
 
@@ -236,7 +237,7 @@ class GitLabClient(GitClient):
         gitlab_host = self.gitlab_url.rstrip("/")
 
         # Build clone URL
-        token = getattr(self.settings, "gitlab_token", None)
+        token = secret_value(getattr(self.settings, "gitlab_token", None))
         if token:
             host_clean = gitlab_host.replace("https://", "").replace("http://", "")
             repo_url = f"https://oauth2:{token}@{host_clean}/{project_path}.git"

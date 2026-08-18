@@ -14,6 +14,7 @@ from codespy.cli_mcp_server import serve
 from codespy.cli_remote import review
 from codespy.config import get_settings
 from codespy.config_git import get_github_token_source, get_gitlab_token_source
+from codespy.config_utils import secret_value
 
 app = typer.Typer(
     name="codespy",
@@ -84,7 +85,7 @@ def config(
 
     # Show GitHub token status
     github_token_source = get_github_token_source()
-    if settings.github_token:
+    if secret_value(settings.github_token):
         console.print(
             f"[bold]GitHub Token:[/bold] [green]configured[/green] "
             f"[dim]({github_token_source})[/dim]"
@@ -94,7 +95,7 @@ def config(
 
     # Show GitLab token status
     gitlab_token_source = get_gitlab_token_source()
-    if settings.gitlab_token:
+    if secret_value(settings.gitlab_token):
         console.print(
             f"[bold]GitLab Token:[/bold] [green]configured[/green] "
             f"[dim]({gitlab_token_source})[/dim]"
@@ -104,9 +105,9 @@ def config(
 
     console.print(f"[bold]GitLab URL:[/bold] {settings.gitlab_url}")
 
-    openai_status = "[green]configured[/green]" if settings.openai_api_key else "[dim]not set[/dim]"
+    openai_status = "[green]configured[/green]" if secret_value(settings.openai_api_key) else "[dim]not set[/dim]"
     anthropic_status = (
-        "[green]configured[/green]" if settings.anthropic_api_key else "[dim]not set[/dim]"
+        "[green]configured[/green]" if secret_value(settings.anthropic_api_key) else "[dim]not set[/dim]"
     )
     console.print(f"[bold]OpenAI API Key:[/bold] {openai_status}")
     console.print(f"[bold]Anthropic API Key:[/bold] {anthropic_status}")

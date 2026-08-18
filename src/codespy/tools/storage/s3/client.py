@@ -271,8 +271,9 @@ class S3Client(Storage):
         content_type: str = resp.get("ContentType", "")
         truncated = False
 
+        body = resp["Body"]
         try:
-            raw: bytes = resp["Body"].read()
+            raw: bytes = body.read()
         except Exception as e:
             return Content(
                 path=file_path,
@@ -280,6 +281,8 @@ class S3Client(Storage):
                 size=size,
                 content_type=content_type,
             )
+        finally:
+            body.close()
 
         if len(raw) > max_bytes:
             truncated = True
