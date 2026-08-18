@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.2] - 2026-08-18
+
+### Fixed
+- Hippocampus consolidation parse failure when LLM outputs `"op"` instead of `"type"` in Cartographer operations (weaker models like nemotron/kimi adopt docstring terminology as JSON key name). Added `validation_alias` to accept both field names.
+- Cartographer signature docstring now explicitly names all `Operation` JSON fields to guide LLM structured output
+
 ## [1.0.1] - 2026-08-18
 
 ### Fixed

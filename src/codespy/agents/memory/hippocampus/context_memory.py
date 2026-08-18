@@ -6,7 +6,7 @@ import uuid
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,10 @@ class CacheCandidate(BaseModel):
 class Operation(BaseModel):
     """A single edit operation against the context memory."""
 
-    type: OpType = Field(description="Type of operation")
+    type: OpType = Field(
+        description="Type of operation",
+        validation_alias=AliasChoices("type", "op"),
+    )
     section: SectionName | None = Field(default=None, description="Required for ADD.")
     item_id: str | None = Field(default=None, description="Required for DELETE / REPLACE.")
     content: str | None = Field(default=None, description="Required for ADD / REPLACE.")

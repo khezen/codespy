@@ -52,12 +52,14 @@ class CartographerSig(dspy.Signature):
 
     ## Operation rules
 
-    Emit only well-formed operations that satisfy the schema:
-    - ADD: requires `section` (one of the five section names) and `content`.
-    - DELETE: requires `item_id`.
-    - REPLACE: requires `item_id` and `content`.
-    - Only reference `item_id`s that exist in the current memory. Never invent
-      ids — new items get their ids assigned automatically on ADD.
+    Each operation is a JSON object with exactly these fields:
+    - type: one of "ADD", "DELETE", or "REPLACE"
+    - section: (ADD only) one of the five section names
+    - item_id: (DELETE/REPLACE only) existing item ID from current memory
+    - content: (ADD/REPLACE only) the new content string
+
+    Only reference `item_id`s that exist in the current memory. Never invent
+    ids — new items get their ids assigned automatically on ADD.
 
     ## Value Priority (highest to lowest)
 
