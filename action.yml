@@ -102,7 +102,7 @@ inputs:
   min-confidence:
     description: 'Minimum confidence threshold (0.0-1.0) for reported issues'
     required: false
-    default: '0.5'
+    default: '0.81'
 
   # ==========================================
   # SIGNATURE: scope

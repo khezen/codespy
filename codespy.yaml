@@ -46,7 +46,7 @@ llm:
 
 # Minimum confidence threshold for reported issues (0.0–1.0).
 # Issues below this threshold are silently discarded.
-min_confidence: 0.5                          # MIN_CONFIDENCE
+min_confidence: 0.81                          # MIN_CONFIDENCE
 
 
 # ============================================================================
