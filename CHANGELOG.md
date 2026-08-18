@@ -11,6 +11,10 @@
   - New `config_utils.secret_value()` helper extracts plain text at API boundaries
   - `model_dump()` masks secrets as `'**********'`
 - GitLab client timeout: added `timeout=30` to `gitlab.Gitlab()` instantiation to prevent indefinite hangs (python-gitlab >=4.0.0 defaults to `None`)
+- Dependency floor bumps to fix known vulnerabilities:
+  - `gitpython` >=3.1.42 — RCE via malicious git repo (CVE-2024-22190)
+  - `json-repair` >=0.60.1 — DoS via circular $ref (GHSA-xf7x-x43h-rpqh)
+  - `markdownify` >=0.15.0 — ReDoS vulnerability (GHSA-7mpr-5m44-h73h)
 
 ## [1.0.7] - 2026-08-18
 
