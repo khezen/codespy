@@ -59,12 +59,22 @@ class ContextSafe(dspy.Module):
     Transparent to Hippocampus — delegates .signature to inner module.
     """
 
-    def __init__(self, module: dspy.Module, signature, tools: list | None = None, name: str = ""):
+    def __init__(
+        self,
+        module: dspy.Module,
+        signature,
+        tools: list | None = None,
+        name: str = "",
+        max_iters: int | None = None,
+        max_llm_calls: int | None = None,
+    ):
         super().__init__()
         self.module = module
         self._orig_signature = signature
         self._tools = tools
         self._name = name or signature.__name__
+        self._max_iters = max_iters
+        self._max_llm_calls = max_llm_calls
 
     @property
     def signature(self):
@@ -153,6 +163,6 @@ class ContextSafe(dspy.Module):
         return dspy.RLM(
             self._get_current_signature(),
             tools=self._tools,
-            max_iters=10,
-            max_llm_calls=20,
+            max_iters=self._max_iters or 10,
+            max_llm_calls=self._max_llm_calls or 20,
         )

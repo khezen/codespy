@@ -66,7 +66,7 @@ inputs:
   default-max-iters:
     description: 'Default maximum iterations for all signatures'
     required: false
-    default: '3'
+    default: '10'
   
   default-reasoning-effort:
     description: 'Default reasoning effort for all signatures (minimal|low|medium|high)'
@@ -93,7 +93,17 @@ inputs:
     description: 'Enable provider-side prompt caching (reduces latency and costs)'
     required: false
     default: 'true'
-  
+
+  default-max-llm-calls:
+    description: 'Maximum LLM calls for RLM fallback (context overflow recovery)'
+    required: false
+    default: '30'
+
+  min-confidence:
+    description: 'Minimum confidence threshold (0.0-1.0) for reported issues'
+    required: false
+    default: '0.81'
+
   # ==========================================
   # SIGNATURE: scope
   # ==========================================
@@ -109,7 +119,11 @@ inputs:
   scope-max-iters:
     description: 'Max iterations for scope identification'
     required: false
-  
+
+  scope-max-llm-calls:
+    description: 'Max LLM calls for scope RLM fallback'
+    required: false
+
   scope-reasoning-effort:
     description: 'Reasoning effort for scope (minimal|low|medium|high)'
     required: false
@@ -133,7 +147,11 @@ inputs:
   code-review-max-iters:
     description: 'Max iterations for code review'
     required: false
-  
+
+  code-review-max-llm-calls:
+    description: 'Max LLM calls for code review RLM fallback'
+    required: false
+
   code-review-reasoning-effort:
     description: 'Reasoning effort for code review (minimal|low|medium|high)'
     required: false
@@ -177,7 +195,11 @@ inputs:
   supply-chain-max-iters:
     description: 'Max iterations for supply chain security'
     required: false
-  
+
+  supply-chain-max-llm-calls:
+    description: 'Max LLM calls for supply chain RLM fallback'
+    required: false
+
   supply-chain-reasoning-effort:
     description: 'Reasoning effort for supply chain (minimal|low|medium|high)'
     required: false
@@ -201,6 +223,10 @@ inputs:
 
   summary-model:
     description: 'Model for summary (empty = use default)'
+    required: false
+
+  summary-max-llm-calls:
+    description: 'Max LLM calls for summary RLM fallback'
     required: false
 
   summary-reasoning-effort:
@@ -361,11 +387,14 @@ runs:
         LLM_RETRIES: ${{ inputs.llm-retries }}
         LLM_TIMEOUT: ${{ inputs.llm-timeout }}
         ENABLE_PROMPT_CACHING: ${{ inputs.enable-prompt-caching }}
-        
+        DEFAULT_MAX_LLM_CALLS: ${{ inputs.default-max-llm-calls }}
+        MIN_CONFIDENCE: ${{ inputs.min-confidence }}
+
         # Scope identification signature
         SCOPE_ENABLED: ${{ inputs.scope-enabled }}
         SCOPE_MODEL: ${{ inputs.scope-model }}
         SCOPE_MAX_ITERS: ${{ inputs.scope-max-iters }}
+        SCOPE_MAX_LLM_CALLS: ${{ inputs.scope-max-llm-calls }}
         SCOPE_REASONING_EFFORT: ${{ inputs.scope-reasoning-effort }}
         SCOPE_TEMPERATURE: ${{ inputs.scope-temperature }}
         
@@ -373,6 +402,7 @@ runs:
         CODE_REVIEW_ENABLED: ${{ inputs.code-review-enabled }}
         CODE_REVIEW_MODEL: ${{ inputs.code-review-model }}
         CODE_REVIEW_MAX_ITERS: ${{ inputs.code-review-max-iters }}
+        CODE_REVIEW_MAX_LLM_CALLS: ${{ inputs.code-review-max-llm-calls }}
         CODE_REVIEW_REASONING_EFFORT: ${{ inputs.code-review-reasoning-effort }}
         CODE_REVIEW_TEMPERATURE: ${{ inputs.code-review-temperature }}
         
@@ -386,6 +416,7 @@ runs:
         SUPPLY_CHAIN_ENABLED: ${{ inputs.supply-chain-enabled }}
         SUPPLY_CHAIN_MODEL: ${{ inputs.supply-chain-model }}
         SUPPLY_CHAIN_MAX_ITERS: ${{ inputs.supply-chain-max-iters }}
+        SUPPLY_CHAIN_MAX_LLM_CALLS: ${{ inputs.supply-chain-max-llm-calls }}
         SUPPLY_CHAIN_REASONING_EFFORT: ${{ inputs.supply-chain-reasoning-effort }}
         SUPPLY_CHAIN_TEMPERATURE: ${{ inputs.supply-chain-temperature }}
         SUPPLY_CHAIN_SCAN_UNCHANGED: ${{ inputs.supply-chain-scan-unchanged }}
@@ -393,6 +424,7 @@ runs:
         # Summary signature
         SUMMARY_ENABLED: ${{ inputs.summary-enabled }}
         SUMMARY_MODEL: ${{ inputs.summary-model }}
+        SUMMARY_MAX_LLM_CALLS: ${{ inputs.summary-max-llm-calls }}
         SUMMARY_REASONING_EFFORT: ${{ inputs.summary-reasoning-effort }}
         SUMMARY_TEMPERATURE: ${{ inputs.summary-temperature }}
         
@@ -441,11 +473,14 @@ runs:
         [ -n "$LLM_RETRIES" ] && DOCKER_ARGS="$DOCKER_ARGS -e LLM_RETRIES"
         [ -n "$LLM_TIMEOUT" ] && DOCKER_ARGS="$DOCKER_ARGS -e LLM_TIMEOUT"
         [ -n "$ENABLE_PROMPT_CACHING" ] && DOCKER_ARGS="$DOCKER_ARGS -e ENABLE_PROMPT_CACHING"
-        
+        [ -n "$DEFAULT_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_LLM_CALLS"
+        [ -n "$MIN_CONFIDENCE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MIN_CONFIDENCE"
+
         # Scope identification
         [ -n "$SCOPE_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_ENABLED"
         [ -n "$SCOPE_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MODEL"
         [ -n "$SCOPE_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MAX_ITERS"
+        [ -n "$SCOPE_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MAX_LLM_CALLS"
         [ -n "$SCOPE_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_REASONING_EFFORT"
         [ -n "$SCOPE_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_TEMPERATURE"
         
@@ -453,6 +488,7 @@ runs:
         [ -n "$CODE_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_ENABLED"
         [ -n "$CODE_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MODEL"
         [ -n "$CODE_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_ITERS"
+        [ -n "$CODE_REVIEW_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MAX_LLM_CALLS"
         [ -n "$CODE_REVIEW_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_REASONING_EFFORT"
         [ -n "$CODE_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_TEMPERATURE"
         
@@ -466,6 +502,7 @@ runs:
         [ -n "$SUPPLY_CHAIN_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_ENABLED"
         [ -n "$SUPPLY_CHAIN_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MODEL"
         [ -n "$SUPPLY_CHAIN_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_ITERS"
+        [ -n "$SUPPLY_CHAIN_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MAX_LLM_CALLS"
         [ -n "$SUPPLY_CHAIN_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_REASONING_EFFORT"
         [ -n "$SUPPLY_CHAIN_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_TEMPERATURE"
         [ -n "$SUPPLY_CHAIN_SCAN_UNCHANGED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_SCAN_UNCHANGED"
@@ -473,6 +510,7 @@ runs:
         # Summary
         [ -n "$SUMMARY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_ENABLED"
         [ -n "$SUMMARY_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_MODEL"
+        [ -n "$SUMMARY_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_MAX_LLM_CALLS"
         [ -n "$SUMMARY_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_REASONING_EFFORT"
         [ -n "$SUMMARY_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_TEMPERATURE"
         

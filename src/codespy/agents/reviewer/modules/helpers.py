@@ -44,9 +44,6 @@ EXTENSION_TO_LANGUAGE = {
     "svelte": "Svelte",
 }
 
-# Minimum confidence threshold
-MIN_CONFIDENCE = 0.5
-
 # Markdown file extensions to review
 MARKDOWN_EXTENSIONS = {".md", ".markdown", ".mdx", ".rst", ".txt"}
 

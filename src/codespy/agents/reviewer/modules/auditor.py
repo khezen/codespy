@@ -146,7 +146,12 @@ class Auditor(dspy.Module):
                 "NEEDS_DISCUSSION" if all_issues else "APPROVE",
             )
 
-        auditor = ContextSafe(dspy.ChainOfThought(AuditSignature), AuditSignature, name="audit")
+        auditor = ContextSafe(
+            dspy.ChainOfThought(AuditSignature),
+            AuditSignature,
+            name="audit",
+            max_llm_calls=self._settings.get_max_llm_calls("audit"),
+        )
         logger.info("Running audit...")
 
         with SignatureContext("audit", self._cost_tracker):

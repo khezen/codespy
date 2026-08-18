@@ -123,6 +123,7 @@ class Settings(BaseSettings):
     default_model: str = "anthropic/claude-opus-4-6"
     extraction_model: str | None = None  # TwoStepAdapter extraction (falls back to default_model)
     default_max_iters: int = 10
+    default_max_llm_calls: int = 30
     # Provider reasoning budget; LiteLLM maps this to each provider's native parameter.
     default_reasoning_effort: ReasoningEffort = "medium"
     default_temperature: float = 0.2
@@ -141,6 +142,10 @@ class Settings(BaseSettings):
 
     # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
     enable_prompt_caching: bool = True
+
+    # Minimum confidence threshold for reported issues.
+    # Issues below this threshold are silently discarded by reviewer modules.
+    min_confidence: float = Field(default=0.81, ge=0.0, le=1.0)
 
     # Top-level settings
     output_format: OutputFormat = "markdown"
@@ -191,6 +196,11 @@ class Settings(BaseSettings):
         """Get max_iters for a signature (signature-specific or default)."""
         config = self.get_signature_config(signature_name)
         return config.max_iters or self.default_max_iters
+
+    def get_max_llm_calls(self, signature_name: str) -> int:
+        """Get max_llm_calls for a signature (signature-specific or default)."""
+        config = self.get_signature_config(signature_name)
+        return config.max_llm_calls or self.default_max_llm_calls
 
     def get_llm_config(self, name: str) -> LLMSettings:
         """Resolve the LLM settings for one named unit of LLM work.

@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.0.3] - 2026-08-18
+
+### Added
+- Configurable `DEFAULT_MAX_LLM_CALLS` setting (default 30) controlling maximum LLM calls for RLM context-overflow fallback
+- Configurable `MIN_CONFIDENCE` threshold (default 0.81) for filtering low-confidence issues
+- Per-signature `max_llm_calls` override (`SCOPE_MAX_LLM_CALLS`, `CODE_REVIEW_MAX_LLM_CALLS`, `SUPPLY_CHAIN_MAX_LLM_CALLS`, `SUMMARY_MAX_LLM_CALLS`, `DOC_MAX_LLM_CALLS`, `AUDIT_MAX_LLM_CALLS`)
+- `ContextSafe` now accepts `max_iters` and `max_llm_calls` parameters for per-module override
+
+### Changed
+- `default-max-iters` action input default raised from 3 to 10
+- Moved hardcoded `MIN_CONFIDENCE` constant from `helpers.py` to configurable `Settings.min_confidence` field (default 0.81)
+
+### Fixed
+- RLM fallback previously hardcoded `max_iters=10, max_llm_calls=20`; now respects per-signature and global configuration
+
 ## [1.0.2] - 2026-08-18
 
 ### Fixed
