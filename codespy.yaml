@@ -145,6 +145,28 @@ memory:
 
 
 # ============================================================================
+# RLM FALLBACK (CONTEXT ROT PREVENTION)
+# ============================================================================
+# Proactive fallback to RLM when input tokens exceed a ratio of the model's
+# max_input_tokens. Prevents quality degradation that occurs well before the
+# hard context window limit. The hard overflow safety net remains active
+# regardless of these settings.
+#
+# Thresholds are per DSPy module type:
+#   - react: Multi-step tool-using agents (code_review, scope, supply_chain)
+#   - chain_of_thought: Single-pass reasoning (doc, summary, audit)
+#   - predict: Basic completion (not currently used)
+#
+# Minimum floor: proactive threshold never fires below 8192 input tokens.
+
+rlm_fallback:
+  enabled: true                            # RLM_FALLBACK_ENABLED
+  react_threshold: 0.30                    # RLM_FALLBACK_REACT_THRESHOLD
+  chain_of_thought_threshold: 0.40         # RLM_FALLBACK_CHAIN_OF_THOUGHT_THRESHOLD
+  predict_threshold: 0.50                  # RLM_FALLBACK_PREDICT_THRESHOLD
+
+
+# ============================================================================
 # SIGNATURES
 # ============================================================================
 

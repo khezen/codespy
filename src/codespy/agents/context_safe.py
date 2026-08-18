@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 # Regex for detecting context window overflow in error messages
 _RE_CONTEXT_LENGTH = re.compile(r"maximum context length is \d+ tokens", re.IGNORECASE)
 
+# Minimum input tokens before proactive threshold applies.
+# Below this, context rot is not a concern regardless of ratio.
+_MIN_RLM_THRESHOLD_TOKENS = 8192
+
 
 def estimate_context_overflow(model: str, max_tokens: int, input_text: str) -> bool:
     """Estimate whether input + max_tokens would exceed the model's context window.
@@ -67,6 +71,7 @@ class ContextSafe(dspy.Module):
         name: str = "",
         max_iters: int | None = None,
         max_llm_calls: int | None = None,
+        rlm_threshold: float = 1.0,
     ):
         super().__init__()
         self.module = module
@@ -75,6 +80,7 @@ class ContextSafe(dspy.Module):
         self._name = name or signature.__name__
         self._max_iters = max_iters
         self._max_llm_calls = max_llm_calls
+        self._rlm_threshold = rlm_threshold
 
     @property
     def signature(self):
@@ -85,12 +91,11 @@ class ContextSafe(dspy.Module):
         self.module.signature = value
 
     def forward(self, **kwargs) -> dspy.Prediction:
-        if self._would_overflow(kwargs):
+        should_fallback, reason = self._should_use_rlm(kwargs)
+        if should_fallback:
             logger.warning(
-                "ContextSafe[%s]: pre-flight detected context overflow for model=%s; "
-                "falling back to RLM",
-                self._name,
-                getattr(dspy.settings.lm, "model", "unknown"),
+                "ContextSafe[%s]: %s for model=%s; falling back to RLM",
+                self._name, reason, getattr(dspy.settings.lm, "model", "unknown"),
             )
             return self._create_rlm_fallback()(**kwargs)
 
@@ -110,12 +115,11 @@ class ContextSafe(dspy.Module):
 
     async def aforward(self, **kwargs) -> dspy.Prediction:
         """Async path — used by code_review, scope, supply_chain via Hippocampus.aforward."""
-        if self._would_overflow(kwargs):
+        should_fallback, reason = self._should_use_rlm(kwargs)
+        if should_fallback:
             logger.warning(
-                "ContextSafe[%s]: pre-flight detected context overflow for model=%s; "
-                "falling back to RLM",
-                self._name,
-                getattr(dspy.settings.lm, "model", "unknown"),
+                "ContextSafe[%s]: %s for model=%s; falling back to RLM",
+                self._name, reason, getattr(dspy.settings.lm, "model", "unknown"),
             )
             return await self._create_rlm_fallback().acall(**kwargs)
 
@@ -133,20 +137,50 @@ class ContextSafe(dspy.Module):
             )
             return await self._create_rlm_fallback().acall(**kwargs)
 
-    def _would_overflow(self, kwargs: dict) -> bool:
-        """Pre-flight: estimate overflow from current LM config and input size."""
+    def _should_use_rlm(self, kwargs: dict) -> tuple[bool, str]:
+        """Check if RLM should be used (proactive threshold or hard overflow).
+
+        Returns (should_fallback, reason) for logging.
+        """
         try:
             lm = dspy.settings.lm
             if lm is None:
-                return False
+                return False, ""
             model = lm.model
             max_tokens = lm.kwargs.get("max_tokens") or 0
-            if not max_tokens:
-                return False
+
+            info = litellm.get_model_info(model)
+            max_input = info.get("max_input_tokens") or 0
+            if not max_input:
+                return False, ""
+
             input_text = "\n".join(str(v) for v in kwargs.values())
-            return estimate_context_overflow(model, max_tokens, input_text)
+            estimated_input = litellm.token_counter(model=model, text=input_text)
+
+            # Layer 1: Proactive threshold (context rot prevention)
+            # Only applies when input exceeds the minimum floor (8192 tokens) —
+            # below that, context rot is not a concern.
+            if (self._rlm_threshold < 1.0
+                    and estimated_input >= _MIN_RLM_THRESHOLD_TOKENS):
+                threshold_tokens = int(max_input * self._rlm_threshold)
+                if estimated_input > threshold_tokens:
+                    return True, (
+                        f"context rot threshold exceeded "
+                        f"({estimated_input} > {threshold_tokens} = "
+                        f"{self._rlm_threshold:.0%} of {max_input})"
+                    )
+
+            # Layer 2: Hard overflow check (existing safety net)
+            SAFETY_MARGIN = 4096
+            if max_tokens and (estimated_input + max_tokens + SAFETY_MARGIN) > max_input:
+                return True, (
+                    f"context overflow predicted "
+                    f"({estimated_input} + {max_tokens} + {SAFETY_MARGIN} > {max_input})"
+                )
+
+            return False, ""
         except Exception:
-            return False
+            return False, ""
 
     def _get_current_signature(self):
         """Get current signature (may include context_memory if Hippocampus modified it)."""

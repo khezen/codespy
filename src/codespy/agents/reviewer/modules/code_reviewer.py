@@ -240,6 +240,7 @@ class CodeReviewer(dspy.Module):
                     name="code_review",
                     max_iters=max_iters,
                     max_llm_calls=self._settings.get_max_llm_calls("code_review"),
+                    rlm_threshold=self._settings.get_rlm_threshold("react"),
                 )
                 scoped = make_scope_relative(scope)
                 logger.info(

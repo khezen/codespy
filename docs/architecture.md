@@ -90,21 +90,26 @@ See [Configuration](configuration.md) for per-signature settings.
 
 ### Context Window Overflow Resilience
 
-All signature modules are wrapped in `ContextSafe`, which provides transparent
-fallback to `dspy.RLM` (Recursive Language Model) when the input exceeds the
-model's context window.
+All signature modules are wrapped in `ContextSafe`, which provides three-layer
+defense against context-related quality degradation:
 
-- **Pre-flight**: For models in litellm's database, estimates input tokens
-  before calling the module. If overflow is predicted, skips directly to RLM.
-- **Try/catch**: For models not in litellm's database, catches the provider
-  error and retries with RLM automatically.
+1. **Proactive threshold (context rot)**: Estimates input tokens and compares
+   against a configurable ratio of `max_input_tokens`. When the threshold is
+   exceeded (and input >= 8192 tokens), skips the inner module and uses RLM
+   directly — preventing quality degradation that occurs well before the hard
+   context limit. Thresholds differ by module type: ReAct (0.30),
+   ChainOfThought (0.40), Predict (0.50).
+2. **Pre-flight overflow**: For models in litellm's database, detects when
+   input + output budget + safety margin would exceed the hard context limit.
+3. **Try/catch**: For models not in litellm's database, catches the provider
+   error and retries with RLM automatically.
 
 RLM puts inputs into a sandboxed Python interpreter rather than the LLM prompt.
 The model writes code to access and process variables (e.g., chunking large
 patches via `llm_query()`), eliminating context window limits entirely.
 
 The composition order is: `Hippocampus(ContextSafe(Module))` — Hippocampus
-handles memory, ContextSafe handles overflow, each with single responsibility.
+handles memory, ContextSafe handles context quality, each with single responsibility.
 
 ## Hippocampus Memory
 
