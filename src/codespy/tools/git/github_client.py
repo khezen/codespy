@@ -8,6 +8,7 @@ from git import Repo
 from github import Auth, Github
 from github.PullRequest import PullRequest as GHPullRequest
 
+from codespy.config_utils import secret_value
 from codespy.tools.git.base import GitClient
 from codespy.tools.git.models import (
     ChangedFile,
@@ -45,8 +46,9 @@ class GitHubClient(GitClient):
     def github(self) -> Github:
         """Get or create GitHub client instance."""
         if self._github is None:
-            if self.settings.github_token:
-                auth = Auth.Token(self.settings.github_token)
+            token = secret_value(self.settings.github_token)
+            if token:
+                auth = Auth.Token(token)
                 self._github = Github(auth=auth)
             else:
                 self._github = Github()
@@ -153,8 +155,9 @@ class GitHubClient(GitClient):
             repo_dir = target_path
 
         repo_url = f"https://github.com/{owner}/{repo_name}.git"
-        if self.settings.github_token:
-            repo_url = f"https://x-access-token:{self.settings.github_token}@github.com/{owner}/{repo_name}.git"
+        token = secret_value(self.settings.github_token)
+        if token:
+            repo_url = f"https://x-access-token:{token}@github.com/{owner}/{repo_name}.git"
 
         if repo_dir.exists() and (repo_dir / ".git").exists():
             # Update existing clone

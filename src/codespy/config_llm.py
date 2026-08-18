@@ -5,7 +5,9 @@ import os
 import subprocess
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
+
+from codespy.config_utils import secret_value
 
 logger = logging.getLogger(__name__)
 
@@ -249,27 +251,27 @@ class LLMConfig(BaseModel):
     """LLM provider configuration."""
 
     # OpenAI
-    openai_api_key: str | None = Field(default=None, repr=False)
+    openai_api_key: SecretStr | None = None
     openai_api_base: str | None = None
     auto_discover_openai: bool = True  # Set to False to disable auto-discovery
 
     # Anthropic
-    anthropic_api_key: str | None = Field(default=None, repr=False)
+    anthropic_api_key: SecretStr | None = None
     auto_discover_anthropic: bool = True  # Set to False to disable auto-discovery
 
     # Google Gemini
-    gemini_api_key: str | None = Field(default=None, repr=False)
+    gemini_api_key: SecretStr | None = None
     auto_discover_gemini: bool = True  # Set to False to disable auto-discovery
 
     # AWS Bedrock
     aws_region: str = "us-east-1"
-    aws_access_key_id: str | None = Field(default=None, repr=False)
-    aws_secret_access_key: str | None = Field(default=None, repr=False)
+    aws_access_key_id: SecretStr | None = None
+    aws_secret_access_key: SecretStr | None = None
     aws_profile: str | None = None
     auto_discover_aws: bool = True  # Set to False to disable auto-discovery
 
     # Azure OpenAI
-    azure_api_key: str | None = Field(default=None, repr=False)
+    azure_api_key: SecretStr | None = None
     azure_api_base: str | None = None
     azure_api_version: str | None = None
 
@@ -279,12 +281,12 @@ class LLMConfig(BaseModel):
     def sync_from_flat(
         self,
         *,
-        openai_api_key: str | None = None,
-        anthropic_api_key: str | None = None,
-        gemini_api_key: str | None = None,
+        openai_api_key: SecretStr | None = None,
+        anthropic_api_key: SecretStr | None = None,
+        gemini_api_key: SecretStr | None = None,
         aws_region: str | None = None,
-        aws_access_key_id: str | None = None,
-        aws_secret_access_key: str | None = None,
+        aws_access_key_id: SecretStr | None = None,
+        aws_secret_access_key: SecretStr | None = None,
     ) -> dict[str, object]:
         """Sync flat settings into this LLMConfig and return values to propagate back.
 
@@ -292,25 +294,25 @@ class LLMConfig(BaseModel):
         Returns dict of field values that should be set on the parent Settings.
         """
         # Step 1: Flat → nested (env vars win over nested defaults)
-        if openai_api_key:
+        if secret_value(openai_api_key):
             self.openai_api_key = openai_api_key
-        if anthropic_api_key:
+        if secret_value(anthropic_api_key):
             self.anthropic_api_key = anthropic_api_key
-        if gemini_api_key:
+        if secret_value(gemini_api_key):
             self.gemini_api_key = gemini_api_key
         if aws_region:
             self.aws_region = aws_region
-        if aws_access_key_id:
+        if secret_value(aws_access_key_id):
             self.aws_access_key_id = aws_access_key_id
-        if aws_secret_access_key:
+        if secret_value(aws_secret_access_key):
             self.aws_secret_access_key = aws_secret_access_key
 
         # Step 2: Return merged values (nested fills gaps where flat is not set)
         return {
-            "openai_api_key": openai_api_key or self.openai_api_key,
-            "anthropic_api_key": anthropic_api_key or self.anthropic_api_key,
-            "gemini_api_key": gemini_api_key or self.gemini_api_key,
-            "aws_access_key_id": aws_access_key_id or self.aws_access_key_id,
-            "aws_secret_access_key": aws_secret_access_key or self.aws_secret_access_key,
+            "openai_api_key": openai_api_key if secret_value(openai_api_key) else self.openai_api_key,
+            "anthropic_api_key": anthropic_api_key if secret_value(anthropic_api_key) else self.anthropic_api_key,
+            "gemini_api_key": gemini_api_key if secret_value(gemini_api_key) else self.gemini_api_key,
+            "aws_access_key_id": aws_access_key_id if secret_value(aws_access_key_id) else self.aws_access_key_id,
+            "aws_secret_access_key": aws_secret_access_key if secret_value(aws_secret_access_key) else self.aws_secret_access_key,
             "enable_prompt_caching": self.enable_prompt_caching,
         }

@@ -8,6 +8,7 @@ from dspy.adapters.two_step_adapter import TwoStepAdapter  # type: ignore[import
 
 from codespy.config import Settings, get_settings
 from codespy.config_memory import REFLECTION_MODULES, LLMSettings
+from codespy.config_utils import secret_value
 
 logger = logging.getLogger(__name__)
 
@@ -152,19 +153,23 @@ def configure_dspy(settings: Settings) -> None:
     model = settings.default_model
 
     # Configure LiteLLM environment if needed
-    if settings.openai_api_key:
-        litellm.openai_key = settings.openai_api_key
-    if settings.anthropic_api_key:
-        litellm.anthropic_key = settings.anthropic_api_key
+    openai_key = secret_value(settings.openai_api_key)
+    if openai_key:
+        litellm.openai_key = openai_key
+    anthropic_key = secret_value(settings.anthropic_api_key)
+    if anthropic_key:
+        litellm.anthropic_key = anthropic_key
     # Set up AWS credentials for Bedrock if using Bedrock model
     if model.startswith("bedrock/"):
         import os
 
         os.environ["AWS_REGION_NAME"] = settings.aws_region
-        if settings.aws_access_key_id:
-            os.environ["AWS_ACCESS_KEY_ID"] = settings.aws_access_key_id
-        if settings.aws_secret_access_key:
-            os.environ["AWS_SECRET_ACCESS_KEY"] = settings.aws_secret_access_key
+        aws_access = secret_value(settings.aws_access_key_id)
+        if aws_access:
+            os.environ["AWS_ACCESS_KEY_ID"] = aws_access
+        aws_secret = secret_value(settings.aws_secret_access_key)
+        if aws_secret:
+            os.environ["AWS_SECRET_ACCESS_KEY"] = aws_secret
 
     # Global fallback LM, used by any predictor not wrapped in lm_context().
     # An unknown name resolves purely from the top-level defaults.

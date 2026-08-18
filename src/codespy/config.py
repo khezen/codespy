@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from codespy.config_utils import secret_value
 from codespy.config_dspy import (
     ReasoningEffort,
     RLMFallbackConfig,
@@ -158,23 +159,23 @@ class Settings(BaseSettings):
     excluded_directories: list[str] = Field(default=DEFAULT_EXCLUDED_DIRECTORIES)
 
     # GitHub token (can also use GITHUB_TOKEN or GH_TOKEN env var)
-    github_token: str = Field(default="", repr=False)
-    gh_token: str = Field(default="", repr=False)
+    github_token: SecretStr | None = None
+    gh_token: SecretStr | None = None
     github_auto_discover_token: bool = True  # GITHUB_AUTO_DISCOVER_TOKEN
 
     # GitLab token (can also use GITLAB_TOKEN or GITLAB_PRIVATE_TOKEN env var)
-    gitlab_token: str = Field(default="", repr=False)
+    gitlab_token: SecretStr | None = None
     gitlab_url: str = "https://gitlab.com"  # GITLAB_URL for self-hosted instances
     gitlab_auto_discover_token: bool = True  # GITLAB_AUTO_DISCOVER_TOKEN
 
     # LLM provider settings (flat for simple env var access)
     aws_region: str = "us-east-1"
-    aws_access_key_id: str | None = Field(default=None, repr=False)
-    aws_secret_access_key: str | None = Field(default=None, repr=False)
+    aws_access_key_id: SecretStr | None = None
+    aws_secret_access_key: SecretStr | None = None
     aws_profile: str | None = None
-    openai_api_key: str | None = Field(default=None, repr=False)
-    anthropic_api_key: str | None = Field(default=None, repr=False)
-    gemini_api_key: str | None = Field(default=None, repr=False)
+    openai_api_key: SecretStr | None = None
+    anthropic_api_key: SecretStr | None = None
+    gemini_api_key: SecretStr | None = None
 
     # Auto-discovery toggles (flat for env var access)
     auto_discover_aws: bool = True  # AUTO_DISCOVER_AWS
@@ -352,27 +353,31 @@ class Settings(BaseSettings):
             return any(p in token_lower for p in placeholders)
 
         # First check nested config
-        if self.github.token and not is_placeholder(self.github.token):
-            self.github_token = self.github.token
+        nested_val = secret_value(self.github.token)
+        if nested_val and not is_placeholder(nested_val):
+            self.github_token = self.github.token  # SecretStr → SecretStr
             set_github_token_source("YAML config or GITHUB_TOKEN environment variable")
             return self
 
         # If github_token is set and not a placeholder, use it
-        if self.github_token and not is_placeholder(self.github_token):
-            self.github.token = self.github_token
+        gh_val = secret_value(self.github_token)
+        if gh_val and not is_placeholder(gh_val):
+            self.github.token = self.github_token  # SecretStr → SecretStr
             set_github_token_source("GITHUB_TOKEN environment variable or .env file")
             return self
 
         # If GH_TOKEN is set and not a placeholder, use it
-        if self.gh_token and not is_placeholder(self.gh_token):
-            self.github_token = self.gh_token
+        gh_token_val = secret_value(self.gh_token)
+        if gh_token_val and not is_placeholder(gh_token_val):
+            self.github_token = self.gh_token      # SecretStr → SecretStr
             self.github.token = self.gh_token
             set_github_token_source("GH_TOKEN environment variable")
             return self
 
         # Clear placeholder if present
-        if self.github_token and is_placeholder(self.github_token):
-            self.github_token = ""
+        gh_val2 = secret_value(self.github_token)
+        if gh_val2 and is_placeholder(gh_val2):
+            self.github_token = None
             self.github.token = None
 
         # Try auto-discovery if enabled
@@ -381,8 +386,8 @@ class Settings(BaseSettings):
         if auto_discover:
             token, source = discover_github_token()
             if token and not is_placeholder(token):
-                self.github_token = token
-                self.github.token = token
+                self.github_token = SecretStr(token)   # raw str → SecretStr
+                self.github.token = SecretStr(token)
                 set_github_token_source(source)
                 logger.debug(f"GitHub token discovered from: {source}")
             else:
@@ -404,8 +409,9 @@ class Settings(BaseSettings):
             return any(p in token_lower for p in placeholders)
 
         # First check nested config
-        if self.gitlab.token and not is_placeholder(self.gitlab.token):
-            self.gitlab_token = self.gitlab.token
+        nested_val = secret_value(self.gitlab.token)
+        if nested_val and not is_placeholder(nested_val):
+            self.gitlab_token = self.gitlab.token  # SecretStr → SecretStr
             set_gitlab_token_source("YAML config or GITLAB_TOKEN environment variable")
             return self
 
@@ -414,14 +420,16 @@ class Settings(BaseSettings):
             self.gitlab_url = self.gitlab.url
 
         # If gitlab_token is set and not a placeholder, use it
-        if self.gitlab_token and not is_placeholder(self.gitlab_token):
-            self.gitlab.token = self.gitlab_token
+        token_val = secret_value(self.gitlab_token)
+        if token_val and not is_placeholder(token_val):
+            self.gitlab.token = self.gitlab_token  # SecretStr → SecretStr
             set_gitlab_token_source("GITLAB_TOKEN environment variable or .env file")
             return self
 
         # Clear placeholder if present
-        if self.gitlab_token and is_placeholder(self.gitlab_token):
-            self.gitlab_token = ""
+        token_val2 = secret_value(self.gitlab_token)
+        if token_val2 and is_placeholder(token_val2):
+            self.gitlab_token = None
             self.gitlab.token = None
 
         # Try auto-discovery if enabled
@@ -430,8 +438,8 @@ class Settings(BaseSettings):
         if auto_discover:
             token, source = discover_gitlab_token()
             if token and not is_placeholder(token):
-                self.gitlab_token = token
-                self.gitlab.token = token
+                self.gitlab_token = SecretStr(token)  # raw str → SecretStr
+                self.gitlab.token = SecretStr(token)
                 set_gitlab_token_source(source)
                 logger.debug(f"GitLab token discovered from: {source}")
             else:
@@ -482,15 +490,15 @@ class Settings(BaseSettings):
             return any(p in value_lower for p in placeholders)
 
         # AWS credentials auto-discovery
-        if not self.aws_access_key_id or not self.aws_secret_access_key:
+        if not secret_value(self.aws_access_key_id) or not secret_value(self.aws_secret_access_key):
             auto_discover = self.llm.auto_discover_aws and self.auto_discover_aws
             if auto_discover:
                 access_key, secret_key, region, profile, source = discover_aws_credentials()
                 if access_key and secret_key:
-                    self.aws_access_key_id = access_key
-                    self.aws_secret_access_key = secret_key
-                    self.llm.aws_access_key_id = access_key
-                    self.llm.aws_secret_access_key = secret_key
+                    self.aws_access_key_id = SecretStr(access_key)
+                    self.aws_secret_access_key = SecretStr(secret_key)
+                    self.llm.aws_access_key_id = SecretStr(access_key)
+                    self.llm.aws_secret_access_key = SecretStr(secret_key)
                     if region:
                         self.aws_region = region
                         self.llm.aws_region = region
@@ -502,37 +510,40 @@ class Settings(BaseSettings):
                 logger.debug("AWS credentials auto-discovery is disabled")
 
         # OpenAI API key auto-discovery
-        if not self.openai_api_key or is_placeholder(self.openai_api_key):
+        openai_val = secret_value(self.openai_api_key)
+        if not openai_val or is_placeholder(openai_val):
             auto_discover = self.llm.auto_discover_openai and self.auto_discover_openai
             if auto_discover:
                 key, source = discover_openai_api_key()
-                if key and not is_placeholder(key):
-                    self.openai_api_key = key
-                    self.llm.openai_api_key = key
+                if key and not is_placeholder(key):       # key is raw str from discovery
+                    self.openai_api_key = SecretStr(key)
+                    self.llm.openai_api_key = SecretStr(key)
                     logger.debug(f"OpenAI API key discovered from: {source}")
             else:
                 logger.debug("OpenAI API key auto-discovery is disabled")
 
         # Anthropic API key auto-discovery
-        if not self.anthropic_api_key or is_placeholder(self.anthropic_api_key):
+        anthropic_val = secret_value(self.anthropic_api_key)
+        if not anthropic_val or is_placeholder(anthropic_val):
             auto_discover = self.llm.auto_discover_anthropic and self.auto_discover_anthropic
             if auto_discover:
                 key, source = discover_anthropic_api_key()
-                if key and not is_placeholder(key):
-                    self.anthropic_api_key = key
-                    self.llm.anthropic_api_key = key
+                if key and not is_placeholder(key):       # key is raw str from discovery
+                    self.anthropic_api_key = SecretStr(key)
+                    self.llm.anthropic_api_key = SecretStr(key)
                     logger.debug(f"Anthropic API key discovered from: {source}")
             else:
                 logger.debug("Anthropic API key auto-discovery is disabled")
 
         # Gemini API key auto-discovery
-        if not self.gemini_api_key or is_placeholder(self.gemini_api_key):
+        gemini_val = secret_value(self.gemini_api_key)
+        if not gemini_val or is_placeholder(gemini_val):
             auto_discover = self.llm.auto_discover_gemini and self.auto_discover_gemini
             if auto_discover:
                 key, source = discover_gemini_api_key()
-                if key and not is_placeholder(key):
-                    self.gemini_api_key = key
-                    self.llm.gemini_api_key = key
+                if key and not is_placeholder(key):       # key is raw str from discovery
+                    self.gemini_api_key = SecretStr(key)
+                    self.llm.gemini_api_key = SecretStr(key)
                     logger.debug(f"Gemini API key discovered from: {source}")
                 elif source != "not found":
                     logger.debug(f"Gemini: {source}")

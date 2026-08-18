@@ -10,6 +10,7 @@ from rich.panel import Panel
 
 from codespy.config import get_settings
 from codespy.config_git import get_github_token_source, get_gitlab_token_source
+from codespy.config_utils import secret_value
 from codespy.tools.git.client import detect_platform, is_supported_url
 
 console = Console()
@@ -116,17 +117,17 @@ def review(
     platform = detect_platform(pr_url)
 
     if platform == "github":
-        token = settings.github_token
+        token = secret_value(settings.github_token)
         token_source = get_github_token_source()
         token_env_hint = "GITHUB_TOKEN / GH_TOKEN"
         cli_hint = "gh auth login"
     else:  # gitlab
-        token = settings.gitlab_token
+        token = secret_value(settings.gitlab_token)
         token_source = get_gitlab_token_source()
         token_env_hint = "GITLAB_TOKEN / GITLAB_PRIVATE_TOKEN"
         cli_hint = "glab auth login"
 
-    if not token:
+    if not token:  # Works: secret_value returns "" for unconfigured, which is falsy
         console.print(
             f"[red]Error:[/red] {platform.title()} token not found. Tried:\n"
             f"  • {token_env_hint} environment variables\n"
