@@ -103,9 +103,7 @@ def new_lm(settings: Settings, config: LLMSettings) -> dspy.LM:
     # Only injected for providers that use explicit markers (Anthropic, Bedrock
     # Anthropic); OpenAI/Gemini have automatic caching that needs no markers.
     if settings.enable_prompt_caching and _supports_cache_control(config.model):
-        lm_kwargs["cache_control_injection_points"] = [
-            {"location": "message", "role": "system"}
-        ]
+        lm_kwargs["cache_control_injection_points"] = [{"location": "message", "role": "system"}]
     elif settings.enable_prompt_caching:
         logger.debug(
             f"Prompt caching enabled but model {config.model} does not use "
@@ -134,9 +132,7 @@ def lm_context(name: str):
     return dspy.context(lm=lm)
 
 
-
 def configure_dspy(settings: Settings) -> None:
-
     """Configure DSPy with the LLM backend for reliable structured output.
 
     This configures DSPy with:
@@ -163,6 +159,7 @@ def configure_dspy(settings: Settings) -> None:
     # Set up AWS credentials for Bedrock if using Bedrock model
     if model.startswith("bedrock/"):
         import os
+
         os.environ["AWS_REGION_NAME"] = settings.aws_region
         if settings.aws_access_key_id:
             os.environ["AWS_ACCESS_KEY_ID"] = settings.aws_access_key_id
@@ -179,13 +176,15 @@ def configure_dspy(settings: Settings) -> None:
     # deterministic output.
     extraction_model = defaults.extraction_model
     extraction_lm = new_lm(
-        settings, defaults.model_copy(update={
-            "model": extraction_model,
-            "reasoning_effort": None,
-            "temperature": 0.0,
-        })
+        settings,
+        defaults.model_copy(
+            update={
+                "model": extraction_model,
+                "reasoning_effort": None,
+                "temperature": 0.0,
+            }
+        ),
     )
-
 
     dspy.settings.configure(
         lm=lm,
@@ -193,7 +192,9 @@ def configure_dspy(settings: Settings) -> None:
     )
 
     # Enable memory-only caching for LLM calls (no disk caching)
-    dspy.configure_cache(enable_memory_cache=True, enable_disk_cache=False, memory_max_entries=10000)
+    dspy.configure_cache(
+        enable_memory_cache=True, enable_disk_cache=False, memory_max_entries=10000
+    )
 
     if not settings.enable_prompt_caching:
         prompt_cache_status = "disabled"
@@ -238,7 +239,6 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
     for module in REFLECTION_MODULES:
         reflection = settings.get_llm_config(module)
         models_to_check.add(reflection.model)
-
 
     # Check each model
     verified: list[str] = []

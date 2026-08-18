@@ -28,14 +28,16 @@ class ObjCExtractor(BaseExtractor):
                 if declarator:
                     name = self._extract_c_declarator_name(declarator, source)
                     if name:
-                        functions.append(FunctionInfo(
-                            name=name,
-                            file=str(file_path),
-                            line_start=n.start_point[0] + 1,
-                            line_end=n.end_point[0] + 1,
-                            parameters=[],
-                            is_method=False,
-                        ))
+                        functions.append(
+                            FunctionInfo(
+                                name=name,
+                                file=str(file_path),
+                                line_start=n.start_point[0] + 1,
+                                line_end=n.end_point[0] + 1,
+                                parameters=[],
+                                is_method=False,
+                            )
+                        )
 
             elif n.type == "method_definition":
                 # ObjC method - extract selector
@@ -45,17 +47,23 @@ class ObjCExtractor(BaseExtractor):
                     # Clean up method name (remove colons for simple name)
                     name = name.split(":")[0] if ":" in name else name
 
-                    functions.append(FunctionInfo(
-                        name=name,
-                        file=str(file_path),
-                        line_start=n.start_point[0] + 1,
-                        line_end=n.end_point[0] + 1,
-                        parameters=[],
-                        is_method=True,
-                    ))
+                    functions.append(
+                        FunctionInfo(
+                            name=name,
+                            file=str(file_path),
+                            line_start=n.start_point[0] + 1,
+                            line_end=n.end_point[0] + 1,
+                            parameters=[],
+                            is_method=True,
+                        )
+                    )
 
-            elif n.type in ("class_interface", "class_implementation", "category_interface",
-                           "category_implementation"):
+            elif n.type in (
+                "class_interface",
+                "class_implementation",
+                "category_interface",
+                "category_implementation",
+            ):
                 for child in n.children:
                     visit(child, in_class=True)
                 return

@@ -70,7 +70,7 @@ def config(
         settings = get_settings(config_file=config_file)
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     console.print(Panel("[bold]Current Configuration[/bold]", title="codespy"))
 
@@ -85,25 +85,31 @@ def config(
     # Show GitHub token status
     github_token_source = get_github_token_source()
     if settings.github_token:
-        console.print(f"[bold]GitHub Token:[/bold] [green]configured[/green] [dim]({github_token_source})[/dim]")
+        console.print(
+            f"[bold]GitHub Token:[/bold] [green]configured[/green] "
+            f"[dim]({github_token_source})[/dim]"
+        )
     else:
         console.print("[bold]GitHub Token:[/bold] [dim]not found[/dim]")
 
     # Show GitLab token status
     gitlab_token_source = get_gitlab_token_source()
     if settings.gitlab_token:
-        console.print(f"[bold]GitLab Token:[/bold] [green]configured[/green] [dim]({gitlab_token_source})[/dim]")
+        console.print(
+            f"[bold]GitLab Token:[/bold] [green]configured[/green] "
+            f"[dim]({gitlab_token_source})[/dim]"
+        )
     else:
         console.print("[bold]GitLab Token:[/bold] [dim]not found[/dim]")
 
     console.print(f"[bold]GitLab URL:[/bold] {settings.gitlab_url}")
 
-    console.print(
-        f"[bold]OpenAI API Key:[/bold] {'[green]configured[/green]' if settings.openai_api_key else '[dim]not set[/dim]'}"
+    openai_status = "[green]configured[/green]" if settings.openai_api_key else "[dim]not set[/dim]"
+    anthropic_status = (
+        "[green]configured[/green]" if settings.anthropic_api_key else "[dim]not set[/dim]"
     )
-    console.print(
-        f"[bold]Anthropic API Key:[/bold] {'[green]configured[/green]' if settings.anthropic_api_key else '[dim]not set[/dim]'}"
-    )
+    console.print(f"[bold]OpenAI API Key:[/bold] {openai_status}")
+    console.print(f"[bold]Anthropic API Key:[/bold] {anthropic_status}")
 
 
 if __name__ == "__main__":

@@ -188,12 +188,12 @@ class WebBrowser:
                 if "text/html" not in content_type.lower():
                     return WebPage(
                         url=str(response.url),
-                        content=response.text[:self.max_content_length],
+                        content=response.text[: self.max_content_length],
                         status_code=response.status_code,
                         content_type=content_type,
                     )
 
-                html = response.text[:self.max_content_length]
+                html = response.text[: self.max_content_length]
                 soup = BeautifulSoup(html, "html.parser")
                 title = self._extract_title(soup)
                 markdown = self._html_to_markdown(html, str(response.url))

@@ -171,6 +171,7 @@ def discover_gitlab_token() -> tuple[str | None, str]:
         if config_path.exists():
             try:
                 import configparser
+
                 config = configparser.ConfigParser()
                 config.read(config_path)
                 # Try [gitlab.com] section first, then [global]

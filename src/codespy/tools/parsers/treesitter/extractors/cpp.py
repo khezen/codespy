@@ -105,7 +105,7 @@ class CppExtractor(BaseExtractor):
         params: list[str] = []
         for child in params_node.children:
             if child.type in ("parameter_declaration", "parameter_list"):
-                param_text = source[child.start_byte:child.end_byte].decode().strip()
+                param_text = source[child.start_byte : child.end_byte].decode().strip()
                 # Clean up the parameter text
                 param_text = param_text.strip("()")
                 if param_text and param_text != "void":

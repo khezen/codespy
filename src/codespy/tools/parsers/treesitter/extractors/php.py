@@ -44,7 +44,11 @@ class PHPExtractor(BaseExtractor):
 
             for child in n.children:
                 # Track if we're inside a class
-                is_class = n.type in ("class_declaration", "interface_declaration", "trait_declaration")
+                is_class = n.type in (
+                    "class_declaration",
+                    "interface_declaration",
+                    "trait_declaration",
+                )
                 visit(child, in_class or is_class)
 
         visit(node)

@@ -50,7 +50,8 @@ def serve(
         settings = get_settings(config_file=config_file)
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     from codespy.agents.reviewer.server import run_server
+
     run_server(settings=settings)

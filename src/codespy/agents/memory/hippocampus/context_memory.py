@@ -79,8 +79,7 @@ class Topic(BaseModel):
     id: str = Field(description="Topic identifier (e.g., 'owner/repo/package-name')")
     description: str = Field(description="Description of this topic's role")
     dependencies: list[str] = Field(
-        default_factory=list,
-        description="Topic IDs of this topic's dependencies"
+        default_factory=list, description="Topic IDs of this topic's dependencies"
     )
 
 
@@ -89,7 +88,9 @@ class Item(BaseModel):
 
     id: str = Field(description="Unique item identifier")
     content: str = Field(description="Item content")
-    topic_ids: list[str] = Field(default_factory=list, description="IDs of topics this item belongs to")
+    topic_ids: list[str] = Field(
+        default_factory=list, description="IDs of topics this item belongs to"
+    )
 
     def bind_topics(self, topic_ids: list[str]) -> None:
         """Bind this item to the given topic_ids (only if currently unbound)."""
@@ -102,9 +103,14 @@ class CacheCandidate(BaseModel):
 
     section: SectionName = Field(
         default="context_understanding",
-        description="Target section: context_understanding, domain_constants, context_roadmap, reusable_results, or parsing_schema",
+        description=(
+            "Target section: context_understanding, domain_constants, "
+            "context_roadmap, reusable_results, or parsing_schema"
+        ),
     )
-    value: str = Field(description="Compact candidate cache item, within the max_context_item_tokens budget.")
+    value: str = Field(
+        description="Compact candidate cache item, within the max_context_item_tokens budget."
+    )
     transferability: str = Field(
         default="",
         description="Kinds of future questions this would help.",
@@ -138,9 +144,15 @@ class Mutation(BaseModel):
     type: OpType = Field(description="Type of mutation: ADD, DELETE, or REPLACE")
     item_id: str = Field(description="Generated ID (ADD) or existing ID (DELETE/REPLACE)")
     section: SectionName = Field(description="Section the item belongs to")
-    content: str | None = Field(default=None, description="New content (ADD/REPLACE); None for DELETE")
-    previous_content: str | None = Field(default=None, description="Old content (DELETE/REPLACE); None for ADD")
-    topic_ids: list[str] = Field(default_factory=list, description="Topic IDs associated with this mutation")
+    content: str | None = Field(
+        default=None, description="New content (ADD/REPLACE); None for DELETE"
+    )
+    previous_content: str | None = Field(
+        default=None, description="Old content (DELETE/REPLACE); None for ADD"
+    )
+    topic_ids: list[str] = Field(
+        default_factory=list, description="Topic IDs associated with this mutation"
+    )
 
 
 class ContextMemory(BaseModel):
@@ -275,9 +287,7 @@ class ContextMemory(BaseModel):
 
         return "\n".join(lines).rstrip() + "\n"
 
-    def _render_items_by_section(
-        self, items: list[tuple[SectionName, Item]]
-    ) -> list[str]:
+    def _render_items_by_section(self, items: list[tuple[SectionName, Item]]) -> list[str]:
         """Render items grouped by section.
 
         Args:
@@ -305,7 +315,9 @@ class ContextMemory(BaseModel):
                         lines.append(f"[{item.id}] {item.content}")
         return lines
 
-    def apply(self, ops: list[Operation], topic_ids: list[str] | None = None) -> tuple[ContextMemory, list[str]]:
+    def apply(
+        self, ops: list[Operation], topic_ids: list[str] | None = None
+    ) -> tuple[ContextMemory, list[str]]:
         """Apply operations to create a new ContextMemory.
 
         Args:
@@ -460,6 +472,3 @@ def compute_common_ancestor_topic_id(repo_full_name: str, subroots: list[str]) -
     if not common or common == ".":
         return make_topic_id(repo_full_name, ".")
     return make_topic_id(repo_full_name, common)
-
-
-

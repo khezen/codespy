@@ -117,7 +117,7 @@ class CodeReviewSignature(dspy.Signature):
     ═══════════════════════════════════════════════════════════════════════════════
 
     - Set category to one of the values provided in the categories input
-    - Set severity: "critical" or "high" for bugs/security, "medium" for code smells, "low" for minor smells
+    - Set severity: "critical"/"high" for bugs/security, "medium" for smells, "low" for minor
     - For security issues, include cwe_id where applicable
     - Reference files by name and line number only — never copy source code into issues
     - Do not repeat patch content in reasoning steps. Keep each step to 1-2 sentences
@@ -133,7 +133,10 @@ class CodeReviewSignature(dspy.Signature):
         "File paths in changed_files are relative to the scope root (tool root)."
     )
     categories: list[IssueCategory] = dspy.InputField(
-        desc="Allowed issue categories. Use only these values for the 'category' field on each issue."
+        desc=(
+            "Allowed issue categories. Use only these values for "
+            "the 'category' field on each issue."
+        )
     )
 
     issues: list[Issue] = dspy.OutputField(
@@ -156,9 +159,7 @@ class CodeReviewer(dspy.Module):
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
 
-    async def _create_tools(
-        self, scope_root: Path
-    ) -> tuple[list[Any], list[Any]]:
+    async def _create_tools(self, scope_root: Path) -> tuple[list[Any], list[Any]]:
         """Create scope-restricted tools: filesystem + ripgrep + treesitter."""
         tools: list[Any] = []
         contexts: list[Any] = []
@@ -166,18 +167,30 @@ class CodeReviewer(dspy.Module):
         scope_root_str = str(scope_root)
         caller = "code_reviewer"
 
-        tools.extend(await connect_mcp_server(
-            tools_dir / "storage" / "filesystem" / "server.py",
-            [scope_root_str], contexts, caller,
-        ))
-        tools.extend(await connect_mcp_server(
-            tools_dir / "parsers" / "ripgrep" / "server.py",
-            [scope_root_str], contexts, caller,
-        ))
-        tools.extend(await connect_mcp_server(
-            tools_dir / "parsers" / "treesitter" / "server.py",
-            [scope_root_str], contexts, caller,
-        ))
+        tools.extend(
+            await connect_mcp_server(
+                tools_dir / "storage" / "filesystem" / "server.py",
+                [scope_root_str],
+                contexts,
+                caller,
+            )
+        )
+        tools.extend(
+            await connect_mcp_server(
+                tools_dir / "parsers" / "ripgrep" / "server.py",
+                [scope_root_str],
+                contexts,
+                caller,
+            )
+        )
+        tools.extend(
+            await connect_mcp_server(
+                tools_dir / "parsers" / "treesitter" / "server.py",
+                [scope_root_str],
+                contexts,
+                caller,
+            )
+        )
         return tools, contexts
 
     async def aforward(
@@ -221,8 +234,7 @@ class CodeReviewer(dspy.Module):
 
         total_files = sum(len(s.changed_files) for s in changed_scopes)
         logger.info(
-            f"Code review for {len(changed_scopes)} scopes "
-            f"({total_files} changed files)..."
+            f"Code review for {len(changed_scopes)} scopes ({total_files} changed files)..."
         )
 
         for scope in changed_scopes:
@@ -244,15 +256,16 @@ class CodeReviewer(dspy.Module):
                 )
                 scoped = make_scope_relative(scope)
                 logger.info(
-                    f"  Code review: scope {scope.subroot} "
-                    f"({len(scope.changed_files)} files)"
+                    f"  Code review: scope {scope.subroot} ({len(scope.changed_files)} files)"
                 )
                 mem: Hippocampus | None = None
                 async with SignatureContext("code_review", self._cost_tracker):
                     if self._settings.get_memory_enabled("code_review"):
                         question = (
                             f"review code change of {scope.repo}: {scope.subroot}: "
-                            f"pull request {review_context.pr_context.pr_number} {review_context.pr_context.pr_title}: {review_context.pr_context.summary}"
+                            f"pull request {review_context.pr_context.pr_number} "
+                            f"{review_context.pr_context.pr_title}: "
+                            f"{review_context.pr_context.summary}"
                         )
                         topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
                         mem = Hippocampus(
@@ -270,7 +283,8 @@ class CodeReviewer(dspy.Module):
                             categories=categories,
                         )
                         issues = [
-                            issue for issue in (result.issues or [])
+                            issue
+                            for issue in (result.issues or [])
                             if issue.confidence >= self._settings.min_confidence
                         ]
                         await mem.aend_episode(
@@ -287,14 +301,13 @@ class CodeReviewer(dspy.Module):
                             categories=categories,
                         )
                         issues = [
-                            issue for issue in (result.issues or [])
+                            issue
+                            for issue in (result.issues or [])
                             if issue.confidence >= self._settings.min_confidence
                         ]
                 restore_repo_paths(issues, scope.subroot)
                 all_issues.extend(issues)
-                logger.debug(
-                    f"  Scope {scope.subroot}: {len(issues)} code review issues"
-                )
+                logger.debug(f"  Scope {scope.subroot}: {len(issues)} code review issues")
             except Exception as e:
                 logger.error(f"Code review failed for scope {scope.subroot}: {e}", exc_info=True)
             finally:
@@ -303,9 +316,7 @@ class CodeReviewer(dspy.Module):
         logger.info(f"Code review found {len(all_issues)} issues")
         # Merge all scope context memories into one module-level memory
         merged_memory = (
-            ContextMemory.merge(*scope_memories)
-            if scope_memories
-            else review_context.memory
+            ContextMemory.merge(*scope_memories) if scope_memories else review_context.memory
         )
         return all_issues, merged_memory
 

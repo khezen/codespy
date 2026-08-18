@@ -196,14 +196,16 @@ def build_pr_from_diff(
 
         additions, deletions = _count_diff_lines(patch) if patch else (0, 0)
 
-        changed_files.append(ChangedFile(
-            filename=filename,
-            status=file_status,
-            additions=additions,
-            deletions=deletions,
-            patch=patch,
-            previous_filename=previous_filename,
-        ))
+        changed_files.append(
+            ChangedFile(
+                filename=filename,
+                status=file_status,
+                additions=additions,
+                deletions=deletions,
+                patch=patch,
+                previous_filename=previous_filename,
+            )
+        )
 
     logger.info(f"Built local PR with {len(changed_files)} changed files")
 

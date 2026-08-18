@@ -48,9 +48,6 @@ if TYPE_CHECKING:
     from codespy.agents.memory.hippocampus.budget import MemoryBudget
 
 
-
-
-
 logger = logging.getLogger(__name__)
 
 # Custom config path (set via CLI --config flag)
@@ -137,7 +134,6 @@ class Settings(BaseSettings):
     # the Claude 4.x tier and satisfies dspy.LM's >=16000 guard for OpenAI
     # reasoning models; new_lm() clamps it down to each model's real ceiling.
     default_max_tokens: int = 64000
-
 
     # Global LLM reliability settings
     llm_retries: int = 3  # Number of retries for LLM API calls
@@ -235,13 +231,10 @@ class Settings(BaseSettings):
             extraction_model=module_extraction or self.extraction_model or model,
             reasoning_effort=config.reasoning_effort or self.default_reasoning_effort,
             temperature=(
-                config.temperature
-                if config.temperature is not None
-                else self.default_temperature
+                config.temperature if config.temperature is not None else self.default_temperature
             ),
             max_tokens=config.max_tokens or self.default_max_tokens,
         )
-
 
     def get_scan_unchanged(self, signature_name: str) -> bool:
         """Get scan_unchanged for a signature (signature-specific, default: False).
@@ -325,7 +318,6 @@ class Settings(BaseSettings):
                 f"reasoning_effort={llm.reasoning_effort}, temperature={llm.temperature}, "
                 f"max_tokens={llm.max_tokens}"
             )
-
 
     @model_validator(mode="before")
     @classmethod

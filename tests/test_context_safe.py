@@ -4,12 +4,12 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
-from codespy.agents.context_safe import ContextSafe, _MIN_RLM_THRESHOLD_TOKENS
+from codespy.agents.context_safe import ContextSafe
 from codespy.config_dspy import (
     RLMFallbackConfig,
     apply_rlm_fallback_env_overrides,
-    convert_env_value,
 )
 
 
@@ -31,11 +31,11 @@ class TestRLMFallbackConfig:
         assert config.react_threshold == 0.5
 
         # Invalid: below 0
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             RLMFallbackConfig(react_threshold=-0.1)
 
         # Invalid: above 1
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             RLMFallbackConfig(react_threshold=1.1)
 
 
@@ -88,6 +88,7 @@ class TestApplyRLMFallbackEnvOverrides:
 
 class MockSignature:
     """Mock signature class with __name__ attribute."""
+
     __name__ = "MockSignature"
 
 

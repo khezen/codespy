@@ -68,7 +68,8 @@ def review(
         codespy review https://github.com/owner/repo/pull/123 --config path/to/config.yaml
         codespy review https://gitlab.com/namespace/project/-/merge_requests/123
         codespy review https://github.com/owner/repo/pull/123 --output json
-        codespy review https://github.com/owner/repo/pull/123 --model bedrock/anthropic.claude-3-sonnet
+        codespy review https://github.com/owner/repo/pull/123 \
+            --model bedrock/anthropic.claude-3-sonnet
         codespy review https://github.com/owner/repo/pull/123 --git-comment
         codespy review https://github.com/owner/repo/pull/123 --no-stdout --git-comment
     """
@@ -83,7 +84,7 @@ def review(
         settings = get_settings(config_file=config_file)
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     # Print config at startup (secrets are hidden via repr=False)
     logging.info(f"Loaded config: {settings}")
@@ -150,7 +151,8 @@ def review(
             f"[bold]Platform:[/bold] {platform.title()}\n"
             f"[bold]Model:[/bold] {settings.default_model}\n"
             f"[bold]Output:[/bold] {output_display}\n"
-            f"[bold]{platform.title()} Token:[/bold] [green]found[/green] [dim]({token_source})[/dim]",
+            f"[bold]{platform.title()} Token:[/bold] [green]found[/green] "
+            f"[dim]({token_source})[/dim]",
             title="codespy",
         )
     )
@@ -194,8 +196,8 @@ def review(
 
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     except Exception as e:
         console.print(f"[red]Error during review:[/red] {e}")
         logging.exception("Review failed")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None

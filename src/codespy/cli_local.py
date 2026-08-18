@@ -78,7 +78,7 @@ def review_local(
         settings = get_settings(config_file=config_file)
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     if model:
         settings.default_model = model
@@ -89,11 +89,11 @@ def review_local(
 
     if not repo.exists():
         console.print(f"[red]Error:[/red] Directory does not exist: {repo}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     if not (repo / ".git").exists():
         console.print(f"[red]Error:[/red] Not a git repository: {repo}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     console.print(
         Panel(
@@ -113,11 +113,7 @@ def review_local(
         pipeline = ReviewPipeline(settings)
 
         # Create local review config
-        config = LocalReviewConfig(
-            repo_path=repo,
-            base_ref=base_ref,
-            uncommitted=False
-        )
+        config = LocalReviewConfig(repo_path=repo, base_ref=base_ref, uncommitted=False)
 
         # Run review (model access always verified in pipeline)
         result = pipeline(config)
@@ -134,13 +130,14 @@ def review_local(
             )
 
         from codespy.agents.reviewer.reporters import StdoutReporter
+
         stdout_reporter = StdoutReporter(format=settings.output_format, console=console)
         stdout_reporter.report(result)
 
     except Exception as e:
         console.print(f"[red]Error during review:[/red] {e}")
         logging.exception("Review failed")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
 
 def review_uncommitted(
@@ -195,7 +192,7 @@ def review_uncommitted(
         settings = get_settings(config_file=config_file)
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     if model:
         settings.default_model = model
@@ -206,11 +203,11 @@ def review_uncommitted(
 
     if not repo.exists():
         console.print(f"[red]Error:[/red] Directory does not exist: {repo}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     if not (repo / ".git").exists():
         console.print(f"[red]Error:[/red] Not a git repository: {repo}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     console.print(
         Panel(
@@ -229,10 +226,7 @@ def review_uncommitted(
         pipeline = ReviewPipeline(settings)
 
         # Create local review config for uncommitted changes
-        config = LocalReviewConfig(
-            repo_path=repo,
-            uncommitted=True
-        )
+        config = LocalReviewConfig(repo_path=repo, uncommitted=True)
 
         # Run review (model access always verified in pipeline)
         result = pipeline(config)
@@ -249,10 +243,11 @@ def review_uncommitted(
             )
 
         from codespy.agents.reviewer.reporters import StdoutReporter
+
         stdout_reporter = StdoutReporter(format=settings.output_format, console=console)
         stdout_reporter.report(result)
 
     except Exception as e:
         console.print(f"[red]Error during review:[/red] {e}")
         logging.exception("Review failed")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None

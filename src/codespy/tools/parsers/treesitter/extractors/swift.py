@@ -28,14 +28,16 @@ class SwiftExtractor(BaseExtractor):
                     name = self._get_node_text(name_node, source)
                     params = self._extract_generic_params(n, source)
 
-                    functions.append(FunctionInfo(
-                        name=name,
-                        file=str(file_path),
-                        line_start=n.start_point[0] + 1,
-                        line_end=n.end_point[0] + 1,
-                        parameters=params,
-                        is_method=in_class,
-                    ))
+                    functions.append(
+                        FunctionInfo(
+                            name=name,
+                            file=str(file_path),
+                            line_start=n.start_point[0] + 1,
+                            line_end=n.end_point[0] + 1,
+                            parameters=params,
+                            is_method=in_class,
+                        )
+                    )
 
             elif n.type in ("class_declaration", "struct_declaration", "extension_declaration"):
                 for child in n.children:

@@ -28,16 +28,12 @@ class PRSummarySignature(dspy.Signature):
 
     pr_title: str = dspy.InputField(desc="Title of the pull request")
     pr_description: str = dspy.InputField(desc="Description/body of the PR")
-    changed_file_paths: list[str] = dspy.InputField(
-        desc="List of changed file paths from the PR"
-    )
+    changed_file_paths: list[str] = dspy.InputField(desc="List of changed file paths from the PR")
     patches: str = dspy.InputField(
         desc="Unified diff patches showing code changes. Each patch is prefixed with the filename."
     )
 
-    summary: str = dspy.OutputField(
-        desc="2-3 sentence summary of what this PR accomplishes"
-    )
+    summary: str = dspy.OutputField(desc="2-3 sentence summary of what this PR accomplishes")
 
 
 class Summarizer(dspy.Module):
@@ -85,10 +81,17 @@ class Summarizer(dspy.Module):
         # Load latest episode per scope and merge with inherited memory
         if self._settings.get_memory_enabled("summary") and scopes:
             from codespy.agents.memory.hippocampus.episode import find_latest_episode
+
             store = get_memory_store(self._settings)
             per_scope_memories: list[ContextMemory] = []
             for scope in scopes:
-                ep = find_latest_episode(store, scope.scope_path(), task=None, exclude_task="scope", exclude_run_id=run_id)
+                ep = find_latest_episode(
+                    store,
+                    scope.scope_path(),
+                    task=None,
+                    exclude_task="scope",
+                    exclude_run_id=run_id,
+                )
                 if ep is not None:
                     per_scope_memories.append(ep.context_memory)
             if per_scope_memories:

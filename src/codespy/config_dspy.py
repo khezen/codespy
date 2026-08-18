@@ -23,6 +23,7 @@ class RLMFallbackConfig(BaseModel):
     module type because multi-step reasoning (ReAct) is more vulnerable
     to context rot than single-pass (ChainOfThought/Predict).
     """
+
     enabled: bool = True
     react_threshold: float = Field(default=0.30, ge=0.0, le=1.0)
     chain_of_thought_threshold: float = Field(default=0.40, ge=0.0, le=1.0)
@@ -30,15 +31,14 @@ class RLMFallbackConfig(BaseModel):
 
 
 class MemorySignatureConfig(BaseModel):
-
     """Per-signature Hippocampus memory overrides.
 
     All fields are optional — ``None`` means "use the global memory default"
     (see ``codespy.config_memory.MemoryConfig``).
     """
 
-    enabled: bool | None = None                   # <SIG>_MEMORY_ENABLED
-    max_reflects: int | None = None               # <SIG>_MEMORY_MAX_REFLECTS
+    enabled: bool | None = None  # <SIG>_MEMORY_ENABLED
+    max_reflects: int | None = None  # <SIG>_MEMORY_MAX_REFLECTS
 
 
 class SignatureConfig(BaseModel):
@@ -93,6 +93,7 @@ def apply_rlm_fallback_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     Maps: RLM_FALLBACK_REACT_THRESHOLD=0.30 -> rlm_fallback.react_threshold
     """
     from dotenv import dotenv_values
+
     env_vars = {**dotenv_values(".env"), **os.environ}
 
     for key, value in env_vars.items():
@@ -101,7 +102,7 @@ def apply_rlm_fallback_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
         key_upper = key.upper()
         if not key_upper.startswith("RLM_FALLBACK_"):
             continue
-        remainder = key_upper[len("RLM_FALLBACK_"):]
+        remainder = key_upper[len("RLM_FALLBACK_") :]
         field = RLM_FALLBACK_ENV_SETTINGS.get(remainder)
         if field is None:
             continue
@@ -158,7 +159,7 @@ def apply_signature_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
         for prefix, sig_name in SIGNATURE_PREFIXES.items():
             if key_upper.startswith(prefix):
                 signature_name = sig_name
-                remainder = key_upper[len(prefix):]
+                remainder = key_upper[len(prefix) :]
                 break
 
         if not signature_name or remainder is None:
@@ -166,7 +167,7 @@ def apply_signature_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
 
         # Nested memory setting: <SIG>_MEMORY_<SETTING>
         if remainder.startswith("MEMORY_"):
-            memory_setting = remainder[len("MEMORY_"):].lower()
+            memory_setting = remainder[len("MEMORY_") :].lower()
             if memory_setting not in MEMORY_SIGNATURE_SETTINGS:
                 continue
             if "signatures" not in config:

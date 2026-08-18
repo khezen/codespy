@@ -8,8 +8,6 @@ from datetime import UTC, datetime
 
 import dspy
 
-logger = logging.getLogger(__name__)
-
 from codespy.agents.memory.hippocampus.budget import (
     MemoryBudget,
     _head_tail_text,
@@ -32,6 +30,8 @@ from codespy.agents.memory.hippocampus.modules.cartographer import Cartographer
 from codespy.agents.memory.hippocampus.modules.distiller import Distiller
 from codespy.tools.storage.base import Storage
 
+logger = logging.getLogger(__name__)
+
 
 def prepend_context_memory(sig):
     """Prepend context_memory field to signature.
@@ -42,7 +42,10 @@ def prepend_context_memory(sig):
     return sig.prepend(
         name="context_memory",
         field=dspy.InputField(
-            desc="Current context memory (topic-grouped, with item IDs and sections). Use it before redundant tool calls."
+            desc=(
+                "Current context memory (topic-grouped, with item IDs and sections). "
+                "Use it before redundant tool calls."
+            )
         ),
         type_=str,
     )
@@ -176,9 +179,11 @@ class Hippocampus(dspy.Module):
             module_inputs = set(top_sig.input_fields)
             module.signature = prepend_context_memory(top_sig)
             for _, pred in module.named_predictors():
-                if set(pred.signature.input_fields) & module_inputs:
-                    if "context_memory" not in pred.signature.input_fields:
-                        pred.signature = prepend_context_memory(pred.signature)
+                if (
+                    set(pred.signature.input_fields) & module_inputs
+                    and "context_memory" not in pred.signature.input_fields
+                ):
+                    pred.signature = prepend_context_memory(pred.signature)
         else:
             for _, pred in module.named_predictors():
                 pred.signature = prepend_context_memory(pred.signature)
@@ -214,7 +219,8 @@ class Hippocampus(dspy.Module):
             logger.warning(
                 "Hippocampus: task_name not provided and module %r has no .signature; "
                 "using collision-prone fallback %r. Pass task_name explicitly.",
-                module, fallback,
+                module,
+                fallback,
             )
             self._task_name = fallback
         self._module_name: str = type(module).__name__
@@ -265,8 +271,7 @@ class Hippocampus(dspy.Module):
         self._episode_trajectories.append(traj)
         self._episode_question = self._make_question(kwargs)
         # Online reflection: None = no limit (always); N = for the first N calls.
-        if (self.max_reflects is None
-                or len(self._episode_trajectories) <= self.max_reflects):
+        if self.max_reflects is None or len(self._episode_trajectories) <= self.max_reflects:
             try:
                 self._distill(traj, self._episode_question)
                 self._reflected_count += 1
@@ -287,8 +292,7 @@ class Hippocampus(dspy.Module):
         if not self._episode_trajectories or skip_double_distill:
             return None
         combined = "\n\n".join(
-            f"=== Call {i + 1} ===\n{t}"
-            for i, t in enumerate(self._episode_trajectories)
+            f"=== Call {i + 1} ===\n{t}" for i, t in enumerate(self._episode_trajectories)
         )
         if self.budget.max_trajectory_tokens is not None:
             combined = _head_tail_text(combined, self.budget.max_trajectory_tokens)
@@ -326,11 +330,11 @@ class Hippocampus(dspy.Module):
         self._mutations.clear()
         self._distill_step = 0
 
-
     def episode_file_path(self, dir: str, index: int = 0) -> str:
         """Build the full episode file path from a directory.
 
-        Path format: ``orgs/<owner>/episodic/.codespy/<owner>.<repo>[.<subroot>].<run_id>-<task>-<index>.json``
+        Path format: ``orgs/<owner>/episodic/.codespy/<owner>.<repo>``
+        ``[.<subroot>].<run_id>-<task>-<index>.json``  # noqa: E501
 
         Args:
             dir: Directory identifying where this episode belongs (e.g. a
@@ -344,7 +348,9 @@ class Hippocampus(dspy.Module):
             segments = segments[1:]
         owner = segments[0] if segments else "unknown"
         slug = ".".join(segments)
-        return f"orgs/{owner}/episodic/.codespy/{slug}.{self._run_id}-{self._task_name}-{index}.json"
+        return (
+            f"orgs/{owner}/episodic/.codespy/{slug}.{self._run_id}-{self._task_name}-{index}.json"
+        )
 
     def end_episode(
         self,
@@ -421,7 +427,6 @@ class Hippocampus(dspy.Module):
             await asyncio.to_thread(_save_episode, store, path, self.episode)
             self._episode_index += 1
 
-
     def save_episode(self, store: Storage, path: str) -> None:
         """Persist the current episode to ``path`` via ``store``.
 
@@ -435,9 +440,7 @@ class Hippocampus(dspy.Module):
             OSError: If the write fails.
         """
         if self.episode is None:
-            raise ValueError(
-                "No episode to save — call end_episode() to consolidate first."
-            )
+            raise ValueError("No episode to save — call end_episode() to consolidate first.")
         _save_episode(store, path, self.episode)
 
     def load_episode(self, store: Storage, path: str) -> None:

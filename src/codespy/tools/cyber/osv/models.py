@@ -87,7 +87,9 @@ class Reference(BaseModel):
 class RangeEvent(BaseModel):
     """Event in a version range (introduced or fixed)."""
 
-    introduced: str | None = Field(default=None, description="Version where vulnerability was introduced")
+    introduced: str | None = Field(
+        default=None, description="Version where vulnerability was introduced"
+    )
     fixed: str | None = Field(default=None, description="Version where vulnerability was fixed")
     last_affected: str | None = Field(default=None, description="Last affected version")
     limit: str | None = Field(default=None, description="Upper limit version")
@@ -125,10 +127,14 @@ class Vulnerability(BaseModel):
     id: str = Field(description="OSV vulnerability ID")
     summary: str | None = Field(default=None, description="Short summary of the vulnerability")
     details: str | None = Field(default=None, description="Detailed description")
-    aliases: list[str] = Field(default_factory=list, description="Alternative IDs (CVE, GHSA, etc.)")
+    aliases: list[str] = Field(
+        default_factory=list, description="Alternative IDs (CVE, GHSA, etc.)"
+    )
     modified: datetime | None = Field(default=None, description="Last modification timestamp")
     published: datetime | None = Field(default=None, description="Publication timestamp")
-    withdrawn: datetime | None = Field(default=None, description="Withdrawal timestamp if withdrawn")
+    withdrawn: datetime | None = Field(
+        default=None, description="Withdrawal timestamp if withdrawn"
+    )
     related: list[str] = Field(default_factory=list, description="Related vulnerability IDs")
     severity: list[Severity] = Field(default_factory=list, description="Severity scores")
     affected: list[AffectedPackage] = Field(default_factory=list, description="Affected packages")
@@ -186,7 +192,9 @@ class Vulnerability(BaseModel):
             lines.append(f"\n**CVSS:** {cvss}")
 
         if self.details:
-            lines.append(f"\n**Details:**\n{self.details[:500]}{'...' if len(self.details) > 500 else ''}")
+            lines.append(
+                f"\n**Details:**\n{self.details[:500]}{'...' if len(self.details) > 500 else ''}"
+            )
 
         if self.affected:
             lines.append("\n**Affected Packages:**")
@@ -209,7 +217,9 @@ class PackageQuery(BaseModel):
 
     name: str | None = Field(default=None, description="Package name")
     ecosystem: str | None = Field(default=None, description="Package ecosystem")
-    purl: str | None = Field(default=None, description="Package URL (alternative to name+ecosystem)")
+    purl: str | None = Field(
+        default=None, description="Package URL (alternative to name+ecosystem)"
+    )
 
 
 class VulnerabilityQuery(BaseModel):
@@ -253,14 +263,18 @@ class VulnerabilityResponse(BaseModel):
 class BatchQueryResult(BaseModel):
     """Result for a single query in a batch request."""
 
-    vulns: list[Vulnerability] = Field(default_factory=list, description="Vulnerabilities for this query")
+    vulns: list[Vulnerability] = Field(
+        default_factory=list, description="Vulnerabilities for this query"
+    )
     next_page_token: str | None = Field(default=None, description="Pagination token for this query")
 
 
 class BatchQueryResponse(BaseModel):
     """Response from batch vulnerability query."""
 
-    results: list[BatchQueryResult] = Field(default_factory=list, description="Results for each query")
+    results: list[BatchQueryResult] = Field(
+        default_factory=list, description="Results for each query"
+    )
 
 
 class ScanResult(BaseModel):

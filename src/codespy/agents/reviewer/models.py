@@ -1,12 +1,19 @@
 """Data models for code review results."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from codespy.agents.memory.hippocampus import ContextMemory
+from codespy.tools.git.models import ChangedFile, PullRequest
+
+if TYPE_CHECKING:
+    from codespy.agents.memory.hippocampus.context_memory import Topic
 
 
 class PRContext(BaseModel):
@@ -17,7 +24,9 @@ class PRContext(BaseModel):
     Each module constructs its own Hippocampus question from these fields.
     """
 
-    repo_slug: str = Field(description="Host-qualified repo identifier (e.g. github.com/owner/repo)")
+    repo_slug: str = Field(
+        description="Host-qualified repo identifier (e.g. github.com/owner/repo)"
+    )
     pr_number: int = Field(description="PR number")
     pr_title: str = Field(description="PR title")
     summary: str = Field(description="2-3 sentence PR summary produced by Summarizer")
@@ -65,9 +74,6 @@ class PackageManifest(BaseModel):
     package_name: str | None = Field(default=None, description="Package identity from manifest")
 
 
-from codespy.tools.git.models import ChangedFile, PullRequest
-
-
 class ReviewMetadata(BaseModel):
     """Runtime pipeline state, stable once constructed at pipeline start.
 
@@ -89,8 +95,12 @@ class ReviewContext(BaseModel):
     so downstream modules inherit accumulated understanding.
     """
 
-    pr_context: PRContext = Field(description="Immutable PR identity (repo, number, title, summary)")
-    memory: ContextMemory | None = Field(default=None, description="Inherited context memory from upstream stages")
+    pr_context: PRContext = Field(
+        description="Immutable PR identity (repo, number, title, summary)"
+    )
+    memory: ContextMemory | None = Field(
+        default=None, description="Inherited context memory from upstream stages"
+    )
     metadata: ReviewMetadata | None = Field(default=None, description="Runtime pipeline state")
 
 
@@ -135,7 +145,7 @@ class ScopeResult(BaseModel):
             return f"/{self.repo}/"
         return f"/{self.repo}/{self.subroot.strip('/')}/"
 
-    def topic(self, repo_full_name: str) -> "Topic":
+    def topic(self, repo_full_name: str) -> Topic:
         """Build the Topic for this scope.
 
         Args:
@@ -164,14 +174,14 @@ class Issue(BaseModel):
     filename: str = Field(description="File where the issue was found")
     line_start: int | None = Field(default=None, description="Starting line number")
     line_end: int | None = Field(default=None, description="Ending line number")
-    code_snippet: str | None = Field(default=None, description="Deprecated—use line numbers. Leave None.")
+    code_snippet: str | None = Field(
+        default=None, description="Deprecated—use line numbers. Leave None."
+    )
     suggestion: str | None = Field(default=None, description="Suggested fix or improvement")
     cwe_id: str | None = Field(
         default=None, description="CWE ID for security issues (e.g., CWE-79)"
     )
-    confidence: float = Field(
-        default=0.8, ge=0.0, le=1.0, description="Confidence score (0-1)"
-    )
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0, description="Confidence score (0-1)")
 
     @property
     def location(self) -> str:
@@ -182,10 +192,13 @@ class Issue(BaseModel):
             return f"{self.filename}:{self.line_start}"
         return self.filename
 
+
 class SignatureStatsResult(BaseModel):
     """Statistics for a single signature's execution during review."""
 
-    name: str = Field(description="Signature name (e.g., code_review, doc, scope, supply_chain, summary, audit)")
+    name: str = Field(
+        description="Signature name (e.g., code_review, doc, scope, supply_chain, summary, audit)"
+    )
     cost: float = Field(default=0.0, description="Cost in USD for this signature")
     tokens: int = Field(default=0, description="Tokens used by this signature")
     call_count: int = Field(default=0, description="Number of LLM calls made by this signature")
@@ -223,12 +236,8 @@ class ReviewResult(BaseModel):
         description="Review timestamp",
     )
     model_used: str = Field(description="LLM model used for review")
-    issues: list[Issue] = Field(
-        default_factory=list, description="All issues found during review"
-    )
-    overall_summary: str | None = Field(
-        default=None, description="Overall summary of the PR"
-    )
+    issues: list[Issue] = Field(default_factory=list, description="All issues found during review")
+    overall_summary: str | None = Field(default=None, description="Overall summary of the PR")
     quality_assessment: str | None = Field(
         default=None, description="Overall assessment of code quality"
     )
@@ -299,41 +308,48 @@ class ReviewResult(BaseModel):
             lines.extend(["## Quality Assessment", "", self.quality_assessment, ""])
 
         # Statistics
-        lines.extend([
-            "## Statistics",
-            "",
-            f"- **Total Issues:** {self.total_issues}",
-            f"- **Critical:** {len(self.critical_issues)}",
-            f"- **Security:** {len(self.security_issues)}",
-            f"- **Bugs:** {len(self.bug_issues)}",
-            f"- **Documentation:** {len(self.documentation_issues)}",
-            f"- **Smells:** {len(self.smell_issues)}",
-            "",
-        ])
+        lines.extend(
+            [
+                "## Statistics",
+                "",
+                f"- **Total Issues:** {self.total_issues}",
+                f"- **Critical:** {len(self.critical_issues)}",
+                f"- **Security:** {len(self.security_issues)}",
+                f"- **Bugs:** {len(self.bug_issues)}",
+                f"- **Documentation:** {len(self.documentation_issues)}",
+                f"- **Smells:** {len(self.smell_issues)}",
+                "",
+            ]
+        )
 
         # Cost information
         if self.total_cost > 0 or self.llm_calls > 0:
-            lines.extend([
-                "## Cost",
-                "",
-                f"- **LLM Calls:** {self.llm_calls}",
-                f"- **Total Tokens:** {self.total_tokens:,}",
-                f"- **Total Cost:** ${self.total_cost:.4f}",
-                "",
-            ])
+            lines.extend(
+                [
+                    "## Cost",
+                    "",
+                    f"- **LLM Calls:** {self.llm_calls}",
+                    f"- **Total Tokens:** {self.total_tokens:,}",
+                    f"- **Total Cost:** ${self.total_cost:.4f}",
+                    "",
+                ]
+            )
 
             # Per-signature breakdown
             if self.signature_stats:
-                lines.extend([
-                    "### Per-Signature Breakdown",
-                    "",
-                    "| Signature | Cost | Tokens | Calls | Duration |",
-                    "|-----------|------|--------|-------|----------|",
-                ])
+                lines.extend(
+                    [
+                        "### Per-Signature Breakdown",
+                        "",
+                        "| Signature | Cost | Tokens | Calls | Duration |",
+                        "|-----------|------|--------|-------|----------|",
+                    ]
+                )
                 for stats in sorted(self.signature_stats, key=lambda x: x.cost, reverse=True):
                     duration_str = f"{stats.duration_seconds:.1f}s"
                     lines.append(
-                        f"| {stats.name} | ${stats.cost:.4f} | {stats.tokens:,} | {stats.call_count} | {duration_str} |"
+                        f"| {stats.name} | ${stats.cost:.4f} | {stats.tokens:,} | "
+                        f"{stats.call_count} | {duration_str} |"
                     )
                 lines.append("")
 
@@ -358,37 +374,47 @@ class ReviewResult(BaseModel):
                         IssueSeverity.INFO: "⚪",
                     }[severity]
 
-                    lines.extend([f"### {emoji} {severity.value.title()} ({len(severity_issues)})", ""])
+                    lines.extend(
+                        [f"### {emoji} {severity.value.title()} ({len(severity_issues)})", ""]
+                    )
 
                     for issue in severity_issues:
-                        lines.extend([
-                            f"#### {issue.title}",
-                            "",
-                            f"**Location:** `{issue.location}`",
-                            f"**Category:** {issue.category.value}",
-                            "",
-                            issue.description,
-                            "",
-                        ])
+                        lines.extend(
+                            [
+                                f"#### {issue.title}",
+                                "",
+                                f"**Location:** `{issue.location}`",
+                                f"**Category:** {issue.category.value}",
+                                "",
+                                issue.description,
+                                "",
+                            ]
+                        )
 
                         if issue.code_snippet:
-                            lines.extend([
-                                "**Code:**",
-                                "```",
-                                issue.code_snippet,
-                                "```",
-                                "",
-                            ])
+                            lines.extend(
+                                [
+                                    "**Code:**",
+                                    "```",
+                                    issue.code_snippet,
+                                    "```",
+                                    "",
+                                ]
+                            )
 
                         if issue.suggestion:
-                            lines.extend([
-                                "**Suggestion:**",
-                                issue.suggestion,
-                                "",
-                            ])
+                            lines.extend(
+                                [
+                                    "**Suggestion:**",
+                                    issue.suggestion,
+                                    "",
+                                ]
+                            )
 
                         if issue.cwe_id:
-                            lines.append(f"**Reference:** [{issue.cwe_id}](https://cwe.mitre.org/data/definitions/{issue.cwe_id.split('-')[1]}.html)")
+                            lines.append(
+                                f"**Reference:** [{issue.cwe_id}](https://cwe.mitre.org/data/definitions/{issue.cwe_id.split('-')[1]}.html)"
+                            )
                             lines.append("")
 
                         lines.append("---")
@@ -415,8 +441,13 @@ class LocalReviewConfig(BaseModel):
     """Configuration for reviewing local git changes without a remote platform."""
 
     repo_path: Path = Field(description="Path to the git repository")
-    base_ref: str = Field(default="main", description="Base git ref to compare against (e.g., 'main', 'develop', 'HEAD~5')")
-    uncommitted: bool = Field(default=False, description="If True, review uncommitted changes (working tree vs HEAD)")
+    base_ref: str = Field(
+        default="main",
+        description="Base git ref to compare against (e.g., 'main', 'develop', 'HEAD~5')",
+    )
+    uncommitted: bool = Field(
+        default=False, description="If True, review uncommitted changes (working tree vs HEAD)"
+    )
 
 
 # Union type for review configuration

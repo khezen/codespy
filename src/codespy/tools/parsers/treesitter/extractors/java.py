@@ -29,15 +29,17 @@ class JavaExtractor(BaseExtractor):
                     params = self._extract_generic_params(n, source)
                     return_type = self._extract_java_return_type(n, source)
 
-                    functions.append(FunctionInfo(
-                        name=name,
-                        file=str(file_path),
-                        line_start=n.start_point[0] + 1,
-                        line_end=n.end_point[0] + 1,
-                        parameters=params,
-                        return_type=return_type,
-                        is_method=True,
-                    ))
+                    functions.append(
+                        FunctionInfo(
+                            name=name,
+                            file=str(file_path),
+                            line_start=n.start_point[0] + 1,
+                            line_end=n.end_point[0] + 1,
+                            parameters=params,
+                            return_type=return_type,
+                            is_method=True,
+                        )
+                    )
 
             elif n.type == "constructor_declaration":
                 name_node = n.child_by_field_name("name")
@@ -45,14 +47,16 @@ class JavaExtractor(BaseExtractor):
                     name = self._get_node_text(name_node, source)
                     params = self._extract_generic_params(n, source)
 
-                    functions.append(FunctionInfo(
-                        name=name,
-                        file=str(file_path),
-                        line_start=n.start_point[0] + 1,
-                        line_end=n.end_point[0] + 1,
-                        parameters=params,
-                        is_method=True,
-                    ))
+                    functions.append(
+                        FunctionInfo(
+                            name=name,
+                            file=str(file_path),
+                            line_start=n.start_point[0] + 1,
+                            line_end=n.end_point[0] + 1,
+                            parameters=params,
+                            is_method=True,
+                        )
+                    )
 
             elif n.type in ("class_declaration", "interface_declaration", "enum_declaration"):
                 for child in n.children:

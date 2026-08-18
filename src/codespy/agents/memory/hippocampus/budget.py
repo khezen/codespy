@@ -14,6 +14,7 @@ _ENCODING = tiktoken.get_encoding("o200k_base")
 # Budget
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class MemoryBudget:
     """The four token budgets bounding Hippocampus memory.
@@ -67,10 +68,10 @@ class MemoryBudget:
 
 # Eviction priority — lower number = evict first
 _SECTION_EVICT_PRIORITY: dict[str, int] = {
-    "parsing_schema": 0,        # evict first — cheap to rediscover
-    "reusable_results": 1,      # agent-derived; can be recomputed
-    "domain_constants": 2,      # exact values worth protecting
-    "context_roadmap": 3,       # protected — structural index
+    "parsing_schema": 0,  # evict first — cheap to rediscover
+    "reusable_results": 1,  # agent-derived; can be recomputed
+    "domain_constants": 2,  # exact values worth protecting
+    "context_roadmap": 3,  # protected — structural index
     "context_understanding": 4,  # most protected — core orientation
 }
 
@@ -79,6 +80,7 @@ _SECTION_EVICT_PRIORITY: dict[str, int] = {
 # Token counting
 # ---------------------------------------------------------------------------
 
+
 def count_tokens(s: str) -> int:
     return len(_ENCODING.encode(s))
 
@@ -86,6 +88,7 @@ def count_tokens(s: str) -> int:
 # ---------------------------------------------------------------------------
 # Input serialisation (for the question field sent to the Distiller)
 # ---------------------------------------------------------------------------
+
 
 def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
     """Serialize call inputs (excluding context_memory) for the Distiller question.
@@ -109,6 +112,7 @@ def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
 # ---------------------------------------------------------------------------
 # Eviction
 # ---------------------------------------------------------------------------
+
 
 def evict(context_memory: ContextMemory, scores: dict[str, int], budget: int) -> ContextMemory:
     if count_tokens(context_memory.render()) <= budget:
@@ -138,6 +142,7 @@ def evict(context_memory: ContextMemory, scores: dict[str, int], budget: int) ->
 # ---------------------------------------------------------------------------
 # Trajectory formatting with optional step-aware head+tail bounding
 # ---------------------------------------------------------------------------
+
 
 def _format_step(i: int, entry: dict) -> str:
     parts = [f"--- Step {i + 1} ---"]
@@ -209,9 +214,7 @@ def _head_tail_text(text: str, max_tokens: int, head_ratio: float = 0.6) -> str:
     for line in reversed(lines):
         lt = count_tokens(line)
         if tail_tokens + lt > tail_budget:
-            tail_lines.append(
-                _slice_tokens(line, tail_budget - tail_tokens, from_end=True)
-            )
+            tail_lines.append(_slice_tokens(line, tail_budget - tail_tokens, from_end=True))
             tail_tokens = tail_budget
             break
         tail_lines.append(line)
@@ -283,7 +286,7 @@ def format_trajectory(pred: dspy.Prediction, max_tokens: int | None = None) -> s
         # Greedily keep tail steps (from the end), never reusing a head step
         tail_steps: list[str] = []
         tail_tokens = 0
-        for s in reversed(capped[len(head_steps):]):
+        for s in reversed(capped[len(head_steps) :]):
             t = count_tokens(s)
             if tail_tokens + t > tail_budget:
                 break

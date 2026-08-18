@@ -198,7 +198,8 @@ class GitHubClient(GitClient):
                     clone_kwargs["depth"] = depth
 
                 repo = Repo.clone_from(
-                    repo_url, repo_dir,
+                    repo_url,
+                    repo_dir,
                     env={"GIT_TERMINAL_PROMPT": "0"},
                     **clone_kwargs,
                 )
@@ -291,7 +292,10 @@ class GitHubClient(GitClient):
         except Exception as e:
             error_msg = str(e)
             # If inline comments fail due to line resolution, validate and retry
-            if review_comments and ("Path could not be resolved" in error_msg or "Line could not be resolved" in error_msg):
+            if review_comments and (
+                "Path could not be resolved" in error_msg
+                or "Line could not be resolved" in error_msg
+            ):
                 logger.warning(f"Inline comments failed ({e}), validating lines and retrying")
 
                 # Validate each comment's line against the diff
@@ -312,7 +316,9 @@ class GitHubClient(GitClient):
                 updated_body = body
                 if invalid_line_comments:
                     updated_body = self._append_comments_to_body(body, invalid_line_comments)
-                    logger.info(f"Moving {len(invalid_line_comments)} comments with invalid lines to body")
+                    logger.info(
+                        f"Moving {len(invalid_line_comments)} comments with invalid lines to body"
+                    )
 
                 # Retry with valid comments only
                 try:
@@ -328,7 +334,9 @@ class GitHubClient(GitClient):
                     )
                 except Exception as retry_e:
                     # Final fallback: all comments to body
-                    logger.warning(f"Retry with valid comments also failed ({retry_e}), posting body only")
+                    logger.warning(
+                        f"Retry with valid comments also failed ({retry_e}), posting body only"
+                    )
                     all_failed_comments = review_comments  # All original comments
                     final_body = self._append_comments_to_body(body, all_failed_comments)
                     gh_pr.create_review(
@@ -337,7 +345,10 @@ class GitHubClient(GitClient):
                         event="COMMENT",
                         comments=[],
                     )
-                    logger.info(f"Submitted review on {owner}/{repo_name}#{pr_number} (body only, all comments)")
+                    logger.info(
+                        f"Submitted review on {owner}/{repo_name}#{pr_number} "
+                        f"(body only, all comments)"
+                    )
             else:
                 raise
 
@@ -364,11 +375,13 @@ class GitHubClient(GitClient):
             line = comment.get("line", "?")
             comment_body = comment.get("body", "")
 
-            lines.extend([
-                f"### `{path}:{line}`",
-                "",
-                comment_body,
-                "",
-            ])
+            lines.extend(
+                [
+                    f"### `{path}:{line}`",
+                    "",
+                    comment_body,
+                    "",
+                ]
+            )
 
         return "\n".join(lines)

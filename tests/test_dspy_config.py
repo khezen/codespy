@@ -23,6 +23,7 @@ def _supports_cache_control(model: str) -> bool:
     Falls back to provider-prefix heuristic when model info is unavailable.
     """
     import litellm  # noqa: F401 - this is mocked
+
     try:
         info = litellm.get_model_info(model)
         return info.get("cache_creation_input_token_cost") is not None
@@ -46,7 +47,10 @@ class TestSupportsCacheControl:
     def test_bedrock_anthropic_supported(self):
         with patch("litellm.get_model_info") as mock:
             mock.return_value = {"cache_creation_input_token_cost": 3.75e-06}
-            assert _supports_cache_control("bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0") is True
+            assert (
+                _supports_cache_control("bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+                is True
+            )
 
     def test_openai_no_explicit_markers(self):
         with patch("litellm.get_model_info") as mock:

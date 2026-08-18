@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 MemoryBackend = Literal["filesystem", "s3"]
 
 
-
 class ReflectionModuleConfig(BaseModel):
     """LLM overrides for a single reflection module (Distiller / Cartographer).
 
@@ -29,10 +28,10 @@ class ReflectionModuleConfig(BaseModel):
     one used for code review.
     """
 
-    model: str | None = None                            # MEMORY_<MODULE>_MODEL
-    reasoning_effort: ReasoningEffort | None = None     # MEMORY_<MODULE>_REASONING_EFFORT
-    temperature: float | None = None                    # MEMORY_<MODULE>_TEMPERATURE
-    max_tokens: int | None = None                       # MEMORY_<MODULE>_MAX_TOKENS
+    model: str | None = None  # MEMORY_<MODULE>_MODEL
+    reasoning_effort: ReasoningEffort | None = None  # MEMORY_<MODULE>_REASONING_EFFORT
+    temperature: float | None = None  # MEMORY_<MODULE>_TEMPERATURE
+    max_tokens: int | None = None  # MEMORY_<MODULE>_MAX_TOKENS
 
 
 class LLMSettings(BaseModel):
@@ -54,9 +53,7 @@ class LLMSettings(BaseModel):
     max_tokens: int
 
 
-
 class MemoryConfig(BaseModel):
-
     """Global memory (Hippocampus) configuration.
 
     Controls where episodes are persisted and the default reflection knobs
@@ -68,13 +65,13 @@ class MemoryConfig(BaseModel):
 
     backend: MemoryBackend = "filesystem"  # MEMORY_BACKEND
     root: str = "~/.cache/codespy/memory"  # MEMORY_ROOT (filesystem backend)
-    s3_bucket: str | None = None           # MEMORY_S3_BUCKET (s3 backend)
-    s3_region: str | None = None           # MEMORY_S3_REGION (falls back to aws_region)
-    s3_endpoint_url: str | None = None     # MEMORY_S3_ENDPOINT_URL (MinIO/S3-compatible)
+    s3_bucket: str | None = None  # MEMORY_S3_BUCKET (s3 backend)
+    s3_region: str | None = None  # MEMORY_S3_REGION (falls back to aws_region)
+    s3_endpoint_url: str | None = None  # MEMORY_S3_ENDPOINT_URL (MinIO/S3-compatible)
 
     # Reflection defaults — overridable per-signature
-    default_enabled: bool = False                  # MEMORY_DEFAULT_ENABLED
-    default_max_reflects: int = Field(default=0)   # MEMORY_DEFAULT_MAX_REFLECTS
+    default_enabled: bool = False  # MEMORY_DEFAULT_ENABLED
+    default_max_reflects: int = Field(default=0)  # MEMORY_DEFAULT_MAX_REFLECTS
 
     # Ceiling on the rendered ContextMemory. This is the *persisted* artifact and it
     # is prepended to every predictor of the wrapped agent, so it is re-sent on
@@ -93,7 +90,6 @@ class MemoryConfig(BaseModel):
     # Evictor. MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS
     default_max_context_item_tokens: int = Field(default=410)
 
-
     # Head+tail cap on the agent trajectory fed to the Distiller. Without it a
     # single tool-heavy scope can produce a 100k+ token trajectory; TwoStepAdapter
     # then sends it twice. 8192 is ~5% of a 128k window and preserves both the
@@ -106,7 +102,6 @@ class MemoryConfig(BaseModel):
     # of every changed file. See Hippocampus.max_question_tokens.
     default_max_question_tokens: int | None = 2048  # MEMORY_DEFAULT_MAX_QUESTION_TOKENS
 
-
     # Per-module LLM overrides for the reflection pipeline.
     # Unset fields fall back to the top-level ``default_*`` settings.
     distiller: ReflectionModuleConfig = Field(
@@ -115,7 +110,6 @@ class MemoryConfig(BaseModel):
     cartographer: ReflectionModuleConfig = Field(
         default_factory=ReflectionModuleConfig
     )  # MEMORY_CARTOGRAPHER_*
-
 
 
 # Env var name (without the MEMORY_ prefix) -> MemoryConfig field name.
@@ -152,11 +146,7 @@ REFLECTION_MODULE_ENV_SETTINGS = {
 }
 
 # Env var prefix (after MEMORY_) -> MemoryConfig field holding the nested model.
-REFLECTION_MODULE_PREFIXES = {
-    f"{name.upper()}_": name for name in REFLECTION_MODULES
-}
-
-
+REFLECTION_MODULE_PREFIXES = {f"{name.upper()}_": name for name in REFLECTION_MODULES}
 
 
 def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
@@ -199,7 +189,7 @@ def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
         key_upper = key.upper()
         if not key_upper.startswith("MEMORY_"):
             continue
-        remainder = key_upper[len("MEMORY_"):]
+        remainder = key_upper[len("MEMORY_") :]
 
         memory_config = config.setdefault("memory", {})
         if not isinstance(memory_config, dict):
@@ -210,7 +200,7 @@ def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
         # MEMORY_ENV_SETTINGS and would otherwise be silently dropped.
         module_field = next(
             (
-                (field, remainder[len(prefix):])
+                (field, remainder[len(prefix) :])
                 for prefix, field in REFLECTION_MODULE_PREFIXES.items()
                 if remainder.startswith(prefix)
             ),
@@ -233,7 +223,6 @@ def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
         memory_config[field] = convert_env_value(value)
 
     return config
-
 
 
 # Cached singleton store. Avoids reconstructing an S3Client's boto3 client

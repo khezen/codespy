@@ -50,7 +50,7 @@ class BaseExtractor(ABC):
             for child in params_node.children:
                 # Skip punctuation
                 if child.type not in ("(", ")", ","):
-                    param_text = source[child.start_byte:child.end_byte].decode()
+                    param_text = source[child.start_byte : child.end_byte].decode()
                     params.append(param_text.strip())
         return params
 
@@ -64,4 +64,4 @@ class BaseExtractor(ABC):
         Returns:
             Decoded text content
         """
-        return source[node.start_byte:node.end_byte].decode()
+        return source[node.start_byte : node.end_byte].decode()

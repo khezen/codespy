@@ -114,7 +114,9 @@ class DistillerSig(dspy.Signature):
     """
 
     trajectory: str = dspy.InputField(desc="The agent's full execution trajectory.")
-    context_memory: str = dspy.InputField(desc="Current context memory (topic-grouped, with item IDs).")
+    context_memory: str = dspy.InputField(
+        desc="Current context memory (topic-grouped, with item IDs)."
+    )
     question: str = dspy.InputField(desc="The question the agent was answering.")
     max_context_item_tokens: int = dspy.InputField(
         desc="Token budget for a SINGLE context memory item. Keep every candidate within "
@@ -152,8 +154,11 @@ class Distiller(dspy.Module):
     def __init__(self):
         super().__init__()
         from codespy.config import settings  # lazy to avoid circular import
+
         self.predict = ContextSafe(
-            dspy.ChainOfThought(DistillerSig), DistillerSig, name="distiller",
+            dspy.ChainOfThought(DistillerSig),
+            DistillerSig,
+            name="distiller",
             rlm_threshold=settings.get_rlm_threshold("chain_of_thought"),
         )
 

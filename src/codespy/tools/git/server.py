@@ -91,7 +91,8 @@ def clone_repository(
         repo_name: Repository name (e.g., "react")
         ref: Git ref (branch, tag, or commit SHA) to checkout
         target_path: Absolute path where the repository should be cloned
-        depth: Shallow clone depth (1 = only latest commit, None = full history). Default 1 for efficiency.
+        depth: Shallow clone depth (1 = only latest commit, None = full history).
+               Default 1 for efficiency.
         sparse_paths: List of directory paths for sparse checkout (e.g., ["src/", "lib/common/"]).
                       Use this for large monorepos to only fetch needed directories.
                       Derive sparse paths from changed file paths to minimize clone size.
@@ -102,20 +103,23 @@ def clone_repository(
     """
     from pathlib import Path
 
-
     if _settings is None:
         raise RuntimeError("Settings not initialized")
 
     # Build a URL to get the right client
     if platform.lower() == "gitlab":
         # Use the configured GitLab URL or default
-        gitlab_base = _settings.gitlab_url.rstrip("/") if _settings.gitlab_url else "https://gitlab.com"
+        gitlab_base = (
+            _settings.gitlab_url.rstrip("/") if _settings.gitlab_url else "https://gitlab.com"
+        )
         dummy_url = f"{gitlab_base}/{owner}/{repo_name}/-/merge_requests/1"
     else:
         dummy_url = f"https://github.com/{owner}/{repo_name}/pull/1"
 
     client = _get_client(dummy_url)
-    logger.info(f"[GIT] {_caller_module} -> clone_repository: {owner}/{repo_name}@{ref[:8]} ({platform})")
+    logger.info(
+        f"[GIT] {_caller_module} -> clone_repository: {owner}/{repo_name}@{ref[:8]} ({platform})"
+    )
     path = client.clone_repository(
         owner=owner,
         repo_name=repo_name,

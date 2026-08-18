@@ -29,15 +29,17 @@ class PythonExtractor(BaseExtractor):
                     params = self._extract_python_params(n, source)
                     return_type = self._extract_python_return_type(n, source)
 
-                    functions.append(FunctionInfo(
-                        name=name,
-                        file=str(file_path),
-                        line_start=n.start_point[0] + 1,
-                        line_end=n.end_point[0] + 1,
-                        parameters=params,
-                        return_type=return_type,
-                        is_method=in_class,
-                    ))
+                    functions.append(
+                        FunctionInfo(
+                            name=name,
+                            file=str(file_path),
+                            line_start=n.start_point[0] + 1,
+                            line_end=n.end_point[0] + 1,
+                            parameters=params,
+                            return_type=return_type,
+                            is_method=in_class,
+                        )
+                    )
 
             elif n.type == "class_definition":
                 for child in n.children:
