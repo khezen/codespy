@@ -82,7 +82,7 @@ def strip_prefix(path: str, prefix: str) -> str:
     # Normalize: ensure prefix ends with "/" for clean stripping
     normalized = prefix.rstrip("/") + "/"
     if path.startswith(normalized):
-        return path[len(normalized):]
+        return path[len(normalized) :]
     # Exact match (file at scope root)
     if path == prefix:
         return os.path.basename(path)
@@ -116,8 +116,7 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
         New ScopeResult with scope-relative file paths in changed_files.
         The subroot is set to "." since paths are now relative to it.
     """
-    from codespy.agents.reviewer.models import PackageManifest
-    from codespy.agents.reviewer.models import ScopeResult as SR
+    from codespy.agents.reviewer.models import PackageManifest, ScopeResult
 
     if scope.subroot == ".":
         return scope  # Already at repo root, no transformation needed
@@ -129,9 +128,7 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
             deletions=f.deletions,
             patch=f.patch,
             previous_filename=(
-                strip_prefix(f.previous_filename, scope.subroot)
-                if f.previous_filename
-                else None
+                strip_prefix(f.previous_filename, scope.subroot) if f.previous_filename else None
             ),
         )
         for f in scope.changed_files
@@ -149,7 +146,7 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
             package_manager=scope.package_manifest.package_manager,
             dependencies_changed=scope.package_manifest.dependencies_changed,
         )
-    return SR(
+    return ScopeResult(
         repo=scope.repo,
         subroot=".",
         scope_type=scope.scope_type,
@@ -219,16 +216,18 @@ def issues_to_markdown(issues: list[Issue]) -> str:
 
     lines = [f"## Issues ({len(issues)})", ""]
     for issue in issues:
-        lines.extend([
-            f"### {issue.title}",
-            "",
-            f"**Location:** `{issue.location}`",
-            f"**Category:** {issue.category.value}",
-            f"**Severity:** {issue.severity.value}",
-            "",
-            issue.description,
-            "",
-        ])
+        lines.extend(
+            [
+                f"### {issue.title}",
+                "",
+                f"**Location:** `{issue.location}`",
+                f"**Category:** {issue.category.value}",
+                f"**Severity:** {issue.severity.value}",
+                "",
+                issue.description,
+                "",
+            ]
+        )
         if issue.suggestion:
             lines.extend(["**Suggestion:**", issue.suggestion, ""])
         if issue.cwe_id:
@@ -237,4 +236,3 @@ def issues_to_markdown(issues: list[Issue]) -> str:
         lines.append("---")
         lines.append("")
     return "\n".join(lines)
-

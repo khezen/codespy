@@ -52,7 +52,9 @@ def discover_aws_credentials() -> tuple[str | None, str | None, str | None, str 
                     config_file = configparser.ConfigParser()
                     config_file.read(config_path)
                     # Config file uses "profile X" format for non-default profiles
-                    config_section = f"profile {profile_name}" if profile_name != "default" else "default"
+                    config_section = (
+                        f"profile {profile_name}" if profile_name != "default" else "default"
+                    )
                     if config_section in config_file:
                         region = config_file[config_section].get("region")
 
@@ -208,7 +210,11 @@ def discover_gemini_api_key() -> tuple[str | None, str]:
                 # Try parsing as key=value
                 for line in content.split("\n"):
                     line = line.strip()
-                    if line.startswith("api_key") or line.startswith("GEMINI_API_KEY") or line.startswith("GOOGLE_API_KEY"):
+                    if (
+                        line.startswith("api_key")
+                        or line.startswith("GEMINI_API_KEY")
+                        or line.startswith("GOOGLE_API_KEY")
+                    ):
                         parts = line.split("=", 1)
                         if len(parts) == 2:
                             key = parts[1].strip().strip("'\"")

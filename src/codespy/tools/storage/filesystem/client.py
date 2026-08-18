@@ -80,7 +80,7 @@ class FileSystem(Storage):
         try:
             resolved.relative_to(self.root)
         except ValueError:
-            raise ValueError(f"Path escapes root directory: {path}")
+            raise ValueError(f"Path escapes root directory: {path}") from None
 
         return resolved
 
@@ -151,9 +151,17 @@ class FileSystem(Storage):
 
                 stat = entry.stat()
                 size = stat.st_size if entry_type == EntryType.FILE else 0
-                modified_at = datetime.fromtimestamp(stat.st_mtime, tz=UTC) if entry_type == EntryType.FILE else None
+                modified_at = (
+                    datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+                    if entry_type == EntryType.FILE
+                    else None
+                )
 
-                entries.append(Entry(name=entry.name, entry_type=entry_type, size=size, modified_at=modified_at))
+                entries.append(
+                    Entry(
+                        name=entry.name, entry_type=entry_type, size=size, modified_at=modified_at
+                    )
+                )
         except PermissionError as e:
             logger.warning(f"Permission denied listing {path}: {e}")
 

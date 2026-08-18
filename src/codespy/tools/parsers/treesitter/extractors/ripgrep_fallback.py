@@ -58,7 +58,8 @@ class RipgrepHeuristicsExtractor:
             "keyword",
             re.compile(
                 r"^[\s]*(?:"  # leading whitespace
-                r"(?:pub|priv|protected|private|public|export|async|static|inline|const|final)\s+)*"  # modifiers
+                # modifiers
+                r"(?:pub|priv|protected|private|public|export|async|static|inline|const|final)\s+)*"
                 r"(?:def|func|fn|fun|function|sub|proc)\s+"  # keyword
                 r"(?:self\.)?"  # optional self. for Ruby
                 r"(\w+)"  # function name (capture group 1)
@@ -382,13 +383,21 @@ class RipgrepHeuristicsExtractor:
                 # Build return_type from signature (best effort)
                 return_type = None
                 # Try to extract return type from C-style signatures
-                c_match = re.match(
-                    r"^[\s]*([\w\*&<>,:\s]+)\s+\w+\s*\(", signature_line
-                )
+                c_match = re.match(r"^[\s]*([\w\*&<>,:\s]+)\s+\w+\s*\(", signature_line)
                 if c_match:
                     potential = c_match.group(1).strip()
                     # Filter out modifiers
-                    modifiers = {"static", "inline", "extern", "virtual", "const", "async", "public", "private", "protected"}
+                    modifiers = {
+                        "static",
+                        "inline",
+                        "extern",
+                        "virtual",
+                        "const",
+                        "async",
+                        "public",
+                        "private",
+                        "protected",
+                    }
                     words = potential.split()
                     filtered = [w for w in words if w not in modifiers]
                     if filtered:
@@ -409,7 +418,5 @@ class RipgrepHeuristicsExtractor:
                 )
                 seen_names.add(func_name)
 
-        logger.debug(
-            f"Found {len(affected_functions)} affected functions in {file_path}"
-        )
+        logger.debug(f"Found {len(affected_functions)} affected functions in {file_path}")
         return affected_functions

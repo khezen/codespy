@@ -162,13 +162,15 @@ class TestExpandHunkToFunctions:
             "changed_new_lines": [18],
         }
         # Function from line 10 to 30
-        functions = [FunctionInfo(
-            name="test_func",
-            file="test.py",
-            line_start=10,
-            line_end=30,
-            parameters=[],
-        )]
+        functions = [
+            FunctionInfo(
+                name="test_func",
+                file="test.py",
+                line_start=10,
+                line_end=30,
+                parameters=[],
+            )
+        ]
         source_lines = [f"line {i}" for i in range(1, 35)]
 
         result = _expand_hunk_to_functions(hunk, functions, source_lines)
@@ -188,13 +190,15 @@ class TestExpandHunkToFunctions:
             "changed_new_lines": [1],
         }
         # Function starts at line 10
-        functions = [FunctionInfo(
-            name="test_func",
-            file="test.py",
-            line_start=10,
-            line_end=30,
-            parameters=[],
-        )]
+        functions = [
+            FunctionInfo(
+                name="test_func",
+                file="test.py",
+                line_start=10,
+                line_end=30,
+                parameters=[],
+            )
+        ]
         source_lines = [f"line {i}" for i in range(1, 35)]
 
         result = _expand_hunk_to_functions(hunk, functions, source_lines)
@@ -258,8 +262,16 @@ class TestMergeHunks:
 
     def test_merges_overlapping_hunks(self):
         hunks = [
-            {"expansion_start": 10, "expansion_end": 30, "original_hunk": {"header": "@@ -17,7 +17,7 @@"}},
-            {"expansion_start": 25, "expansion_end": 50, "original_hunk": {"header": "@@ -40,5 +40,5 @@"}},
+            {
+                "expansion_start": 10,
+                "expansion_end": 30,
+                "original_hunk": {"header": "@@ -17,7 +17,7 @@"},
+            },
+            {
+                "expansion_start": 25,
+                "expansion_end": 50,
+                "original_hunk": {"header": "@@ -40,5 +40,5 @@"},
+            },
         ]
         merged = _merge_hunks(hunks)
 
@@ -302,15 +314,17 @@ class TestRebuildPatch:
     """Tests for _rebuild_patch function."""
 
     def test_rebuilds_single_expanded_hunk(self):
-        raw_patch = """@@ -17,7 +17,7 @@ def generate_token(user_id: str, ttl_hours: int = 24) -> str:
-     expiry = datetime.utcnow() + timedelta(hours=ttl_hours)
-     payload = f"{user_id}:{expiry.isoformat()}"
-     signature = hashlib.sha256(f"{payload}{SECRET_KEY}".encode()).hexdigest()
--    return f"{payload}:{signature}"
-+    return f"{payload}.{signature}"
-
-
- def verify_token(token: str) -> bool:"""
+        raw_patch = (
+            "@@ -17,7 +17,7 @@ def generate_token(user_id: str, ttl_hours: int = 24) -> str:\n"
+            "     expiry = datetime.utcnow() + timedelta(hours=ttl_hours)\n"
+            '     payload = f"{user_id}:{expiry.isoformat()}"\n'
+            '     signature = hashlib.sha256(f"{payload}{SECRET_KEY}".encode()).hexdigest()\n'
+            '-    return f"{payload}:{signature}"\n'
+            '+    return f"{payload}.{signature}"\n'
+            "\n"
+            "\n"
+            " def verify_token(token: str) -> bool:"
+        )
 
         source_lines = [f"line {i}" for i in range(1, 50)]
         merged_hunks = [
@@ -320,7 +334,8 @@ class TestRebuildPatch:
                     "lines": [
                         "     expiry = datetime.utcnow() + timedelta(hours=ttl_hours)",
                         '     payload = f"{user_id}:{expiry.isoformat()}"',
-                        '     signature = hashlib.sha256(f"{payload}{SECRET_KEY}".encode()).hexdigest()',
+                        '     signature = hashlib.sha256(f"{payload}{SECRET_KEY}".encode())'
+                        ".hexdigest()",
                         '-    return f"{payload}:{signature}"',
                         '+    return f"{payload}.{signature}"',
                         "",
@@ -456,6 +471,7 @@ class TestCompactPatches:
 
         # Mock TreeSitterParser to return empty functions
         call_count = 0
+
         def mock_find_functions(self, file_path):
             nonlocal call_count
             call_count += 1
@@ -468,9 +484,7 @@ class TestCompactPatches:
         monkeypatch.setattr(
             "codespy.tools.git.patch_utils.TreeSitterParser.__init__", lambda self, path: None
         )
-        monkeypatch.setattr(
-            "codespy.tools.git.patch_utils.TreeSitterParser.available", True
-        )
+        monkeypatch.setattr("codespy.tools.git.patch_utils.TreeSitterParser.available", True)
 
         compact_patches(scopes, tmp_path)
 
@@ -493,6 +507,7 @@ class TestCompactPatches:
         )
 
         call_count = 0
+
         def mock_find_functions(self, file_path):
             nonlocal call_count
             call_count += 1
@@ -505,9 +520,7 @@ class TestCompactPatches:
         monkeypatch.setattr(
             "codespy.tools.git.patch_utils.TreeSitterParser.__init__", lambda self, path: None
         )
-        monkeypatch.setattr(
-            "codespy.tools.git.patch_utils.TreeSitterParser.available", True
-        )
+        monkeypatch.setattr("codespy.tools.git.patch_utils.TreeSitterParser.available", True)
 
         compact_patches([scope], tmp_path)
 
@@ -530,6 +543,7 @@ class TestCompactPatches:
         )
 
         call_count = 0
+
         def mock_find_functions(self, file_path):
             nonlocal call_count
             call_count += 1
@@ -542,9 +556,7 @@ class TestCompactPatches:
         monkeypatch.setattr(
             "codespy.tools.git.patch_utils.TreeSitterParser.__init__", lambda self, path: None
         )
-        monkeypatch.setattr(
-            "codespy.tools.git.patch_utils.TreeSitterParser.available", True
-        )
+        monkeypatch.setattr("codespy.tools.git.patch_utils.TreeSitterParser.available", True)
 
         compact_patches([scope], tmp_path)
 
@@ -579,9 +591,7 @@ class TestCompactPatches:
         monkeypatch.setattr(
             "codespy.tools.git.patch_utils.TreeSitterParser.__init__", lambda self, path: None
         )
-        monkeypatch.setattr(
-            "codespy.tools.git.patch_utils.TreeSitterParser.available", True
-        )
+        monkeypatch.setattr("codespy.tools.git.patch_utils.TreeSitterParser.available", True)
 
         # Should not raise
         compact_patches([scope], tmp_path)

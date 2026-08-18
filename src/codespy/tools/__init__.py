@@ -1,4 +1,4 @@
-"""Tools for code parsing, Git platform integration, filesystem operations, web browsing, and security scanning."""
+"""Tools for code parsing, Git integration, filesystem ops, web browsing, and security."""
 
 from codespy.tools.cyber import OSVClient, ScanResult, ScanSummary, Vulnerability
 from codespy.tools.git import (

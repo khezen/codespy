@@ -29,15 +29,17 @@ class GoExtractor(BaseExtractor):
                     params = self._extract_go_params(n, source)
                     return_type = self._extract_go_return_type(n, source)
 
-                    functions.append(FunctionInfo(
-                        name=name,
-                        file=str(file_path),
-                        line_start=n.start_point[0] + 1,
-                        line_end=n.end_point[0] + 1,
-                        parameters=params,
-                        return_type=return_type,
-                        is_method=False,
-                    ))
+                    functions.append(
+                        FunctionInfo(
+                            name=name,
+                            file=str(file_path),
+                            line_start=n.start_point[0] + 1,
+                            line_end=n.end_point[0] + 1,
+                            parameters=params,
+                            return_type=return_type,
+                            is_method=False,
+                        )
+                    )
 
             elif n.type == "method_declaration":
                 name_node = n.child_by_field_name("name")
@@ -50,16 +52,18 @@ class GoExtractor(BaseExtractor):
                     if receiver:
                         receiver_type = self._get_node_text(receiver, source)
 
-                    functions.append(FunctionInfo(
-                        name=name,
-                        file=str(file_path),
-                        line_start=n.start_point[0] + 1,
-                        line_end=n.end_point[0] + 1,
-                        parameters=params,
-                        return_type=return_type,
-                        is_method=True,
-                        receiver_type=receiver_type,
-                    ))
+                    functions.append(
+                        FunctionInfo(
+                            name=name,
+                            file=str(file_path),
+                            line_start=n.start_point[0] + 1,
+                            line_end=n.end_point[0] + 1,
+                            parameters=params,
+                            return_type=return_type,
+                            is_method=True,
+                            receiver_type=receiver_type,
+                        )
+                    )
 
             for child in n.children:
                 visit(child)

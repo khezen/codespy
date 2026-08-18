@@ -274,7 +274,12 @@ class S3Client(Storage):
         try:
             raw: bytes = resp["Body"].read()
         except Exception as e:
-            return Content(path=file_path, error=f"Error reading body: {e}", size=size, content_type=content_type)
+            return Content(
+                path=file_path,
+                error=f"Error reading body: {e}",
+                size=size,
+                content_type=content_type,
+            )
 
         if len(raw) > max_bytes:
             truncated = True
@@ -286,7 +291,7 @@ class S3Client(Storage):
             except UnicodeDecodeError as e:
                 # Only trim if the error is at the truncation boundary (last 4 bytes)
                 if e.start >= len(raw) - 4:
-                    raw = raw[:e.start]
+                    raw = raw[: e.start]
                 # Interior errors are handled by the full decode below (latin-1 fallback)
 
         try:
@@ -347,7 +352,9 @@ class S3Client(Storage):
         for entry in listing.entries:
             if entry.entry_type == EntryType.DIRECTORY:
                 child_path = f"{dir_path}/{entry.name}" if dir_path else entry.name
-                child = self._build_tree(child_path, entry.name, max_depth, include_hidden, current_depth + 1)
+                child = self._build_tree(
+                    child_path, entry.name, max_depth, include_hidden, current_depth + 1
+                )
             else:
                 child = TreeNode(name=entry.name, entry_type=EntryType.FILE)
             children.append(child)

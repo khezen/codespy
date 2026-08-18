@@ -150,8 +150,16 @@ class GitLabClient(GitClient):
 
             # Calculate additions/deletions from diff
             diff = change.get("diff", "")
-            additions = sum(1 for line in diff.split("\n") if line.startswith("+") and not line.startswith("+++"))
-            deletions = sum(1 for line in diff.split("\n") if line.startswith("-") and not line.startswith("---"))
+            additions = sum(
+                1
+                for line in diff.split("\n")
+                if line.startswith("+") and not line.startswith("+++")
+            )
+            deletions = sum(
+                1
+                for line in diff.split("\n")
+                if line.startswith("-") and not line.startswith("---")
+            )
 
             changed_files.append(
                 ChangedFile(
@@ -160,7 +168,9 @@ class GitLabClient(GitClient):
                     additions=additions,
                     deletions=deletions,
                     patch=diff,
-                    previous_filename=change.get("old_path") if change.get("renamed_file") else None,
+                    previous_filename=change.get("old_path")
+                    if change.get("renamed_file")
+                    else None,
                 )
             )
 
@@ -228,7 +238,8 @@ class GitLabClient(GitClient):
         # Build clone URL
         token = getattr(self.settings, "gitlab_token", None)
         if token:
-            repo_url = f"https://oauth2:{token}@{gitlab_host.replace('https://', '').replace('http://', '')}/{project_path}.git"
+            host_clean = gitlab_host.replace("https://", "").replace("http://", "")
+            repo_url = f"https://oauth2:{token}@{host_clean}/{project_path}.git"
         else:
             repo_url = f"{gitlab_host}/{project_path}.git"
 
@@ -318,8 +329,16 @@ class GitLabClient(GitClient):
             else:
                 status = FileStatus.MODIFIED
 
-            additions = sum(1 for line in diff.split("\n") if line.startswith("+") and not line.startswith("+++"))
-            deletions = sum(1 for line in diff.split("\n") if line.startswith("-") and not line.startswith("---"))
+            additions = sum(
+                1
+                for line in diff.split("\n")
+                if line.startswith("+") and not line.startswith("+++")
+            )
+            deletions = sum(
+                1
+                for line in diff.split("\n")
+                if line.startswith("-") and not line.startswith("---")
+            )
 
             changed_files_map[filename] = ChangedFile(
                 filename=filename,
@@ -368,10 +387,12 @@ class GitLabClient(GitClient):
                     position["old_line"] = comment.get("start_line")
 
                 try:
-                    gl_mr.discussions.create({
-                        "body": comment["body"],
-                        "position": position,
-                    })
+                    gl_mr.discussions.create(
+                        {
+                            "body": comment["body"],
+                            "position": position,
+                        }
+                    )
                     successful_count += 1
                 except gitlab.exceptions.GitlabCreateError as e:
                     # Track failed comment to include in body
@@ -391,7 +412,8 @@ class GitLabClient(GitClient):
 
         if comments:
             logger.info(
-                f"Submitted {successful_count}/{len(comments)} inline comments on {project_path}!{pr_number}"
+                f"Submitted {successful_count}/{len(comments)} "
+                f"inline comments on {project_path}!{pr_number}"
             )
 
     def _append_comments_to_body(self, body: str, comments: list[dict]) -> str:
@@ -414,11 +436,13 @@ class GitLabClient(GitClient):
             line = comment.get("line", "?")
             comment_body = comment.get("body", "")
 
-            lines.extend([
-                f"### `{path}:{line}`",
-                "",
-                comment_body,
-                "",
-            ])
+            lines.extend(
+                [
+                    f"### `{path}:{line}`",
+                    "",
+                    comment_body,
+                    "",
+                ]
+            )
 
         return "\n".join(lines)

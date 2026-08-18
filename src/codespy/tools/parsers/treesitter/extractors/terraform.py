@@ -161,7 +161,7 @@ class TerraformExtractor(BaseExtractor):
             elif child.type == "string_lit":
                 # Remove quotes from string literals
                 text = self._get_node_text(child, source)
-                labels.append(text.strip('"\''))
+                labels.append(text.strip("\"'"))
         return labels
 
     def _get_block_body(self, node: Any) -> Any | None:
@@ -413,12 +413,14 @@ class TerraformExtractor(BaseExtractor):
                     value_expr = None
                     if value_node:
                         value_expr = self._get_node_text(value_node, source)
-                    locals_list.append(TerraformLocalInfo(
-                        name=key,
-                        file=str(file_path),
-                        line_number=child.start_point[0] + 1,
-                        value_expression=value_expr,
-                    ))
+                    locals_list.append(
+                        TerraformLocalInfo(
+                            name=key,
+                            file=str(file_path),
+                            line_number=child.start_point[0] + 1,
+                            value_expression=value_expr,
+                        )
+                    )
 
         return locals_list
 
@@ -482,9 +484,20 @@ class TerraformExtractor(BaseExtractor):
             if n.type in ("get_attr", "index_expr", "attr_expr"):
                 ref = self._get_node_text(n, source)
                 # Filter for likely Terraform references
-                if any(ref.startswith(prefix) for prefix in
-                       ("aws_", "azurerm_", "google_", "data.", "module.",
-                        "var.", "local.", "kubernetes_", "helm_")):
+                if any(
+                    ref.startswith(prefix)
+                    for prefix in (
+                        "aws_",
+                        "azurerm_",
+                        "google_",
+                        "data.",
+                        "module.",
+                        "var.",
+                        "local.",
+                        "kubernetes_",
+                        "helm_",
+                    )
+                ):
                     references.append(ref)
 
             for child in n.children:

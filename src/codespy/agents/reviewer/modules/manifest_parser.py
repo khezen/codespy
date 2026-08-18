@@ -43,7 +43,7 @@ def _infer_repo_from_url(url: str) -> str | None:
     for host in _GIT_HOSTS:
         for scheme in (f"https://{host}", f"http://{host}", f"git@{host.rstrip('/')}:"):
             if url.startswith(scheme):
-                path = url[len(scheme):].rstrip("/").removesuffix(".git")
+                path = url[len(scheme) :].rstrip("/").removesuffix(".git")
                 parts = path.split("/")
                 if len(parts) >= 2:
                     return f"{parts[0]}/{parts[1]}"
@@ -54,7 +54,7 @@ def _infer_repo_from_name(name: str) -> str | None:
     """Extract owner/repo from a name with git host prefix (e.g., Go module)."""
     for host in _GIT_HOSTS:
         if name.startswith(host):
-            parts = name[len(host):].split("/")
+            parts = name[len(host) :].split("/")
             if len(parts) >= 2:
                 return f"{parts[0]}/{parts[1]}"
     return None
@@ -65,7 +65,7 @@ def _infer_repo_from_path(path: str) -> str | None:
     for host in _GIT_HOSTS:
         idx = path.find(host)
         if idx >= 0:
-            remainder = path[idx + len(host):]
+            remainder = path[idx + len(host) :]
             parts = remainder.split("/")
             if len(parts) >= 2:
                 return f"{parts[0]}/{parts[1]}"
@@ -333,8 +333,9 @@ def _extract_deps_from_composer_json(path: Path) -> tuple[list[str], dict[str, s
         if not isinstance(require, dict):
             return [], {}
 
-        names = [name for name in require
-                 if not name.startswith("php") and not name.startswith("ext-")]
+        names = [
+            name for name in require if not name.startswith("php") and not name.startswith("ext-")
+        ]
 
         return names, {}
     except (json.JSONDecodeError, UnicodeDecodeError, OSError):
@@ -617,7 +618,11 @@ def extract_package_name(manifest_path: str, repo_path: Path) -> str | None:
             return _extract_from_pom_xml(full_path)
         elif filename == "setup.cfg":
             return _extract_from_setup_cfg(full_path)
-        elif filename.endswith(".csproj") or filename.endswith(".fsproj") or filename.endswith(".vbproj"):
+        elif (
+            filename.endswith(".csproj")
+            or filename.endswith(".fsproj")
+            or filename.endswith(".vbproj")
+        ):
             return _extract_from_dotnet_proj(full_path)
         elif filename in ("build.gradle", "build.gradle.kts"):
             return _extract_from_gradle(repo_path, manifest_path)

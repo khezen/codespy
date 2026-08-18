@@ -57,9 +57,11 @@ class SupplyChainSecuritySignature(dspy.Signature):
     - Privilege escalation: Unnecessary --privileged or capabilities
 
     OUTPUT RULES:
-    - Do not enumerate individual dependencies in reasoning steps. Scan them in batch and only mention those with actual findings.
-    - Keep each reasoning step to 1-2 sentences. Never copy source code into issues—use line numbers.
-    - Empty list if no verified supply chain issues. No approval text ("LGTM", "looks good").
+    - Do not enumerate individual dependencies in reasoning steps. Scan them in batch
+      and only mention those with actual findings.
+    - Keep each reasoning step to 1-2 sentences. Never copy source code into issues—
+      use line numbers.
+    - Empty list if no verified supply chain issues. No approval text ("LGTM").
     - description: ≤25 words, imperative tone, no filler ("Fix X", "Pin Y").
     - No polite or conversational language ("I suggest", "Please consider", "Great").
     - Do not populate code_snippet—use line numbers instead.
@@ -79,7 +81,8 @@ class SupplyChainSecuritySignature(dspy.Signature):
 
     **Batch Scanning (PREFERRED for multiple packages):**
     - scan_dependencies(dependencies) - Scan multiple packages in a single call
-      Example: scan_dependencies([{"name": "requests", "ecosystem": "PyPI", "version": "2.25.0"}, ...])
+      Example: scan_dependencies([
+      {"name": "requests", "ecosystem": "PyPI", "version": "2.25.0"}, ...])
       Ecosystem values by package manager:
        - Python (pip/poetry/pipenv) → "PyPI"
        - JavaScript/Node.js (npm/yarn/pnpm) → "npm"
@@ -101,7 +104,8 @@ class SupplyChainSecuritySignature(dspy.Signature):
     - query_package(name, ecosystem, version) - Query vulnerabilities for a specific package
     - query_purl(purl, version) - Query using Package URL (e.g., 'pkg:pypi/requests')
     - query_commit(commit_hash) - Query vulnerabilities affecting a git commit
-    - get_vulnerability(osv_id) - Get full details of a vulnerability by ID (e.g., 'GHSA-xxxx' or 'CVE-2021-xxxx')
+    - get_vulnerability(osv_id) - Get full details of a vulnerability by ID
+      (e.g., 'GHSA-xxxx' or 'CVE-2021-xxxx')
 
     ## VERIFICATION RULES
     - Check for actual security issues, not hypotheticals
@@ -118,10 +122,16 @@ class SupplyChainSecuritySignature(dspy.Signature):
     """
 
     manifest_path: str = dspy.InputField(
-        desc="Path to manifest file relative to scope root (e.g., package.json, go.mod). Empty string if none."
+        desc=(
+            "Path to manifest file relative to scope root "
+            "(e.g., package.json, go.mod). Empty string if none."
+        )
     )
     lock_file_path: str = dspy.InputField(
-        desc="Path to lock file relative to scope root (e.g., package-lock.json, go.sum). Empty string if none."
+        desc=(
+            "Path to lock file relative to scope root "
+            "(e.g., package-lock.json, go.sum). Empty string if none."
+        )
     )
     package_manager: str = dspy.InputField(
         desc="Package manager name (e.g., npm, pip, go). Empty string if no manifest."
@@ -131,8 +141,11 @@ class SupplyChainSecuritySignature(dspy.Signature):
     )
 
     issues: list[Issue] = dspy.OutputField(
-        desc="Verified supply chain issues only. Titles <10 words. Descriptions ≤25 words, imperative. "
-        "File paths must be relative to scope root. Empty list if none."
+        desc=(
+            "Verified supply chain issues only. Titles <10 words. "
+            "Descriptions ≤25 words, imperative. File paths must be "
+            "relative to scope root. Empty list if none."
+        )
     )
 
 
@@ -164,18 +177,17 @@ class SupplyChainAuditor(dspy.Module):
         Returns True if the scope has dependency changes or Dockerfile modifications.
         """
         scan_unchanged = self._settings.get_scan_unchanged("supply_chain")
-        if scope.package_manifest:
-            if scan_unchanged or scope.package_manifest.dependencies_changed:
-                return True
+        if scope.package_manifest and (
+            scan_unchanged or scope.package_manifest.dependencies_changed
+        ):
+            return True
         for cf in scope.changed_files:
             fname = cf.filename.rsplit("/", 1)[-1].lower()
             if "dockerfile" in fname or fname == "containerfile":
                 return True
         return False
 
-    async def _create_scoped_tools(
-        self, scope_root: Path
-    ) -> tuple[list[Any], list[Any]]:
+    async def _create_scoped_tools(self, scope_root: Path) -> tuple[list[Any], list[Any]]:
         """Create scope-restricted DSPy tools from filesystem and parser MCP servers.
 
         Args:
@@ -191,28 +203,34 @@ class SupplyChainAuditor(dspy.Module):
         caller = "supply_chain_auditor"
 
         # Add filesystem tools for reading files and exploring structure
-        tools.extend(await connect_mcp_server(
-            tools_dir / "storage" / "filesystem" / "server.py",
-            [scope_root_str],
-            contexts,
-            caller,
-        ))
+        tools.extend(
+            await connect_mcp_server(
+                tools_dir / "storage" / "filesystem" / "server.py",
+                [scope_root_str],
+                contexts,
+                caller,
+            )
+        )
 
         # Add tree-sitter tools for parsing code structure
-        tools.extend(await connect_mcp_server(
-            tools_dir / "parsers" / "treesitter" / "server.py",
-            [scope_root_str],
-            contexts,
-            caller,
-        ))
+        tools.extend(
+            await connect_mcp_server(
+                tools_dir / "parsers" / "treesitter" / "server.py",
+                [scope_root_str],
+                contexts,
+                caller,
+            )
+        )
 
         # Add ripgrep tools for searching code patterns
-        tools.extend(await connect_mcp_server(
-            tools_dir / "parsers" / "ripgrep" / "server.py",
-            [scope_root_str],
-            contexts,
-            caller,
-        ))
+        tools.extend(
+            await connect_mcp_server(
+                tools_dir / "parsers" / "ripgrep" / "server.py",
+                [scope_root_str],
+                contexts,
+                caller,
+            )
+        )
 
         return tools, contexts
 
@@ -227,12 +245,14 @@ class SupplyChainAuditor(dspy.Module):
         tools_dir = Path(__file__).parent.parent.parent.parent / "tools"
         caller = "supply_chain_auditor"
 
-        tools.extend(await connect_mcp_server(
-            tools_dir / "cyber" / "osv" / "server.py",
-            [],
-            contexts,
-            caller,
-        ))
+        tools.extend(
+            await connect_mcp_server(
+                tools_dir / "cyber" / "osv" / "server.py",
+                [],
+                contexts,
+                caller,
+            )
+        )
 
         return tools, contexts
 
@@ -268,7 +288,9 @@ class SupplyChainAuditor(dspy.Module):
 
         # Check if any scope has supply-chain-relevant changes
         if not self._needs_analysis(scopes):
-            logger.info("Skipping supply chain analysis: no dependency changes or Dockerfiles modified")
+            logger.info(
+                "Skipping supply chain analysis: no dependency changes or Dockerfiles modified"
+            )
             return [], review_context.memory
 
         all_issues: list[Issue] = []
@@ -289,7 +311,9 @@ class SupplyChainAuditor(dspy.Module):
 
                 # Get manifest info (skip if unchanged and scan_unchanged=False)
                 manifest = scope.package_manifest
-                should_scan_manifest = manifest and (scan_unchanged or manifest.dependencies_changed)
+                should_scan_manifest = manifest and (
+                    scan_unchanged or manifest.dependencies_changed
+                )
 
                 # Convert manifest paths to scope-relative
                 if should_scan_manifest:
@@ -338,15 +362,15 @@ class SupplyChainAuditor(dspy.Module):
                         if self._settings.get_memory_enabled("supply_chain"):
                             question = (
                                 f"review supply chain of {scope.repo}: {scope.subroot}: "
-                                f"pull request {review_context.pr_context.pr_number} {review_context.pr_context.pr_title}: {review_context.pr_context.summary}"
+                                f"pull request {review_context.pr_context.pr_number} "
+                                f"{review_context.pr_context.pr_title}: "
+                                f"{review_context.pr_context.summary}"
                             )
                             topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
                             mem = Hippocampus(
                                 supply_chain_agent,
                                 budget=self._settings.get_memory_budget("supply_chain"),
-                                max_reflects=self._settings.get_memory_max_reflects(
-                                    "supply_chain"
-                                ),
+                                max_reflects=self._settings.get_memory_max_reflects("supply_chain"),
                                 question=question,
                                 task_name="supply_chain",
                                 run_id=run_id,
@@ -360,7 +384,8 @@ class SupplyChainAuditor(dspy.Module):
                                 category=IssueCategory.SECURITY,
                             )
                             issues = [
-                                issue for issue in result.issues
+                                issue
+                                for issue in result.issues
                                 if issue.confidence >= self._settings.min_confidence
                             ]
                             await mem.aend_episode(
@@ -379,15 +404,20 @@ class SupplyChainAuditor(dspy.Module):
                                 category=IssueCategory.SECURITY,
                             )
                             issues = [
-                                issue for issue in result.issues
+                                issue
+                                for issue in result.issues
                                 if issue.confidence >= self._settings.min_confidence
                             ]
                     # Restore repo-root-relative paths in reported issues
                     restore_repo_paths(issues, scope.subroot)
                     all_issues.extend(issues)
-                    logger.debug(f"  Supply chain security in scope {scope.subroot}: {len(issues)} issues")
+                    logger.debug(
+                        f"  Supply chain security in scope {scope.subroot}: {len(issues)} issues"
+                    )
                 except Exception as e:
-                    logger.error(f"Error analyzing supply chain in scope {scope.subroot}: {e}", exc_info=True)
+                    logger.error(
+                        f"Error analyzing supply chain in scope {scope.subroot}: {e}", exc_info=True
+                    )
                 finally:
                     await cleanup_mcp_contexts(scoped_contexts)
         finally:
@@ -396,9 +426,7 @@ class SupplyChainAuditor(dspy.Module):
         logger.info(f"Security audit found {len(all_issues)} issues")
         # Merge all scope context memories into one module-level memory
         merged_memory = (
-            ContextMemory.merge(*scope_memories)
-            if scope_memories
-            else review_context.memory
+            ContextMemory.merge(*scope_memories) if scope_memories else review_context.memory
         )
         return all_issues, merged_memory
 

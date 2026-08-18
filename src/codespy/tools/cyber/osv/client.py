@@ -262,7 +262,7 @@ class OSVClient:
             return Vulnerability.model_validate(data)
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
-                raise ValueError(f"Vulnerability not found: {osv_id}")
+                raise ValueError(f"Vulnerability not found: {osv_id}") from e
             logger.error(f"OSV API error: {e.response.status_code} - {e.response.text}")
             raise
         except Exception as e:

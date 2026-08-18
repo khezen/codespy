@@ -235,15 +235,17 @@ def _parse_hunks(patch: str) -> list[dict[str, Any]]:
 
                 i += 1
 
-            hunks.append({
-                "header": line,
-                "old_start": old_start,
-                "old_count": old_count,
-                "new_start": new_start,
-                "new_count": new_count,
-                "lines": hunk_lines,
-                "changed_new_lines": changed_new_lines,
-            })
+            hunks.append(
+                {
+                    "header": line,
+                    "old_start": old_start,
+                    "old_count": old_count,
+                    "new_start": new_start,
+                    "new_count": new_count,
+                    "lines": hunk_lines,
+                    "changed_new_lines": changed_new_lines,
+                }
+            )
         else:
             i += 1
 
@@ -275,10 +277,13 @@ def _expand_hunk_to_functions(
         # Find innermost enclosing function
         best_match: FunctionInfo | None = None
         for func in functions:
-            if func.line_start <= line_num <= func.line_end and (best_match is None or (
-                func.line_start >= best_match.line_start
-                and func.line_end <= best_match.line_end
-            )):
+            if func.line_start <= line_num <= func.line_end and (
+                best_match is None
+                or (
+                    func.line_start >= best_match.line_start
+                    and func.line_end <= best_match.line_end
+                )
+            ):
                 best_match = func
 
         if best_match and best_match not in enclosing_functions:
@@ -330,7 +335,9 @@ def _merge_hunks(expanded_hunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return expanded_hunks
 
     # Sort by expansion start (fallback to new_start for non-expanded hunks)
-    sorted_hunks = sorted(expanded_hunks, key=lambda h: h.get("expansion_start", h.get("new_start", 0)))
+    sorted_hunks = sorted(
+        expanded_hunks, key=lambda h: h.get("expansion_start", h.get("new_start", 0))
+    )
 
     merged = [sorted_hunks[0]]
 
@@ -393,8 +400,8 @@ def _build_expanded_hunk(
             new_hunk_lines.append(f" {source_lines[line_num - 1]}")
 
     # Compute counts
-    new_file_count = sum(1 for l in new_hunk_lines if l.startswith((" ", "+")))
-    old_count = sum(1 for l in new_hunk_lines if l.startswith((" ", "-")))
+    new_file_count = sum(1 for ln in new_hunk_lines if ln.startswith((" ", "+")))
+    old_count = sum(1 for ln in new_hunk_lines if ln.startswith((" ", "-")))
     header = f"@@ -{expansion_start},{old_count} +{expansion_start},{new_file_count} @@"
 
     return header, new_hunk_lines

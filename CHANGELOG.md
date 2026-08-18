@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+## [1.0.7] - 2026-08-18
+
+### Fixed
+- Resolved all 156 ruff lint violations across the codebase
+  - Fixed 79 E501 line-too-long errors via `ruff format`
+  - Fixed 11 B904 errors (raise without `from` in exception handlers)
+  - Fixed 9 E402 errors (imports not at top of file)
+  - Fixed 1 F821 error (undefined name `Topic` in models.py)
+  - Fixed 4 SIM102 errors (collapsible nested if statements)
+  - Fixed 2 E741 errors (ambiguous variable name `l`)
+  - Fixed 2 N806 errors (uppercase variable in function)
+  - Fixed 1 N817 error (CamelCase imported as acronym)
+  - Fixed 2 B017 errors (blind Exception assertion in tests)
+  - Fixed 42 remaining E501 errors via string concatenation and refactoring
+  - Fixed 3 I001/F401 errors (import sorting and unused imports)
+
 ## [1.0.6] - 2026-08-18
 
 ### Changed

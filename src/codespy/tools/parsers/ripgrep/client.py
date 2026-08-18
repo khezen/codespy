@@ -207,7 +207,7 @@ class RipgrepSearch:
         cmd = [
             "rg",
             "--line-number",  # Include line numbers
-            "--no-heading",   # Don't group by file
+            "--no-heading",  # Don't group by file
             "--with-filename",  # Always show filename
             "--color=never",  # No color codes
         ]
@@ -285,18 +285,20 @@ class RipgrepSearch:
 
                     # Make path relative to repo
                     if file_path.startswith(str(self.repo_path)):
-                        file_path = file_path[len(str(self.repo_path)):].lstrip("/\\")
+                        file_path = file_path[len(str(self.repo_path)) :].lstrip("/\\")
 
                     # Extract the actual match
                     match = re.search(pattern, content)
                     match_text = match.group() if match else ""
 
-                    results.append(SearchResult(
-                        file=file_path,
-                        line_number=line_num,
-                        line_content=content.strip(),
-                        match_text=match_text,
-                    ))
+                    results.append(
+                        SearchResult(
+                            file=file_path,
+                            line_number=line_num,
+                            line_content=content.strip(),
+                            match_text=match_text,
+                        )
+                    )
 
             logger.debug(f"Search found {len(results)} results for pattern: {pattern}")
             return results

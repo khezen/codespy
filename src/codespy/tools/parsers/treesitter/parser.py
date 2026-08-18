@@ -368,11 +368,15 @@ class TreeSitterParser:
         current_function: str | None = None,
     ) -> None:
         """Recursively find calls to a specific function."""
-        if node.type in ("function_declaration", "method_declaration",
-                         "function_definition", "async_function_definition"):
+        if node.type in (
+            "function_declaration",
+            "method_declaration",
+            "function_definition",
+            "async_function_definition",
+        ):
             name_node = node.child_by_field_name("name")
             if name_node:
-                current_function = source[name_node.start_byte:name_node.end_byte].decode()
+                current_function = source[name_node.start_byte : name_node.end_byte].decode()
 
         if node.type in ("call_expression", "call"):
             func_node = node.child_by_field_name("function")
@@ -391,20 +395,24 @@ class TreeSitterParser:
 
                     args_count = 0
                     if args_node:
-                        args_count = sum(1 for c in args_node.children if c.type not in ("(", ")", ","))
+                        args_count = sum(
+                            1 for c in args_node.children if c.type not in ("(", ")", ",")
+                        )
 
                     line_num = node.start_point[0] + 1
                     lines = source.decode().split("\n")
                     line_content = lines[line_num - 1] if line_num <= len(lines) else ""
 
-                    calls.append(CallInfo(
-                        function_name=function_name,
-                        file=str(file_path),
-                        line_number=line_num,
-                        line_content=line_content,
-                        arguments_count=args_count,
-                        caller_function=current_function,
-                    ))
+                    calls.append(
+                        CallInfo(
+                            function_name=function_name,
+                            file=str(file_path),
+                            line_number=line_num,
+                            line_content=line_content,
+                            arguments_count=args_count,
+                            caller_function=current_function,
+                        )
+                    )
 
         for child in node.children:
             self._find_calls_recursive(
@@ -420,11 +428,15 @@ class TreeSitterParser:
         current_function: str | None = None,
     ) -> None:
         """Recursively find all function calls."""
-        if node.type in ("function_declaration", "method_declaration",
-                         "function_definition", "async_function_definition"):
+        if node.type in (
+            "function_declaration",
+            "method_declaration",
+            "function_definition",
+            "async_function_definition",
+        ):
             name_node = node.child_by_field_name("name")
             if name_node:
-                current_function = source[name_node.start_byte:name_node.end_byte].decode()
+                current_function = source[name_node.start_byte : name_node.end_byte].decode()
 
         if node.type in ("call_expression", "call"):
             func_node = node.child_by_field_name("function")
@@ -443,42 +455,44 @@ class TreeSitterParser:
 
                     args_count = 0
                     if args_node:
-                        args_count = sum(1 for c in args_node.children if c.type not in ("(", ")", ","))
+                        args_count = sum(
+                            1 for c in args_node.children if c.type not in ("(", ")", ",")
+                        )
 
                     line_num = node.start_point[0] + 1
                     lines = source.decode().split("\n")
                     line_content = lines[line_num - 1] if line_num <= len(lines) else ""
 
-                    calls.append(CallInfo(
-                        function_name=call_name,
-                        file=str(file_path),
-                        line_number=line_num,
-                        line_content=line_content,
-                        arguments_count=args_count,
-                        caller_function=current_function,
-                    ))
+                    calls.append(
+                        CallInfo(
+                            function_name=call_name,
+                            file=str(file_path),
+                            line_number=line_num,
+                            line_content=line_content,
+                            arguments_count=args_count,
+                            caller_function=current_function,
+                        )
+                    )
 
         for child in node.children:
-            self._find_all_calls_recursive(
-                child, file_path, source, calls, current_function
-            )
+            self._find_all_calls_recursive(child, file_path, source, calls, current_function)
 
     def _extract_call_name(self, node: Any, source: bytes) -> str | None:
         """Extract the function name from a call expression."""
         if node.type == "identifier":
-            return source[node.start_byte:node.end_byte].decode()
+            return source[node.start_byte : node.end_byte].decode()
         elif node.type == "member_expression":
             prop = node.child_by_field_name("property")
             if prop:
-                return source[prop.start_byte:prop.end_byte].decode()
+                return source[prop.start_byte : prop.end_byte].decode()
         elif node.type == "selector_expression":
             field = node.child_by_field_name("field")
             if field:
-                return source[field.start_byte:field.end_byte].decode()
+                return source[field.start_byte : field.end_byte].decode()
         elif node.type == "attribute":
             attr = node.child_by_field_name("attribute")
             if attr:
-                return source[attr.start_byte:attr.end_byte].decode()
+                return source[attr.start_byte : attr.end_byte].decode()
         return None
 
     # =========================================================================

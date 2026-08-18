@@ -26,14 +26,14 @@ def estimate_context_overflow(model: str, max_tokens: int, input_text: str) -> b
     Returns True if overflow is likely. Returns False if no overflow expected
     or if the model is not in litellm's DB (can't estimate).
     """
-    SAFETY_MARGIN = 4096
+    safety_margin = 4096
     try:
         info = litellm.get_model_info(model)
         max_input = info.get("max_input_tokens") or 0
         if not max_input:
             return False
         estimated_input = litellm.token_counter(model=model, text=input_text)
-        return (estimated_input + max_tokens + SAFETY_MARGIN) > max_input
+        return (estimated_input + max_tokens + safety_margin) > max_input
     except Exception:
         return False
 
@@ -95,7 +95,9 @@ class ContextSafe(dspy.Module):
         if should_fallback:
             logger.warning(
                 "ContextSafe[%s]: %s for model=%s; falling back to RLM",
-                self._name, reason, getattr(dspy.settings.lm, "model", "unknown"),
+                self._name,
+                reason,
+                getattr(dspy.settings.lm, "model", "unknown"),
             )
             return self._create_rlm_fallback()(**kwargs)
 
@@ -119,7 +121,9 @@ class ContextSafe(dspy.Module):
         if should_fallback:
             logger.warning(
                 "ContextSafe[%s]: %s for model=%s; falling back to RLM",
-                self._name, reason, getattr(dspy.settings.lm, "model", "unknown"),
+                self._name,
+                reason,
+                getattr(dspy.settings.lm, "model", "unknown"),
             )
             return await self._create_rlm_fallback().acall(**kwargs)
 
@@ -160,8 +164,7 @@ class ContextSafe(dspy.Module):
             # Layer 1: Proactive threshold (context rot prevention)
             # Only applies when input exceeds the minimum floor (8192 tokens) —
             # below that, context rot is not a concern.
-            if (self._rlm_threshold < 1.0
-                    and estimated_input >= _MIN_RLM_THRESHOLD_TOKENS):
+            if self._rlm_threshold < 1.0 and estimated_input >= _MIN_RLM_THRESHOLD_TOKENS:
                 threshold_tokens = int(max_input * self._rlm_threshold)
                 if estimated_input > threshold_tokens:
                     return True, (
@@ -171,11 +174,11 @@ class ContextSafe(dspy.Module):
                     )
 
             # Layer 2: Hard overflow check (existing safety net)
-            SAFETY_MARGIN = 4096
-            if max_tokens and (estimated_input + max_tokens + SAFETY_MARGIN) > max_input:
+            safety_margin = 4096
+            if max_tokens and (estimated_input + max_tokens + safety_margin) > max_input:
                 return True, (
                     f"context overflow predicted "
-                    f"({estimated_input} + {max_tokens} + {SAFETY_MARGIN} > {max_input})"
+                    f"({estimated_input} + {max_tokens} + {safety_margin} > {max_input})"
                 )
 
             return False, ""

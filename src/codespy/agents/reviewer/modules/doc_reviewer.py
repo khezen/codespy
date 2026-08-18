@@ -142,10 +142,7 @@ class DocReviewer(dspy.Module):
         all_issues: list[Issue] = []
         scope_memories: list[ContextMemory] = []
         total_files = sum(len(s.changed_files) for s in changed_scopes)
-        logger.info(
-            f"Doc review for {len(changed_scopes)} scopes "
-            f"({total_files} changed files)..."
-        )
+        logger.info(f"Doc review for {len(changed_scopes)} scopes ({total_files} changed files)...")
         for scope in changed_scopes:
             scope_root = resolve_scope_root(repo_path, scope.subroot)
             if not scope_root.exists():
@@ -161,9 +158,7 @@ class DocReviewer(dspy.Module):
                 logger.error(f"Doc extraction failed for scope {scope.subroot}: {e}", exc_info=True)
                 documentation = ""
             if not documentation.strip():
-                logger.debug(
-                    f"  No documentation found in {scope.subroot}, skipping doc review"
-                )
+                logger.debug(f"  No documentation found in {scope.subroot}, skipping doc review")
                 continue
             # Step 2: Review docs vs patches (ChainOfThought, no tools)
             scoped = make_scope_relative(scope)
@@ -180,15 +175,16 @@ class DocReviewer(dspy.Module):
                     rlm_threshold=self._settings.get_rlm_threshold("chain_of_thought"),
                 )
                 logger.info(
-                    f"  Doc review: scope {scope.subroot} "
-                    f"({len(scope.changed_files)} files)"
+                    f"  Doc review: scope {scope.subroot} ({len(scope.changed_files)} files)"
                 )
                 mem: Hippocampus | None = None
                 async with SignatureContext("doc", self._cost_tracker):
                     if self._settings.get_memory_enabled("doc"):
                         question = (
                             f"review documentation of {scope.repo}: {scope.subroot}: "
-                            f"pull request {review_context.pr_context.pr_number} {review_context.pr_context.pr_title}: {review_context.pr_context.summary}"
+                            f"pull request {review_context.pr_context.pr_number} "
+                            f"{review_context.pr_context.pr_title}: "
+                            f"{review_context.pr_context.summary}"
                         )
                         topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
                         mem = Hippocampus(
@@ -207,7 +203,8 @@ class DocReviewer(dspy.Module):
                             categories=[IssueCategory.DOCUMENTATION],
                         )
                         issues = [
-                            issue for issue in (result.issues or [])
+                            issue
+                            for issue in (result.issues or [])
                             if issue.confidence >= self._settings.min_confidence
                         ]
                         await mem.aend_episode(
@@ -226,23 +223,20 @@ class DocReviewer(dspy.Module):
                             categories=[IssueCategory.DOCUMENTATION],
                         )
                         issues = [
-                            issue for issue in (result.issues or [])
+                            issue
+                            for issue in (result.issues or [])
                             if issue.confidence >= self._settings.min_confidence
                         ]
                 restore_repo_paths(issues, scope.subroot)
                 all_issues.extend(issues)
-                logger.debug(
-                    f"  Scope {scope.subroot}: {len(issues)} doc issues"
-                )
+                logger.debug(f"  Scope {scope.subroot}: {len(issues)} doc issues")
             except Exception as e:
                 logger.error(f"Doc review failed for scope {scope.subroot}: {e}", exc_info=True)
 
         logger.info(f"Doc review found {len(all_issues)} issues")
         # Merge all scope context memories into one module-level memory
         merged_memory = (
-            ContextMemory.merge(*scope_memories)
-            if scope_memories
-            else review_context.memory
+            ContextMemory.merge(*scope_memories) if scope_memories else review_context.memory
         )
         return all_issues, merged_memory
 

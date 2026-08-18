@@ -39,7 +39,12 @@ class CSharpExtractor(BaseExtractor):
 
             for child in n.children:
                 # Track if we're inside a class/interface/struct
-                is_type = n.type in ("class_declaration", "interface_declaration", "struct_declaration", "record_declaration")
+                is_type = n.type in (
+                    "class_declaration",
+                    "interface_declaration",
+                    "struct_declaration",
+                    "record_declaration",
+                )
                 visit(child, in_type or is_type)
 
         visit(node)

@@ -28,14 +28,16 @@ class JavaScriptExtractor(BaseExtractor):
                     name = self._get_node_text(name_node, source)
                     params = self._extract_js_params(n, source)
 
-                    functions.append(FunctionInfo(
-                        name=name,
-                        file=str(file_path),
-                        line_start=n.start_point[0] + 1,
-                        line_end=n.end_point[0] + 1,
-                        parameters=params,
-                        is_method=False,
-                    ))
+                    functions.append(
+                        FunctionInfo(
+                            name=name,
+                            file=str(file_path),
+                            line_start=n.start_point[0] + 1,
+                            line_end=n.end_point[0] + 1,
+                            parameters=params,
+                            is_method=False,
+                        )
+                    )
 
             elif n.type == "method_definition":
                 name_node = n.child_by_field_name("name")
@@ -43,14 +45,16 @@ class JavaScriptExtractor(BaseExtractor):
                     name = self._get_node_text(name_node, source)
                     params = self._extract_js_params(n, source)
 
-                    functions.append(FunctionInfo(
-                        name=name,
-                        file=str(file_path),
-                        line_start=n.start_point[0] + 1,
-                        line_end=n.end_point[0] + 1,
-                        parameters=params,
-                        is_method=True,
-                    ))
+                    functions.append(
+                        FunctionInfo(
+                            name=name,
+                            file=str(file_path),
+                            line_start=n.start_point[0] + 1,
+                            line_end=n.end_point[0] + 1,
+                            parameters=params,
+                            is_method=True,
+                        )
+                    )
 
             elif n.type == "lexical_declaration":
                 # Handle: const foo = () => {} or const foo = function() {}
@@ -58,19 +62,24 @@ class JavaScriptExtractor(BaseExtractor):
                     if decl.type == "variable_declarator":
                         name_node = decl.child_by_field_name("name")
                         value_node = decl.child_by_field_name("value")
-                        if name_node and value_node:
-                            if value_node.type in ("arrow_function", "function_expression"):
-                                name = self._get_node_text(name_node, source)
-                                params = self._extract_js_params(value_node, source)
+                        if (
+                            name_node
+                            and value_node
+                            and value_node.type in ("arrow_function", "function_expression")
+                        ):
+                            name = self._get_node_text(name_node, source)
+                            params = self._extract_js_params(value_node, source)
 
-                                functions.append(FunctionInfo(
+                            functions.append(
+                                FunctionInfo(
                                     name=name,
                                     file=str(file_path),
                                     line_start=n.start_point[0] + 1,
                                     line_end=n.end_point[0] + 1,
                                     parameters=params,
                                     is_method=False,
-                                ))
+                                )
+                            )
 
             elif n.type == "class_declaration":
                 for child in n.children:

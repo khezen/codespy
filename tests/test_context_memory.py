@@ -21,11 +21,15 @@ class TestOperationAliases:
     """Operation model accepts both 'type' and 'op' keys from LLM output."""
 
     def test_validates_type_key(self):
-        op = Operation.model_validate({"type": "ADD", "section": "context_understanding", "content": "x"})
+        op = Operation.model_validate(
+            {"type": "ADD", "section": "context_understanding", "content": "x"}
+        )
         assert op.type == OpType.ADD
 
     def test_validates_op_key(self):
-        op = Operation.model_validate({"op": "ADD", "section": "context_understanding", "content": "x"})
+        op = Operation.model_validate(
+            {"op": "ADD", "section": "context_understanding", "content": "x"}
+        )
         assert op.type == OpType.ADD
 
     def test_keyword_construction_unchanged(self):
@@ -35,11 +39,13 @@ class TestOperationAliases:
     def test_type_adapter_list_mixed_keys(self):
         """Replicates DSPy's TypeAdapter(list[Operation]).validate_python() path."""
         ta = TypeAdapter(list[Operation])
-        ops = ta.validate_python([
-            {"op": "ADD", "section": "domain_constants", "content": "test"},
-            {"type": "DELETE", "item_id": "cu-123"},
-            {"op": "REPLACE", "item_id": "cu-456", "content": "new"},
-        ])
+        ops = ta.validate_python(
+            [
+                {"op": "ADD", "section": "domain_constants", "content": "test"},
+                {"type": "DELETE", "item_id": "cu-123"},
+                {"op": "REPLACE", "item_id": "cu-456", "content": "new"},
+            ]
+        )
         assert [o.type for o in ops] == [OpType.ADD, OpType.DELETE, OpType.REPLACE]
 
 
@@ -249,7 +255,11 @@ class TestContextMemoryRender:
             Topic(id="owner/repo/api", description="API gateway"),
         ]
         items = [
-            Item(id="cu-shared", content="Shared context", topic_ids=["owner/repo/auth", "owner/repo/api"]),
+            Item(
+                id="cu-shared",
+                content="Shared context",
+                topic_ids=["owner/repo/auth", "owner/repo/api"],
+            ),
         ]
         memory = ContextMemory(
             topics=topics,
@@ -319,8 +329,12 @@ class TestContextMemoryRender:
         topics = [Topic(id="owner/repo/auth", description="Auth service")]
         memory = ContextMemory(
             topics=topics,
-            context_roadmap=[Item(id="cr-1", content="Roadmap item", topic_ids=["owner/repo/auth"])],
-            context_understanding=[Item(id="cu-1", content="Understanding item", topic_ids=["owner/repo/auth"])],
+            context_roadmap=[
+                Item(id="cr-1", content="Roadmap item", topic_ids=["owner/repo/auth"])
+            ],
+            context_understanding=[
+                Item(id="cu-1", content="Understanding item", topic_ids=["owner/repo/auth"])
+            ],
         )
         result = memory.render()
 
@@ -475,7 +489,7 @@ class TestTopicDependencies:
         topic = Topic(
             id="owner/repo/auth",
             description="Auth service",
-            dependencies=["owner/repo/core", "PyPI/passlib"]
+            dependencies=["owner/repo/core", "PyPI/passlib"],
         )
         assert topic.dependencies == ["owner/repo/core", "PyPI/passlib"]
 

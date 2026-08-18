@@ -26,19 +26,70 @@ class GitPlatform(StrEnum):
 # Binary file extensions that should be excluded from review
 BINARY_EXTENSIONS = {
     # Images
-    "png", "jpg", "jpeg", "gif", "ico", "svg", "webp", "bmp", "tiff", "tif",
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "ico",
+    "svg",
+    "webp",
+    "bmp",
+    "tiff",
+    "tif",
     # Fonts
-    "ttf", "woff", "woff2", "eot", "otf",
+    "ttf",
+    "woff",
+    "woff2",
+    "eot",
+    "otf",
     # Compiled binaries
-    "exe", "dll", "so", "dylib", "class", "pyc", "pyo", "o", "obj", "a", "lib",
+    "exe",
+    "dll",
+    "so",
+    "dylib",
+    "class",
+    "pyc",
+    "pyo",
+    "o",
+    "obj",
+    "a",
+    "lib",
     # Archives
-    "zip", "tar", "gz", "tgz", "rar", "7z", "jar", "war", "ear", "bz2", "xz",
+    "zip",
+    "tar",
+    "gz",
+    "tgz",
+    "rar",
+    "7z",
+    "jar",
+    "war",
+    "ear",
+    "bz2",
+    "xz",
     # Media
-    "mp3", "mp4", "wav", "avi", "mov", "webm", "ogg", "flac", "mkv",
+    "mp3",
+    "mp4",
+    "wav",
+    "avi",
+    "mov",
+    "webm",
+    "ogg",
+    "flac",
+    "mkv",
     # Documents
-    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+    "pdf",
+    "doc",
+    "docx",
+    "xls",
+    "xlsx",
+    "ppt",
+    "pptx",
     # Other binary
-    "bin", "dat", "db", "sqlite", "sqlite3",
+    "bin",
+    "dat",
+    "db",
+    "sqlite",
+    "sqlite3",
 }
 
 # Lock files that are auto-generated and should be excluded from review
@@ -66,9 +117,7 @@ class ChangedFile(BaseModel):
     additions: int = Field(default=0, description="Number of lines added")
     deletions: int = Field(default=0, description="Number of lines deleted")
     patch: str | None = Field(default=None, description="The diff patch for this file")
-    previous_filename: str | None = Field(
-        default=None, description="Previous filename if renamed"
-    )
+    previous_filename: str | None = Field(default=None, description="Previous filename if renamed")
 
     @property
     def extension(self) -> str:
@@ -343,7 +392,9 @@ class ReviewContext(BaseModel):
             lines.append(f"\nFunction: {func_name}")
             lines.append(f"  Called from {len(func_callers)} location(s):")
             for caller in func_callers[:10]:  # Limit to 10 callers per function
-                lines.append(f"    - {caller.file}:{caller.line_number}: {caller.line_content.strip()}")
+                lines.append(
+                    f"    - {caller.file}:{caller.line_number}: {caller.line_content.strip()}"
+                )
             if len(func_callers) > 10:
                 lines.append(f"    ... and {len(func_callers) - 10} more callers")
 

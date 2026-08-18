@@ -147,7 +147,7 @@ class ReviewPipeline(dspy.Module):
         return build_pr_from_diff(
             repo_path=config.repo_path,
             base_ref=config.base_ref,
-            include_uncommitted=config.uncommitted
+            include_uncommitted=config.uncommitted,
         )
 
     def forward(self, config: ReviewConfig) -> ReviewResult:
@@ -199,7 +199,10 @@ class ReviewPipeline(dspy.Module):
         review_ctx = ReviewContext(pr_context=pr_context, memory=None, metadata=metadata)
         scopes, initial_memory = self.scope_resolver(review_context=review_ctx)
         for scope in scopes:
-            logger.info(f"  Scope: {scope.subroot} ({scope.scope_type.value}) - {len(scope.changed_files)} files")
+            logger.info(
+                f"  Scope: {scope.subroot} ({scope.scope_type.value}) - "
+                f"{len(scope.changed_files)} files"
+            )
             if scope.package_manifest:
                 manifest = scope.package_manifest
                 logger.info(f"    Manifest: {manifest.manifest_path} ({manifest.package_manager})")
@@ -232,8 +235,11 @@ class ReviewPipeline(dspy.Module):
         )
         # Enrich review_ctx with actual summary and memory from summarizer
         pr_context.summary = pr_summary
-        review_ctx = ReviewContext(pr_context=pr_context, memory=summarizer_memory, metadata=metadata)
-        # Step 3: Run review modules concurrently via asyncio.gather (inherit Scope Identifier memory)
+        review_ctx = ReviewContext(
+            pr_context=pr_context, memory=summarizer_memory, metadata=metadata
+        )
+        # Step 3: Run review modules concurrently via asyncio.gather
+        # (inherit Scope Identifier memory)
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
         all_issues, parallel_memories = asyncio.run(
@@ -242,7 +248,9 @@ class ReviewPipeline(dspy.Module):
         logger.info(f"Found {len(all_issues)} issues")
         # Merge parallel context memories for Auditor
         memories_to_merge = [m for m in parallel_memories.values() if m is not None]
-        merged_memory = ContextMemory.merge(*memories_to_merge) if memories_to_merge else summarizer_memory
+        merged_memory = (
+            ContextMemory.merge(*memories_to_merge) if memories_to_merge else summarizer_memory
+        )
         review_ctx = ReviewContext(pr_context=pr_context, memory=merged_memory, metadata=metadata)
         # Step 4: Run Audit (inherits merged memory from parallel modules)
         scoped_files = self._collect_scoped_files(scopes)
@@ -308,19 +316,19 @@ class ReviewPipeline(dspy.Module):
         all_signature_stats = self.cost_tracker.get_all_signature_stats()
 
         for signature_name, stats in all_signature_stats.items():
-            stats_list.append(SignatureStatsResult(
-                name=signature_name,
-                cost=stats.cost,
-                tokens=stats.tokens,
-                call_count=stats.call_count,
-                duration_seconds=stats.duration_seconds,
-            ))
+            stats_list.append(
+                SignatureStatsResult(
+                    name=signature_name,
+                    cost=stats.cost,
+                    tokens=stats.tokens,
+                    call_count=stats.call_count,
+                    duration_seconds=stats.duration_seconds,
+                )
+            )
 
         return stats_list
 
-    def _expand_sparse_for_scopes(
-        self, scopes: list, repo_path: Path
-    ) -> None:
+    def _expand_sparse_for_scopes(self, scopes: list, repo_path: Path) -> None:
         """Expand sparse checkout to cover full subtree of each identified scope.
 
         Called after scope identification, before compact_patches and review modules,
@@ -360,7 +368,9 @@ class ReviewPipeline(dspy.Module):
             repo.git.update_environment(GIT_TERMINAL_PROMPT="0")
             # Guard: repo.head.is_valid() is False for unborn branches (no commits fetched)
             if not repo.head.is_valid():
-                logger.warning("Skipping sparse expansion: HEAD is not valid (clone may have failed)")
+                logger.warning(
+                    "Skipping sparse expansion: HEAD is not valid (clone may have failed)"
+                )
                 return
             repo.git.checkout()
         except (GitCommandError, ValueError, TypeError) as e:

@@ -81,7 +81,7 @@ class TestReadFileTruncation:
             raw.decode("utf-8")
         except UnicodeDecodeError as e:
             if e.start >= len(raw) - 4:
-                raw = raw[:e.start]
+                raw = raw[: e.start]
         return raw
 
     def test_truncate_preserves_utf8(self):

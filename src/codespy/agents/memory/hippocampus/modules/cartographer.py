@@ -108,7 +108,9 @@ class CartographerSig(dspy.Signature):
     cache_candidates: list[CacheCandidate] = dspy.InputField(
         desc="Candidate items the Distiller proposed."
     )
-    current_map: str = dspy.InputField(desc="Current context memory (topic-grouped, with item IDs and sections).")
+    current_map: str = dspy.InputField(
+        desc="Current context memory (topic-grouped, with item IDs and sections)."
+    )
     question: str = dspy.InputField(desc="Question the agent was answering.")
     token_budget: int = dspy.InputField(desc="Hard token budget for the context memory.")
     current_tokens: int = dspy.InputField(desc="Current token count of the context memory.")
@@ -123,8 +125,7 @@ class CartographerSig(dspy.Signature):
     )
 
     operations: list[Operation] = dspy.OutputField(
-        desc="Ordered list of ADD/DELETE/REPLACE ops to apply. Empty if nothing "
-        "is worth changing."
+        desc="Ordered list of ADD/DELETE/REPLACE ops to apply. Empty if nothing is worth changing."
     )
 
 
@@ -143,13 +144,25 @@ class Cartographer(dspy.Module):
     def __init__(self):
         super().__init__()
         from codespy.config import settings  # lazy to avoid circular import
+
         self.predict = ContextSafe(
-            dspy.ChainOfThought(CartographerSig), CartographerSig, name="cartographer",
+            dspy.ChainOfThought(CartographerSig),
+            CartographerSig,
+            name="cartographer",
             rlm_threshold=settings.get_rlm_threshold("chain_of_thought"),
         )
 
-    def forward(self, diagnosis, item_tags, cache_candidates, current_map, question,
-                token_budget, current_tokens, max_context_item_tokens):
+    def forward(
+        self,
+        diagnosis,
+        item_tags,
+        cache_candidates,
+        current_map,
+        question,
+        token_budget,
+        current_tokens,
+        max_context_item_tokens,
+    ):
         # See Distiller.forward: SignatureContext applies memory.cartographer's
         # LLM settings and gives this module its own cost line. Entered here
         # because DSPy's context is thread-scoped and reflection runs in a worker.

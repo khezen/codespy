@@ -29,15 +29,17 @@ class RustExtractor(BaseExtractor):
                     params = self._extract_rust_params(n, source)
                     return_type = self._extract_rust_return_type(n, source)
 
-                    functions.append(FunctionInfo(
-                        name=name,
-                        file=str(file_path),
-                        line_start=n.start_point[0] + 1,
-                        line_end=n.end_point[0] + 1,
-                        parameters=params,
-                        return_type=return_type,
-                        is_method=in_impl,
-                    ))
+                    functions.append(
+                        FunctionInfo(
+                            name=name,
+                            file=str(file_path),
+                            line_start=n.start_point[0] + 1,
+                            line_end=n.end_point[0] + 1,
+                            parameters=params,
+                            return_type=return_type,
+                            is_method=in_impl,
+                        )
+                    )
 
             elif n.type in ("impl_item", "trait_item"):
                 for child in n.children:

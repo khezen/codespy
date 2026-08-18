@@ -101,65 +101,76 @@ class GitReporter(BaseReporter):
 
         # Summary section
         if result.overall_summary:
-            lines.extend([
-                "<details>",
-                "<summary>📋 Summary</summary>",
-                "",
-                result.overall_summary,
-                "",
-                "</details>",
-                "",
-            ])
+            lines.extend(
+                [
+                    "<details>",
+                    "<summary>📋 Summary</summary>",
+                    "",
+                    result.overall_summary,
+                    "",
+                    "</details>",
+                    "",
+                ]
+            )
 
         # Quality Assessment section
         if result.quality_assessment:
-            lines.extend([
+            lines.extend(
+                [
+                    "<details>",
+                    "<summary>🎯 Quality Assessment</summary>",
+                    "",
+                    result.quality_assessment,
+                    "",
+                    "</details>",
+                    "",
+                ]
+            )
+
+        # Statistics section
+        lines.extend(
+            [
                 "<details>",
-                "<summary>🎯 Quality Assessment</summary>",
+                "<summary>📊 Statistics</summary>",
                 "",
-                result.quality_assessment,
+                "| Metric | Count |",
+                "|--------|-------|",
+                f"| Total Issues | {result.total_issues} |",
+                f"| Critical | {len(result.critical_issues)} |",
+                f"| High | {sum(1 for i in result.issues if i.severity == IssueSeverity.HIGH)} |",
+                f"| Medium | {sum(1 for i in result.issues if i.severity == IssueSeverity.MEDIUM)} |",  # noqa: E501
+                f"| Low | {sum(1 for i in result.issues if i.severity == IssueSeverity.LOW)} |",
+                f"| Security | {len(result.security_issues)} |",
+                f"| Bugs | {len(result.bug_issues)} |",
+                f"| Documentation | {len(result.documentation_issues)} |",
+                f"| Info | {sum(1 for i in result.issues if i.severity == IssueSeverity.INFO)} |",  # noqa: E501
                 "",
                 "</details>",
                 "",
-            ])
-
-        # Statistics section
-        lines.extend([
-            "<details>",
-            "<summary>📊 Statistics</summary>",
-            "",
-            "| Metric | Count |",
-            "|--------|-------|",
-            f"| Total Issues | {result.total_issues} |",
-            f"| Critical | {len(result.critical_issues)} |",
-            f"| High | {len([i for i in result.issues if i.severity == IssueSeverity.HIGH])} |",
-            f"| Medium | {len([i for i in result.issues if i.severity == IssueSeverity.MEDIUM])} |",
-            f"| Low | {len([i for i in result.issues if i.severity == IssueSeverity.LOW])} |",
-            f"| Security | {len(result.security_issues)} |",
-            f"| Bugs | {len(result.bug_issues)} |",
-            f"| Documentation | {len(result.documentation_issues)} |",
-            "",
-            "</details>",
-            "",
-        ])
+            ]
+        )
 
         # Cost section
         if result.total_cost > 0 or result.llm_calls > 0:
-            lines.extend([
-                "<details>",
-                "<summary>💰 Cost Summary</summary>",
-                "",
-                f"**Total:** ${result.total_cost:.4f} | "
-                f"**Tokens:** {result.total_tokens:,} | "
-                f"**LLM Calls:** {result.llm_calls}",
-                "",
-            ])
+            lines.extend(
+                [
+                    "<details>",
+                    "<summary>💰 Cost Summary</summary>",
+                    "",
+                    f"**Total:** ${result.total_cost:.4f} | "
+                    f"**Tokens:** {result.total_tokens:,} | "
+                    f"**LLM Calls:** {result.llm_calls}",
+                    "",
+                ]
+            )
 
             if result.signature_stats:
-                lines.extend([
-                    "| Signature | Cost | Tokens | Calls | Duration |",
-                    "|-----------|------|--------|-------|----------|",
-                ])
+                lines.extend(
+                    [
+                        "| Signature | Cost | Tokens | Calls | Duration |",
+                        "|-----------|------|--------|-------|----------|",
+                    ]
+                )
                 for stats in sorted(result.signature_stats, key=lambda x: x.cost, reverse=True):
                     duration_str = f"{stats.duration_seconds:.1f}s"
                     lines.append(
@@ -168,38 +179,46 @@ class GitReporter(BaseReporter):
                     )
                 lines.append("")
 
-            lines.extend([
-                "</details>",
-                "",
-            ])
+            lines.extend(
+                [
+                    "</details>",
+                    "",
+                ]
+            )
 
         # Issues without line numbers
         if body_issues:
-            lines.extend([
-                "<details>",
-                "<summary>⚠️ Issues Without Line References</summary>",
-                "",
-            ])
+            lines.extend(
+                [
+                    "<details>",
+                    "<summary>⚠️ Issues Without Line References</summary>",
+                    "",
+                ]
+            )
 
             for issue in body_issues:
                 emoji = self.SEVERITY_EMOJI.get(issue.severity, "⚪")
                 confidence_pct = int(issue.confidence * 100)
-                lines.extend([
-                    f"### {emoji} [{issue.severity.value.title()}] {issue.title}",
-                    "",
-                    f"**File:** `{issue.filename}`",
-                    f"**Category:** {issue.category.value} | **Confidence:** {confidence_pct}%",
-                    "",
-                    issue.description,
-                    "",
-                ])
+                lines.extend(
+                    [
+                        f"### {emoji} [{issue.severity.value.title()}] {issue.title}",
+                        "",
+                        f"**File:** `{issue.filename}`",
+                        f"**Category:** {issue.category.value} | **Confidence:** {confidence_pct}%",
+                        "",
+                        issue.description,
+                        "",
+                    ]
+                )
 
                 if issue.suggestion:
-                    lines.extend([
-                        "**Suggestion:**",
-                        issue.suggestion,
-                        "",
-                    ])
+                    lines.extend(
+                        [
+                            "**Suggestion:**",
+                            issue.suggestion,
+                            "",
+                        ]
+                    )
 
                 if issue.cwe_id:
                     cwe_number = issue.cwe_id.split("-")[1] if "-" in issue.cwe_id else issue.cwe_id
@@ -211,22 +230,26 @@ class GitReporter(BaseReporter):
                 lines.append("---")
                 lines.append("")
 
-            lines.extend([
-                "</details>",
-                "",
-            ])
+            lines.extend(
+                [
+                    "</details>",
+                    "",
+                ]
+            )
 
         # Recommendation
         if result.recommendation:
-            lines.extend([
-                "<details>",
-                "<summary>💡 Recommendation</summary>",
-                "",
-                result.recommendation,
-                "",
-                "</details>",
-                "",
-            ])
+            lines.extend(
+                [
+                    "<details>",
+                    "<summary>💡 Recommendation</summary>",
+                    "",
+                    result.recommendation,
+                    "",
+                    "</details>",
+                    "",
+                ]
+            )
 
         return "\n".join(lines)
 
@@ -256,37 +279,43 @@ class GitReporter(BaseReporter):
 
             # Code snippet - collapsible
             if issue.code_snippet:
-                body_lines.extend([
-                    "",
-                    "<details>",
-                    "<summary>📝 Code Snippet</summary>",
-                    "",
-                    "```",
-                    issue.code_snippet,
-                    "```",
-                    "",
-                    "</details>",
-                ])
+                body_lines.extend(
+                    [
+                        "",
+                        "<details>",
+                        "<summary>📝 Code Snippet</summary>",
+                        "",
+                        "```",
+                        issue.code_snippet,
+                        "```",
+                        "",
+                        "</details>",
+                    ]
+                )
 
             # Suggestion - collapsible
             if issue.suggestion:
-                body_lines.extend([
-                    "",
-                    "<details>",
-                    "<summary>💡 Suggestion</summary>",
-                    "",
-                    issue.suggestion,
-                    "",
-                    "</details>",
-                ])
+                body_lines.extend(
+                    [
+                        "",
+                        "<details>",
+                        "<summary>💡 Suggestion</summary>",
+                        "",
+                        issue.suggestion,
+                        "",
+                        "</details>",
+                    ]
+                )
 
             # CWE reference - always visible (one line)
             if issue.cwe_id:
                 cwe_number = issue.cwe_id.split("-")[1] if "-" in issue.cwe_id else issue.cwe_id
-                body_lines.extend([
-                    "",
-                    f"**Reference:** [{issue.cwe_id}](https://cwe.mitre.org/data/definitions/{cwe_number}.html)",
-                ])
+                body_lines.extend(
+                    [
+                        "",
+                        f"**Reference:** [{issue.cwe_id}](https://cwe.mitre.org/data/definitions/{cwe_number}.html)",
+                    ]
+                )
 
             comment = {
                 "path": issue.filename,

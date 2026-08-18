@@ -37,13 +37,9 @@ class AuditSignature(dspy.Signature):
     changed_files: list[ChangedFile] = dspy.InputField(
         desc="In-scope reviewable files with status and line counts"
     )
-    all_issues: list[Issue] = dspy.InputField(
-        desc="All issues found during review"
-    )
+    all_issues: list[Issue] = dspy.InputField(desc="All issues found during review")
 
-    quality_assessment: str = dspy.OutputField(
-        desc="Overall assessment of code quality"
-    )
+    quality_assessment: str = dspy.OutputField(desc="Overall assessment of code quality")
     recommendation: str = dspy.OutputField(
         desc="One of: APPROVE, REQUEST_CHANGES, or NEEDS_DISCUSSION with brief justification"
     )
@@ -93,7 +89,9 @@ class Auditor(dspy.Module):
             )
             mem.end_episode(
                 get_memory_store(self._settings),
-                _deepest_common_folder(scopes, review_context.pr_context.repo_slug) if scopes else f"/{review_context.pr_context.repo_slug}/",
+                _deepest_common_folder(scopes, review_context.pr_context.repo_slug)
+                if scopes
+                else f"/{review_context.pr_context.repo_slug}/",
                 artifacts={
                     "audit": (
                         f"## Quality Assessment\n\n{result.quality_assessment}\n\n"

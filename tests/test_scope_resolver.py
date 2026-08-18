@@ -107,9 +107,7 @@ class TestScopeResolver:
             (repo_path / "packages" / "utils" / "package.json").touch()
 
             changed_files = [
-                ChangedFile(
-                    filename="packages/auth/src/index.ts", status=FileStatus.MODIFIED
-                ),
+                ChangedFile(filename="packages/auth/src/index.ts", status=FileStatus.MODIFIED),
             ]
 
             resolver = ScopeResolver()
@@ -142,9 +140,7 @@ class TestScopeResolver:
             (repo_path / "package-lock.json").touch()
 
             changed_files = [
-                ChangedFile(
-                    filename="package-lock.json", status=FileStatus.MODIFIED
-                ),
+                ChangedFile(filename="package-lock.json", status=FileStatus.MODIFIED),
             ]
 
             resolver = ScopeResolver()
@@ -166,15 +162,9 @@ class TestScopeResolver:
             (repo_path / "apps" / "web" / "package.json").touch()
 
             changed_files = [
-                ChangedFile(
-                    filename="services/api/main.go", status=FileStatus.MODIFIED
-                ),
-                ChangedFile(
-                    filename="libs/utils/helpers.go", status=FileStatus.MODIFIED
-                ),
-                ChangedFile(
-                    filename="apps/web/index.ts", status=FileStatus.MODIFIED
-                ),
+                ChangedFile(filename="services/api/main.go", status=FileStatus.MODIFIED),
+                ChangedFile(filename="libs/utils/helpers.go", status=FileStatus.MODIFIED),
+                ChangedFile(filename="apps/web/index.ts", status=FileStatus.MODIFIED),
             ]
 
             resolver = ScopeResolver()
@@ -204,7 +194,6 @@ class TestManifestScoping:
 
             # Candidate should exist with manifest
             assert scopes[0].package_manifest is not None
-
 
     def test_internal_dir_not_scope_indicator(self):
         """internal/ is not a scope indicator for sparse paths."""

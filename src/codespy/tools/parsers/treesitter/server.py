@@ -41,7 +41,9 @@ def _find_function_definitions_cached(file_path: str, content: str | None = None
 
 
 @lru_cache(maxsize=512)
-def _find_function_calls_cached(file_path: str, function_name: str, content: str | None = None) -> tuple:
+def _find_function_calls_cached(
+    file_path: str, function_name: str, content: str | None = None
+) -> tuple:
     """Cached version of find_function_calls."""
     parser = _get_parser()
     path = parser.repo_path / file_path
@@ -320,7 +322,9 @@ def get_terraform_summary(file_path: str, content: str | None = None) -> dict[st
         "file": file_path,
         "resource_count": len(resources),
         "resource_types": list({r.get("resource_type", "") for r in resources}),
-        "resources": [f"{r.get('resource_type', '')}.{r.get('resource_name', '')}" for r in resources],
+        "resources": [
+            f"{r.get('resource_type', '')}.{r.get('resource_name', '')}" for r in resources
+        ],
         "variable_count": len(variables),
         "variable_names": [v.get("name", "") for v in variables],
         "output_count": len(outputs),

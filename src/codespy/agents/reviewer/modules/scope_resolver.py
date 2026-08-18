@@ -82,7 +82,11 @@ def collect_skills(repo_path: Path, subroot: str) -> str | None:
                 for md_file in sorted(dir_path.glob("*.md")):
                     content = md_file.read_text(errors="ignore").strip()
                     if content:
-                        rel = f"{level}/{skill_dir}/{md_file.name}" if level != "." else f"{skill_dir}/{md_file.name}"
+                        rel = (
+                            f"{level}/{skill_dir}/{md_file.name}"
+                            if level != "."
+                            else f"{skill_dir}/{md_file.name}"
+                        )
                         sections.append(f"=== {rel} ===\n{content}")
 
     return "\n\n".join(sections) if sections else None
@@ -108,6 +112,7 @@ def _deepest_common_folder(scopes: list[ScopeResult], repo_slug: str) -> str:
     if not common or common == ".":
         return f"/{repo_slug}/"
     return f"/{repo_slug}/{common.strip('/')}/"
+
 
 # Exact filename matches -> package manager
 MANIFEST_FILES: dict[str, str] = {
@@ -190,83 +195,135 @@ LOCK_TO_MANIFEST: dict[str, str] = {
 # Scope indicator directories
 SCOPE_INDICATORS: dict[ScopeType, list[str]] = {
     ScopeType.LIBRARY: [
-        "lib/", "libs/", "libraries/",
-        "pkg/", "packages/",
-        "shared/", "common/", "core/",
-        "modules/", "mod/",
-        "sdk/", "sdks/",
+        "lib/",
+        "libs/",
+        "libraries/",
+        "pkg/",
+        "packages/",
+        "shared/",
+        "common/",
+        "core/",
+        "modules/",
+        "mod/",
+        "sdk/",
+        "sdks/",
         "components/",
-        "plugins/", "extensions/", "addons/",
+        "plugins/",
+        "extensions/",
+        "addons/",
         "framework/",
     ],
     ScopeType.SERVICE: [
-        "services/", "service/", "svc/",
+        "services/",
+        "service/",
+        "svc/",
         "microservices/",
-        "api/", "apis/",
-        "server/", "servers/",
-        "backend/", "backends/",
-        "gateway/", "gateways/",
-        "proxy/", "proxies/",
-        "workers/", "worker/",
-        "jobs/", "cron/", "schedulers/",
-        "consumers/", "producers/",
-        "functions/", "lambdas/", "lambda/",
+        "api/",
+        "apis/",
+        "server/",
+        "servers/",
+        "backend/",
+        "backends/",
+        "gateway/",
+        "gateways/",
+        "proxy/",
+        "proxies/",
+        "workers/",
+        "worker/",
+        "jobs/",
+        "cron/",
+        "schedulers/",
+        "consumers/",
+        "producers/",
+        "functions/",
+        "lambdas/",
+        "lambda/",
         "cmd/",
     ],
     ScopeType.APPLICATION: [
-        "apps/", "app/", "applications/",
-        "web/", "www/",
-        "frontend/", "frontends/",
-        "client/", "clients/",
+        "apps/",
+        "app/",
+        "applications/",
+        "web/",
+        "www/",
+        "frontend/",
+        "frontends/",
+        "client/",
+        "clients/",
         "ui/",
-        "dashboard/", "admin/",
-        "portal/", "console/",
-        "mobile/", "native/",
-        "ios/", "android/",
-        "electron/", "desktop/",
-        "site/", "website/",
+        "dashboard/",
+        "admin/",
+        "portal/",
+        "console/",
+        "mobile/",
+        "native/",
+        "ios/",
+        "android/",
+        "electron/",
+        "desktop/",
+        "site/",
+        "website/",
     ],
     ScopeType.SCRIPT: [
-        "scripts/", "script/",
+        "scripts/",
+        "script/",
         "bin/",
-        "tools/", "tooling/",
+        "tools/",
+        "tooling/",
         "hack/",
         "make/",
-        "ci/", "cd/",
-        ".github/", ".gitlab/",
-        ".circleci/", ".buildkite/",
+        "ci/",
+        "cd/",
+        ".github/",
+        ".gitlab/",
+        ".circleci/",
+        ".buildkite/",
         ".azure-pipelines/",
-        "infra/", "infrastructure/",
-        "terraform/", "tf/",
+        "infra/",
+        "infrastructure/",
+        "terraform/",
+        "tf/",
         "pulumi/",
-        "ansible/", "salt/",
+        "ansible/",
+        "salt/",
         "cloudformation/",
         "docker/",
-        "k8s/", "kubernetes/",
-        "helm/", "charts/",
+        "k8s/",
+        "kubernetes/",
+        "helm/",
+        "charts/",
         "kustomize/",
-        "deploy/", "deployment/", "deployments/",
-        "ops/", "devops/", "platform/",
+        "deploy/",
+        "deployment/",
+        "deployments/",
+        "ops/",
+        "devops/",
+        "platform/",
         "provisioning/",
-        "config/", "configs/", "configuration/",
+        "config/",
+        "configs/",
+        "configuration/",
     ],
 }
 
 # Flattened set for sparse path derivation
-SCOPE_INDICATOR_DIRS = frozenset(
-    d.rstrip("/") for dirs in SCOPE_INDICATORS.values() for d in dirs
-)
+SCOPE_INDICATOR_DIRS = frozenset(d.rstrip("/") for dirs in SCOPE_INDICATORS.values() for d in dirs)
 
 
 class ScopeBoundary(BaseModel):
     """LLM output: a scope boundary decision (no file listing)."""
 
-    subroot: str = Field(description="Path relative to repo root (e.g., 'packages/auth' or '.' for root)")
+    subroot: str = Field(
+        description="Path relative to repo root (e.g., 'packages/auth' or '.' for root)"
+    )
     scope_type: ScopeType = Field(description="Type of scope")
     reason: str = Field(description="Brief explanation for this boundary")
     description: str = Field(
         default="",
-        description="Brief description (max 500 chars) of what this scope/folder contains and its role in the project"
+        description=(
+            "Brief description (max 500 chars) of what this scope/folder "
+            "contains and its role in the project"
+        ),
     )
 
 
@@ -321,7 +378,10 @@ class ScopeRefinementSignature(dspy.Signature):
     """
 
     candidates: str = dspy.InputField(
-        desc="Deterministic scope candidates with manifest info and file lists. Subject to refinement."
+        desc=(
+            "Deterministic scope candidates with manifest info and file lists. "
+            "Subject to refinement."
+        )
     )
     orphan_files: list[str] = dspy.InputField(
         desc="Changed files not assigned to any candidate (may be empty list)"
@@ -329,12 +389,18 @@ class ScopeRefinementSignature(dspy.Signature):
     pr_title: str = dspy.InputField(desc="PR title for intent context")
     pr_description: str = dspy.InputField(desc="PR description for intent context")
     project_instructions: str = dspy.InputField(
-        desc="Project coding guidelines and structure context from config files (AGENTS.md, .kilo/, etc.). May be empty."
+        desc=(
+            "Project coding guidelines and structure context from config files "
+            "(AGENTS.md, .kilo/, etc.). May be empty."
+        )
     )
 
     scopes: list[ScopeBoundary] = dspy.OutputField(
-        desc="Scope boundaries (subroots) with descriptions. Files are assigned automatically — do NOT list files. "
-        "For each scope boundary, include a `description` (max 500 characters) summarizing what the folder contains and its role in the project."
+        desc=(
+            "Scope boundaries (subroots) with descriptions. Files are assigned automatically — "
+            "do NOT list files. For each scope boundary, include a `description` "
+            "(max 500 characters) summarizing what the folder contains and its role."
+        )
     )
 
 
@@ -358,7 +424,7 @@ def derive_sparse_paths(changed_files: list[str]) -> list[str]:
         found_indicator = False
         for i, part in enumerate(parts[:-1]):  # Skip filename
             if part.lower() in SCOPE_INDICATOR_DIRS and i + 1 < len(parts) - 1:
-                scope_root = "/".join(parts[:i + 2]) + "/"
+                scope_root = "/".join(parts[: i + 2]) + "/"
                 scope_roots.add(scope_root)
                 found_indicator = True
                 break
@@ -381,17 +447,19 @@ def derive_sparse_paths(changed_files: list[str]) -> list[str]:
         paths.append(manifest_pattern)
 
     # Agent config directories — project instructions for ReAct agents
-    paths.extend([
-        ".claude/",
-        ".kilo/",
-        ".agent/",
-        ".ai/",
-        ".cursor/",
-        ".codex/",
-        "AGENTS.md",
-        "CLAUDE.md",
-        "SKILL.md",
-    ])
+    paths.extend(
+        [
+            ".claude/",
+            ".kilo/",
+            ".agent/",
+            ".ai/",
+            ".cursor/",
+            ".codex/",
+            "AGENTS.md",
+            "CLAUDE.md",
+            "SKILL.md",
+        ]
+    )
 
     return paths
 
@@ -420,19 +488,25 @@ class ScopeResolver(dspy.Module):
         repo_path_str = str(repo_path)
         caller = "scope_resolver"
 
-        tools.extend(await connect_mcp_server(
-            tools_dir / "storage" / "filesystem" / "server.py",
-            [repo_path_str], contexts, caller,
-        ))
-        tools.extend(await connect_mcp_server(
-            tools_dir / "parsers" / "ripgrep" / "server.py",
-            [repo_path_str], contexts, caller,
-        ))
+        tools.extend(
+            await connect_mcp_server(
+                tools_dir / "storage" / "filesystem" / "server.py",
+                [repo_path_str],
+                contexts,
+                caller,
+            )
+        )
+        tools.extend(
+            await connect_mcp_server(
+                tools_dir / "parsers" / "ripgrep" / "server.py",
+                [repo_path_str],
+                contexts,
+                caller,
+            )
+        )
         return tools, contexts
 
-    async def _ensure_repo(
-        self, pr: PullRequest, repo_path: Path, is_local: bool
-    ) -> None:
+    async def _ensure_repo(self, pr: PullRequest, repo_path: Path, is_local: bool) -> None:
         """Clone repo programmatically if not already on disk.
 
         Args:
@@ -446,6 +520,7 @@ class ScopeResolver(dspy.Module):
 
         if repo_path.exists() and (repo_path / ".git").exists():
             from git import Repo
+
             logger.debug("Updating existing clone at %s", repo_path)
             changed_file_paths = [f.filename for f in pr.changed_files]
             sparse_paths = derive_sparse_paths(changed_file_paths)
@@ -474,9 +549,7 @@ class ScopeResolver(dspy.Module):
             dummy_url = f"https://github.com/{pr.repo_owner}/{pr.repo_name}/pull/1"
 
         client = get_client(dummy_url, self._settings)
-        logger.info(
-            "Cloning %s/%s@%s...", pr.repo_owner, pr.repo_name, pr.head_sha[:8]
-        )
+        logger.info("Cloning %s/%s@%s...", pr.repo_owner, pr.repo_name, pr.head_sha[:8])
 
         client.clone_repository(
             owner=pr.repo_owner,
@@ -571,14 +644,22 @@ class ScopeResolver(dspy.Module):
             lock_file = self._find_lock_file(repo_path, manifest_dir, manifest_filename)
             scope_type = self._classify_scope_type(subroot, manifest_filename)
             changed_paths = {f.filename for f in changed_files}
-            deps_changed = self._dependencies_changed(manifest_dir, manifest_filename, lock_file, changed_paths)
-            manifest_path = str(manifest_dir / manifest_filename) if manifest_dir != Path(".") else manifest_filename
+            deps_changed = self._dependencies_changed(
+                manifest_dir, manifest_filename, lock_file, changed_paths
+            )
+            manifest_path = (
+                str(manifest_dir / manifest_filename)
+                if manifest_dir != Path(".")
+                else manifest_filename
+            )
 
             # Extract package name from manifest
             package_name = extract_package_name(manifest_path, repo_path)
 
             # Build deterministic description
-            description = f"{pkg_mgr} package at {subroot}" if subroot != "." else f"{pkg_mgr} package (root)"
+            description = (
+                f"{pkg_mgr} package at {subroot}" if subroot != "." else f"{pkg_mgr} package (root)"
+            )
 
             scopes[subroot] = ScopeResult(
                 repo=repo,
@@ -600,8 +681,7 @@ class ScopeResolver(dspy.Module):
 
         for file in changed_files:
             covered_by_nested = any(
-                subroot != "." and file.filename.startswith(subroot + "/")
-                for subroot in scopes
+                subroot != "." and file.filename.startswith(subroot + "/") for subroot in scopes
             )
             if covered_by_nested or root_is_sole_manifest:
                 continue
@@ -748,7 +828,11 @@ class ScopeResolver(dspy.Module):
         Returns:
             True if dependencies changed
         """
-        manifest_path = str(manifest_dir / manifest_filename) if manifest_dir != Path(".") else manifest_filename
+        manifest_path = (
+            str(manifest_dir / manifest_filename)
+            if manifest_dir != Path(".")
+            else manifest_filename
+        )
         if manifest_path in changed_paths:
             return True
         return bool(lock_file and str(lock_file) in changed_paths)
@@ -773,7 +857,9 @@ class ScopeResolver(dspy.Module):
             assigned = False
             for scope in sorted_scopes:
                 prefix = scope.subroot + "/" if scope.subroot != "." else ""
-                if file.filename.startswith(prefix) or (scope.subroot == "." and "/" not in file.filename):
+                if file.filename.startswith(prefix) or (
+                    scope.subroot == "." and "/" not in file.filename
+                ):
                     scope.changed_files.append(file)
                     scope.has_changes = True
                     assigned = True
@@ -801,11 +887,9 @@ class ScopeResolver(dspy.Module):
             for scope_type, indicators in SCOPE_INDICATORS.items():
                 for indicator in indicators:
                     indicator_name = indicator.rstrip("/")
-                    if part_lower == indicator_name:
-                        # Scope root is one level past the indicator
-                        if i + 1 < len(parts) - 1:
-                            scope_root = "/".join(parts[:i + 2])
-                            return scope_type, scope_root
+                    if part_lower == indicator_name and i + 1 < len(parts) - 1:
+                        scope_root = "/".join(parts[: i + 2])
+                        return scope_type, scope_root
 
         return None, ""
 
@@ -843,9 +927,7 @@ class ScopeResolver(dspy.Module):
             List of ScopeResult with files assigned
         """
         # Index manifest-backed scopes from deterministic layer
-        manifest_scopes = {
-            s.subroot: s for s in deterministic_scopes if s.package_manifest
-        }
+        manifest_scopes = {s.subroot: s for s in deterministic_scopes if s.package_manifest}
 
         # Build final boundary set
         final_boundaries: dict[str, ScopeResult] = {}
@@ -896,8 +978,11 @@ class ScopeResolver(dspy.Module):
                     final_boundaries["."].has_changes = True
             else:
                 final_boundaries["."] = ScopeResult(
-                    repo=repo, subroot=".", scope_type=ScopeType.APPLICATION,
-                    has_changes=True, changed_files=orphans,
+                    repo=repo,
+                    subroot=".",
+                    scope_type=ScopeType.APPLICATION,
+                    has_changes=True,
+                    changed_files=orphans,
                     reason="catch-all for unmatched files",
                 )
 
@@ -993,12 +1078,13 @@ class ScopeResolver(dspy.Module):
             all_files = [f for s in scopes for f in s.changed_files] + orphans
 
             # Apply LLM boundaries with manifest guardrail and deterministic file assignment
-            final_scopes = self._apply_boundaries(
-                result.scopes, all_files, scopes, pr.repo_slug
-            )
+            final_scopes = self._apply_boundaries(result.scopes, all_files, scopes, pr.repo_slug)
 
-            # Copy ScopeBoundary.description to ScopeResult.description (overrides deterministic fallback)
-            boundary_descriptions: dict[str, str] = {b.subroot: b.description for b in result.scopes}
+            # Copy ScopeBoundary.description to ScopeResult.description
+            # (overrides deterministic fallback)
+            boundary_descriptions: dict[str, str] = {
+                b.subroot: b.description for b in result.scopes
+            }
             for scope in final_scopes:
                 if scope.subroot in boundary_descriptions:
                     scope.description = boundary_descriptions[scope.subroot]
@@ -1034,16 +1120,20 @@ class ScopeResolver(dspy.Module):
                             dep_topic_ids.append(make_topic_id(dep_repos[name], "", name))
                         elif infer_repo_from_name(name):
                             # Rule 2: repo identifiable from dep name (Go modules)
-                            dep_topic_ids.append(make_topic_id(infer_repo_from_name(name), "", name))
+                            dep_topic_ids.append(
+                                make_topic_id(infer_repo_from_name(name), "", name)
+                            )
                         else:
                             # Rule 3: external
                             dep_topic_ids.append(f"{ecosystem}/{name}")
 
-                scope_topics.append(Topic(
-                    id=scope_topic_ids[scope.subroot],
-                    description=scope.description,
-                    dependencies=dep_topic_ids,
-                ))
+                scope_topics.append(
+                    Topic(
+                        id=scope_topic_ids[scope.subroot],
+                        description=scope.description,
+                        dependencies=dep_topic_ids,
+                    )
+                )
 
             # Compute common ancestor topic if >1 scope
             common_ancestor_topic_id = compute_common_ancestor_topic_id(
@@ -1130,8 +1220,11 @@ class ScopeResolver(dspy.Module):
         repo = pr.repo_slug
         if not self._settings.is_signature_enabled("scope"):
             fallback = ScopeResult(
-                repo=repo, subroot=".", scope_type=ScopeType.APPLICATION,
-                has_changes=True, changed_files=reviewable_files,
+                repo=repo,
+                subroot=".",
+                scope_type=ScopeType.APPLICATION,
+                has_changes=True,
+                changed_files=reviewable_files,
                 reason="Scope identification disabled",
                 description="Repository root",
             )
@@ -1146,13 +1239,18 @@ class ScopeResolver(dspy.Module):
             if scopes:
                 det_summary = "\n".join(
                     f"  - {s.subroot} ({s.scope_type.value})"
-                    f"{f', manifest={s.package_manifest.manifest_path}' if s.package_manifest else ''}"
-                    f": {len(s.changed_files)} files"
+                    + (
+                        f", manifest={s.package_manifest.manifest_path}"
+                        if s.package_manifest
+                        else ""
+                    )
+                    + f": {len(s.changed_files)} files"
                     for s in scopes
                 )
                 logger.info(
                     "Deterministic scope identification found %d scope(s):\n%s",
-                    len(scopes), det_summary
+                    len(scopes),
+                    det_summary,
                 )
             if orphans:
                 logger.info("Deterministic identification produced %d orphan(s)", len(orphans))
@@ -1160,9 +1258,14 @@ class ScopeResolver(dspy.Module):
             loaded_memory: ContextMemory | None = None
             if self._settings.get_memory_enabled("scope"):
                 from codespy.agents.memory.hippocampus.episode import find_latest_episode
+
                 store = get_memory_store(self._settings)
-                common_dir = _deepest_common_folder(scopes, pr.repo_slug) if scopes else f"/{pr.repo_slug}/"
-                prior_episode = find_latest_episode(store, common_dir, task="scope", exclude_run_id=run_id)
+                common_dir = (
+                    _deepest_common_folder(scopes, pr.repo_slug) if scopes else f"/{pr.repo_slug}/"
+                )
+                prior_episode = find_latest_episode(
+                    store, common_dir, task="scope", exclude_run_id=run_id
+                )
                 # Fallback: prior run may have persisted at repo root if scopes differed
                 if prior_episode is None and common_dir != f"/{pr.repo_slug}/":
                     prior_episode = find_latest_episode(
@@ -1178,7 +1281,8 @@ class ScopeResolver(dspy.Module):
                         item.topic_ids = []
                     logger.info(
                         "Loaded prior scope memory (run=%s, items=%d)",
-                        prior_episode.run_id[:8], len(loaded_memory.all_items()),
+                        prior_episode.run_id[:8],
+                        len(loaded_memory.all_items()),
                     )
                 else:
                     logger.debug("No prior scope episode found at %s", common_dir)
@@ -1194,22 +1298,25 @@ class ScopeResolver(dspy.Module):
                     memory=merged_memory,
                     metadata=review_context.metadata,
                 )
-            scopes, context_memory = await self._refine_scopes(
-                scopes, orphans, review_context
-            )
+            scopes, context_memory = await self._refine_scopes(scopes, orphans, review_context)
             # Log final scopes for visibility
             scope_summary = "\n".join(
                 f"  - {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
                 for s in scopes
             )
-            logger.info("Resolved %d scope(s) for %s:\n%s", len(scopes), pr.repo_slug, scope_summary)
+            logger.info(
+                "Resolved %d scope(s) for %s:\n%s", len(scopes), pr.repo_slug, scope_summary
+            )
             return scopes, context_memory
 
         except Exception as e:
             logger.error("Scope resolution failed: %s", e, exc_info=True)
             fallback = ScopeResult(
-                repo=repo, subroot=".", scope_type=ScopeType.APPLICATION,
-                has_changes=True, changed_files=reviewable_files,
+                repo=repo,
+                subroot=".",
+                scope_type=ScopeType.APPLICATION,
+                has_changes=True,
+                changed_files=reviewable_files,
                 reason=f"Fallback due to error: {e}",
                 description="Repository root",
             )

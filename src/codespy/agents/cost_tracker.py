@@ -133,14 +133,17 @@ class CostTracker:
         """
         with self._lock:
             # Return a copy to avoid concurrent modification issues
-            return {k: SignatureStats(
-                name=v.name,
-                cost=v.cost,
-                tokens=v.tokens,
-                call_count=v.call_count,
-                start_time=v.start_time,
-                end_time=v.end_time,
-            ) for k, v in self._signature_stats.items()}
+            return {
+                k: SignatureStats(
+                    name=v.name,
+                    cost=v.cost,
+                    tokens=v.tokens,
+                    call_count=v.call_count,
+                    start_time=v.start_time,
+                    end_time=v.end_time,
+                )
+                for k, v in self._signature_stats.items()
+            }
 
 
 def _get_history_entries() -> list[dict]:
@@ -191,7 +194,9 @@ def _as_number(value: object) -> float:
         return 0.0
 
 
-def _calculate_costs_from_entries(entries: list[dict], exclude_uuids: set[str]) -> tuple[float, int, int]:
+def _calculate_costs_from_entries(
+    entries: list[dict], exclude_uuids: set[str]
+) -> tuple[float, int, int]:
     """Calculate costs from history entries, excluding specific UUIDs.
 
     Every field is read defensively: cost accounting is observability, so a
@@ -315,7 +320,6 @@ class SignatureContext:
             if self._lm_context is not None:
                 self._lm_context.__exit__(exc_type, exc_val, exc_tb)
                 self._lm_context = None
-
 
     async def __aenter__(self) -> "SignatureContext":
         """Async enter the context."""

@@ -42,6 +42,7 @@ class Episode(BaseModel):
             in the episode filename: ``<run_id>-<task>-<index>.json``.
         mutations: Ordered sequence of Cartographer mutations applied during this episode.
     """
+
     run_id: str = Field(
         default="",
         description=(
@@ -55,7 +56,12 @@ class Episode(BaseModel):
     )
     task: str = Field(description="Wrapped signature name (or module class name as fallback)")
     module: str = Field(description="Wrapped dspy.Module class name")
-    question: str = Field(description="Question/task description for this episode (passed as 'question' or derived from serialized inputs)")
+    question: str = Field(
+        description=(
+            "Question/task description for this episode "
+            "(passed as 'question' or derived from serialized inputs)"
+        )
+    )
     artifacts: dict[str, str] = Field(
         default_factory=dict,
         description="Named output artifacts produced by the agent (e.g. {'review': '<markdown>'})",
@@ -166,7 +172,7 @@ def find_latest_episode(
             continue
         if not entry.name.startswith(prefix):
             continue
-        remainder = entry.name[len(prefix):]
+        remainder = entry.name[len(prefix) :]
         if task is not None and f"-{task}-" not in remainder:
             continue
         if exclude_task is not None and f"-{exclude_task}-" in remainder:
