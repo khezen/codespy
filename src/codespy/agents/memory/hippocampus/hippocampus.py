@@ -103,15 +103,21 @@ class Hippocampus(dspy.Module):
 
     ## Trajectory bounding (two-stage)
 
-    When ``budget.max_trajectory_tokens`` is set:
+    When ``budget.compact_trajectory`` is ``True`` and
+    ``budget.max_trajectory_tokens`` is set:
 
     - **Stage 1** (per call) — each trajectory is head+tail bounded at ``format_trajectory``
       time. This keeps the buffer lightweight.
     - **Stage 2** (``end_episode``) — the joined episode is head+tail bounded again, so
       the combined result is guaranteed to fit the budget even if many calls are buffered.
 
-    With ``budget.max_trajectory_tokens=None`` both stages are no-ops and the
-    Distiller receives the full trajectory.
+    With ``budget.compact_trajectory=False`` both stages are skipped and the
+    Distiller receives the full trajectory. The ContextSafe wrapper on the
+    Distiller provides RLM fallback if the input exceeds the model's context
+    window.
+
+    With ``budget.max_trajectory_tokens=None`` both stages are no-ops
+    regardless of ``compact_trajectory``.
 
     ## Token budgets
 
@@ -267,7 +273,8 @@ class Hippocampus(dspy.Module):
         Buffers the (stage-1 bounded) trajectory and, depending on
         ``max_reflects``, runs an online distill+apply pass immediately.
         """
-        traj = format_trajectory(pred, self.budget.max_trajectory_tokens)
+        max_traj = self.budget.max_trajectory_tokens if self.budget.compact_trajectory else None
+        traj = format_trajectory(pred, max_traj)
         self._episode_trajectories.append(traj)
         self._episode_question = self._make_question(kwargs)
         # Online reflection: None = no limit (always); N = for the first N calls.
@@ -294,7 +301,7 @@ class Hippocampus(dspy.Module):
         combined = "\n\n".join(
             f"=== Call {i + 1} ===\n{t}" for i, t in enumerate(self._episode_trajectories)
         )
-        if self.budget.max_trajectory_tokens is not None:
+        if self.budget.compact_trajectory and self.budget.max_trajectory_tokens is not None:
             combined = _head_tail_text(combined, self.budget.max_trajectory_tokens)
         try:
             self._distill(combined, self._episode_question or "")

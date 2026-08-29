@@ -32,7 +32,7 @@ class MemoryBudget:
             wrapped agent, so it is re-sent on every agent iteration
             (~``max_iters`` times per run) plus once per reflection call — the
             most cost-sensitive of the four. Divided by ``max_context_item_tokens`` it
-            gives the memory's approximate item capacity (8192 / 410 ~= 19 items).
+            gives the memory's approximate item capacity (16384 / 410 ~= 39 items).
         max_context_item_tokens: Budget for a *single* context memory item, passed to the
             Distiller and the Cartographer as a prompt input so they keep each
             item compact rather than spending the whole memory budget on one
@@ -46,7 +46,7 @@ class MemoryBudget:
             viable for agents with short, predictable trajectories. Tool-using
             agents can produce 100k+ token trajectories, and TwoStepAdapter
             sends the value twice, so prefer ~5–10 % of the Distiller model's
-            context window (default 8192, i.e. ~5 % of 128k). Applied per call
+            context window (default 16384, i.e. ~12 % of 128k). Applied per call
             (stage 1) and again over the combined episode in end_episode()
             (stage 2). Step-aware head+tail bounding (60 % head / 40 % tail)
             preserves both setup and conclusions.
@@ -58,12 +58,18 @@ class MemoryBudget:
             sends all of it to both the Distiller and the Cartographer.
             Ignored when ``question`` is set — prefer that when a single
             field cleanly captures intent.
+        compact_trajectory: When ``False``, ``max_trajectory_tokens`` is ignored:
+            both stage-1 (per-call) and stage-2 (episode consolidation) bounding
+            are skipped and the full trajectory is passed to the Distiller. The
+            ContextSafe wrapper on the Distiller provides RLM fallback if the
+            input exceeds the model's context window.
     """
 
-    max_context_memory_tokens: int = 8192
+    max_context_memory_tokens: int = 16384
     max_context_item_tokens: int = 410
-    max_trajectory_tokens: int | None = 8192
-    max_question_tokens: int | None = 2048
+    max_trajectory_tokens: int | None = 16384
+    max_question_tokens: int | None = 8192
+    compact_trajectory: bool = True
 
 
 # Eviction priority — lower number = evict first

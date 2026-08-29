@@ -273,10 +273,11 @@ class Settings(BaseSettings):
         from codespy.agents.memory.hippocampus.budget import MemoryBudget
 
         return MemoryBudget(
-            max_context_memory_tokens=self.memory.default_max_context_memory_tokens,
-            max_context_item_tokens=self.memory.default_max_context_item_tokens,
-            max_trajectory_tokens=self.memory.default_max_trajectory_tokens,
-            max_question_tokens=self.memory.default_max_question_tokens,
+            max_context_memory_tokens=self.memory.max_context_memory_tokens,
+            max_context_item_tokens=self.memory.max_context_item_tokens,
+            max_trajectory_tokens=self.memory.max_trajectory_tokens,
+            max_question_tokens=self.memory.max_question_tokens,
+            compact_trajectory=self.memory.compact_trajectory,
         )
 
     def get_rlm_threshold(self, module_type: str) -> float:
