@@ -56,6 +56,7 @@ SectionName = Literal[
     "context_roadmap",
     "context_understanding",
     "domain_constants",
+    "experiences",
     "parsing_schema",
     "reusable_results",
 ]
@@ -65,6 +66,7 @@ _SECTION_PREFIX: dict[str, str] = {
     "context_roadmap": "cr",
     "context_understanding": "cu",
     "domain_constants": "dc",
+    "experiences": "ex",
     "parsing_schema": "ps",
     "reusable_results": "rr",
 }
@@ -105,7 +107,7 @@ class CacheCandidate(BaseModel):
         default="context_understanding",
         description=(
             "Target section: context_understanding, domain_constants, "
-            "context_roadmap, reusable_results, or parsing_schema"
+            "context_roadmap, reusable_results, parsing_schema, or experiences"
         ),
     )
     value: str = Field(
@@ -189,6 +191,13 @@ class ContextMemory(BaseModel):
         description=(
             "Agent-derived aggregated outputs (counts, distributions, classifications) "
             "that multiple questions would need"
+        ),
+    )
+    experiences: list[Item] = Field(
+        default_factory=list,
+        description=(
+            "Tool execution experiences: what tool was used, for what purpose, "
+            "and what the result was. Helps avoid redundant tool calls in future runs."
         ),
     )
 
