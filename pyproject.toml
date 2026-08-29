@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "codespy-ai"
-version = "1.0.10"
+version = "1.0.11"
 description = "Code review agent powered by DSPy"
 readme = "README.md"
 license = "MIT"

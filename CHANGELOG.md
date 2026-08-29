@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+## [1.0.11] - 2026-08-29
+
+### Added
+- Optional trajectory compaction via `compact_trajectory` config flag (default: `false`)
+  - When `false`, head+tail bounding is skipped and full trajectory goes to the Distiller
+  - ContextSafe RLM fallback handles overflow if trajectory exceeds model's context window
+  - Env var: `MEMORY_COMPACT_TRAJECTORY` (default: `false`)
+  - Config field: `memory.compact_trajectory`
+
+### Changed
+- Memory token budget defaults increased:
+  - `max_context_memory_tokens`: 8192 → 16384 (~39 items capacity vs ~19)
+  - `max_trajectory_tokens`: 8192 → 16384 (~12% of 128k context window)
+  - `max_question_tokens`: 2048 → 8192
+- Removed `default_` prefix from global memory token budget fields in `MemoryConfig`:
+  - `default_max_context_memory_tokens` → `max_context_memory_tokens`
+  - `default_max_context_item_tokens` → `max_context_item_tokens`
+  - `default_max_trajectory_tokens` → `max_trajectory_tokens`
+  - `default_max_question_tokens` → `max_question_tokens`
+  - `default_compact_trajectory` → `compact_trajectory`
+- Environment variable names updated (removed `DEFAULT_` prefix):
+  - `MEMORY_DEFAULT_MAX_CONTEXT_MEMORY_TOKENS` → `MEMORY_MAX_CONTEXT_MEMORY_TOKENS`
+  - `MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS` → `MEMORY_MAX_CONTEXT_ITEM_TOKENS`
+  - `MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS` → `MEMORY_MAX_TRAJECTORY_TOKENS`
+  - `MEMORY_DEFAULT_MAX_QUESTION_TOKENS` → `MEMORY_MAX_QUESTION_TOKENS`
+  - `MEMORY_DEFAULT_COMPACT_TRAJECTORY` → `MEMORY_COMPACT_TRAJECTORY`
+
+### Fixed
+- Memory budget field naming now consistent: only `default_enabled` and `default_max_reflects` retain `default_` prefix (these support per-signature overrides)
+
 ## [1.0.10] - 2026-08-29
 
 ### Added
