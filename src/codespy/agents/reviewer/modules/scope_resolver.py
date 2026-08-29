@@ -12,6 +12,7 @@ import asyncio
 import fnmatch
 import logging
 import os
+from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from pathlib import Path
 from typing import Any
 
@@ -993,7 +994,7 @@ class ScopeResolver(dspy.Module):
         scopes: list[ScopeResult],
         orphans: list[ChangedFile],
         review_context: ReviewContext,
-    ) -> tuple[list[ScopeResult], ContextMemory | None]:
+    ) -> list[ScopeResult]:
         """Use ReAct agent to refine scope assignments from deterministic candidates.
 
         Args:
@@ -1002,8 +1003,7 @@ class ScopeResolver(dspy.Module):
             review_context: Review context with memory and metadata
 
         Returns:
-            Tuple of (list of ScopeResult with agent-resolved assignments,
-                      ContextMemory with topics and items from Hippocampus)
+            List of ScopeResult with agent-resolved assignments
         """
         from codespy.agents.memory.hippocampus import (
             ContextMemory,
@@ -1049,6 +1049,13 @@ class ScopeResolver(dspy.Module):
                         f"{review_context.pr_context.pr_title}: "
                         f"{review_context.pr_context.summary}"
                     )
+                    # Scope resolver loads its own prior episodes (no memory inheritance)
+                    from codespy.agents.memory.hippocampus.episode import find_latest_episode
+                    store = get_memory_store(self._settings)
+                    # Use repo root as the scope path for scope resolver episodes
+                    scope_path = f"/{review_context.pr_context.repo_slug}/"
+                    ep = find_latest_episode(store, scope_path, task="scope", exclude_run_id=run_id)
+                    scope_initial_memory: ContextMemory | None = ep.context_memory if ep is not None else None
                     mem = Hippocampus(
                         agent,
                         budget=self._settings.get_memory_budget("scope"),
@@ -1056,7 +1063,7 @@ class ScopeResolver(dspy.Module):
                         question=question,
                         task_name="scope",
                         run_id=run_id,
-                        initial_memory=review_context.memory,
+                        initial_memory=scope_initial_memory,
                     )
                     result = await mem.aforward(
                         candidates=candidates_str,
@@ -1155,42 +1162,27 @@ class ScopeResolver(dspy.Module):
             for scope in final_scopes:
                 scope.skills = collect_skills(repo_path, scope.subroot)
 
-            # Bind topics to hippocampus cmem BEFORE building context_memory.
-            # This ensures: (a) persisted episode includes topics, (b) items
-            # copied into context_memory are pre-stamped with topic_ids,
-            # (c) any new items from consolidation also get topic_ids via _topic_ids.
+            # Bind topics to hippocampus cmem for episode persistence
             if mem is not None and stamp_topic_ids:
                 mem._topic_ids = stamp_topic_ids
                 mem.cmem.bind_topics(scope_topics, stamp_topic_ids)
 
-            # Build ContextMemory from Hippocampus cmem (items already stamped)
-            context_memory = ContextMemory(
-                topics=scope_topics,
-                context_roadmap=mem.cmem.context_roadmap.copy() if mem else [],
-                context_understanding=mem.cmem.context_understanding.copy() if mem else [],
-                domain_constants=mem.cmem.domain_constants.copy() if mem else [],
-                parsing_schema=mem.cmem.parsing_schema.copy() if mem else [],
-                reusable_results=mem.cmem.reusable_results.copy() if mem else [],
-            )
-
-            # Persist episode at deepest common folder when memory is enabled
+            # Fire-and-forget background episode save
             if mem is not None:
                 common_dir = _deepest_common_folder(final_scopes, pr.repo_slug)
                 scope_desc = "\n".join(
                     f"- {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
                     for s in final_scopes
                 )
-                await mem.aend_episode(
-                    get_memory_store(self._settings),
-                    common_dir,
-                    artifacts={"scopes": scope_desc},
-                )
-                return final_scopes, context_memory
+                store = get_memory_store(self._settings)
+                def _persist():
+                    try:
+                        mem.end_episode(store, common_dir, artifacts={"scopes": scope_desc})
+                    except Exception:
+                        logger.warning("Background scope episode save failed", exc_info=True)
+                submit_episode_save(_persist, name="scope-episode-save")
 
-            # No memory enabled: return scopes with ContextMemory containing topics only
-            if scope_topics:
-                return final_scopes, context_memory
-            return final_scopes, None
+            return final_scopes
 
         finally:
             await cleanup_mcp_contexts(contexts)
@@ -1198,14 +1190,14 @@ class ScopeResolver(dspy.Module):
     async def aforward(
         self,
         review_context: ReviewContext,
-    ) -> tuple[list[ScopeResult], ContextMemory | None]:
+    ) -> list[ScopeResult]:
         """Resolve scopes in the repository for the given PR.
 
         Args:
-            review_context: Review context with inherited memory and metadata
+            review_context: Review context with PR identity and metadata
 
         Returns:
-            Tuple of (list of ScopeResult, final context memory or None)
+            List of ScopeResult
         """
         # Local bindings from review_context metadata
         pr = review_context.metadata.pr
@@ -1216,7 +1208,7 @@ class ScopeResolver(dspy.Module):
         excluded_dirs = self._settings.excluded_directories
         reviewable_files = [f for f in pr.changed_files if should_review_file(f, excluded_dirs)]
         if not reviewable_files:
-            return [], review_context.memory
+            return []
         repo = pr.repo_slug
         if not self._settings.is_signature_enabled("scope"):
             fallback = ScopeResult(
@@ -1229,8 +1221,7 @@ class ScopeResolver(dspy.Module):
                 description="Repository root",
             )
             fallback.skills = collect_skills(repo_path, ".")
-            root_topic = fallback.topic(pr.repo_full_name)
-            return [fallback], ContextMemory(topics=[root_topic])
+            return [fallback]
 
         try:
             await self._ensure_repo(pr, repo_path, is_local)
@@ -1254,51 +1245,7 @@ class ScopeResolver(dspy.Module):
                 )
             if orphans:
                 logger.info("Deterministic identification produced %d orphan(s)", len(orphans))
-            # Load prior scope memory from the deepest common folder
-            loaded_memory: ContextMemory | None = None
-            if self._settings.get_memory_enabled("scope"):
-                from codespy.agents.memory.hippocampus.episode import find_latest_episode
-
-                store = get_memory_store(self._settings)
-                common_dir = (
-                    _deepest_common_folder(scopes, pr.repo_slug) if scopes else f"/{pr.repo_slug}/"
-                )
-                prior_episode = find_latest_episode(
-                    store, common_dir, task="scope", exclude_run_id=run_id
-                )
-                # Fallback: prior run may have persisted at repo root if scopes differed
-                if prior_episode is None and common_dir != f"/{pr.repo_slug}/":
-                    prior_episode = find_latest_episode(
-                        store, f"/{pr.repo_slug}/", task="scope", exclude_run_id=run_id
-                    )
-                if prior_episode is not None:
-                    loaded_memory = prior_episode.context_memory
-                    # Strip prior-run topics: current run builds authoritative topics
-                    # via bind_topics after refinement. Clearing item topic_ids ensures
-                    # bind_topics can re-bind them to the current run's stamp_topic_ids.
-                    loaded_memory.topics = []
-                    for item in loaded_memory.all_items():
-                        item.topic_ids = []
-                    logger.info(
-                        "Loaded prior scope memory (run=%s, items=%d)",
-                        prior_episode.run_id[:8],
-                        len(loaded_memory.all_items()),
-                    )
-                else:
-                    logger.debug("No prior scope episode found at %s", common_dir)
-            # Inject loaded memory into review_context for _refine_scopes
-            if loaded_memory is not None:
-                merged_memory = (
-                    ContextMemory.merge(loaded_memory, review_context.memory)
-                    if review_context.memory
-                    else loaded_memory
-                )
-                review_context = ReviewContext(
-                    pr_context=review_context.pr_context,
-                    memory=merged_memory,
-                    metadata=review_context.metadata,
-                )
-            scopes, context_memory = await self._refine_scopes(scopes, orphans, review_context)
+            scopes = await self._refine_scopes(scopes, orphans, review_context)
             # Log final scopes for visibility
             scope_summary = "\n".join(
                 f"  - {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
@@ -1307,7 +1254,7 @@ class ScopeResolver(dspy.Module):
             logger.info(
                 "Resolved %d scope(s) for %s:\n%s", len(scopes), pr.repo_slug, scope_summary
             )
-            return scopes, context_memory
+            return scopes
 
         except Exception as e:
             logger.error("Scope resolution failed: %s", e, exc_info=True)
@@ -1320,12 +1267,11 @@ class ScopeResolver(dspy.Module):
                 reason=f"Fallback due to error: {e}",
                 description="Repository root",
             )
-            root_topic = fallback.topic(pr.repo_full_name)
-            return [fallback], ContextMemory(topics=[root_topic])
+            return [fallback]
 
     def forward(
         self,
         review_context: ReviewContext,
-    ) -> tuple[list[ScopeResult], ContextMemory | None]:
+    ) -> list[ScopeResult]:
         """Resolve scopes (sync wrapper)."""
         return asyncio.run(self.aforward(review_context))

@@ -1,6 +1,7 @@
 """Auditor module — assesses code quality and provides recommendation after reviews."""
 
 import logging
+from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -8,7 +9,7 @@ import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import Hippocampus
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.reviewer.models import Issue, ReviewContext
 from codespy.agents.reviewer.modules.scope_resolver import _deepest_common_folder
 from codespy.config import get_settings
@@ -70,6 +71,20 @@ class Auditor(dspy.Module):
             f"{review_context.pr_context.pr_title}: {review_context.pr_context.summary}"
         )
 
+        # Load prior "audit" episodes per scope
+        initial_memory: ContextMemory | None = None
+        if self._settings.get_memory_enabled("audit") and scopes:
+            from codespy.agents.memory.hippocampus.episode import find_latest_episode
+            store = get_memory_store(self._settings)
+            per_scope_memories: list[ContextMemory] = []
+            for scope in scopes:
+                ep = find_latest_episode(store, scope.scope_path(), task="audit", exclude_run_id=run_id)
+                if ep is not None:
+                    per_scope_memories.append(ep.context_memory)
+            if per_scope_memories:
+                initial_memory = ContextMemory.merge(*per_scope_memories)
+                logger.info("Merged %d prior audit episode(s) into auditor memory", len(per_scope_memories))
+
         if self._settings.get_memory_enabled("audit"):
             mem = Hippocampus(
                 auditor,
@@ -78,7 +93,7 @@ class Auditor(dspy.Module):
                 question=question,
                 task_name="audit",
                 run_id=run_id,
-                initial_memory=review_context.memory,
+                initial_memory=initial_memory,
                 topic_ids=topic_ids,
             )
             result = mem(
@@ -87,24 +102,28 @@ class Auditor(dspy.Module):
                 changed_files=audit_files,
                 all_issues=all_issues,
             )
-            mem.end_episode(
-                get_memory_store(self._settings),
+            # Fire-and-forget background episode save
+            _store = get_memory_store(self._settings)
+            _common_dir = (
                 _deepest_common_folder(scopes, review_context.pr_context.repo_slug)
-                if scopes
-                else f"/{review_context.pr_context.repo_slug}/",
-                artifacts={
-                    "audit": (
-                        f"## Quality Assessment\n\n{result.quality_assessment}\n\n"
-                        f"## Recommendation\n\n{result.recommendation}\n"
-                    )
-                },
+                if scopes else f"/{review_context.pr_context.repo_slug}/"
             )
-            # Persist episode at each scope location if scopes are provided
-            if scopes:
-                store = get_memory_store(self._settings)
-                for scope in scopes:
-                    path = mem.episode_file_path(scope.scope_path())
-                    mem.save_episode(store, path)
+            _artifacts = {
+                "audit": (
+                    f"## Quality Assessment\n\n{result.quality_assessment}\n\n"
+                    f"## Recommendation\n\n{result.recommendation}\n"
+                )
+            }
+            _scopes = scopes
+            def _persist(m=mem, s=_store, d=_common_dir, a=_artifacts, sc=_scopes):
+                try:
+                    m.end_episode(s, d, artifacts=a)
+                    if sc:
+                        for scope in sc:
+                            m.save_episode(s, m.episode_file_path(scope.scope_path()))
+                except Exception:
+                    logger.warning("Background audit episode save failed", exc_info=True)
+            submit_episode_save(_persist, name="audit-episode-save")
         else:
             result = auditor(
                 pr_title=review_context.pr_context.pr_title,
@@ -127,7 +146,7 @@ class Auditor(dspy.Module):
         """Assess quality and recommend action.
 
         Args:
-            review_context: ReviewContext containing PR identity and inherited memory
+            review_context: ReviewContext containing PR identity (memory loaded per-scope from prior audit episodes)
             changed_files: In-scope reviewable files
             all_issues: All issues found during review
             run_id: Pipeline run identifier

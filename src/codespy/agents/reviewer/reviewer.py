@@ -8,7 +8,7 @@ from pathlib import Path
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
-from codespy.agents.memory.hippocampus import ContextMemory
+
 from codespy.agents.reviewer.models import (
     Issue,
     LocalReviewConfig,
@@ -101,7 +101,7 @@ class ReviewPipeline(dspy.Module):
         scopes: list,
         module_names: list[str],
         review_context: ReviewContext,
-    ) -> tuple[list[Issue], dict[str, ContextMemory | None]]:
+    ) -> list[Issue]:
         """Run review modules concurrently in a single event loop.
 
         Uses asyncio.gather instead of dspy.Parallel to avoid the
@@ -111,10 +111,10 @@ class ReviewPipeline(dspy.Module):
         Args:
             scopes: Identified scopes with changed files
             module_names: Names of modules (for error logging)
-            review_context: ReviewContext for Hippocampus question and memory inheritance
+            review_context: ReviewContext for PR identity and pipeline metadata
 
         Returns:
-            Tuple of (aggregated list of issues, dict of module_name -> context_memory)
+            Aggregated list of issues
         """
         tasks = [
             self.code_reviewer.aforward(scopes=scopes, review_context=review_context),
@@ -124,15 +124,13 @@ class ReviewPipeline(dspy.Module):
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_issues: list[Issue] = []
-        context_memories: dict[str, ContextMemory | None] = {}
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.error(f"{module_names[i]} failed: {result}", exc_info=result)
             elif result is not None:
-                issues, ctx_mem = result
+                issues, _ = result
                 all_issues.extend(issues)
-                context_memories[module_names[i]] = ctx_mem
-        return all_issues, context_memories
+        return all_issues
 
     def _build_local_pr(self, config: LocalReviewConfig) -> PullRequest:
         """Build a PullRequest from local git changes.
@@ -197,7 +195,7 @@ class ReviewPipeline(dspy.Module):
         )
         metadata = ReviewMetadata(repo_path=repo_path, run_id=run_id, pr=pr, is_local=is_local)
         review_ctx = ReviewContext(pr_context=pr_context, memory=None, metadata=metadata)
-        scopes, initial_memory = self.scope_resolver(review_context=review_ctx)
+        scopes = self.scope_resolver(review_context=review_ctx)
         for scope in scopes:
             logger.info(
                 f"  Scope: {scope.subroot} ({scope.scope_type.value}) - "
@@ -221,7 +219,7 @@ class ReviewPipeline(dspy.Module):
         # Step 2: Run Summarizer (now receives scopes for per-scope episode persistence)
         # Compute all scope topic IDs for summarizer
         all_scope_topic_ids = [s.topic(pr.repo_full_name).id for s in scopes]
-        pr_summary, summarizer_memory = self.summarizer(
+        pr_summary = self.summarizer(
             pr_title=pr.title,
             pr_description=pr.body or "No description provided.",
             pr_number=pr.number,
@@ -230,29 +228,19 @@ class ReviewPipeline(dspy.Module):
             repo_slug=pr.repo_slug,
             run_id=run_id,
             scopes=scopes,
-            initial_memory=initial_memory,
             topic_ids=all_scope_topic_ids,
         )
-        # Enrich review_ctx with actual summary and memory from summarizer
+        # Enrich review_ctx with actual summary
         pr_context.summary = pr_summary
-        review_ctx = ReviewContext(
-            pr_context=pr_context, memory=summarizer_memory, metadata=metadata
-        )
+        review_ctx = ReviewContext(pr_context=pr_context, memory=None, metadata=metadata)
         # Step 3: Run review modules concurrently via asyncio.gather
-        # (inherit Scope Identifier memory)
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
-        all_issues, parallel_memories = asyncio.run(
+        all_issues = asyncio.run(
             self._run_review_modules(scopes, module_names, review_context=review_ctx)
         )
         logger.info(f"Found {len(all_issues)} issues")
-        # Merge parallel context memories for Auditor
-        memories_to_merge = [m for m in parallel_memories.values() if m is not None]
-        merged_memory = (
-            ContextMemory.merge(*memories_to_merge) if memories_to_merge else summarizer_memory
-        )
-        review_ctx = ReviewContext(pr_context=pr_context, memory=merged_memory, metadata=metadata)
-        # Step 4: Run Audit (inherits merged memory from parallel modules)
+        # Step 4: Run Audit (loads own prior episodes per scope, no memory inheritance from parallel modules)
         scoped_files = self._collect_scoped_files(scopes)
         logger.info(
             f"Audit input: {len(scoped_files)} in-scope files "
@@ -263,6 +251,8 @@ class ReviewPipeline(dspy.Module):
             changed_files=scoped_files,
             all_issues=all_issues,
             run_id=run_id,
+            scopes=scopes,
+            topic_ids=all_scope_topic_ids,
         )
         # Collect per-signature statistics
         signature_stats_list = self._collect_signature_stats()

@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-08-29
+
+### Changed
+- Memory isolation: each pipeline module (code_review, doc, supply_chain, audit, summary, scope) now loads its own prior episodes per-scope instead of inheriting context memory from upstream stages
+- `ReviewContext.memory` field marked unused (kept for API compatibility); modules no longer return or merge context memories
+- Scope resolver, summarizer, code reviewer, doc reviewer, supply chain auditor, and auditor all load prior episodes independently via `find_latest_episode`
+- Summarizer `initial_memory` parameter removed; memory loaded internally from prior "summary" episodes
+- Review modules now return `(issues, None)` instead of `(issues, ContextMemory)`; pipeline no longer merges parallel memories for auditor
+- Scope resolver returns `list[ScopeResult]` instead of `tuple[list[ScopeResult], ContextMemory | None]`
+- `default_max_iters` reduced from 10 to 4
+- `default_max_llm_calls` reduced from 30 to 8
+
+### Added
+- Background episode persistence via `submit_episode_save()` / `join_episode_saves()` in `codespy.agents.memory.hippocampus.episode`
+- Non-daemon background threads for episode save ensure persistence even on fast process exit
+- Per-module episode loading with `find_latest_episode` scoped by task name (e.g. `task="audit"`, `task="code_review"`)
+
+### Fixed
+- Eliminated pipeline-blocking I/O: episode consolidation and save no longer blocks the review pipeline between stages
+
 ## [1.0.8] - 2026-08-18
 
 ### Security

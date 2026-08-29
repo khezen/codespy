@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+
 from collections.abc import Sequence
 
 import dspy  # type: ignore[import-untyped]
@@ -9,6 +10,7 @@ import dspy  # type: ignore[import-untyped]
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
+from codespy.agents.memory.hippocampus.episode import find_latest_episode, submit_episode_save
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
 from codespy.agents.reviewer.modules.doc_extractor import extract_documentation
 from codespy.agents.reviewer.modules.helpers import (
@@ -121,11 +123,11 @@ class DocReviewer(dspy.Module):
 
         Args:
             scopes: List of identified scopes with their changed files
-            review_context: ReviewContext containing PR identity, inherited memory,
-                and runtime pipeline metadata (repo_path, run_id, mr)
+            review_context: ReviewContext containing PR identity and
+                runtime pipeline metadata (repo_path, run_id, mr)
 
         Returns:
-            Tuple of (list of issues, merged context memory or None)
+            Tuple of (list of issues, None) - memory is not returned
         """
         # Local bindings from review_context metadata
         repo_path = review_context.metadata.repo_path
@@ -134,13 +136,12 @@ class DocReviewer(dspy.Module):
 
         if not self._settings.is_signature_enabled("doc"):
             logger.debug("Skipping doc: disabled")
-            return [], review_context.memory
+            return [], None
         changed_scopes = [s for s in scopes if s.has_changes and s.changed_files]
         if not changed_scopes:
             logger.info("No scopes with changes for doc review")
-            return [], review_context.memory
+            return [], None
         all_issues: list[Issue] = []
-        scope_memories: list[ContextMemory] = []
         total_files = sum(len(s.changed_files) for s in changed_scopes)
         logger.info(f"Doc review for {len(changed_scopes)} scopes ({total_files} changed files)...")
         for scope in changed_scopes:
@@ -179,6 +180,17 @@ class DocReviewer(dspy.Module):
                 )
                 mem: Hippocampus | None = None
                 async with SignatureContext("doc", self._cost_tracker):
+                    # Load own prior "doc" episode for this scope
+                    scope_initial_memory: ContextMemory | None = None
+                    if self._settings.get_memory_enabled("doc"):
+                        ep = find_latest_episode(
+                            get_memory_store(self._settings),
+                            scope.scope_path(),
+                            task="doc",
+                            exclude_run_id=run_id,
+                        )
+                        if ep is not None:
+                            scope_initial_memory = ep.context_memory
                     if self._settings.get_memory_enabled("doc"):
                         question = (
                             f"review documentation of {scope.repo}: {scope.subroot}: "
@@ -194,7 +206,7 @@ class DocReviewer(dspy.Module):
                             question=question,
                             task_name="doc",
                             run_id=run_id,
-                            initial_memory=review_context.memory,
+                            initial_memory=scope_initial_memory,
                             topic_ids=topic_ids,
                         )
                         result = await mem.aforward(
@@ -207,14 +219,16 @@ class DocReviewer(dspy.Module):
                             for issue in (result.issues or [])
                             if issue.confidence >= self._settings.min_confidence
                         ]
-                        await mem.aend_episode(
-                            get_memory_store(self._settings),
-                            scope.scope_path(),
-                            artifacts={"review": issues_to_markdown(issues)},
-                        )
-                        # Collect scope's context memory
-                        if mem:
-                            scope_memories.append(mem.cmem.model_copy(deep=True))
+                        # Fire-and-forget background episode save
+                        _store = get_memory_store(self._settings)
+                        _scope_path = scope.scope_path()
+                        _artifacts = {"review": issues_to_markdown(issues)}
+                        def _persist(m=mem, s=_store, p=_scope_path, a=_artifacts):
+                            try:
+                                m.end_episode(s, p, artifacts=a)
+                            except Exception:
+                                logger.warning("Background doc episode save failed", exc_info=True)
+                        submit_episode_save(_persist, name="doc-episode-save")
                     else:
                         result = await asyncio.to_thread(
                             reviewer,
@@ -234,11 +248,7 @@ class DocReviewer(dspy.Module):
                 logger.error(f"Doc review failed for scope {scope.subroot}: {e}", exc_info=True)
 
         logger.info(f"Doc review found {len(all_issues)} issues")
-        # Merge all scope context memories into one module-level memory
-        merged_memory = (
-            ContextMemory.merge(*scope_memories) if scope_memories else review_context.memory
-        )
-        return all_issues, merged_memory
+        return all_issues, None
 
     def forward(
         self,
@@ -249,10 +259,10 @@ class DocReviewer(dspy.Module):
 
         Args:
             scopes: List of identified scopes with their changed files
-            review_context: ReviewContext containing PR identity, inherited memory,
-                and runtime pipeline metadata (repo_path, run_id, mr)
+            review_context: ReviewContext containing PR identity and
+                runtime pipeline metadata (repo_path, run_id, mr)
 
         Returns:
-            Tuple of (list of issues, merged context memory or None)
+            Tuple of (list of issues, None) - memory is not returned
         """
         return asyncio.run(self.aforward(scopes, review_context))

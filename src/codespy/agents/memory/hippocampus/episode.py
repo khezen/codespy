@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
@@ -9,6 +12,56 @@ from pydantic import BaseModel, Field
 from codespy.agents.memory.hippocampus.context_memory import ContextMemory, Mutation
 from codespy.tools.storage.base import Storage
 from codespy.tools.storage.models import Entry, EntryType
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Background episode-save registry
+# ---------------------------------------------------------------------------
+# Modules fire episode consolidation+save in background threads so the review
+# pipeline is not blocked.  Threads are registered here and joined before the
+# pipeline returns, ensuring episodes are persisted even when the process exits
+# shortly afterwards.
+
+_save_threads: list[threading.Thread] = []
+_save_lock = threading.Lock()
+
+
+def submit_episode_save(target: Callable[[], object], *, name: str = "episode-save") -> None:
+    """Start *target* in a non-daemon background thread and track it.
+
+    The thread is **non-daemon**: even without an explicit
+    ``join_episode_saves()`` call, the Python interpreter will wait for it
+    to finish before exiting.  This guarantees episode persistence when the
+    main thread returns quickly (e.g. CLI publishes the review and exits).
+
+    Args:
+        target: A zero-arg callable that performs the episode save.
+        name: Thread name (for debugging / log messages).
+    """
+    t = threading.Thread(target=target, name=name, daemon=False)
+    with _save_lock:
+        _save_threads.append(t)
+    t.start()
+
+
+def join_episode_saves(timeout_per_thread: float = 120) -> None:
+    """Block until every tracked episode-save thread has finished.
+
+    Called once at the end of ``ReviewPipeline.forward()`` to guarantee
+    episodes are persisted before the process may exit.
+
+    Args:
+        timeout_per_thread: Max seconds to wait per thread (default 120).
+            If a thread exceeds the timeout it is abandoned with a warning.
+    """
+    with _save_lock:
+        threads = list(_save_threads)
+        _save_threads.clear()
+    for t in threads:
+        t.join(timeout=timeout_per_thread)
+        if t.is_alive():
+            logger.warning("Episode save thread %r did not finish in time", t.name)
 
 
 class Episode(BaseModel):
