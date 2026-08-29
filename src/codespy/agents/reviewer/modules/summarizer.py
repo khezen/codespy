@@ -1,6 +1,7 @@
 """PR summarizer module — produces a concise summary before scope identification."""
 
 import logging
+from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from typing import TYPE_CHECKING
 
 import dspy
@@ -54,9 +55,8 @@ class Summarizer(dspy.Module):
         repo_slug: str,
         run_id: str | None = None,
         scopes: list["ScopeResult"] | None = None,
-        initial_memory: ContextMemory | None = None,
         topic_ids: list[str] | None = None,
-    ) -> tuple[str, ContextMemory | None]:
+    ) -> str:
         """Generate a PR summary.
 
         Args:
@@ -68,17 +68,18 @@ class Summarizer(dspy.Module):
             repo_slug: Host-qualified repo slug for episode path
             run_id: Pipeline run identifier
             scopes: List of resolved scopes for per-scope episode persistence
-            initial_memory: Optional context memory from scope resolver
             topic_ids: Optional list of topic IDs for auto-tagging
 
         Returns:
-            Tuple of (summary string, final context memory or None)
+            Summary string
         """
 
         if not self._settings.is_signature_enabled("summary"):
             logger.debug("Skipping summary: disabled")
-            return pr_title or "No title", initial_memory
-        # Load latest episode per scope and merge with inherited memory
+            return pr_title or "No title"
+
+        # Load latest "summary" episode per scope and merge
+        initial_memory: ContextMemory | None = None
         if self._settings.get_memory_enabled("summary") and scopes:
             from codespy.agents.memory.hippocampus.episode import find_latest_episode
 
@@ -88,17 +89,15 @@ class Summarizer(dspy.Module):
                 ep = find_latest_episode(
                     store,
                     scope.scope_path(),
-                    task=None,
-                    exclude_task="scope",
+                    task="summary",
                     exclude_run_id=run_id,
                 )
                 if ep is not None:
                     per_scope_memories.append(ep.context_memory)
             if per_scope_memories:
-                all_memories = ([initial_memory] if initial_memory else []) + per_scope_memories
-                initial_memory = ContextMemory.merge(*all_memories)
+                initial_memory = ContextMemory.merge(*per_scope_memories)
                 logger.info(
-                    "Merged %d prior scope episode(s) into summarizer memory",
+                    "Merged %d prior summary episode(s) into summarizer memory",
                     len(per_scope_memories),
                 )
         summarizer = ContextSafe(
@@ -131,11 +130,20 @@ class Summarizer(dspy.Module):
                     changed_file_paths=changed_file_paths,
                     patches=patches,
                 )
-                mem.end_episode(
-                    get_memory_store(self._settings),
-                    _deepest_common_folder(scopes, repo_slug) if scopes else f"/{repo_slug}/",
-                    artifacts={"summary": result.summary},
-                )
+                # Fire-and-forget episode save
+                _store = get_memory_store(self._settings)
+                _common_dir = _deepest_common_folder(scopes, repo_slug) if scopes else f"/{repo_slug}/"
+                _summary_text = result.summary
+                _scopes = scopes
+                def _persist():
+                    try:
+                        mem.end_episode(_store, _common_dir, artifacts={"summary": _summary_text})
+                        if _scopes:
+                            for scope in _scopes:
+                                mem.save_episode(_store, mem.episode_file_path(scope.scope_path()))
+                    except Exception:
+                        logger.warning("Background summary episode save failed", exc_info=True)
+                submit_episode_save(_persist, name="summary-episode-save")
             else:
                 result = summarizer(
                     pr_title=pr_title,
@@ -145,14 +153,4 @@ class Summarizer(dspy.Module):
                 )
 
         logger.info(f"PR summary: {result.summary[:80]}...")
-        # Return final context memory when memory is enabled
-        final_memory = mem.cmem.model_copy(deep=True) if mem else initial_memory
-
-        # Persist episode at each scope location if memory is enabled and scopes are provided
-        if mem is not None and scopes:
-            store = get_memory_store(self._settings)
-            for scope in scopes:
-                path = mem.episode_file_path(scope.scope_path())
-                mem.save_episode(store, path)
-
-        return result.summary, final_memory
+        return result.summary

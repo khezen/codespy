@@ -110,7 +110,7 @@ AUTO_DISCOVER_GEMINI=false
 | Reasoning effort | `DEFAULT_REASONING_EFFORT` | `medium` | Provider reasoning budget: `minimal`, `low`, `medium`, `high` |
 | Max tokens | `DEFAULT_MAX_TOKENS` | `64000` | Output token budget per completion (reasoning tokens included) |
 | Temperature | `DEFAULT_TEMPERATURE` | `0.2` | Default temperature for LLM calls |
-| Max iterations | `DEFAULT_MAX_ITERS` | `10` | Maximum ReAct iterations for tool-using agents |
+| Max iterations | `DEFAULT_MAX_ITERS` | `4` | Maximum ReAct iterations for tool-using agents |
 | Prompt caching | `ENABLE_PROMPT_CACHING` | `true` | Provider-side prompt caching (Anthropic, OpenAI, Bedrock) |
 | RLM fallback | `RLM_FALLBACK_ENABLED` | `true` | Proactive RLM fallback for context rot prevention |
 | RLM react threshold | `RLM_FALLBACK_REACT_THRESHOLD` | `0.30` | Context ratio triggering RLM for ReAct modules |

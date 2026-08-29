@@ -90,16 +90,15 @@ class ReviewMetadata(BaseModel):
 class ReviewContext(BaseModel):
     """Evolving pipeline state threaded through review stages.
 
-    Carries both the immutable PR identity and the inherited context memory
-    from upstream pipeline stages. Updated at each stage boundary
-    so downstream modules inherit accumulated understanding.
+    Carries the immutable PR identity and runtime pipeline metadata.
+    Context memory is loaded independently by each module from its own prior episodes.
     """
 
     pr_context: PRContext = Field(
         description="Immutable PR identity (repo, number, title, summary)"
     )
     memory: ContextMemory | None = Field(
-        default=None, description="Inherited context memory from upstream stages"
+        default=None, description="Unused — each module loads its own prior episodes. Kept for API compatibility."
     )
     metadata: ReviewMetadata | None = Field(default=None, description="Runtime pipeline state")
 

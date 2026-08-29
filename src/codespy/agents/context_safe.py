@@ -200,6 +200,6 @@ class ContextSafe(dspy.Module):
         return dspy.RLM(
             self._get_current_signature(),
             tools=self._tools,
-            max_iters=self._max_iters or 10,
-            max_llm_calls=self._max_llm_calls or 20,
+            max_iters=self._max_iters or 4,
+            max_llm_calls=self._max_llm_calls or 8,
         )
