@@ -5,10 +5,10 @@
 ## [1.0.11] - 2026-08-29
 
 ### Added
-- Optional trajectory compaction via `compact_trajectory` config flag (default: `true`)
+- Optional trajectory compaction via `compact_trajectory` config flag (default: `false`)
   - When `false`, head+tail bounding is skipped and full trajectory goes to the Distiller
   - ContextSafe RLM fallback handles overflow if trajectory exceeds model's context window
-  - Env var: `MEMORY_COMPACT_TRAJECTORY` (default: `true`)
+  - Env var: `MEMORY_COMPACT_TRAJECTORY` (default: `false`)
   - Config field: `memory.compact_trajectory`
 
 ### Changed
