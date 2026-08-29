@@ -76,6 +76,11 @@ class DistillerSig(dspy.Signature):
          — that frames any question
 
        Medium value:
+       - Experiences: tool execution patterns that transfer across runs.
+         Record what tool was used, for what purpose, and what the result
+         was. Focus on tool-use strategies that would save a future agent
+         exploration work. Do NOT record every individual tool call — only patterns
+         that a future run on the same context would benefit from.
        - Parsing schema: document delimiters, boundary patterns, field
          format, how to reliably split or locate items in the context
        - Shared intermediate computations: aggregated results (counts,
@@ -98,10 +103,10 @@ class DistillerSig(dspy.Signature):
 
     Assign each candidate to one of these exact section names (they map
     onto the context memory schema): context_understanding, domain_constants,
-    context_roadmap, reusable_results, parsing_schema.
+    context_roadmap, reusable_results, parsing_schema, experiences.
 
     Each candidate is an object with exactly these fields:
-    - section: one of the five section names above
+    - section: one of the six section names above
     - value: the compact cached content (stay within max_context_item_tokens)
     - transferability: what kinds of future questions this would help
     - rationale: why this is shared understanding, not a one-off fact
@@ -135,7 +140,7 @@ class DistillerSig(dspy.Signature):
     cache_candidates: list[CacheCandidate] = dspy.OutputField(
         desc="Candidate items to add. Each within the max_context_item_tokens budget; "
         "structural/transferable only. "
-        "Each candidate's `section` must be one of the five section names above."
+        "Each candidate's `section` must be one of the six section names above."
     )
 
 

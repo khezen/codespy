@@ -54,7 +54,7 @@ class CartographerSig(dspy.Signature):
 
     Each operation has exactly these fields:
     - type: one of "ADD", "DELETE", or "REPLACE"
-    - section: (ADD only) one of the five section names
+    - section: (ADD only) one of the six section names
     - item_id: (DELETE/REPLACE only) existing item ID from current memory
     - content: (ADD/REPLACE only) the new content string
 
@@ -78,7 +78,10 @@ class CartographerSig(dspy.Signature):
        distributions, classifications) from processing the full context
        that multiple questions would need. Note the computation method
        to judge reliability.
-    5. parsing_schema — format observations, delimiters, splitting
+    5. experiences — tool execution patterns (what tool, what purpose,
+       what result) that transfer across runs. Evict when the tool-use
+       pattern is obvious or no longer relevant.
+    6. parsing_schema — format observations, delimiters, splitting
        methods — cheap to rediscover but saves one iteration
 
     ## Do NOT add

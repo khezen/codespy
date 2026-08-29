@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.0.10] - 2026-08-29
+
+### Added
+- New `experiences` section in `ContextMemory` for tracking tool execution patterns
+  - Records tool usage patterns (what tool, what purpose, what result) that transfer across runs
+  - Helps agents avoid redundant tool calls in future runs
+  - Added `"experiences"` to `SectionName` Literal type with `"ex"` prefix
+  - Added `experiences` field to `ContextMemory` class (renders last in LLM prompts)
+  - Updated `CacheCandidate.section` description to include `experiences`
+  - Added `experiences` to `_SECTION_EVICT_PRIORITY` at priority 1 (evicts before `reusable_results`)
+  - Updated `DistillerSig` docstring to describe experiences as "Medium value" cache candidate
+  - Updated `CartographerSig` docstring to include experiences in value priority list (priority 5 of 6)
+  - Updated section count references from "five" to "six" in Distiller and Cartographer prompts
+
 ## [1.0.9] - 2026-08-29
 
 ### Changed
