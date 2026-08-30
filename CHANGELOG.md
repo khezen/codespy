@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Removed dead-code RLM fallback defaults (`or 4` / `or 8`) in `ContextSafe._create_rlm_fallback`
+
 ## [1.0.12] - 2026-08-30
 
 ### Changed
