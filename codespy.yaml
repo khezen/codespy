@@ -213,8 +213,8 @@ rlm_fallback:
 # These apply to all signatures and reflection modules unless overridden
 default_model: anthropic/claude-opus-4-6        # DEFAULT_MODEL
 extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model)
-default_max_iters: 4                           # DEFAULT_MAX_ITERS
-default_max_llm_calls: 8                      # DEFAULT_MAX_LLM_CALLS
+default_max_iters: 3                           # DEFAULT_MAX_ITERS
+default_max_llm_calls: 5                      # DEFAULT_MAX_LLM_CALLS
 default_reasoning_effort: medium                # DEFAULT_REASONING_EFFORT (minimal | low | medium | high)
 default_temperature: 0.2                        # DEFAULT_TEMPERATURE
 
@@ -231,7 +231,7 @@ default_max_tokens: 64000                       # DEFAULT_MAX_TOKENS
 
 
 # Global LLM reliability settings
-llm_retries: 3                           # LLM_RETRIES (number of retries for LLM API calls)
+llm_retries: 2                           # LLM_RETRIES (number of retries for LLM API calls)
 llm_timeout: 240                         # LLM_TIMEOUT (timeout in seconds for LLM calls)
 
 signatures:
@@ -281,7 +281,7 @@ signatures:
   # Scope Identifier signature
   scope:
     enabled: true                        # SCOPE_ENABLED
-    max_iters: 20                        # SCOPE_MAX_ITERS
+    max_iters: null                      # SCOPE_MAX_ITERS
     max_llm_calls: null                  # SCOPE_MAX_LLM_CALLS
     model: null                          # SCOPE_MODEL
     reasoning_effort: null               # SCOPE_REASONING_EFFORT

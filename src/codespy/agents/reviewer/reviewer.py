@@ -28,6 +28,7 @@ from codespy.agents.reviewer.modules import (
     Summarizer,
     SupplyChainAuditor,
 )
+from codespy.agents.memory.hippocampus.episode import join_episode_saves
 from codespy.agents.reviewer.modules.helpers import build_patches
 from codespy.agents.reviewer.modules.scope_resolver import MANIFEST_FILES, MANIFEST_GLOBS
 from codespy.config import Settings, get_settings
@@ -256,6 +257,8 @@ class ReviewPipeline(dspy.Module):
         )
         # Collect per-signature statistics
         signature_stats_list = self._collect_signature_stats()
+        # Ensure all background episode saves complete before returning
+        join_episode_saves()
         return ReviewResult(
             pr_number=pr.number,
             pr_title=pr.title,

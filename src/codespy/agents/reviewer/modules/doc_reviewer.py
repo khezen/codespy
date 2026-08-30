@@ -4,6 +4,8 @@ import asyncio
 import logging
 
 from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 
@@ -144,111 +146,136 @@ class DocReviewer(dspy.Module):
         all_issues: list[Issue] = []
         total_files = sum(len(s.changed_files) for s in changed_scopes)
         logger.info(f"Doc review for {len(changed_scopes)} scopes ({total_files} changed files)...")
-        for scope in changed_scopes:
-            scope_root = resolve_scope_root(repo_path, scope.subroot)
-            if not scope_root.exists():
-                logger.debug(
-                    f"  Scope directory does not exist (deleted/moved files): {scope.subroot}"
+
+        # Parallelize scope processing
+        scope_tasks = [
+            self._review_scope(scope, repo_path, run_id, pr, review_context)
+            for scope in changed_scopes
+        ]
+        results = await asyncio.gather(*scope_tasks, return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(
+                    f"Doc review failed for scope {changed_scopes[i].subroot}: {result}",
+                    exc_info=result,
                 )
-                continue
-            # Step 1: Extract documentation (deterministic — no LLM)
-            logger.info(f"  Doc extraction: scope {scope.subroot}")
-            try:
-                documentation = extract_documentation(scope_root)
-            except Exception as e:
-                logger.error(f"Doc extraction failed for scope {scope.subroot}: {e}", exc_info=True)
-                documentation = ""
-            if not documentation.strip():
-                logger.debug(f"  No documentation found in {scope.subroot}, skipping doc review")
-                continue
-            # Step 2: Review docs vs patches (ChainOfThought, no tools)
-            scoped = make_scope_relative(scope)
-            patches = self._build_patches(scoped)
-            if not patches:
-                logger.debug(f"  No patches in {scope.subroot}, skipping doc review")
-                continue
-            try:
-                reviewer = ContextSafe(
-                    dspy.ChainOfThought(DocReviewSignature),
-                    DocReviewSignature,
-                    name="doc",
-                    max_llm_calls=self._settings.get_max_llm_calls("doc"),
-                    rlm_threshold=self._settings.get_rlm_threshold("chain_of_thought"),
-                )
-                logger.info(
-                    f"  Doc review: scope {scope.subroot} ({len(scope.changed_files)} files)"
-                )
-                mem: Hippocampus | None = None
-                async with SignatureContext("doc", self._cost_tracker):
-                    # Load own prior "doc" episode for this scope
-                    scope_initial_memory: ContextMemory | None = None
-                    if self._settings.get_memory_enabled("doc"):
-                        ep = find_latest_episode(
-                            get_memory_store(self._settings),
-                            scope.scope_path(),
-                            task="doc",
-                            exclude_run_id=run_id,
-                        )
-                        if ep is not None:
-                            scope_initial_memory = ep.context_memory
-                    if self._settings.get_memory_enabled("doc"):
-                        question = (
-                            f"review documentation of {scope.repo}: {scope.subroot}: "
-                            f"pull request {review_context.pr_context.pr_number} "
-                            f"{review_context.pr_context.pr_title}: "
-                            f"{review_context.pr_context.summary}"
-                        )
-                        topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
-                        mem = Hippocampus(
-                            reviewer,
-                            budget=self._settings.get_memory_budget("doc"),
-                            max_reflects=self._settings.get_memory_max_reflects("doc"),
-                            question=question,
-                            task_name="doc",
-                            run_id=run_id,
-                            initial_memory=scope_initial_memory,
-                            topic_ids=topic_ids,
-                        )
-                        result = await mem.aforward(
-                            patches=patches,
-                            documentation=documentation,
-                            categories=[IssueCategory.DOCUMENTATION],
-                        )
-                        issues = [
-                            issue
-                            for issue in (result.issues or [])
-                            if issue.confidence >= self._settings.min_confidence
-                        ]
-                        # Fire-and-forget background episode save
-                        _store = get_memory_store(self._settings)
-                        _scope_path = scope.scope_path()
-                        _artifacts = {"review": issues_to_markdown(issues)}
-                        def _persist(m=mem, s=_store, p=_scope_path, a=_artifacts):
-                            try:
-                                m.end_episode(s, p, artifacts=a)
-                            except Exception:
-                                logger.warning("Background doc episode save failed", exc_info=True)
-                        submit_episode_save(_persist, name="doc-episode-save")
-                    else:
-                        result = await asyncio.to_thread(
-                            reviewer,
-                            patches=patches,
-                            documentation=documentation,
-                            categories=[IssueCategory.DOCUMENTATION],
-                        )
-                        issues = [
-                            issue
-                            for issue in (result.issues or [])
-                            if issue.confidence >= self._settings.min_confidence
-                        ]
-                restore_repo_paths(issues, scope.subroot)
-                all_issues.extend(issues)
-                logger.debug(f"  Scope {scope.subroot}: {len(issues)} doc issues")
-            except Exception as e:
-                logger.error(f"Doc review failed for scope {scope.subroot}: {e}", exc_info=True)
+            else:
+                all_issues.extend(result)
 
         logger.info(f"Doc review found {len(all_issues)} issues")
         return all_issues, None
+
+    async def _review_scope(
+        self,
+        scope: ScopeResult,
+        repo_path: Path,
+        run_id: str,
+        pr: Any,
+        review_context: ReviewContext,
+    ) -> list[Issue]:
+        """Review documentation for a single scope. Returns list of issues (empty on error)."""
+        scope_root = resolve_scope_root(repo_path, scope.subroot)
+        if not scope_root.exists():
+            logger.debug(
+                f"  Scope directory does not exist (deleted/moved files): {scope.subroot}"
+            )
+            return []
+        # Step 1: Extract documentation (deterministic — no LLM)
+        logger.info(f"  Doc extraction: scope {scope.subroot}")
+        try:
+            documentation = extract_documentation(scope_root)
+        except Exception as e:
+            logger.error(f"Doc extraction failed for scope {scope.subroot}: {e}", exc_info=True)
+            documentation = ""
+        if not documentation.strip():
+            logger.debug(f"  No documentation found in {scope.subroot}, skipping doc review")
+            return []
+        # Step 2: Review docs vs patches (ChainOfThought, no tools)
+        scoped = make_scope_relative(scope)
+        patches = self._build_patches(scoped)
+        if not patches:
+            logger.debug(f"  No patches in {scope.subroot}, skipping doc review")
+            return []
+        try:
+            reviewer = ContextSafe(
+                dspy.ChainOfThought(DocReviewSignature),
+                DocReviewSignature,
+                name="doc",
+                max_llm_calls=self._settings.get_max_llm_calls("doc"),
+                rlm_threshold=self._settings.get_rlm_threshold("chain_of_thought"),
+            )
+            logger.info(
+                f"  Doc review: scope {scope.subroot} ({len(scope.changed_files)} files)"
+            )
+            mem: Hippocampus | None = None
+            async with SignatureContext("doc", self._cost_tracker):
+                # Load own prior "doc" episode for this scope
+                scope_initial_memory: ContextMemory | None = None
+                if self._settings.get_memory_enabled("doc"):
+                    ep = find_latest_episode(
+                        get_memory_store(self._settings),
+                        scope.scope_path(),
+                        task="doc",
+                        exclude_run_id=run_id,
+                    )
+                    if ep is not None:
+                        scope_initial_memory = ep.context_memory
+                if self._settings.get_memory_enabled("doc"):
+                    question = (
+                        f"review documentation of {scope.repo}: {scope.subroot}: "
+                        f"pull request {review_context.pr_context.pr_number} "
+                        f"{review_context.pr_context.pr_title}: "
+                        f"{review_context.pr_context.summary}"
+                    )
+                    topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
+                    mem = Hippocampus(
+                        reviewer,
+                        budget=self._settings.get_memory_budget("doc"),
+                        max_reflects=self._settings.get_memory_max_reflects("doc"),
+                        question=question,
+                        task_name="doc",
+                        run_id=run_id,
+                        initial_memory=scope_initial_memory,
+                        topic_ids=topic_ids,
+                    )
+                    result = await mem.aforward(
+                        patches=patches,
+                        documentation=documentation,
+                        categories=[IssueCategory.DOCUMENTATION],
+                    )
+                    issues = [
+                        issue
+                        for issue in (result.issues or [])
+                        if issue.confidence >= self._settings.min_confidence
+                    ]
+                    # Fire-and-forget background episode save
+                    _store = get_memory_store(self._settings)
+                    _scope_path = scope.scope_path()
+                    _artifacts = {"review": issues_to_markdown(issues)}
+                    def _persist(m=mem, s=_store, p=_scope_path, a=_artifacts):
+                        try:
+                            m.end_episode(s, p, artifacts=a)
+                        except Exception:
+                            logger.warning("Background doc episode save failed", exc_info=True)
+                    submit_episode_save(_persist, name="doc-episode-save")
+                else:
+                    result = await asyncio.to_thread(
+                        reviewer,
+                        patches=patches,
+                        documentation=documentation,
+                        categories=[IssueCategory.DOCUMENTATION],
+                    )
+                    issues = [
+                        issue
+                        for issue in (result.issues or [])
+                        if issue.confidence >= self._settings.min_confidence
+                    ]
+            restore_repo_paths(issues, scope.subroot)
+            logger.debug(f"  Scope {scope.subroot}: {len(issues)} doc issues")
+            return issues
+        except Exception as e:
+            logger.error(f"Doc review failed for scope {scope.subroot}: {e}", exc_info=True)
+            return []
 
     def forward(
         self,

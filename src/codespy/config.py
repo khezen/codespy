@@ -123,8 +123,8 @@ class Settings(BaseSettings):
     # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
     default_model: str = "anthropic/claude-opus-4-6"
     extraction_model: str | None = None  # TwoStepAdapter extraction (falls back to default_model)
-    default_max_iters: int = 4
-    default_max_llm_calls: int = 8
+    default_max_iters: int = 3
+    default_max_llm_calls: int = 5
     # Provider reasoning budget; LiteLLM maps this to each provider's native parameter.
     default_reasoning_effort: ReasoningEffort = "medium"
     default_temperature: float = 0.2
@@ -137,7 +137,7 @@ class Settings(BaseSettings):
     default_max_tokens: int = 64000
 
     # Global LLM reliability settings
-    llm_retries: int = 3  # Number of retries for LLM API calls
+    llm_retries: int = 2  # Number of retries for LLM API calls
     llm_timeout: int = 240  # Timeout in seconds for LLM calls
 
     # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)

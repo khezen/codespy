@@ -65,7 +65,7 @@ inputs:
   default-max-iters:
     description: 'Default maximum iterations for all signatures'
     required: false
-    default: '4'
+    default: '3'
   
   default-reasoning-effort:
     description: 'Default reasoning effort for all signatures (minimal|low|medium|high)'
@@ -81,7 +81,7 @@ inputs:
   llm-retries:
     description: 'Number of retries for LLM API calls'
     required: false
-    default: '3'
+    default: '2'
   
   llm-timeout:
     description: 'Timeout in seconds for LLM calls'
@@ -96,7 +96,7 @@ inputs:
   default-max-llm-calls:
     description: 'Maximum LLM calls for RLM fallback (context overflow recovery)'
     required: false
-    default: '8'
+    default: '5'
 
   # RLM fallback (context rot prevention)
   rlm-fallback-enabled:

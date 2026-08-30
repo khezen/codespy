@@ -238,97 +238,123 @@ class CodeReviewer(dspy.Module):
             f"Code review for {len(changed_scopes)} scopes ({total_files} changed files)..."
         )
 
-        for scope in changed_scopes:
-            scope_root = resolve_scope_root(repo_path, scope.subroot)
-            tools, contexts = await self._create_tools(scope_root)
-            try:
-                agent = ContextSafe(
-                    dspy.ReAct(
-                        signature=CodeReviewSignature,
-                        tools=tools,
-                        max_iters=max_iters,
-                    ),
-                    CodeReviewSignature,
-                    tools=tools,
-                    name="code_review",
-                    max_iters=max_iters,
-                    max_llm_calls=self._settings.get_max_llm_calls("code_review"),
-                    rlm_threshold=self._settings.get_rlm_threshold("react"),
+        # Parallelize scope processing
+        scope_tasks = [
+            self._review_scope(scope, repo_path, run_id, pr, review_context, categories, max_iters)
+            for scope in changed_scopes
+        ]
+        results = await asyncio.gather(*scope_tasks, return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(
+                    f"Code review failed for scope {changed_scopes[i].subroot}: {result}",
+                    exc_info=result,
                 )
-                scoped = make_scope_relative(scope)
-                logger.info(
-                    f"  Code review: scope {scope.subroot} ({len(scope.changed_files)} files)"
-                )
-                mem: Hippocampus | None = None
-                async with SignatureContext("code_review", self._cost_tracker):
-                    # Load own prior "code_review" episode for this scope
-                    scope_initial_memory: ContextMemory | None = None
-                    if self._settings.get_memory_enabled("code_review"):
-                        ep = find_latest_episode(
-                            get_memory_store(self._settings),
-                            scope.scope_path(),
-                            task="code_review",
-                            exclude_run_id=run_id,
-                        )
-                        if ep is not None:
-                            scope_initial_memory = ep.context_memory
-                    if self._settings.get_memory_enabled("code_review"):
-                        question = (
-                            f"review code change of {scope.repo}: {scope.subroot}: "
-                            f"pull request {review_context.pr_context.pr_number} "
-                            f"{review_context.pr_context.pr_title}: "
-                            f"{review_context.pr_context.summary}"
-                        )
-                        topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
-                        mem = Hippocampus(
-                            agent,
-                            budget=self._settings.get_memory_budget("code_review"),
-                            max_reflects=self._settings.get_memory_max_reflects("code_review"),
-                            question=question,
-                            task_name="code_review",
-                            run_id=run_id,
-                            initial_memory=scope_initial_memory,
-                            topic_ids=topic_ids,
-                        )
-                        result = await mem.aforward(
-                            scope=scoped,
-                            categories=categories,
-                        )
-                        issues = [
-                            issue
-                            for issue in (result.issues or [])
-                            if issue.confidence >= self._settings.min_confidence
-                        ]
-                        # Fire-and-forget background episode save
-                        _store = get_memory_store(self._settings)
-                        _scope_path = scope.scope_path()
-                        _artifacts = {"review": issues_to_markdown(issues)}
-                        def _persist(m=mem, s=_store, p=_scope_path, a=_artifacts):
-                            try:
-                                m.end_episode(s, p, artifacts=a)
-                            except Exception:
-                                logger.warning("Background code_review episode save failed", exc_info=True)
-                        submit_episode_save(_persist, name="code-review-episode-save")
-                    else:
-                        result = await agent.acall(
-                            scope=scoped,
-                            categories=categories,
-                        )
-                        issues = [
-                            issue
-                            for issue in (result.issues or [])
-                            if issue.confidence >= self._settings.min_confidence
-                        ]
-                restore_repo_paths(issues, scope.subroot)
-                all_issues.extend(issues)
-                logger.debug(f"  Scope {scope.subroot}: {len(issues)} code review issues")
-            except Exception as e:
-                logger.error(f"Code review failed for scope {scope.subroot}: {e}", exc_info=True)
-            finally:
-                await cleanup_mcp_contexts(contexts)
+            else:
+                all_issues.extend(result)
 
         logger.info(f"Code review found {len(all_issues)} issues")
         return all_issues, None
+
+    async def _review_scope(
+        self,
+        scope: ScopeResult,
+        repo_path: Path,
+        run_id: str,
+        pr: Any,
+        review_context: ReviewContext,
+        categories: list[IssueCategory],
+        max_iters: int,
+    ) -> list[Issue]:
+        """Review a single scope. Returns list of issues (empty on error)."""
+        scope_root = resolve_scope_root(repo_path, scope.subroot)
+        tools, contexts = await self._create_tools(scope_root)
+        try:
+            agent = ContextSafe(
+                dspy.ReAct(
+                    signature=CodeReviewSignature,
+                    tools=tools,
+                    max_iters=max_iters,
+                ),
+                CodeReviewSignature,
+                tools=tools,
+                name="code_review",
+                max_iters=max_iters,
+                max_llm_calls=self._settings.get_max_llm_calls("code_review"),
+                rlm_threshold=self._settings.get_rlm_threshold("react"),
+            )
+            scoped = make_scope_relative(scope)
+            logger.info(
+                f"  Code review: scope {scope.subroot} ({len(scope.changed_files)} files)"
+            )
+            mem: Hippocampus | None = None
+            async with SignatureContext("code_review", self._cost_tracker):
+                # Load own prior "code_review" episode for this scope
+                scope_initial_memory: ContextMemory | None = None
+                if self._settings.get_memory_enabled("code_review"):
+                    ep = find_latest_episode(
+                        get_memory_store(self._settings),
+                        scope.scope_path(),
+                        task="code_review",
+                        exclude_run_id=run_id,
+                    )
+                    if ep is not None:
+                        scope_initial_memory = ep.context_memory
+                if self._settings.get_memory_enabled("code_review"):
+                    question = (
+                        f"review code change of {scope.repo}: {scope.subroot}: "
+                        f"pull request {review_context.pr_context.pr_number} "
+                        f"{review_context.pr_context.pr_title}: "
+                        f"{review_context.pr_context.summary}"
+                    )
+                    topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
+                    mem = Hippocampus(
+                        agent,
+                        budget=self._settings.get_memory_budget("code_review"),
+                        max_reflects=self._settings.get_memory_max_reflects("code_review"),
+                        question=question,
+                        task_name="code_review",
+                        run_id=run_id,
+                        initial_memory=scope_initial_memory,
+                        topic_ids=topic_ids,
+                    )
+                    result = await mem.aforward(
+                        scope=scoped,
+                        categories=categories,
+                    )
+                    issues = [
+                        issue
+                        for issue in (result.issues or [])
+                        if issue.confidence >= self._settings.min_confidence
+                    ]
+                    # Fire-and-forget background episode save
+                    _store = get_memory_store(self._settings)
+                    _scope_path = scope.scope_path()
+                    _artifacts = {"review": issues_to_markdown(issues)}
+                    def _persist(m=mem, s=_store, p=_scope_path, a=_artifacts):
+                        try:
+                            m.end_episode(s, p, artifacts=a)
+                        except Exception:
+                            logger.warning("Background code_review episode save failed", exc_info=True)
+                    submit_episode_save(_persist, name="code-review-episode-save")
+                else:
+                    result = await agent.acall(
+                        scope=scoped,
+                        categories=categories,
+                    )
+                    issues = [
+                        issue
+                        for issue in (result.issues or [])
+                        if issue.confidence >= self._settings.min_confidence
+                    ]
+            restore_repo_paths(issues, scope.subroot)
+            logger.debug(f"  Scope {scope.subroot}: {len(issues)} code review issues")
+            return issues
+        except Exception as e:
+            logger.error(f"Code review failed for scope {scope.subroot}: {e}", exc_info=True)
+            return []
+        finally:
+            await cleanup_mcp_contexts(contexts)
 
     def forward(
         self,

@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [1.0.12] - 2026-08-30
+
+### Changed
+- Parallelized scope processing in code reviewer, doc reviewer, and supply chain auditor using `asyncio.gather` — multi-scope PRs now review scopes concurrently instead of sequentially
+- Reduced `default_max_iters` from 4 to 3
+- Reduced `default_max_llm_calls` from 8 to 5
+- Reduced `llm_retries` from 3 to 2
+- Scope resolver `max_iters` changed from 20 to `null` (inherits `default_max_iters: 3`)
+- Code review `reasoning_effort` default changed from `high` to `medium` in `.env.example`
+- Auditor episode save switched from background fire-and-forget to synchronous (auditor is the last pipeline module)
+
+### Added
+- `join_episode_saves()` call at end of review pipeline to ensure all background episode saves complete before returning results
+
+### Removed
+- `docker-run-json` Makefile target
+
 ## [1.0.11] - 2026-08-29
 
 ### Added
