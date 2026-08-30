@@ -32,6 +32,8 @@ class ReflectionModuleConfig(BaseModel):
     reasoning_effort: ReasoningEffort | None = None  # MEMORY_<MODULE>_REASONING_EFFORT
     temperature: float | None = None  # MEMORY_<MODULE>_TEMPERATURE
     max_tokens: int | None = None  # MEMORY_<MODULE>_MAX_TOKENS
+    max_iters: int | None = 1  # MEMORY_<MODULE>_MAX_ITERS
+    max_llm_calls: int | None = 2  # MEMORY_<MODULE>_MAX_LLM_CALLS
 
 
 class LLMSettings(BaseModel):

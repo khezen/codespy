@@ -138,11 +138,15 @@ memory:
     reasoning_effort: null                # MEMORY_DISTILLER_REASONING_EFFORT
     temperature: null                     # MEMORY_DISTILLER_TEMPERATURE
     max_tokens: null                      # MEMORY_DISTILLER_MAX_TOKENS
+    max_iters: 1                          # MEMORY_DISTILLER_MAX_ITERS
+    max_llm_calls: 2                      # MEMORY_DISTILLER_MAX_LLM_CALLS
   cartographer:
     model: null                           # MEMORY_CARTOGRAPHER_MODEL
     reasoning_effort: null                # MEMORY_CARTOGRAPHER_REASONING_EFFORT
     temperature: null                     # MEMORY_CARTOGRAPHER_TEMPERATURE
     max_tokens: null                      # MEMORY_CARTOGRAPHER_MAX_TOKENS
+    max_iters: 1                          # MEMORY_CARTOGRAPHER_MAX_ITERS
+    max_llm_calls: 2                      # MEMORY_CARTOGRAPHER_MAX_LLM_CALLS
 
 
 # ============================================================================

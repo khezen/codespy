@@ -152,6 +152,8 @@ class Cartographer(dspy.Module):
             dspy.ChainOfThought(CartographerSig),
             CartographerSig,
             name="cartographer",
+            max_iters=settings.get_max_iters("cartographer"),
+            max_llm_calls=settings.get_max_llm_calls("cartographer"),
             rlm_threshold=settings.get_rlm_threshold("chain_of_thought"),
         )
 

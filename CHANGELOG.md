@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- Per-module `max_iters` and `max_llm_calls` overrides for Distiller and Cartographer reflection modules
+  - YAML: `memory.distiller.max_iters`, `memory.distiller.max_llm_calls` (same for cartographer)
+  - Env vars: `MEMORY_DISTILLER_MAX_ITERS`, `MEMORY_DISTILLER_MAX_LLM_CALLS`, `MEMORY_CARTOGRAPHER_MAX_ITERS`, `MEMORY_CARTOGRAPHER_MAX_LLM_CALLS`
+  - GitHub Action inputs: `memory-distiller-max-iters`, `memory-distiller-max-llm-calls`, `memory-cartographer-max-iters`, `memory-cartographer-max-llm-calls`
+  - Defaults: `max_iters=1`, `max_llm_calls=2` (ChainOfThought modules — no tools to iterate)
+
 ### Changed
 - Removed dead-code RLM fallback defaults (`or 4` / `or 8`) in `ContextSafe._create_rlm_fallback`
 

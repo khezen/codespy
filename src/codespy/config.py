@@ -192,14 +192,20 @@ class Settings(BaseSettings):
         """Check if a signature is enabled."""
         return self.get_signature_config(signature_name).enabled
 
-    def get_max_iters(self, signature_name: str) -> int:
-        """Get max_iters for a signature (signature-specific or default)."""
-        config = self.get_signature_config(signature_name)
+    def get_max_iters(self, name: str) -> int:
+        """Get max_iters for a signature or reflection module (name-specific or default)."""
+        if name in REFLECTION_MODULES:
+            config = getattr(self.memory, name)
+            return config.max_iters or self.default_max_iters
+        config = self.get_signature_config(name)
         return config.max_iters or self.default_max_iters
 
-    def get_max_llm_calls(self, signature_name: str) -> int:
-        """Get max_llm_calls for a signature (signature-specific or default)."""
-        config = self.get_signature_config(signature_name)
+    def get_max_llm_calls(self, name: str) -> int:
+        """Get max_llm_calls for a signature or reflection module (name-specific or default)."""
+        if name in REFLECTION_MODULES:
+            config = getattr(self.memory, name)
+            return config.max_llm_calls or self.default_max_llm_calls
+        config = self.get_signature_config(name)
         return config.max_llm_calls or self.default_max_llm_calls
 
     def get_llm_config(self, name: str) -> LLMSettings:
@@ -317,6 +323,8 @@ class Settings(BaseSettings):
             logger.info(
                 f"  {module}: model={llm.model}, "
                 f"extraction_model={llm.extraction_model}, "
+                f"max_iters={self.get_max_iters(module)}, "
+                f"max_llm_calls={self.get_max_llm_calls(module)}, "
                 f"reasoning_effort={llm.reasoning_effort}, temperature={llm.temperature}, "
                 f"max_tokens={llm.max_tokens}"
             )

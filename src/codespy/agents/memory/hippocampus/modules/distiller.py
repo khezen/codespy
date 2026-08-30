@@ -164,6 +164,8 @@ class Distiller(dspy.Module):
             dspy.ChainOfThought(DistillerSig),
             DistillerSig,
             name="distiller",
+            max_iters=settings.get_max_iters("distiller"),
+            max_llm_calls=settings.get_max_llm_calls("distiller"),
             rlm_threshold=settings.get_rlm_threshold("chain_of_thought"),
         )
 

@@ -303,6 +303,14 @@ inputs:
     description: 'Temperature for Distiller'
     required: false
 
+  memory-distiller-max-iters:
+    description: 'Max RLM iterations for Distiller (default: 1)'
+    required: false
+
+  memory-distiller-max-llm-calls:
+    description: 'Max RLM LLM calls for Distiller (default: 2)'
+    required: false
+
   memory-cartographer-model:
     description: 'Model for the Cartographer reflection module (smaller model recommended)'
     required: false
@@ -313,6 +321,14 @@ inputs:
 
   memory-cartographer-temperature:
     description: 'Temperature for Cartographer'
+    required: false
+
+  memory-cartographer-max-iters:
+    description: 'Max RLM iterations for Cartographer (default: 1)'
+    required: false
+
+  memory-cartographer-max-llm-calls:
+    description: 'Max RLM LLM calls for Cartographer (default: 2)'
     required: false
 
   # Per-signature memory overrides
@@ -468,9 +484,13 @@ runs:
         MEMORY_DISTILLER_MODEL: ${{ inputs.memory-distiller-model }}
         MEMORY_DISTILLER_REASONING_EFFORT: ${{ inputs.memory-distiller-reasoning-effort }}
         MEMORY_DISTILLER_TEMPERATURE: ${{ inputs.memory-distiller-temperature }}
+        MEMORY_DISTILLER_MAX_ITERS: ${{ inputs.memory-distiller-max-iters }}
+        MEMORY_DISTILLER_MAX_LLM_CALLS: ${{ inputs.memory-distiller-max-llm-calls }}
         MEMORY_CARTOGRAPHER_MODEL: ${{ inputs.memory-cartographer-model }}
         MEMORY_CARTOGRAPHER_REASONING_EFFORT: ${{ inputs.memory-cartographer-reasoning-effort }}
         MEMORY_CARTOGRAPHER_TEMPERATURE: ${{ inputs.memory-cartographer-temperature }}
+        MEMORY_CARTOGRAPHER_MAX_ITERS: ${{ inputs.memory-cartographer-max-iters }}
+        MEMORY_CARTOGRAPHER_MAX_LLM_CALLS: ${{ inputs.memory-cartographer-max-llm-calls }}
         SCOPE_MEMORY_ENABLED: ${{ inputs.scope-memory-enabled }}
         CODE_REVIEW_MEMORY_ENABLED: ${{ inputs.code-review-memory-enabled }}
         DOC_MEMORY_ENABLED: ${{ inputs.doc-memory-enabled }}
@@ -560,9 +580,13 @@ runs:
         [ -n "$MEMORY_DISTILLER_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MODEL"
         [ -n "$MEMORY_DISTILLER_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_REASONING_EFFORT"
         [ -n "$MEMORY_DISTILLER_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_TEMPERATURE"
+        [ -n "$MEMORY_DISTILLER_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MAX_ITERS"
+        [ -n "$MEMORY_DISTILLER_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MAX_LLM_CALLS"
         [ -n "$MEMORY_CARTOGRAPHER_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MODEL"
         [ -n "$MEMORY_CARTOGRAPHER_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_REASONING_EFFORT"
         [ -n "$MEMORY_CARTOGRAPHER_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_TEMPERATURE"
+        [ -n "$MEMORY_CARTOGRAPHER_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MAX_ITERS"
+        [ -n "$MEMORY_CARTOGRAPHER_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MAX_LLM_CALLS"
         [ -n "$SCOPE_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MEMORY_ENABLED"
         [ -n "$CODE_REVIEW_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MEMORY_ENABLED"
         [ -n "$DOC_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MEMORY_ENABLED"
