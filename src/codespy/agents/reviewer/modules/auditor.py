@@ -1,7 +1,6 @@
 """Auditor module — assesses code quality and provides recommendation after reviews."""
 
 import logging
-from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -102,28 +101,25 @@ class Auditor(dspy.Module):
                 changed_files=audit_files,
                 all_issues=all_issues,
             )
-            # Fire-and-forget background episode save
-            _store = get_memory_store(self._settings)
-            _common_dir = (
-                _deepest_common_folder(scopes, review_context.pr_context.repo_slug)
-                if scopes else f"/{review_context.pr_context.repo_slug}/"
-            )
-            _artifacts = {
-                "audit": (
-                    f"## Quality Assessment\n\n{result.quality_assessment}\n\n"
-                    f"## Recommendation\n\n{result.recommendation}\n"
+            # Run episode save synchronously (auditor is the last module)
+            try:
+                _store = get_memory_store(self._settings)
+                _common_dir = (
+                    _deepest_common_folder(scopes, review_context.pr_context.repo_slug)
+                    if scopes else f"/{review_context.pr_context.repo_slug}/"
                 )
-            }
-            _scopes = scopes
-            def _persist(m=mem, s=_store, d=_common_dir, a=_artifacts, sc=_scopes):
-                try:
-                    m.end_episode(s, d, artifacts=a)
-                    if sc:
-                        for scope in sc:
-                            m.save_episode(s, m.episode_file_path(scope.scope_path()))
-                except Exception:
-                    logger.warning("Background audit episode save failed", exc_info=True)
-            submit_episode_save(_persist, name="audit-episode-save")
+                _artifacts = {
+                    "audit": (
+                        f"## Quality Assessment\n\n{result.quality_assessment}\n\n"
+                        f"## Recommendation\n\n{result.recommendation}\n"
+                    )
+                }
+                mem.end_episode(_store, _common_dir, artifacts=_artifacts)
+                if scopes:
+                    for scope in scopes:
+                        mem.save_episode(_store, mem.episode_file_path(scope.scope_path()))
+            except Exception:
+                logger.warning("Audit episode save failed", exc_info=True)
         else:
             result = auditor(
                 pr_title=review_context.pr_context.pr_title,

@@ -302,143 +302,168 @@ class SupplyChainAuditor(dspy.Module):
         osv_tools, osv_contexts = await self._create_osv_tools()
 
         try:
-            for scope in scopes:
-                # Skip scopes with no supply-chain-relevant changes
-                if not self._scope_needs_analysis(scope):
-                    continue
-
-                # Check if we should scan unchanged manifests
-                scan_unchanged = self._settings.get_scan_unchanged("supply_chain")
-
-                # Get manifest info (skip if unchanged and scan_unchanged=False)
-                manifest = scope.package_manifest
-                should_scan_manifest = manifest and (
-                    scan_unchanged or manifest.dependencies_changed
-                )
-
-                # Convert manifest paths to scope-relative
-                if should_scan_manifest:
-                    manifest_path = strip_prefix(manifest.manifest_path, scope.subroot)
-                    lock_file_path = (
-                        strip_prefix(manifest.lock_file_path, scope.subroot)
-                        if manifest.lock_file_path
-                        else ""
-                    )
-                    package_manager = manifest.package_manager
-                else:
-                    manifest_path = ""
-                    lock_file_path = ""
-                    package_manager = ""
-                    if manifest:
-                        logger.debug(f"Skipping unchanged manifest: {manifest.manifest_path}")
-
-                # Scope-restrict filesystem/parser tools to the scope's subroot
-                scope_root = resolve_scope_root(repo_path, scope.subroot)
-                scoped_tools, scoped_contexts = await self._create_scoped_tools(scope_root)
-
-                try:
-                    # Combine scoped filesystem tools with shared OSV tools
-                    all_tools = scoped_tools + osv_tools
-                    supply_chain_agent = ContextSafe(
-                        dspy.ReAct(
-                            signature=SupplyChainSecuritySignature,
-                            tools=all_tools,
-                            max_iters=supply_chain_max_iters,
-                        ),
-                        SupplyChainSecuritySignature,
-                        tools=all_tools,
-                        name="supply_chain",
-                        max_iters=supply_chain_max_iters,
-                        max_llm_calls=self._settings.get_max_llm_calls("supply_chain"),
-                        rlm_threshold=self._settings.get_rlm_threshold("react"),
-                    )
-
-                    logger.debug(
-                        f"Analyzing supply chain in scope {scope.subroot}: "
-                        f"manifest={bool(manifest_path)}"
-                    )
-                    # Track supply_chain signature costs separately
-                    mem: Hippocampus | None = None
-                    async with SignatureContext("supply_chain", self._cost_tracker):
-                        # Load own prior "supply_chain" episode for this scope
-                        scope_initial_memory: ContextMemory | None = None
-                        if self._settings.get_memory_enabled("supply_chain"):
-                            ep = find_latest_episode(
-                                get_memory_store(self._settings),
-                                scope.scope_path(),
-                                task="supply_chain",
-                                exclude_run_id=run_id,
-                            )
-                            if ep is not None:
-                                scope_initial_memory = ep.context_memory
-                        if self._settings.get_memory_enabled("supply_chain"):
-                            question = (
-                                f"review supply chain of {scope.repo}: {scope.subroot}: "
-                                f"pull request {review_context.pr_context.pr_number} "
-                                f"{review_context.pr_context.pr_title}: "
-                                f"{review_context.pr_context.summary}"
-                            )
-                            topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
-                            mem = Hippocampus(
-                                supply_chain_agent,
-                                budget=self._settings.get_memory_budget("supply_chain"),
-                                max_reflects=self._settings.get_memory_max_reflects("supply_chain"),
-                                question=question,
-                                task_name="supply_chain",
-                                run_id=run_id,
-                                initial_memory=scope_initial_memory,
-                                topic_ids=topic_ids,
-                            )
-                            result = await mem.aforward(
-                                manifest_path=manifest_path,
-                                lock_file_path=lock_file_path,
-                                package_manager=package_manager,
-                                category=IssueCategory.SECURITY,
-                            )
-                            issues = [
-                                issue
-                                for issue in result.issues
-                                if issue.confidence >= self._settings.min_confidence
-                            ]
-                            # Fire-and-forget background episode save
-                            _store = get_memory_store(self._settings)
-                            _scope_path = scope.scope_path()
-                            _artifacts = {"review": issues_to_markdown(issues)}
-                            def _persist(m=mem, s=_store, p=_scope_path, a=_artifacts):
-                                try:
-                                    m.end_episode(s, p, artifacts=a)
-                                except Exception:
-                                    logger.warning("Background supply_chain episode save failed", exc_info=True)
-                            submit_episode_save(_persist, name="supply-chain-episode-save")
-                        else:
-                            result = await supply_chain_agent.acall(
-                                manifest_path=manifest_path,
-                                lock_file_path=lock_file_path,
-                                package_manager=package_manager,
-                                category=IssueCategory.SECURITY,
-                            )
-                            issues = [
-                                issue
-                                for issue in result.issues
-                                if issue.confidence >= self._settings.min_confidence
-                            ]
-                    # Restore repo-root-relative paths in reported issues
-                    restore_repo_paths(issues, scope.subroot)
-                    all_issues.extend(issues)
-                    logger.debug(
-                        f"  Supply chain security in scope {scope.subroot}: {len(issues)} issues"
-                    )
-                except Exception as e:
+            # Parallelize scope processing
+            scope_tasks = [
+                self._review_scope(scope, osv_tools, repo_path, run_id, pr, review_context, supply_chain_max_iters)
+                for scope in scopes
+                if self._scope_needs_analysis(scope)
+            ]
+            results = await asyncio.gather(*scope_tasks, return_exceptions=True)
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    # Find the scope that caused the error
+                    analyzed_scopes = [s for s in scopes if self._scope_needs_analysis(s)]
                     logger.error(
-                        f"Error analyzing supply chain in scope {scope.subroot}: {e}", exc_info=True
+                        f"Supply chain review failed for scope {analyzed_scopes[i].subroot}: {result}",
+                        exc_info=result,
                     )
-                finally:
-                    await cleanup_mcp_contexts(scoped_contexts)
+                else:
+                    all_issues.extend(result)
         finally:
             await cleanup_mcp_contexts(osv_contexts)
 
         logger.info(f"Security audit found {len(all_issues)} issues")
         return all_issues, None
+
+    async def _review_scope(
+        self,
+        scope: ScopeResult,
+        osv_tools: list[Any],
+        repo_path: Path,
+        run_id: str,
+        pr: Any,
+        review_context: ReviewContext,
+        supply_chain_max_iters: int,
+    ) -> list[Issue]:
+        """Review supply chain for a single scope. Returns list of issues (empty on error)."""
+        # Check if we should scan unchanged manifests
+        scan_unchanged = self._settings.get_scan_unchanged("supply_chain")
+
+        # Get manifest info (skip if unchanged and scan_unchanged=False)
+        manifest = scope.package_manifest
+        should_scan_manifest = manifest and (
+            scan_unchanged or manifest.dependencies_changed
+        )
+
+        # Convert manifest paths to scope-relative
+        if should_scan_manifest:
+            manifest_path = strip_prefix(manifest.manifest_path, scope.subroot)
+            lock_file_path = (
+                strip_prefix(manifest.lock_file_path, scope.subroot)
+                if manifest.lock_file_path
+                else ""
+            )
+            package_manager = manifest.package_manager
+        else:
+            manifest_path = ""
+            lock_file_path = ""
+            package_manager = ""
+            if manifest:
+                logger.debug(f"Skipping unchanged manifest: {manifest.manifest_path}")
+
+        # Scope-restrict filesystem/parser tools to the scope's subroot
+        scope_root = resolve_scope_root(repo_path, scope.subroot)
+        scoped_tools, scoped_contexts = await self._create_scoped_tools(scope_root)
+
+        try:
+            # Combine scoped filesystem tools with shared OSV tools
+            all_tools = scoped_tools + osv_tools
+            supply_chain_agent = ContextSafe(
+                dspy.ReAct(
+                    signature=SupplyChainSecuritySignature,
+                    tools=all_tools,
+                    max_iters=supply_chain_max_iters,
+                ),
+                SupplyChainSecuritySignature,
+                tools=all_tools,
+                name="supply_chain",
+                max_iters=supply_chain_max_iters,
+                max_llm_calls=self._settings.get_max_llm_calls("supply_chain"),
+                rlm_threshold=self._settings.get_rlm_threshold("react"),
+            )
+
+            logger.debug(
+                f"Analyzing supply chain in scope {scope.subroot}: "
+                f"manifest={bool(manifest_path)}"
+            )
+            # Track supply_chain signature costs separately
+            mem: Hippocampus | None = None
+            async with SignatureContext("supply_chain", self._cost_tracker):
+                # Load own prior "supply_chain" episode for this scope
+                scope_initial_memory: ContextMemory | None = None
+                if self._settings.get_memory_enabled("supply_chain"):
+                    ep = find_latest_episode(
+                        get_memory_store(self._settings),
+                        scope.scope_path(),
+                        task="supply_chain",
+                        exclude_run_id=run_id,
+                    )
+                    if ep is not None:
+                        scope_initial_memory = ep.context_memory
+                if self._settings.get_memory_enabled("supply_chain"):
+                    question = (
+                        f"review supply chain of {scope.repo}: {scope.subroot}: "
+                        f"pull request {review_context.pr_context.pr_number} "
+                        f"{review_context.pr_context.pr_title}: "
+                        f"{review_context.pr_context.summary}"
+                    )
+                    topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
+                    mem = Hippocampus(
+                        supply_chain_agent,
+                        budget=self._settings.get_memory_budget("supply_chain"),
+                        max_reflects=self._settings.get_memory_max_reflects("supply_chain"),
+                        question=question,
+                        task_name="supply_chain",
+                        run_id=run_id,
+                        initial_memory=scope_initial_memory,
+                        topic_ids=topic_ids,
+                    )
+                    result = await mem.aforward(
+                        manifest_path=manifest_path,
+                        lock_file_path=lock_file_path,
+                        package_manager=package_manager,
+                        category=IssueCategory.SECURITY,
+                    )
+                    issues = [
+                        issue
+                        for issue in result.issues
+                        if issue.confidence >= self._settings.min_confidence
+                    ]
+                    # Fire-and-forget background episode save
+                    _store = get_memory_store(self._settings)
+                    _scope_path = scope.scope_path()
+                    _artifacts = {"review": issues_to_markdown(issues)}
+                    def _persist(m=mem, s=_store, p=_scope_path, a=_artifacts):
+                        try:
+                            m.end_episode(s, p, artifacts=a)
+                        except Exception:
+                            logger.warning("Background supply_chain episode save failed", exc_info=True)
+                    submit_episode_save(_persist, name="supply-chain-episode-save")
+                else:
+                    result = await supply_chain_agent.acall(
+                        manifest_path=manifest_path,
+                        lock_file_path=lock_file_path,
+                        package_manager=package_manager,
+                        category=IssueCategory.SECURITY,
+                    )
+                    issues = [
+                        issue
+                        for issue in result.issues
+                        if issue.confidence >= self._settings.min_confidence
+                    ]
+            # Restore repo-root-relative paths in reported issues
+            restore_repo_paths(issues, scope.subroot)
+            logger.debug(
+                f"  Supply chain security in scope {scope.subroot}: {len(issues)} issues"
+            )
+            return issues
+        except Exception as e:
+            logger.error(
+                f"Error analyzing supply chain in scope {scope.subroot}: {e}", exc_info=True
+            )
+            return []
+        finally:
+            await cleanup_mcp_contexts(scoped_contexts)
 
     def forward(
         self,

@@ -119,17 +119,6 @@ endif
 		-v codespy-cache:/home/codespy/.cache/codespy \
 		codespy:latest review $(PR_URL)
 
-# Run in Docker with JSON output
-docker-run-json: docker-ensure-image
-ifndef PR_URL
-	$(error PR_URL is required. Usage: make docker-run-json PR_URL=https://github.com/owner/repo/pull/123)
-endif
-	@docker run --rm \
-		--env-file .env \
-		-v $${HOME}/.aws:/home/codespy/.aws:ro \
-		-v codespy-cache:/home/codespy/.cache/codespy \
-		codespy:latest review $(PR_URL) --output json
-
 # ============================================================================
 # Setup
 # ============================================================================
