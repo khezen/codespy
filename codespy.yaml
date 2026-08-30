@@ -281,7 +281,7 @@ signatures:
   # Scope Identifier signature
   scope:
     enabled: true                        # SCOPE_ENABLED
-    max_iters: 20                        # SCOPE_MAX_ITERS
+    max_iters: null                      # SCOPE_MAX_ITERS
     max_llm_calls: null                  # SCOPE_MAX_LLM_CALLS
     model: null                          # SCOPE_MODEL
     reasoning_effort: null               # SCOPE_REASONING_EFFORT
