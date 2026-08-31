@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.0.14] - 2026-08-31
+
+### Fixed
+- Resolved leftover merge conflict markers in `.env.example` and `CHANGELOG.md`
+
 ## [1.0.13] - 2026-08-31
 
 ### Changed
