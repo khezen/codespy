@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+<<<<<<< HEAD
 ## [1.0.13] - 2026-08-31
 
 ### Changed
@@ -23,6 +24,8 @@
 - `max_llm_calls` now propagated to code reviewer, scope resolver, and supply chain auditor RLM agents
 - GitHub Action: `default-max-tokens` input, `summary-max-iters` input, full `audit-*` signature inputs (`audit-enabled`, `audit-model`, `audit-max-iters`, `audit-max-llm-calls`, `audit-reasoning-effort`, `audit-temperature`), `audit-memory-enabled` input
 
+=======
+>>>>>>> main
 ## [1.0.12] - 2026-08-30
 
 ### Changed
