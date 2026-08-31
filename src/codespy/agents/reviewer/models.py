@@ -128,9 +128,7 @@ class ScopeResult(BaseModel):
     has_changes: bool = Field(
         default=False, description="Whether this scope has changed files from PR"
     )
-    is_dependency: bool = Field(
-        default=False, description="Whether this scope depends on a changed scope"
-    )
+
     language: str | None = Field(default=None, description="Primary language detected")
     package_manifest: PackageManifest | None = Field(
         default=None, description="Package manifest info if present"

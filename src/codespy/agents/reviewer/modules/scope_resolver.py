@@ -27,12 +27,7 @@ from codespy.agents.reviewer.models import (
     ScopeResult,
     ScopeType,
 )
-from codespy.agents.reviewer.modules.manifest_parser import (
-    PACKAGE_MANAGER_TO_ECOSYSTEM,
-    extract_dependencies,
-    extract_package_name,
-    infer_repo_from_name,
-)
+from codespy.agents.reviewer.modules.manifest_parser import extract_package_name
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 from codespy.tools.git.client import get_client
@@ -1096,49 +1091,20 @@ class ScopeResolver(dspy.Module):
                 if scope.subroot in boundary_descriptions:
                     scope.description = boundary_descriptions[scope.subroot]
 
-            # Build topic IDs + internal lookup
-            internal_packages: dict[str, str] = {}
+            # Build topic IDs
             scope_topic_ids: dict[str, str] = {}
             for scope in final_scopes:
                 pkg_name = scope.package_manifest.package_name if scope.package_manifest else None
                 tid = make_topic_id(pr.repo_full_name, scope.subroot, pkg_name)
                 scope_topic_ids[scope.subroot] = tid
-                if pkg_name:
-                    internal_packages[pkg_name] = tid
 
-            # Build Topics with resolved dependencies
+            # Build Topics
             scope_topics: list[Topic] = []
             for scope in final_scopes:
-                dep_topic_ids: list[str] = []
-                if scope.package_manifest:
-                    dep_names, dep_repos = extract_dependencies(
-                        scope.package_manifest.manifest_path, repo_path
-                    )
-                    ecosystem = PACKAGE_MANAGER_TO_ECOSYSTEM.get(
-                        scope.package_manifest.package_manager,
-                        scope.package_manifest.package_manager,
-                    )
-                    for name in dep_names:
-                        if name in internal_packages:
-                            # Rule 1: internal scope match
-                            dep_topic_ids.append(internal_packages[name])
-                        elif name in dep_repos:
-                            # Rule 2: repo identifiable from source metadata
-                            dep_topic_ids.append(make_topic_id(dep_repos[name], "", name))
-                        elif infer_repo_from_name(name):
-                            # Rule 2: repo identifiable from dep name (Go modules)
-                            dep_topic_ids.append(
-                                make_topic_id(infer_repo_from_name(name), "", name)
-                            )
-                        else:
-                            # Rule 3: external
-                            dep_topic_ids.append(f"{ecosystem}/{name}")
-
                 scope_topics.append(
                     Topic(
                         id=scope_topic_ids[scope.subroot],
                         description=scope.description,
-                        dependencies=dep_topic_ids,
                     )
                 )
 

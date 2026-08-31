@@ -80,9 +80,6 @@ class Topic(BaseModel):
 
     id: str = Field(description="Topic identifier (e.g., 'owner/repo/package-name')")
     description: str = Field(description="Description of this topic's role")
-    dependencies: list[str] = Field(
-        default_factory=list, description="Topic IDs of this topic's dependencies"
-    )
 
 
 class Item(BaseModel):
