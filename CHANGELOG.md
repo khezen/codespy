@@ -7,6 +7,7 @@
 - `scope` signature defaults: `max_iters=3`, `max_llm_calls=5`
 - `code_review` signature defaults: `max_iters=5`, `max_llm_calls=8`
 - Renamed `experiences` section to `actions` in `ContextMemory` (section prefix `"ex"` → `"ac"`)
+- Changed `max_context_item_tokens` default from `410` to `512` (capacity: ~32 items with 16384 context memory tokens)
 
 ## [1.0.14] - 2026-08-31
 

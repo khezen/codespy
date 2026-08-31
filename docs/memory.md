@@ -51,12 +51,12 @@ Reflection iterates `max_reflects` times (0 = reflect once at end_episode).
 
 | Budget | Env Var | Default | Purpose |
 |--------|---------|---------|---------|
-| Context memory | `MEMORY_DEFAULT_MAX_CONTEXT_MEMORY_TOKENS` | 8192 | Ceiling on persisted ContextMemory (re-sent every iteration) |
-| Item | `MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS` | 410 | Soft per-item limit (expressed to LLM, not truncated) |
-| Trajectory | `MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS` | 8192 | Head+tail cap on trajectory fed to Distiller |
-| Question | `MEMORY_DEFAULT_MAX_QUESTION_TOKENS` | 2048 | Cap on serialized inputs as reflection question |
+| Context memory | `MEMORY_DEFAULT_MAX_CONTEXT_MEMORY_TOKENS` | 16384 | Ceiling on persisted ContextMemory (re-sent every iteration) |
+| Item | `MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS` | 512 | Soft per-item limit (expressed to LLM, not truncated) |
+| Trajectory | `MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS` | 16384 | Head+tail cap on trajectory fed to Distiller |
+| Question | `MEMORY_DEFAULT_MAX_QUESTION_TOKENS` | 8192 | Cap on serialized inputs as reflection question |
 
-Item capacity ≈ context_memory_tokens / item_tokens (8192/410 ≈ 19 items)
+Item capacity ≈ context_memory_tokens / item_tokens (16384/512 = 32 items)
 
 ## Configuration
 

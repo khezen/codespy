@@ -32,7 +32,7 @@ class MemoryBudget:
             wrapped agent, so it is re-sent on every agent iteration
             (~``max_iters`` times per run) plus once per reflection call — the
             most cost-sensitive of the four. Divided by ``max_context_item_tokens`` it
-            gives the memory's approximate item capacity (16384 / 410 ~= 39 items).
+            gives the memory's approximate item capacity (16384 / 512 = 32 items).
         max_context_item_tokens: Budget for a *single* context memory item, passed to the
             Distiller and the Cartographer as a prompt input so they keep each
             item compact rather than spending the whole memory budget on one
@@ -66,7 +66,7 @@ class MemoryBudget:
     """
 
     max_context_memory_tokens: int = 16384
-    max_context_item_tokens: int = 410
+    max_context_item_tokens: int = 512
     max_trajectory_tokens: int | None = 16384
     max_question_tokens: int | None = 8192
     compact_trajectory: bool = True
