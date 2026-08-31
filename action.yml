@@ -195,7 +195,15 @@ inputs:
   doc-model:
     description: 'Model for doc review (empty = use default)'
     required: false
-  
+
+  doc-max-iters:
+    description: 'Max iterations for doc review'
+    required: false
+
+  doc-max-llm-calls:
+    description: 'Max LLM calls for doc review RLM fallback'
+    required: false
+
   doc-reasoning-effort:
     description: 'Reasoning effort for doc (minimal|low|medium|high)'
     required: false
@@ -492,6 +500,8 @@ runs:
         # Doc review signature
         DOC_ENABLED: ${{ inputs.doc-enabled }}
         DOC_MODEL: ${{ inputs.doc-model }}
+        DOC_MAX_ITERS: ${{ inputs.doc-max-iters }}
+        DOC_MAX_LLM_CALLS: ${{ inputs.doc-max-llm-calls }}
         DOC_REASONING_EFFORT: ${{ inputs.doc-reasoning-effort }}
         DOC_TEMPERATURE: ${{ inputs.doc-temperature }}
         

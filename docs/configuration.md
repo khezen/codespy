@@ -110,7 +110,7 @@ AUTO_DISCOVER_GEMINI=false
 | Reasoning effort | `DEFAULT_REASONING_EFFORT` | `medium` | Provider reasoning budget: `minimal`, `low`, `medium`, `high` |
 | Max tokens | `DEFAULT_MAX_TOKENS` | `64000` | Output token budget per completion (reasoning tokens included) |
 | Temperature | `DEFAULT_TEMPERATURE` | `0.2` | Default temperature for LLM calls |
-| Max iterations | `DEFAULT_MAX_ITERS` | `3` | Maximum ReAct iterations for tool-using agents |
+| Max iterations | `DEFAULT_MAX_ITERS` | `5` | Maximum ReAct iterations for tool-using agents |
 | Prompt caching | `ENABLE_PROMPT_CACHING` | `true` | Provider-side prompt caching (Anthropic, OpenAI, Bedrock) |
 | RLM fallback | `RLM_FALLBACK_ENABLED` | `true` | Proactive RLM fallback for context rot prevention |
 | RLM react threshold | `RLM_FALLBACK_REACT_THRESHOLD` | `0.30` | Context ratio triggering RLM for ReAct modules |
@@ -132,12 +132,12 @@ Each signature supports env var overrides: `<SIGNATURE>_<SETTING>`
 
 | Signature | Config Key | Available Settings |
 |-----------|------------|-------------------|
-| Scope Identifier | `scope` | ENABLED, MAX_ITERS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
-| PR Summary | `summary` | ENABLED, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
-| Code Reviewer | `code_review` | ENABLED, MAX_ITERS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
-| Doc Reviewer | `doc` | ENABLED, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
-| Supply Chain | `supply_chain` | ENABLED, MAX_ITERS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS, SCAN_UNCHANGED |
-| Auditor | `audit` | ENABLED, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
+| Scope Identifier | `scope` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
+| PR Summary | `summary` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
+| Code Reviewer | `code_review` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
+| Doc Reviewer | `doc` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
+| Supply Chain | `supply_chain` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS, SCAN_UNCHANGED |
+| Auditor | `audit` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
 
 Example: `CODE_REVIEW_MODEL=anthropic/claude-sonnet-4-5-20250929`
 

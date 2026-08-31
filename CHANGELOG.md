@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Changed
+- `doc` signature defaults: `max_iters=1`, `max_llm_calls=2`
+- `scope` signature defaults: `max_iters=3`, `max_llm_calls=5`
+- `code_review` signature defaults: `max_iters=5`, `max_llm_calls=8`
 - Renamed `experiences` section to `actions` in `ContextMemory` (section prefix `"ex"` → `"ac"`)
 
 ## [1.0.14] - 2026-08-31

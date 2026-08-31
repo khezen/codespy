@@ -259,8 +259,8 @@ signatures:
   # Unified code review: bugs, security vulnerabilities, and code smells in a single agent pass per scope
   code_review:
     enabled: true                        # CODE_REVIEW_ENABLED
-    max_iters: null                      # CODE_REVIEW_MAX_ITERS
-    max_llm_calls: null                  # CODE_REVIEW_MAX_LLM_CALLS
+    max_iters: 5                         # CODE_REVIEW_MAX_ITERS
+    max_llm_calls: 8                     # CODE_REVIEW_MAX_LLM_CALLS
     model: null                          # CODE_REVIEW_MODEL
     reasoning_effort: null               # CODE_REVIEW_REASONING_EFFORT
     temperature: null                    # CODE_REVIEW_TEMPERATURE
@@ -273,7 +273,8 @@ signatures:
   # Note: doc extraction is now deterministic (no LLM) — see doc_extractor.py
   doc:
     enabled: true                        # DOC_ENABLED
-    max_llm_calls: null                  # DOC_MAX_LLM_CALLS
+    max_iters: 1                         # DOC_MAX_ITERS
+    max_llm_calls: 2                     # DOC_MAX_LLM_CALLS
     model: null                          # DOC_MODEL
     reasoning_effort: null               # DOC_REASONING_EFFORT
     temperature: null                    # DOC_TEMPERATURE
@@ -285,8 +286,8 @@ signatures:
   # Scope Identifier signature
   scope:
     enabled: true                        # SCOPE_ENABLED
-    max_iters: null                      # SCOPE_MAX_ITERS
-    max_llm_calls: null                  # SCOPE_MAX_LLM_CALLS
+    max_iters: 3                         # SCOPE_MAX_ITERS
+    max_llm_calls: 5                     # SCOPE_MAX_LLM_CALLS
     model: null                          # SCOPE_MODEL
     reasoning_effort: null               # SCOPE_REASONING_EFFORT
     temperature: null                    # SCOPE_TEMPERATURE
