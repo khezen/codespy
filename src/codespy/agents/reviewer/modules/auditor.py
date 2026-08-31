@@ -163,6 +163,7 @@ class Auditor(dspy.Module):
             dspy.ChainOfThought(AuditSignature),
             AuditSignature,
             name="audit",
+            max_iters=self._settings.get_max_iters("audit"),
             max_llm_calls=self._settings.get_max_llm_calls("audit"),
             rlm_threshold=self._settings.get_rlm_threshold("chain_of_thought"),
         )

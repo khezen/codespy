@@ -250,14 +250,14 @@ def format_trajectory(pred: dspy.Prediction, max_tokens: int | None = None) -> s
             the per-step budget accounting.
 
     Trajectory shapes handled:
-        list  — ReAct / CodeAct: list of dicts with 'code', 'output',
+        list  — RLM / ReAct / CodeAct: list of dicts with 'code', 'output',
                 optional 'reasoning'. Step-aware bounding.
         dict  — flat key/value dump. Line-granularity bounding.
         other — str(pred) or pred.toDict() fallback. Line-granularity bounding.
     """
     traj = getattr(pred, "trajectory", None)
 
-    # ----- list path (ReAct / CodeAct) -----
+    # ----- list path (RLM / ReAct / CodeAct) -----
     if isinstance(traj, list):
         step_texts = [_format_step(i, entry) for i, entry in enumerate(traj)]
 

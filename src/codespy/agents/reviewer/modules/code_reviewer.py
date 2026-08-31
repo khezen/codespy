@@ -271,10 +271,11 @@ class CodeReviewer(dspy.Module):
         tools, contexts = await self._create_tools(scope_root)
         try:
             agent = ContextSafe(
-                dspy.ReAct(
-                    signature=CodeReviewSignature,
+                dspy.RLM(
+                    CodeReviewSignature,
                     tools=tools,
                     max_iters=max_iters,
+                    max_llm_calls=self._settings.get_max_llm_calls("code_review"),
                 ),
                 CodeReviewSignature,
                 tools=tools,

@@ -123,18 +123,18 @@ class Settings(BaseSettings):
     # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
     default_model: str = "anthropic/claude-opus-4-6"
     extraction_model: str | None = None  # TwoStepAdapter extraction (falls back to default_model)
-    default_max_iters: int = 3
-    default_max_llm_calls: int = 5
+    default_max_iters: int = 5
+    default_max_llm_calls: int = 8
     # Provider reasoning budget; LiteLLM maps this to each provider's native parameter.
     default_reasoning_effort: ReasoningEffort = "medium"
     default_temperature: float = 0.2
     # Output token budget per completion. Must be set explicitly: when it is
     # omitted LiteLLM silently falls back to its own 4096 default, which
     # truncates reasoning models (thinking tokens are charged against this
-    # budget) and long structured outputs. 64000 matches the output ceiling of
+    # budget) and long structured outputs. 32000 matches the output ceiling of
     # the Claude 4.x tier and satisfies dspy.LM's >=16000 guard for OpenAI
     # reasoning models; new_lm() clamps it down to each model's real ceiling.
-    default_max_tokens: int = 64000
+    default_max_tokens: int = 32000
 
     # Global LLM reliability settings
     llm_retries: int = 2  # Number of retries for LLM API calls

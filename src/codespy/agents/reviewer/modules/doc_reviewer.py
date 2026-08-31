@@ -144,12 +144,13 @@ class DocReviewer(dspy.Module):
             logger.info("No scopes with changes for doc review")
             return [], None
         all_issues: list[Issue] = []
+        max_iters = self._settings.get_max_iters("doc")
         total_files = sum(len(s.changed_files) for s in changed_scopes)
         logger.info(f"Doc review for {len(changed_scopes)} scopes ({total_files} changed files)...")
 
         # Parallelize scope processing
         scope_tasks = [
-            self._review_scope(scope, repo_path, run_id, pr, review_context)
+            self._review_scope(scope, repo_path, run_id, pr, review_context, max_iters)
             for scope in changed_scopes
         ]
         results = await asyncio.gather(*scope_tasks, return_exceptions=True)
@@ -172,6 +173,7 @@ class DocReviewer(dspy.Module):
         run_id: str,
         pr: Any,
         review_context: ReviewContext,
+        max_iters: int,
     ) -> list[Issue]:
         """Review documentation for a single scope. Returns list of issues (empty on error)."""
         scope_root = resolve_scope_root(repo_path, scope.subroot)
@@ -201,6 +203,7 @@ class DocReviewer(dspy.Module):
                 dspy.ChainOfThought(DocReviewSignature),
                 DocReviewSignature,
                 name="doc",
+                max_iters=max_iters,
                 max_llm_calls=self._settings.get_max_llm_calls("doc"),
                 rlm_threshold=self._settings.get_rlm_threshold("chain_of_thought"),
             )

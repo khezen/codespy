@@ -145,7 +145,7 @@ def configure_dspy(settings: Settings) -> None:
     - Memory caching for LLM responses
 
     TwoStepAdapter decouples reasoning quality from format compliance,
-    solving ChatAdapter parsing failures with ReAct agents.
+    solving ChatAdapter parsing failures with RLM/ReAct agents.
 
     Args:
         settings: Application settings containing model and API key configuration.
