@@ -75,18 +75,8 @@ class DistillerSig(dspy.Signature):
          is about — genre, time period, key themes, nature of the data
          — that frames any question
 
-       Medium value:
-       - Experiences: tool execution patterns that transfer across runs.
-         Record what tool was used, for what purpose, and what the result
-         was. Focus on tool-use strategies that would save a future agent
-         exploration work. Do NOT record every individual tool call — only patterns
-         that a future run on the same context would benefit from.
-       - Parsing schema: document delimiters, boundary patterns, field
-         format, how to reliably split or locate items in the context
-       - Shared intermediate computations: aggregated results (counts,
-         distributions, classifications) that the agent derived by
-         processing the full context and that multiple questions would
-         need. Note the computation method to judge reliability.
+        Medium value:
+        - Actions: tool execution action patterns that transfer across runs.
 
        Do NOT cache:
        - Facts that answer only one specific question (e.g., a verbatim
@@ -103,7 +93,7 @@ class DistillerSig(dspy.Signature):
 
     Assign each candidate to one of these exact section names (they map
     onto the context memory schema): context_understanding, domain_constants,
-    context_roadmap, reusable_results, parsing_schema, experiences.
+    context_roadmap, reusable_results, parsing_schema, actions.
 
     Each candidate is an object with exactly these fields:
     - section: one of the six section names above
