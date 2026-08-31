@@ -29,7 +29,21 @@ class PRContext(BaseModel):
     )
     pr_number: int = Field(description="PR number")
     pr_title: str = Field(description="PR title")
+    pr_url: str = Field(description="Full PR URL (e.g. https://github.com/owner/repo/pull/123)")
+    pr_description: str = Field(default="", description="PR body/description")
     summary: str = Field(description="2-3 sentence PR summary produced by Summarizer")
+
+    def to_topic(self) -> "Topic":
+        """Build a Topic representing this PR.
+
+        Returns:
+            Topic object with id as PR URL and description as "PR #N: Title"
+        """
+        from codespy.agents.memory.hippocampus.context_memory import Topic
+        return Topic(
+            id=self.pr_url,
+            description=f"PR #{self.pr_number}: {self.pr_title}"[:500],
+        )
 
 
 class IssueSeverity(StrEnum):

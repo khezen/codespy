@@ -22,6 +22,7 @@ from codespy.agents.memory.hippocampus.context_memory import (
     Mutation,
     Operation,
     OpType,
+    Topic,
 )
 from codespy.agents.memory.hippocampus.episode import Episode
 from codespy.agents.memory.hippocampus.episode import load_episode as _load_episode
@@ -134,7 +135,7 @@ class Hippocampus(dspy.Module):
         task_name: str | None = None,
         run_id: str | None = None,
         initial_memory: ContextMemory | None = None,
-        topic_ids: list[str] | None = None,
+        topics: list[Topic] | None = None,
     ):
         """
         Args:
@@ -171,8 +172,9 @@ class Hippocampus(dspy.Module):
             initial_memory: Optional context memory to seed the agent with. When
                 provided, the agent starts with this memory instead of an empty one,
                 inheriting accumulated understanding from upstream pipeline stages.
-            topic_ids: Optional list of topic IDs to auto-assign to all new items
-                created during this episode. Used for scope-aware memory organization.
+            topics: Optional list of Topic objects to register in the context memory.
+                Topic IDs are auto-assigned to all new items created during this episode.
+                Used for scope-aware memory organization.
         """
         super().__init__()
 
@@ -201,7 +203,14 @@ class Hippocampus(dspy.Module):
         self.max_reflects = max_reflects
         self.question = question
         self.cmem = initial_memory.model_copy(deep=True) if initial_memory else ContextMemory()
-        self._topic_ids = topic_ids or []
+        self._topic_ids: list[str] = []
+        if topics:
+            existing_ids = {t.id for t in self.cmem.topics}
+            for topic in topics:
+                self._topic_ids.append(topic.id)
+                if topic.id not in existing_ids:
+                    self.cmem.topics.append(topic)
+                    existing_ids.add(topic.id)
         self.scores: dict[str, int] = {}
         # Buffer of per-call bounded trajectory strings, cleared after end_episode().
         self._episode_trajectories: list[str] = []

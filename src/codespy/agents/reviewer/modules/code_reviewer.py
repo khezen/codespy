@@ -308,9 +308,8 @@ class CodeReviewer(dspy.Module):
                         f"{review_context.pr_context.pr_title}: "
                         f"{review_context.pr_context.summary}"
                     )
-                    topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
-                    if pr:
-                        topic_ids.append(pr.url)
+                    pr_ctx = review_context.pr_context
+                    topics = [scope.topic(pr.repo_full_name), pr_ctx.to_topic()] if pr else []
                     mem = Hippocampus(
                         agent,
                         budget=self._settings.get_memory_budget("code_review"),
@@ -319,7 +318,7 @@ class CodeReviewer(dspy.Module):
                         task_name="code_review",
                         run_id=run_id,
                         initial_memory=scope_initial_memory,
-                        topic_ids=topic_ids,
+                        topics=topics,
                     )
                     result = await mem.aforward(
                         scope=scoped,

@@ -1158,16 +1158,17 @@ class ScopeResolver(dspy.Module):
             else:
                 stamp_topic_ids = []
             # Add PR URL topic (provides description; not a scope)
+            pr_ctx = review_context.pr_context
             scope_topics.append(Topic(
-                id=pr.url,
-                description=f"PR #{pr.number}: {pr.title}"[:500],
+                id=pr_ctx.pr_url,
+                description=f"PR #{pr_ctx.pr_number}: {pr_ctx.pr_title}"[:500],
             ))
             # Attach hierarchical skills to each produced scope
             for scope in final_scopes:
                 scope.skills = collect_skills(repo_path, scope.subroot)
             # Bind topics to hippocampus cmem for episode persistence
             if mem is not None and stamp_topic_ids:
-                stamp_topic_ids.append(pr.url)
+                stamp_topic_ids.append(pr_ctx.pr_url)
                 mem._topic_ids = stamp_topic_ids
                 mem.cmem.bind_topics(scope_topics, stamp_topic_ids)
 

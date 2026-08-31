@@ -408,9 +408,8 @@ class SupplyChainAuditor(dspy.Module):
                         f"{review_context.pr_context.pr_title}: "
                         f"{review_context.pr_context.summary}"
                     )
-                    topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
-                    if pr:
-                        topic_ids.append(pr.url)
+                    pr_ctx = review_context.pr_context
+                    topics = [scope.topic(pr.repo_full_name), pr_ctx.to_topic()] if pr else []
                     mem = Hippocampus(
                         supply_chain_agent,
                         budget=self._settings.get_memory_budget("supply_chain"),
@@ -419,7 +418,7 @@ class SupplyChainAuditor(dspy.Module):
                         task_name="supply_chain",
                         run_id=run_id,
                         initial_memory=scope_initial_memory,
-                        topic_ids=topic_ids,
+                        topics=topics,
                     )
                     result = await mem.aforward(
                         manifest_path=manifest_path,
