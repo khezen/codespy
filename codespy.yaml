@@ -138,11 +138,15 @@ memory:
     reasoning_effort: null                # MEMORY_DISTILLER_REASONING_EFFORT
     temperature: null                     # MEMORY_DISTILLER_TEMPERATURE
     max_tokens: null                      # MEMORY_DISTILLER_MAX_TOKENS
+    max_iters: 1                          # MEMORY_DISTILLER_MAX_ITERS
+    max_llm_calls: 2                      # MEMORY_DISTILLER_MAX_LLM_CALLS
   cartographer:
     model: null                           # MEMORY_CARTOGRAPHER_MODEL
     reasoning_effort: null                # MEMORY_CARTOGRAPHER_REASONING_EFFORT
     temperature: null                     # MEMORY_CARTOGRAPHER_TEMPERATURE
     max_tokens: null                      # MEMORY_CARTOGRAPHER_MAX_TOKENS
+    max_iters: 1                          # MEMORY_CARTOGRAPHER_MAX_ITERS
+    max_llm_calls: 2                      # MEMORY_CARTOGRAPHER_MAX_LLM_CALLS
 
 
 # ============================================================================
@@ -213,8 +217,8 @@ rlm_fallback:
 # These apply to all signatures and reflection modules unless overridden
 default_model: anthropic/claude-opus-4-6        # DEFAULT_MODEL
 extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model)
-default_max_iters: 3                           # DEFAULT_MAX_ITERS
-default_max_llm_calls: 5                      # DEFAULT_MAX_LLM_CALLS
+default_max_iters: 5                           # DEFAULT_MAX_ITERS
+default_max_llm_calls: 8                      # DEFAULT_MAX_LLM_CALLS
 default_reasoning_effort: medium                # DEFAULT_REASONING_EFFORT (minimal | low | medium | high)
 default_temperature: 0.2                        # DEFAULT_TEMPERATURE
 
@@ -227,7 +231,7 @@ default_temperature: 0.2                        # DEFAULT_TEMPERATURE
 # The value is clamped down to each model's real output ceiling before use, so a
 # generous setting stays valid on smaller models. Models LiteLLM doesn't know
 # (Ollama, custom endpoints) receive it unchanged.
-default_max_tokens: 64000                       # DEFAULT_MAX_TOKENS
+default_max_tokens: 32000                       # DEFAULT_MAX_TOKENS
 
 
 # Global LLM reliability settings
@@ -294,7 +298,8 @@ signatures:
   # Summarizer signature
   summary:
     enabled: true                        # SUMMARY_ENABLED
-    max_llm_calls: null                  # SUMMARY_MAX_LLM_CALLS
+    max_iters: 1                         # SUMMARY_MAX_ITERS
+    max_llm_calls: 2                     # SUMMARY_MAX_LLM_CALLS
     model: null                          # SUMMARY_MODEL (falls back to default_model)
     reasoning_effort: null               # SUMMARY_REASONING_EFFORT
     temperature: null                    # SUMMARY_TEMPERATURE
@@ -306,7 +311,8 @@ signatures:
   # Auditor signature (quality assessment + recommendation after all reviews)
   audit:
     enabled: true                        # AUDIT_ENABLED
-    max_llm_calls: null                  # AUDIT_MAX_LLM_CALLS
+    max_iters: 1                         # AUDIT_MAX_ITERS
+    max_llm_calls: 2                     # AUDIT_MAX_LLM_CALLS
     model: null                          # AUDIT_MODEL
     reasoning_effort: null               # AUDIT_REASONING_EFFORT
     temperature: null                    # AUDIT_TEMPERATURE

@@ -65,7 +65,7 @@ inputs:
   default-max-iters:
     description: 'Default maximum iterations for all signatures'
     required: false
-    default: '3'
+    default: '5'
   
   default-reasoning-effort:
     description: 'Default reasoning effort for all signatures (minimal|low|medium|high)'
@@ -77,7 +77,11 @@ inputs:
     required: false
     default: '0.2'
 
-  
+  default-max-tokens:
+    description: 'Output token budget per completion (reasoning tokens included). Clamped to model ceiling.'
+    required: false
+    default: '32000'
+
   llm-retries:
     description: 'Number of retries for LLM API calls'
     required: false
@@ -96,7 +100,7 @@ inputs:
   default-max-llm-calls:
     description: 'Maximum LLM calls for RLM fallback (context overflow recovery)'
     required: false
-    default: '5'
+    default: '8'
 
   # RLM fallback (context rot prevention)
   rlm-fallback-enabled:
@@ -241,6 +245,10 @@ inputs:
     required: false
     default: 'true'
 
+  summary-max-iters:
+    description: 'Max iterations for summary'
+    required: false
+
   summary-model:
     description: 'Model for summary (empty = use default)'
     required: false
@@ -255,6 +263,34 @@ inputs:
 
   summary-temperature:
     description: 'Temperature for summary'
+    required: false
+
+  # ==========================================
+  # SIGNATURE: audit
+  # ==========================================
+  audit-enabled:
+    description: 'Enable audit signature (quality assessment + recommendation)'
+    required: false
+    default: 'true'
+
+  audit-model:
+    description: 'Model for audit (empty = use default)'
+    required: false
+
+  audit-max-iters:
+    description: 'Max iterations for audit'
+    required: false
+
+  audit-max-llm-calls:
+    description: 'Max LLM calls for audit RLM fallback'
+    required: false
+
+  audit-reasoning-effort:
+    description: 'Reasoning effort for audit (minimal|low|medium|high)'
+    required: false
+
+  audit-temperature:
+    description: 'Temperature for audit'
     required: false
 
   # ==========================================
@@ -303,6 +339,14 @@ inputs:
     description: 'Temperature for Distiller'
     required: false
 
+  memory-distiller-max-iters:
+    description: 'Max RLM iterations for Distiller (default: 1)'
+    required: false
+
+  memory-distiller-max-llm-calls:
+    description: 'Max RLM LLM calls for Distiller (default: 2)'
+    required: false
+
   memory-cartographer-model:
     description: 'Model for the Cartographer reflection module (smaller model recommended)'
     required: false
@@ -313,6 +357,14 @@ inputs:
 
   memory-cartographer-temperature:
     description: 'Temperature for Cartographer'
+    required: false
+
+  memory-cartographer-max-iters:
+    description: 'Max RLM iterations for Cartographer (default: 1)'
+    required: false
+
+  memory-cartographer-max-llm-calls:
+    description: 'Max RLM LLM calls for Cartographer (default: 2)'
     required: false
 
   # Per-signature memory overrides
@@ -334,6 +386,10 @@ inputs:
 
   summary-memory-enabled:
     description: 'Enable memory for summary (overrides global memory-enabled)'
+    required: false
+
+  audit-memory-enabled:
+    description: 'Enable memory for audit (overrides global memory-enabled)'
     required: false
 
   excluded-directories:
@@ -404,6 +460,7 @@ runs:
         DEFAULT_MAX_ITERS: ${{ inputs.default-max-iters }}
         DEFAULT_REASONING_EFFORT: ${{ inputs.default-reasoning-effort }}
         DEFAULT_TEMPERATURE: ${{ inputs.default-temperature }}
+        DEFAULT_MAX_TOKENS: ${{ inputs.default-max-tokens }}
         LLM_RETRIES: ${{ inputs.llm-retries }}
         LLM_TIMEOUT: ${{ inputs.llm-timeout }}
         ENABLE_PROMPT_CACHING: ${{ inputs.enable-prompt-caching }}
@@ -449,11 +506,20 @@ runs:
         
         # Summary signature
         SUMMARY_ENABLED: ${{ inputs.summary-enabled }}
+        SUMMARY_MAX_ITERS: ${{ inputs.summary-max-iters }}
         SUMMARY_MODEL: ${{ inputs.summary-model }}
         SUMMARY_MAX_LLM_CALLS: ${{ inputs.summary-max-llm-calls }}
         SUMMARY_REASONING_EFFORT: ${{ inputs.summary-reasoning-effort }}
         SUMMARY_TEMPERATURE: ${{ inputs.summary-temperature }}
-        
+
+        # Audit signature
+        AUDIT_ENABLED: ${{ inputs.audit-enabled }}
+        AUDIT_MODEL: ${{ inputs.audit-model }}
+        AUDIT_MAX_ITERS: ${{ inputs.audit-max-iters }}
+        AUDIT_MAX_LLM_CALLS: ${{ inputs.audit-max-llm-calls }}
+        AUDIT_REASONING_EFFORT: ${{ inputs.audit-reasoning-effort }}
+        AUDIT_TEMPERATURE: ${{ inputs.audit-temperature }}
+
         # Other settings
         EXCLUDED_DIRECTORIES: ${{ inputs.excluded-directories }}
 
@@ -468,14 +534,19 @@ runs:
         MEMORY_DISTILLER_MODEL: ${{ inputs.memory-distiller-model }}
         MEMORY_DISTILLER_REASONING_EFFORT: ${{ inputs.memory-distiller-reasoning-effort }}
         MEMORY_DISTILLER_TEMPERATURE: ${{ inputs.memory-distiller-temperature }}
+        MEMORY_DISTILLER_MAX_ITERS: ${{ inputs.memory-distiller-max-iters }}
+        MEMORY_DISTILLER_MAX_LLM_CALLS: ${{ inputs.memory-distiller-max-llm-calls }}
         MEMORY_CARTOGRAPHER_MODEL: ${{ inputs.memory-cartographer-model }}
         MEMORY_CARTOGRAPHER_REASONING_EFFORT: ${{ inputs.memory-cartographer-reasoning-effort }}
         MEMORY_CARTOGRAPHER_TEMPERATURE: ${{ inputs.memory-cartographer-temperature }}
+        MEMORY_CARTOGRAPHER_MAX_ITERS: ${{ inputs.memory-cartographer-max-iters }}
+        MEMORY_CARTOGRAPHER_MAX_LLM_CALLS: ${{ inputs.memory-cartographer-max-llm-calls }}
         SCOPE_MEMORY_ENABLED: ${{ inputs.scope-memory-enabled }}
         CODE_REVIEW_MEMORY_ENABLED: ${{ inputs.code-review-memory-enabled }}
         DOC_MEMORY_ENABLED: ${{ inputs.doc-memory-enabled }}
         SUPPLY_CHAIN_MEMORY_ENABLED: ${{ inputs.supply-chain-memory-enabled }}
         SUMMARY_MEMORY_ENABLED: ${{ inputs.summary-memory-enabled }}
+        AUDIT_MEMORY_ENABLED: ${{ inputs.audit-memory-enabled }}
       run: |
         set -eo pipefail
         
@@ -496,6 +567,7 @@ runs:
         [ -n "$DEFAULT_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_ITERS"
         [ -n "$DEFAULT_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_REASONING_EFFORT"
         [ -n "$DEFAULT_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_TEMPERATURE"
+        [ -n "$DEFAULT_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_TOKENS"
         [ -n "$LLM_RETRIES" ] && DOCKER_ARGS="$DOCKER_ARGS -e LLM_RETRIES"
         [ -n "$LLM_TIMEOUT" ] && DOCKER_ARGS="$DOCKER_ARGS -e LLM_TIMEOUT"
         [ -n "$ENABLE_PROMPT_CACHING" ] && DOCKER_ARGS="$DOCKER_ARGS -e ENABLE_PROMPT_CACHING"
@@ -541,11 +613,20 @@ runs:
         
         # Summary
         [ -n "$SUMMARY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_ENABLED"
+        [ -n "$SUMMARY_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_MAX_ITERS"
         [ -n "$SUMMARY_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_MODEL"
         [ -n "$SUMMARY_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_MAX_LLM_CALLS"
         [ -n "$SUMMARY_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_REASONING_EFFORT"
         [ -n "$SUMMARY_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_TEMPERATURE"
-        
+
+        # Audit
+        [ -n "$AUDIT_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e AUDIT_ENABLED"
+        [ -n "$AUDIT_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e AUDIT_MODEL"
+        [ -n "$AUDIT_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e AUDIT_MAX_ITERS"
+        [ -n "$AUDIT_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e AUDIT_MAX_LLM_CALLS"
+        [ -n "$AUDIT_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e AUDIT_REASONING_EFFORT"
+        [ -n "$AUDIT_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e AUDIT_TEMPERATURE"
+
         # Other settings
         [ -n "$EXCLUDED_DIRECTORIES" ] && DOCKER_ARGS="$DOCKER_ARGS -e EXCLUDED_DIRECTORIES"
 
@@ -560,14 +641,19 @@ runs:
         [ -n "$MEMORY_DISTILLER_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MODEL"
         [ -n "$MEMORY_DISTILLER_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_REASONING_EFFORT"
         [ -n "$MEMORY_DISTILLER_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_TEMPERATURE"
+        [ -n "$MEMORY_DISTILLER_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MAX_ITERS"
+        [ -n "$MEMORY_DISTILLER_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MAX_LLM_CALLS"
         [ -n "$MEMORY_CARTOGRAPHER_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MODEL"
         [ -n "$MEMORY_CARTOGRAPHER_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_REASONING_EFFORT"
         [ -n "$MEMORY_CARTOGRAPHER_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_TEMPERATURE"
+        [ -n "$MEMORY_CARTOGRAPHER_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MAX_ITERS"
+        [ -n "$MEMORY_CARTOGRAPHER_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MAX_LLM_CALLS"
         [ -n "$SCOPE_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MEMORY_ENABLED"
         [ -n "$CODE_REVIEW_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MEMORY_ENABLED"
         [ -n "$DOC_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MEMORY_ENABLED"
         [ -n "$SUPPLY_CHAIN_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MEMORY_ENABLED"
         [ -n "$SUMMARY_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_MEMORY_ENABLED"
+        [ -n "$AUDIT_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e AUDIT_MEMORY_ENABLED"
 
         # Build codespy command arguments
         CMD_ARGS="review ${{ steps.pr-url.outputs.url }}"

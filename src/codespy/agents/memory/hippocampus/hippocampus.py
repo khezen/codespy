@@ -159,7 +159,7 @@ class Hippocampus(dspy.Module):
                 ``"code_review"``, …) — the same key that drives config, LM
                 selection and cost attribution — so the episode path lines up with
                 the rest of the system. Inference is a last resort: only
-                ``dspy.ReAct``-style modules expose ``.signature``,
+                ``dspy.RLM``/``dspy.ReAct``-style modules expose ``.signature``,
                 ``dspy.ChainOfThought`` does not, so the fallback would yield a
                 meaningless (and collision-prone) ``"ChainOfThought"``.
             run_id: Identifier of the pipeline run this agent belongs to. Passed

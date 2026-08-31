@@ -1,9 +1,8 @@
-"""Scope resolver module - merged deterministic analysis + ReAct agent refinement.
+"""Scope resolver module - merged deterministic analysis + RLM agent refinement.
 
-This module combines deterministic scope identification with a ReAct agent
+This module combines deterministic scope identification with an RLM agent
 for intelligent refinement. The agent uses filesystem and search tools to
-explore the codebase and make informed scope decisions, replacing the
-previous ChainOfThought predictor that relied on a static repo tree.
+explore the codebase and make informed scope decisions.
 """
 
 from __future__ import annotations
@@ -1027,10 +1026,11 @@ class ScopeResolver(dspy.Module):
         tools, contexts = await self._create_tools(repo_path)
         try:
             agent = ContextSafe(
-                dspy.ReAct(
-                    signature=ScopeRefinementSignature,
+                dspy.RLM(
+                    ScopeRefinementSignature,
                     tools=tools,
                     max_iters=max_iters,
+                    max_llm_calls=self._settings.get_max_llm_calls("scope"),
                 ),
                 ScopeRefinementSignature,
                 tools=tools,

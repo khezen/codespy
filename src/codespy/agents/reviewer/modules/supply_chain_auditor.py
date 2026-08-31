@@ -369,10 +369,11 @@ class SupplyChainAuditor(dspy.Module):
             # Combine scoped filesystem tools with shared OSV tools
             all_tools = scoped_tools + osv_tools
             supply_chain_agent = ContextSafe(
-                dspy.ReAct(
-                    signature=SupplyChainSecuritySignature,
+                dspy.RLM(
+                    SupplyChainSecuritySignature,
                     tools=all_tools,
                     max_iters=supply_chain_max_iters,
+                    max_llm_calls=self._settings.get_max_llm_calls("supply_chain"),
                 ),
                 SupplyChainSecuritySignature,
                 tools=all_tools,

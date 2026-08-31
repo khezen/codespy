@@ -76,8 +76,8 @@ Item capacity ≈ context_memory_tokens / item_tokens (8192/410 ≈ 19 items)
 
 | Module | Env Var Pattern | YAML Path |
 |--------|----------------|-----------|
-| Distiller | `MEMORY_DISTILLER_{MODEL,REASONING_EFFORT,TEMPERATURE,MAX_TOKENS}` | `memory.distiller.*` |
-| Cartographer | `MEMORY_CARTOGRAPHER_{MODEL,REASONING_EFFORT,TEMPERATURE,MAX_TOKENS}` | `memory.cartographer.*` |
+| Distiller | `MEMORY_DISTILLER_{MODEL,REASONING_EFFORT,TEMPERATURE,MAX_TOKENS,MAX_ITERS,MAX_LLM_CALLS}` | `memory.distiller.*` |
+| Cartographer | `MEMORY_CARTOGRAPHER_{MODEL,REASONING_EFFORT,TEMPERATURE,MAX_TOKENS,MAX_ITERS,MAX_LLM_CALLS}` | `memory.cartographer.*` |
 
 ### Per-Signature Memory Overrides
 

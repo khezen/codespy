@@ -123,18 +123,18 @@ class Settings(BaseSettings):
     # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
     default_model: str = "anthropic/claude-opus-4-6"
     extraction_model: str | None = None  # TwoStepAdapter extraction (falls back to default_model)
-    default_max_iters: int = 3
-    default_max_llm_calls: int = 5
+    default_max_iters: int = 5
+    default_max_llm_calls: int = 8
     # Provider reasoning budget; LiteLLM maps this to each provider's native parameter.
     default_reasoning_effort: ReasoningEffort = "medium"
     default_temperature: float = 0.2
     # Output token budget per completion. Must be set explicitly: when it is
     # omitted LiteLLM silently falls back to its own 4096 default, which
     # truncates reasoning models (thinking tokens are charged against this
-    # budget) and long structured outputs. 64000 matches the output ceiling of
+    # budget) and long structured outputs. 32000 matches the output ceiling of
     # the Claude 4.x tier and satisfies dspy.LM's >=16000 guard for OpenAI
     # reasoning models; new_lm() clamps it down to each model's real ceiling.
-    default_max_tokens: int = 64000
+    default_max_tokens: int = 32000
 
     # Global LLM reliability settings
     llm_retries: int = 2  # Number of retries for LLM API calls
@@ -192,14 +192,20 @@ class Settings(BaseSettings):
         """Check if a signature is enabled."""
         return self.get_signature_config(signature_name).enabled
 
-    def get_max_iters(self, signature_name: str) -> int:
-        """Get max_iters for a signature (signature-specific or default)."""
-        config = self.get_signature_config(signature_name)
+    def get_max_iters(self, name: str) -> int:
+        """Get max_iters for a signature or reflection module (name-specific or default)."""
+        if name in REFLECTION_MODULES:
+            config = getattr(self.memory, name)
+            return config.max_iters or self.default_max_iters
+        config = self.get_signature_config(name)
         return config.max_iters or self.default_max_iters
 
-    def get_max_llm_calls(self, signature_name: str) -> int:
-        """Get max_llm_calls for a signature (signature-specific or default)."""
-        config = self.get_signature_config(signature_name)
+    def get_max_llm_calls(self, name: str) -> int:
+        """Get max_llm_calls for a signature or reflection module (name-specific or default)."""
+        if name in REFLECTION_MODULES:
+            config = getattr(self.memory, name)
+            return config.max_llm_calls or self.default_max_llm_calls
+        config = self.get_signature_config(name)
         return config.max_llm_calls or self.default_max_llm_calls
 
     def get_llm_config(self, name: str) -> LLMSettings:
@@ -317,6 +323,8 @@ class Settings(BaseSettings):
             logger.info(
                 f"  {module}: model={llm.model}, "
                 f"extraction_model={llm.extraction_model}, "
+                f"max_iters={self.get_max_iters(module)}, "
+                f"max_llm_calls={self.get_max_llm_calls(module)}, "
                 f"reasoning_effort={llm.reasoning_effort}, temperature={llm.temperature}, "
                 f"max_tokens={llm.max_tokens}"
             )

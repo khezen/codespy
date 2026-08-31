@@ -104,6 +104,7 @@ class Summarizer(dspy.Module):
             dspy.ChainOfThought(PRSummarySignature),
             PRSummarySignature,
             name="summary",
+            max_iters=self._settings.get_max_iters("summary"),
             max_llm_calls=self._settings.get_max_llm_calls("summary"),
             rlm_threshold=self._settings.get_rlm_threshold("chain_of_thought"),
         )
