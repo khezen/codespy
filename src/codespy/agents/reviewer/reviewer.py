@@ -220,6 +220,7 @@ class ReviewPipeline(dspy.Module):
         # Step 2: Run Summarizer (now receives scopes for per-scope episode persistence)
         # Compute all scope topic IDs for summarizer
         all_scope_topic_ids = [s.topic(pr.repo_full_name).id for s in scopes]
+        all_scope_topic_ids.append(pr.url)
         pr_summary = self.summarizer(
             pr_title=pr.title,
             pr_description=pr.body or "No description provided.",

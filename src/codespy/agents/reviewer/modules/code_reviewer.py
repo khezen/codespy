@@ -309,6 +309,8 @@ class CodeReviewer(dspy.Module):
                         f"{review_context.pr_context.summary}"
                     )
                     topic_ids = [scope.topic(pr.repo_full_name).id] if pr else []
+                    if pr:
+                        topic_ids.append(pr.url)
                     mem = Hippocampus(
                         agent,
                         budget=self._settings.get_memory_budget("code_review"),
