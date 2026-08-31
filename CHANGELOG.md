@@ -2,15 +2,26 @@
 
 ## [Unreleased]
 
+## [1.0.13] - 2026-08-31
+
+### Changed
+- **Agent runtime: `dspy.ReAct` → `dspy.RLM`** in code reviewer, scope resolver, and supply chain auditor — RLM provides the same tool-using loop with improved context management
+- `default_max_iters` raised from 3 → 5
+- `default_max_llm_calls` raised from 5 → 8
+- `default_max_tokens` reduced from 64000 → 32000
+- `summary` signature defaults: `max_iters=1`, `max_llm_calls=2`
+- `audit` signature defaults: `max_iters=1`, `max_llm_calls=2`
+- Removed dead-code RLM fallback defaults (`or 4` / `or 8`) in `ContextSafe._create_rlm_fallback`
+
 ### Added
 - Per-module `max_iters` and `max_llm_calls` overrides for Distiller and Cartographer reflection modules
   - YAML: `memory.distiller.max_iters`, `memory.distiller.max_llm_calls` (same for cartographer)
   - Env vars: `MEMORY_DISTILLER_MAX_ITERS`, `MEMORY_DISTILLER_MAX_LLM_CALLS`, `MEMORY_CARTOGRAPHER_MAX_ITERS`, `MEMORY_CARTOGRAPHER_MAX_LLM_CALLS`
   - GitHub Action inputs: `memory-distiller-max-iters`, `memory-distiller-max-llm-calls`, `memory-cartographer-max-iters`, `memory-cartographer-max-llm-calls`
   - Defaults: `max_iters=1`, `max_llm_calls=2` (ChainOfThought modules — no tools to iterate)
-
-### Changed
-- Removed dead-code RLM fallback defaults (`or 4` / `or 8`) in `ContextSafe._create_rlm_fallback`
+- `max_iters` now propagated to doc reviewer, summarizer, and auditor ChainOfThought modules
+- `max_llm_calls` now propagated to code reviewer, scope resolver, and supply chain auditor RLM agents
+- GitHub Action: `default-max-tokens` input, `summary-max-iters` input, full `audit-*` signature inputs (`audit-enabled`, `audit-model`, `audit-max-iters`, `audit-max-llm-calls`, `audit-reasoning-effort`, `audit-temperature`), `audit-memory-enabled` input
 
 ## [1.0.12] - 2026-08-30
 
