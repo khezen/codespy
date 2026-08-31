@@ -75,7 +75,7 @@ class MemoryBudget:
 # Eviction priority — lower number = evict first
 _SECTION_EVICT_PRIORITY: dict[str, int] = {
     "parsing_schema": 0,  # evict first — cheap to rediscover
-    "experiences": 1,  # agent-derived tool-use patterns; can be re-observed
+    "actions": 1,  # agent-derived tool-use patterns; can be re-observed
     "reusable_results": 2,  # agent-derived; can be recomputed
     "domain_constants": 3,  # exact values worth protecting
     "context_roadmap": 4,  # protected — structural index

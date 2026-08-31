@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Renamed `experiences` section to `actions` in `ContextMemory` (section prefix `"ex"` → `"ac"`)
+
 ## [1.0.14] - 2026-08-31
 
 ### Fixed
