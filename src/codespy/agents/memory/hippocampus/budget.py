@@ -26,13 +26,13 @@ class MemoryBudget:
     once (see ``Settings.get_memory_budget``) and shared across instances.
 
     Attributes:
-        max_context_memory_tokens: Hard ceiling on the rendered ContextMemory,
+        max_context_memory_tokens: Hard ceiling on the serialized ContextMemory,
             enforced by the Evictor after every reflection. This is the
             *persisted* artifact and it is prepended to every predictor of the
             wrapped agent, so it is re-sent on every agent iteration
             (~``max_iters`` times per run) plus once per reflection call — the
             most cost-sensitive of the four. Divided by ``max_context_item_tokens`` it
-            gives the memory's approximate item capacity (16384 / 410 ~= 39 items).
+            gives the memory's approximate item capacity (16384 / 512 = 32 items).
         max_context_item_tokens: Budget for a *single* context memory item, passed to the
             Distiller and the Cartographer as a prompt input so they keep each
             item compact rather than spending the whole memory budget on one
@@ -66,7 +66,7 @@ class MemoryBudget:
     """
 
     max_context_memory_tokens: int = 16384
-    max_context_item_tokens: int = 410
+    max_context_item_tokens: int = 512
     max_trajectory_tokens: int | None = 16384
     max_question_tokens: int | None = 8192
     compact_trajectory: bool = True
@@ -75,7 +75,7 @@ class MemoryBudget:
 # Eviction priority — lower number = evict first
 _SECTION_EVICT_PRIORITY: dict[str, int] = {
     "parsing_schema": 0,  # evict first — cheap to rediscover
-    "experiences": 1,  # agent-derived tool-use patterns; can be re-observed
+    "actions": 1,  # agent-derived tool-use patterns; can be re-observed
     "reusable_results": 2,  # agent-derived; can be recomputed
     "domain_constants": 3,  # exact values worth protecting
     "context_roadmap": 4,  # protected — structural index
@@ -122,7 +122,7 @@ def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
 
 
 def evict(context_memory: ContextMemory, scores: dict[str, int], budget: int) -> ContextMemory:
-    if count_tokens(context_memory.render()) <= budget:
+    if count_tokens(context_memory.model_dump_json()) <= budget:
         return context_memory
     item_section: dict[str, str] = {
         it.id: sec for sec in context_memory.section_names() for it in context_memory.section(sec)
@@ -141,7 +141,7 @@ def evict(context_memory: ContextMemory, scores: dict[str, int], budget: int) ->
     for v in victims:
         removed.add(v.id)
         trial = context_memory.without(removed)
-        if count_tokens(trial.render()) <= budget:
+        if count_tokens(trial.model_dump_json()) <= budget:
             return trial
     return context_memory.without(removed)
 

@@ -5,6 +5,7 @@ import dspy
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus.context_memory import (
     CacheCandidate,
+    ContextMemory,
     ItemTag,
 )
 
@@ -75,12 +76,12 @@ class DistillerSig(dspy.Signature):
          is about — genre, time period, key themes, nature of the data
          — that frames any question
 
-       Medium value:
-       - Experiences: tool execution patterns that transfer across runs.
-         Record what tool was used, for what purpose, and what the result
-         was. Focus on tool-use strategies that would save a future agent
-         exploration work. Do NOT record every individual tool call — only patterns
-         that a future run on the same context would benefit from.
+        Medium value:
+        - Actions: tool execution patterns that transfer across runs.
+          Record what tool was used, for what purpose, and what the result
+          was. Focus on tool-use strategies that would save a future agent
+          exploration work. Do NOT record every individual tool call — only patterns
+          that a future run on the same context would benefit from.
        - Parsing schema: document delimiters, boundary patterns, field
          format, how to reliably split or locate items in the context
        - Shared intermediate computations: aggregated results (counts,
@@ -103,7 +104,7 @@ class DistillerSig(dspy.Signature):
 
     Assign each candidate to one of these exact section names (they map
     onto the context memory schema): context_understanding, domain_constants,
-    context_roadmap, reusable_results, parsing_schema, experiences.
+    context_roadmap, reusable_results, parsing_schema, actions.
 
     Each candidate is an object with exactly these fields:
     - section: one of the six section names above
@@ -119,8 +120,8 @@ class DistillerSig(dspy.Signature):
     """
 
     trajectory: str = dspy.InputField(desc="The agent's full execution trajectory.")
-    context_memory: str = dspy.InputField(
-        desc="Current context memory (topic-grouped, with item IDs)."
+    context_memory: ContextMemory = dspy.InputField(
+        desc="Current context memory."
     )
     question: str = dspy.InputField(desc="The question the agent was answering.")
     max_context_item_tokens: int = dspy.InputField(
@@ -172,7 +173,7 @@ class Distiller(dspy.Module):
     def forward(
         self,
         trajectory: str,
-        context_memory: str,
+        context_memory: ContextMemory,
         question: str,
         max_context_item_tokens: int,
     ):

@@ -85,7 +85,7 @@ class MemoryConfig(BaseModel):
     # every ReAct iteration (~default_max_iters times per scope) plus once per
     # reflection call. Easily the most cost-sensitive of the three budgets.
     # Approximate item capacity is max_context_memory_tokens divided by
-    # max_context_item_tokens (16384 / 410 ~= 39 items).
+    # max_context_item_tokens (16384 / 512 = 32 items).
     # MEMORY_MAX_CONTEXT_MEMORY_TOKENS
     max_context_memory_tokens: int = Field(default=16384)
 
@@ -95,7 +95,7 @@ class MemoryConfig(BaseModel):
     # than enforced in code (truncating an item could corrupt an exact constant).
     # The hard, memory-wide limit is max_context_memory_tokens, enforced by the
     # Evictor. MEMORY_MAX_CONTEXT_ITEM_TOKENS
-    max_context_item_tokens: int = Field(default=410)
+    max_context_item_tokens: int = Field(default=512)
 
     # Head+tail cap on the agent trajectory fed to the Distiller. Without it a
     # single tool-heavy scope can produce a 100k+ token trajectory; TwoStepAdapter

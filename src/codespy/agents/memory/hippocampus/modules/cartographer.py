@@ -5,6 +5,7 @@ import dspy
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus.context_memory import (
     CacheCandidate,
+    ContextMemory,
     ItemTag,
     Operation,
 )
@@ -78,7 +79,7 @@ class CartographerSig(dspy.Signature):
        distributions, classifications) from processing the full context
        that multiple questions would need. Note the computation method
        to judge reliability.
-    5. experiences — tool execution patterns (what tool, what purpose,
+    5. actions — tool execution patterns (what tool, what purpose,
        what result) that transfer across runs. Evict when the tool-use
        pattern is obvious or no longer relevant.
     6. parsing_schema — format observations, delimiters, splitting
@@ -111,8 +112,8 @@ class CartographerSig(dspy.Signature):
     cache_candidates: list[CacheCandidate] = dspy.InputField(
         desc="Candidate items the Distiller proposed."
     )
-    current_map: str = dspy.InputField(
-        desc="Current context memory (topic-grouped, with item IDs and sections)."
+    current_map: ContextMemory = dspy.InputField(
+        desc="Current context memory."
     )
     question: str = dspy.InputField(desc="Question the agent was answering.")
     token_budget: int = dspy.InputField(desc="Hard token budget for the context memory.")

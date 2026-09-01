@@ -61,7 +61,7 @@ class Auditor(dspy.Module):
         all_issues: list[Issue],
         run_id: str | None,
         scopes: list["ScopeResult"] | None,
-        topic_ids: list[str] | None,
+        topics: list["ScopeResult"] | None = None,
     ) -> dspy.Prediction:
         """Execute the auditor predictor (with or without Hippocampus memory)."""
         question = (
@@ -93,7 +93,7 @@ class Auditor(dspy.Module):
                 task_name="audit",
                 run_id=run_id,
                 initial_memory=initial_memory,
-                topic_ids=topic_ids,
+                topics=topics,
             )
             result = mem(
                 pr_title=review_context.pr_context.pr_title,
@@ -137,7 +137,7 @@ class Auditor(dspy.Module):
         all_issues: Sequence[Issue],
         run_id: str | None = None,
         scopes: list["ScopeResult"] | None = None,
-        topic_ids: list[str] | None = None,
+        topics: list["ScopeResult"] | None = None,
     ) -> tuple[str, str]:
         """Assess quality and recommend action.
 
@@ -147,7 +147,7 @@ class Auditor(dspy.Module):
             all_issues: All issues found during review
             run_id: Pipeline run identifier
             scopes: List of resolved scopes for per-scope episode persistence
-            topic_ids: Optional list of topic IDs for auto-tagging
+            topics: Optional list of Topic objects for auto-tagging
 
         Returns:
             Tuple of (quality_assessment, recommendation)
@@ -177,7 +177,7 @@ class Auditor(dspy.Module):
                 list(all_issues),
                 run_id,
                 scopes,
-                topic_ids,
+                topics,
             )
 
         return result.quality_assessment, result.recommendation
