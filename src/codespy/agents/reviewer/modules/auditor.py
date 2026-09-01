@@ -1,7 +1,6 @@
 """Auditor module — assesses code quality and provides recommendation after reviews."""
 
 import logging
-from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import dspy
@@ -13,7 +12,6 @@ from codespy.agents.reviewer.models import Issue, ReviewContext
 from codespy.agents.reviewer.modules.scope_resolver import _deepest_common_folder
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
-from codespy.tools.git.models import ChangedFile
 
 if TYPE_CHECKING:
     from codespy.agents.reviewer.models import ScopeResult
@@ -34,9 +32,6 @@ class AuditSignature(dspy.Signature):
 
     pr_title: str = dspy.InputField(desc="Title of the pull request")
     summary: str = dspy.InputField(desc="Summary of what this PR accomplishes")
-    changed_files: list[ChangedFile] = dspy.InputField(
-        desc="In-scope reviewable files with status and line counts"
-    )
     all_issues: list[Issue] = dspy.InputField(desc="All issues found during review")
 
     quality_assessment: str = dspy.OutputField(desc="Overall assessment of code quality")
@@ -55,9 +50,8 @@ class Auditor(dspy.Module):
 
     def _call_auditor(
         self,
-        auditor: dspy.ChainOfThought,
+        auditor: dspy.Module,
         review_context: ReviewContext,
-        audit_files: list[ChangedFile],
         all_issues: list[Issue],
         run_id: str | None,
         scopes: list["ScopeResult"] | None,
@@ -98,7 +92,6 @@ class Auditor(dspy.Module):
             result = mem(
                 pr_title=review_context.pr_context.pr_title,
                 summary=review_context.pr_context.summary,
-                changed_files=audit_files,
                 all_issues=all_issues,
             )
             # Run episode save synchronously (auditor is the last module)
@@ -124,7 +117,6 @@ class Auditor(dspy.Module):
             result = auditor(
                 pr_title=review_context.pr_context.pr_title,
                 summary=review_context.pr_context.summary,
-                changed_files=audit_files,
                 all_issues=all_issues,
             )
 
@@ -133,8 +125,7 @@ class Auditor(dspy.Module):
     def forward(
         self,
         review_context: ReviewContext,
-        changed_files: Sequence[ChangedFile],
-        all_issues: Sequence[Issue],
+        all_issues: list[Issue],
         run_id: str | None = None,
         scopes: list["ScopeResult"] | None = None,
         topics: list["ScopeResult"] | None = None,
@@ -143,7 +134,6 @@ class Auditor(dspy.Module):
 
         Args:
             review_context: ReviewContext containing PR identity (memory loaded per-scope from prior audit episodes)
-            changed_files: In-scope reviewable files
             all_issues: All issues found during review
             run_id: Pipeline run identifier
             scopes: List of resolved scopes for per-scope episode persistence
@@ -173,8 +163,7 @@ class Auditor(dspy.Module):
             result = self._call_auditor(
                 auditor,
                 review_context,
-                list(changed_files),
-                list(all_issues),
+                all_issues,
                 run_id,
                 scopes,
                 topics,

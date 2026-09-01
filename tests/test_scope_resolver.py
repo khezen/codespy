@@ -72,8 +72,13 @@ class TestScopeResolver:
             (repo_path / "services" / "api").mkdir(parents=True)
             (repo_path / "services" / "api" / "go.mod").touch()
 
+            changed_files = [
+                ChangedFile(filename="packages/auth/index.ts", status=FileStatus.MODIFIED),
+                ChangedFile(filename="services/api/main.go", status=FileStatus.MODIFIED),
+            ]
+
             resolver = ScopeResolver()
-            manifests = resolver._discover_manifests(repo_path, [])
+            manifests = resolver._discover_manifests(repo_path, changed_files, [])
 
             assert len(manifests) == 2
             assert Path("packages/auth") in manifests
@@ -268,14 +273,16 @@ class TestManifestScoping:
             (repo_path / "scripts" / "deploy").mkdir(parents=True)
 
             changed_files = [
+                ChangedFile(filename="packages/auth/src/index.ts", status=FileStatus.MODIFIED),
                 ChangedFile(filename="scripts/deploy/prod.sh", status=FileStatus.MODIFIED),
             ]
 
             resolver = ScopeResolver()
             scopes, orphans = resolver._resolve(repo_path, changed_files, "owner/repo")
 
-            # scripts/deploy indicator should fire — root has nested manifests
+            # Both packages/auth (manifest scope) and scripts/deploy (indicator scope) should exist
             scope_subroots = [s.subroot for s in scopes]
+            assert "packages/auth" in scope_subroots
             assert "scripts/deploy" in scope_subroots
 
 

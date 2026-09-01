@@ -245,14 +245,8 @@ class ReviewPipeline(dspy.Module):
         )
         logger.info(f"Found {len(all_issues)} issues")
         # Step 4: Run Audit (loads own prior episodes per scope, no memory inheritance from parallel modules)
-        scoped_files = self._collect_scoped_files(scopes)
-        logger.info(
-            f"Audit input: {len(scoped_files)} in-scope files "
-            f"(filtered from {len(pr.changed_files)} total)"
-        )
         quality_assessment, recommendation = self.auditor(
             review_context=review_ctx,
-            changed_files=scoped_files,
             all_issues=all_issues,
             run_id=run_id,
             scopes=scopes,
@@ -278,29 +272,6 @@ class ReviewPipeline(dspy.Module):
             llm_calls=self.cost_tracker.call_count,
             signature_stats=signature_stats_list,
         )
-
-    @staticmethod
-    def _collect_scoped_files(scopes: list) -> list[ChangedFile]:
-        """Collect de-duplicated changed files from identified scopes.
-
-        The scope identifier already filters out binaries, vendor directories,
-        lock files, etc. This method collects only the in-scope files so the
-        summarizer operates on the same focused set as the review modules.
-
-        Args:
-            scopes: Identified scopes from scope_resolver
-
-        Returns:
-            De-duplicated list of ChangedFile objects from all scopes
-        """
-        seen: set[str] = set()
-        scoped_files: list[ChangedFile] = []
-        for scope in scopes:
-            for f in scope.changed_files:
-                if f.filename not in seen:
-                    seen.add(f.filename)
-                    scoped_files.append(f)
-        return scoped_files
 
     def _collect_signature_stats(self) -> list[SignatureStatsResult]:
         """Collect statistics from all signatures that executed.
