@@ -24,13 +24,14 @@ parsing schemas — and reuse it in subsequent reviews of the same code area.
 
 ### Context Memory
 
-Five sections (from general to specific):
+Six sections (from general to specific):
 
 1. **`context_roadmap`** — High-level codebase structure and navigation hints
 2. **`context_understanding`** — Domain knowledge and design patterns observed
 3. **`domain_constants`** — Exact values, URLs, identifiers that repeat across reviews
-4. **`parsing_schema`** — File format conventions, naming patterns, structural rules
-5. **`reusable_results`** — Computed facts reusable in future reviews
+4. **`actions`** — Tool execution patterns and action history
+5. **`parsing_schema`** — File format conventions, naming patterns, structural rules
+6. **`reusable_results`** — Computed facts reusable in future reviews
 
 Each section contains Items with tags (general, scope-specific) and text content.
 

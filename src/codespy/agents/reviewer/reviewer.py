@@ -215,11 +215,13 @@ class ReviewPipeline(dspy.Module):
         # Expand sparse checkout to cover full scope subtrees
         if not is_local:
             self._expand_sparse_for_scopes(scopes, repo_path)
-        # Compact patches: expand context to function bodies for better review context
-        logger.info("Compacting patches to function boundaries...")
         changed_file_paths = [f.filename for f in pr.changed_files]
         patches = build_patches(pr.changed_files)
-        compact_patches(scopes, repo_path)
+        if self.settings.compact_patches:
+            logger.info("Compacting patches to function boundaries...")
+            compact_patches(scopes, repo_path)
+        else:
+            logger.debug("Compact patches disabled, using original PR patches")
         # Step 2: Run Summarizer (now receives scopes for per-scope episode persistence)
         # Build all scope topics (scope topics + PR topic)
         all_scope_topics = [s.topic(pr.repo_full_name) for s in scopes]

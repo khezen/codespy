@@ -128,6 +128,11 @@ inputs:
     required: false
     default: '0.81'
 
+  compact-patches:
+    description: 'Expand diff context to full function bodies via Tree-sitter before review (default: false)'
+    required: false
+    default: 'false'
+
   # ==========================================
   # SIGNATURE: scope
   # ==========================================
@@ -474,6 +479,7 @@ runs:
         ENABLE_PROMPT_CACHING: ${{ inputs.enable-prompt-caching }}
         DEFAULT_MAX_LLM_CALLS: ${{ inputs.default-max-llm-calls }}
         MIN_CONFIDENCE: ${{ inputs.min-confidence }}
+        COMPACT_PATCHES: ${{ inputs.compact-patches }}
 
         # RLM fallback
         RLM_FALLBACK_ENABLED: ${{ inputs.rlm-fallback-enabled }}
@@ -583,6 +589,7 @@ runs:
         [ -n "$ENABLE_PROMPT_CACHING" ] && DOCKER_ARGS="$DOCKER_ARGS -e ENABLE_PROMPT_CACHING"
         [ -n "$DEFAULT_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_LLM_CALLS"
         [ -n "$MIN_CONFIDENCE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MIN_CONFIDENCE"
+        [ -n "$COMPACT_PATCHES" ] && DOCKER_ARGS="$DOCKER_ARGS -e COMPACT_PATCHES"
 
         # RLM fallback
         [ -n "$RLM_FALLBACK_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e RLM_FALLBACK_ENABLED"

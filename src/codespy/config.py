@@ -143,6 +143,10 @@ class Settings(BaseSettings):
     # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
     enable_prompt_caching: bool = True
 
+    # Expand diff hunks to full function bodies (Tree-sitter) before review.
+    # When False (default), reviewers see original PR patches.
+    compact_patches: bool = False
+
     # Minimum confidence threshold for reported issues.
     # Issues below this threshold are silently discarded by reviewer modules.
     min_confidence: float = Field(default=0.81, ge=0.0, le=1.0)

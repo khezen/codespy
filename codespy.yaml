@@ -48,6 +48,10 @@ llm:
 # Issues below this threshold are silently discarded.
 min_confidence: 0.81                          # MIN_CONFIDENCE
 
+# Expand diff context to full function bodies (Tree-sitter) before review.
+# When false (default), reviewers see the original PR patches.
+compact_patches: false                        # COMPACT_PATCHES
+
 
 # ============================================================================
 # GIT PLATFORMS
