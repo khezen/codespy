@@ -5,6 +5,7 @@ import dspy
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus.context_memory import (
     CacheCandidate,
+    ContextMemory,
     ItemTag,
     Operation,
 )
@@ -111,8 +112,8 @@ class CartographerSig(dspy.Signature):
     cache_candidates: list[CacheCandidate] = dspy.InputField(
         desc="Candidate items the Distiller proposed."
     )
-    current_map: str = dspy.InputField(
-        desc="Current context memory (topic-grouped, with item IDs and sections)."
+    current_map: ContextMemory = dspy.InputField(
+        desc="Current context memory."
     )
     question: str = dspy.InputField(desc="Question the agent was answering.")
     token_budget: int = dspy.InputField(desc="Hard token budget for the context memory.")

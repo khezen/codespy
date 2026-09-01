@@ -5,6 +5,7 @@ import dspy
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus.context_memory import (
     CacheCandidate,
+    ContextMemory,
     ItemTag,
 )
 
@@ -119,8 +120,8 @@ class DistillerSig(dspy.Signature):
     """
 
     trajectory: str = dspy.InputField(desc="The agent's full execution trajectory.")
-    context_memory: str = dspy.InputField(
-        desc="Current context memory (topic-grouped, with item IDs)."
+    context_memory: ContextMemory = dspy.InputField(
+        desc="Current context memory."
     )
     question: str = dspy.InputField(desc="The question the agent was answering.")
     max_context_item_tokens: int = dspy.InputField(
@@ -172,7 +173,7 @@ class Distiller(dspy.Module):
     def forward(
         self,
         trajectory: str,
-        context_memory: str,
+        context_memory: ContextMemory,
         question: str,
         max_context_item_tokens: int,
     ):

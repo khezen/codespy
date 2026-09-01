@@ -26,7 +26,7 @@ class MemoryBudget:
     once (see ``Settings.get_memory_budget``) and shared across instances.
 
     Attributes:
-        max_context_memory_tokens: Hard ceiling on the rendered ContextMemory,
+        max_context_memory_tokens: Hard ceiling on the serialized ContextMemory,
             enforced by the Evictor after every reflection. This is the
             *persisted* artifact and it is prepended to every predictor of the
             wrapped agent, so it is re-sent on every agent iteration
@@ -122,7 +122,7 @@ def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
 
 
 def evict(context_memory: ContextMemory, scores: dict[str, int], budget: int) -> ContextMemory:
-    if count_tokens(context_memory.render()) <= budget:
+    if count_tokens(context_memory.model_dump_json()) <= budget:
         return context_memory
     item_section: dict[str, str] = {
         it.id: sec for sec in context_memory.section_names() for it in context_memory.section(sec)
@@ -141,7 +141,7 @@ def evict(context_memory: ContextMemory, scores: dict[str, int], budget: int) ->
     for v in victims:
         removed.add(v.id)
         trial = context_memory.without(removed)
-        if count_tokens(trial.render()) <= budget:
+        if count_tokens(trial.model_dump_json()) <= budget:
             return trial
     return context_memory.without(removed)
 
