@@ -624,7 +624,7 @@ class ScopeResolver(dspy.Module):
             Tuple of (active scopes, orphan files)
         """
         excluded_dirs = self._settings.excluded_directories
-        manifests = self._discover_manifests(repo_path, excluded_dirs)
+        manifests = self._discover_manifests(repo_path, changed_files, excluded_dirs)
         logger.info(
             "Manifest discovery at %s found %d manifest(s): %s",
             repo_path,
@@ -701,39 +701,60 @@ class ScopeResolver(dspy.Module):
         return active_scopes, orphans
 
     def _discover_manifests(
-        self, repo_path: Path, excluded_dirs: list[str]
+        self, repo_path: Path, changed_files: list[ChangedFile], excluded_dirs: list[str]
     ) -> dict[Path, tuple[str, str]]:
-        """Discover all package manifests in the repo.
+        """Discover package manifests in ancestor directories of changed files.
 
         Args:
             repo_path: Path to the repository root
+            changed_files: List of changed files to derive ancestor directories from
             excluded_dirs: List of directory names to exclude from scanning
 
         Returns:
             Dict mapping manifest directory -> (package manager, filename)
         """
-        logger.debug("Walking %s for manifests (excluded: %s)", repo_path, excluded_dirs)
+        logger.debug("Scanning ancestor directories for manifests (excluded: %s)", excluded_dirs)
         manifests: dict[Path, tuple[str, str]] = {}
         excluded_set = set(excluded_dirs)
 
-        for root, dirs, files in os.walk(repo_path):
-            # Skip excluded and hidden directories
-            dirs[:] = [d for d in dirs if d not in excluded_set and not d.startswith(".")]
+        # Collect all unique ancestor directories from changed files
+        ancestor_dirs: set[Path] = set()
+        ancestor_dirs.add(Path("."))  # Always include root
+
+        for changed_file in changed_files:
+            parts = changed_file.filename.split("/")
+            # Build each ancestor prefix from the path
+            for depth in range(1, len(parts)):
+                ancestor = Path("/".join(parts[:depth]))
+                ancestor_dirs.add(ancestor)
+
+        # Scan each ancestor directory for manifests
+        for rel_dir in ancestor_dirs:
+            # Skip if any path component is in excluded_dirs or starts with . (but not root ".")
+            if rel_dir != Path("."):
+                dir_name = str(rel_dir)
+                if any(part in excluded_set or part.startswith(".") for part in dir_name.split("/")):
+                    continue
+
+            dir_path = repo_path / rel_dir
+            if not dir_path.is_dir():
+                continue
+
+            try:
+                files = os.listdir(dir_path)
+            except OSError:
+                continue
 
             for filename in files:
                 # Check exact matches
                 if filename in MANIFEST_FILES:
-                    manifest_path = Path(root) / filename
-                    rel_path = manifest_path.relative_to(repo_path)
-                    manifests[rel_path.parent] = (MANIFEST_FILES[filename], filename)
-                    continue
+                    manifests[rel_dir] = (MANIFEST_FILES[filename], filename)
+                    break
 
                 # Check glob patterns
                 for pattern, pkg_mgr in MANIFEST_GLOBS.items():
                     if fnmatch.fnmatch(filename, pattern):
-                        manifest_path = Path(root) / filename
-                        rel_path = manifest_path.relative_to(repo_path)
-                        manifests[rel_path.parent] = (pkg_mgr, filename)
+                        manifests[rel_dir] = (pkg_mgr, filename)
                         break
 
         return manifests

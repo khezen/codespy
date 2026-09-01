@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.0.16] - 2026-09-01
+
+### Changed
+- Manifest discovery (`_discover_manifests`) now scans only ancestor directories of changed files instead of walking the entire repository tree — significant performance improvement for large repos
+- `_discover_manifests` signature: added `changed_files: list[ChangedFile]` parameter
+- Auditor no longer receives per-file metadata: removed `changed_files` input from `AuditSignature` and `forward()` / `_call_auditor()` parameters
+- `Auditor.forward()` signature simplified: `Sequence[ChangedFile]` parameter dropped, `all_issues` type narrowed from `Sequence[Issue]` to `list[Issue]`
+
 ## [1.0.15] - 2026-09-01
 
 ### Changed
