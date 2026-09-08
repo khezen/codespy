@@ -108,7 +108,7 @@ AUTO_DISCOVER_GEMINI=false
 |---------|---------|---------|-------------|
 | Model | `DEFAULT_MODEL` | `anthropic/claude-opus-4-6` | Primary model for all signatures |
 | Reasoning effort | `DEFAULT_REASONING_EFFORT` | `medium` | Provider reasoning budget: `minimal`, `low`, `medium`, `high` |
-| Max tokens | `DEFAULT_MAX_TOKENS` | `64000` | Output token budget per completion (reasoning tokens included) |
+| Max tokens | `DEFAULT_MAX_TOKENS` | `32000` | Output token budget per completion (reasoning tokens included) |
 | Temperature | `DEFAULT_TEMPERATURE` | `0.2` | Default temperature for LLM calls |
 | Max iterations | `DEFAULT_MAX_ITERS` | `5` | Maximum ReAct iterations for tool-using agents |
 | Prompt caching | `ENABLE_PROMPT_CACHING` | `true` | Provider-side prompt caching (Anthropic, OpenAI, Bedrock) |
@@ -171,14 +171,16 @@ Brief overview:
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| Backend | `MEMORY_BACKEND` | `filesystem` | Storage: `filesystem` or `s3` |
-| Root path | `MEMORY_ROOT` | `~/.cache/codespy/memory` | Filesystem storage location |
+| PostgreSQL URI | `MEMORY_POSTGRES_URI` | — | External PostgreSQL connection URI |
+| Bank ID | `MEMORY_BANK_ID` | `codespy` | Scopes all memory data |
+| pg0 name | `MEMORY_PG0_NAME` | `codespy` | pg0-embedded database name (local dev) |
+| pg0 port | `MEMORY_PG0_PORT` | auto | pg0-embedded port (local dev) |
 | Default enabled | `MEMORY_DEFAULT_ENABLED` | `false` | Enable memory globally |
 | Max reflects | `MEMORY_DEFAULT_MAX_REFLECTS` | `0` | Reflection iterations (0 = once at end) |
-| Context memory tokens | `MEMORY_DEFAULT_MAX_CONTEXT_MEMORY_TOKENS` | `16384` | Max tokens for persisted context memory |
-| Item tokens | `MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS` | `512` | Soft per-item token limit |
-| Trajectory tokens | `MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS` | `16384` | Cap on trajectory fed to Distiller |
-| Question tokens | `MEMORY_DEFAULT_MAX_QUESTION_TOKENS` | `8192` | Cap on serialized reflection inputs |
+| Context memory tokens | `MEMORY_MAX_CONTEXT_MEMORY_TOKENS` | `16384` | Ceiling on persisted context memory |
+| Item tokens | `MEMORY_MAX_CONTEXT_ITEM_TOKENS` | `512` | Soft per-item token limit |
+| Trajectory tokens | `MEMORY_MAX_TRAJECTORY_TOKENS` | `16384` | Cap on trajectory fed to Distiller |
+| Question tokens | `MEMORY_MAX_QUESTION_TOKENS` | `8192` | Cap on serialized reflection inputs |
 
 See [Memory System](memory.md) for full memory configuration details.
 

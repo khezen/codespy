@@ -1,3 +1,5 @@
+"""Hippocampus memory module for context-aware agents."""
+
 from __future__ import annotations
 
 import asyncio
@@ -5,6 +7,7 @@ import copy
 import logging
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import dspy
 
@@ -23,13 +26,14 @@ from codespy.agents.memory.hippocampus.context_memory import (
     Operation,
     OpType,
     Topic,
+    _PREFIX_TO_SECTION,
 )
 from codespy.agents.memory.hippocampus.episode import Episode
-from codespy.agents.memory.hippocampus.episode import load_episode as _load_episode
-from codespy.agents.memory.hippocampus.episode import save_episode as _save_episode
-from codespy.agents.memory.hippocampus.modules.cartographer import Cartographer
 from codespy.agents.memory.hippocampus.modules.distiller import Distiller
-from codespy.tools.storage.base import Storage
+from codespy.agents.memory.hippocampus.modules.cartographer import Cartographer
+
+if TYPE_CHECKING:
+    from codespy.agents.memory.postgres import EpisodeStore
 
 logger = logging.getLogger(__name__)
 
@@ -236,9 +240,6 @@ class Hippocampus(dspy.Module):
         # above). Falls back to a random UUID for standalone usage where no
         # orchestrator provides one.
         self._run_id: str = run_id or uuid.uuid4().hex
-        # Counter for episode filenames to avoid collisions when the same
-        # signature is invoked multiple times on the same scope within one run.
-        self._episode_index: int = 0
         # The most recent consolidated Episode; set by end_episode(), None until then.
         self.episode: Episode | None = None
         # Accumulated mutations across _distill() calls within the current episode.
@@ -319,6 +320,7 @@ class Hippocampus(dspy.Module):
                 empty dict when omitted.
         """
         self.episode = Episode(
+            id=uuid.uuid4(),
             task=self._task_name,
             module=self._module_name,
             question=self._episode_question or "",
@@ -334,32 +336,9 @@ class Hippocampus(dspy.Module):
         self._mutations.clear()
         self._distill_step = 0
 
-    def episode_file_path(self, dir: str, index: int = 0) -> str:
-        """Build the full episode file path from a directory.
-
-        Path format: ``orgs/<owner>/episodic/.codespy/<owner>.<repo>``
-        ``[.<subroot>].<run_id>-<task>-<index>.json``  # noqa: E501
-
-        Args:
-            dir: Directory identifying where this episode belongs (e.g. a
-                scope's ``/{host}/{owner}/{repo}/{subroot}/`` path or
-                ``/{owner}/{repo}/{subroot}/`` without host).
-            index: Episode index for this scope/task combination.
-        """
-        segments = [s for s in dir.strip("/").split("/") if s]
-        # Strip host segment (contains a dot, e.g. github.com/gitlab.com)
-        if segments and "." in segments[0]:
-            segments = segments[1:]
-        owner = segments[0] if segments else "unknown"
-        slug = ".".join(segments)
-        return (
-            f"orgs/{owner}/episodic/.codespy/{slug}.{self._run_id}-{self._task_name}-{index}.json"
-        )
-
     def end_episode(
         self,
-        store: Storage | None = None,
-        dir: str | None = None,
+        store: EpisodeStore | None = None,
         artifacts: dict[str, str] | None = None,
     ) -> None:
         """Consolidate the buffered trajectories into the memory and record an Episode snapshot.
@@ -374,16 +353,10 @@ class Hippocampus(dspy.Module):
         containing the task/module identity and a deep-copy snapshot of the
         updated context memory.
 
-        If both ``store`` and ``dir`` are provided the episode is persisted
-        via ``save_episode()`` after consolidation, at
-        ``orgs/<owner>/episodic/.codespy/<slug>.<run_id>-<task>-<index>.json``. ``store`` may be a
-        ``FileSystem`` or an ``S3Client`` instance.
+        If ``store`` is provided, the episode is persisted via ``store.save_episode()``.
 
         Args:
-            store: Optional ``Storage`` backend to persist the episode after
-                consolidation (``FileSystem`` or ``S3Client``).
-            dir: Directory identifying where this episode belongs (e.g. a
-                scope's path). Required when ``store`` is set.
+            store: Optional ``EpisodeStore`` to persist the episode after consolidation.
             artifacts: Named output artifacts to attach to the recorded
                 episode (e.g. ``{"review": "<markdown>"}``). Agent-agnostic —
                 any caller can attach whatever markdown/text output it
@@ -397,14 +370,12 @@ class Hippocampus(dspy.Module):
         if not has_content:
             return
         self._finalize_episode(artifacts)
-        if store is not None and dir is not None:
-            _save_episode(store, self.episode_file_path(dir, self._episode_index), self.episode)
-            self._episode_index += 1
+        if store is not None:
+            store.save_episode(self.episode)
 
     async def aend_episode(
         self,
-        store: Storage | None = None,
-        dir: str | None = None,
+        store: EpisodeStore | None = None,
         artifacts: dict[str, str] | None = None,
     ) -> None:
         """Async counterpart of :meth:`end_episode`.
@@ -414,10 +385,7 @@ class Hippocampus(dspy.Module):
         caller's event loop.
 
         Args:
-            store: Optional ``Storage`` backend to persist the episode after
-                consolidation (``FileSystem`` or ``S3Client``).
-            dir: Directory identifying where this episode belongs (e.g. a
-                scope's path). Required when ``store`` is set.
+            store: Optional ``EpisodeStore`` to persist the episode after consolidation.
             artifacts: Named output artifacts to attach to the recorded
                 episode (e.g. ``{"review": "<markdown>"}``).
         """
@@ -426,60 +394,14 @@ class Hippocampus(dspy.Module):
         if not has_content:
             return
         await asyncio.to_thread(self._finalize_episode, artifacts)
-        if store is not None and dir is not None:
-            path = self.episode_file_path(dir, self._episode_index)
-            await asyncio.to_thread(_save_episode, store, path, self.episode)
-            self._episode_index += 1
-
-    def save_episode(self, store: Storage, path: str) -> None:
-        """Persist the current episode to ``path`` via ``store``.
-
-        Args:
-            store: Storage backend (``FileSystem`` or ``S3Client``).
-            path: Destination path within the store.
-
-        Raises:
-            ValueError: If no episode has been consolidated yet (call
-                ``end_episode()`` first).
-            OSError: If the write fails.
-        """
-        if self.episode is None:
-            raise ValueError("No episode to save — call end_episode() to consolidate first.")
-        _save_episode(store, path, self.episode)
-
-    def load_episode(self, store: Storage, path: str) -> None:
-        """Replace the current state with an episode loaded from ``path`` via ``store``.
-
-        Restores both ``self.episode`` and the live context memory
-        (``self.cmem = episode.context_memory``) so the agent resumes from the
-        persisted state. Also resets ``scores`` and clears the trajectory
-        buffer since they belong to the previous state.
-
-        Args:
-            store: Storage backend (``FileSystem`` or ``S3Client``).
-            path: Source path within the store.
-
-        Raises:
-            FileNotFoundError: If the path does not exist.
-            OSError: If reading or parsing fails.
-        """
-        ep = _load_episode(store, path)
-        self.episode = ep
-        self.cmem = ep.context_memory
-        self.scores = {}
-        self._episode_trajectories.clear()
-        self._episode_question = None
-        self._reflected_count = 0
-        self._episode_index = 0
-        self._mutations.clear()
-        self._distill_step = 0
+        if store is not None:
+            await asyncio.to_thread(store.save_episode, self.episode)
 
     def reset_episode(self) -> None:
         """Discard the buffered trajectories without reflecting."""
         self._episode_trajectories.clear()
         self._episode_question = None
         self._reflected_count = 0
-        self._episode_index = 0
         self._mutations.clear()
         self._distill_step = 0
 
@@ -542,6 +464,24 @@ class Hippocampus(dspy.Module):
                             topic_ids=old_item.topic_ids,
                         )
                     )
+                else:
+                    # Fallback REPLACE→ADD: mirrors apply()'s fallback
+                    # so add_mutations stays aligned with new_ids
+                    prefix = op.item_id.split("-", 1)[0] if "-" in op.item_id else ""
+                    section_name = _PREFIX_TO_SECTION.get(prefix)
+                    if section_name:
+                        mut = Mutation(
+                            step=self._distill_step,
+                            type=OpType.ADD,
+                            item_id="",  # back-filled from new_ids
+                            section=section_name,
+                            content=op.content,
+                            previous_content=None,
+                            topic_ids=list(self._topic_ids),
+                        )
+                        mutations.append(mut)
+                        add_mutations.append(mut)
+                    # else: topic-ID — apply() already skipped, nothing to record
             elif op.type == OpType.ADD and op.section and op.content:
                 mut = Mutation(
                     step=self._distill_step,

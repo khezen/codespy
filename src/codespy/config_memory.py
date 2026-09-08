@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 import os
-from typing import TYPE_CHECKING, Any, Literal
+
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from codespy.config_dspy import ReasoningEffort
-from codespy.tools.storage.base import Storage
 
 if TYPE_CHECKING:
+    from codespy.agents.memory.postgres import EpisodeStore
     from codespy.config import Settings
 
-
-MemoryBackend = Literal["filesystem", "s3"]
+logger = logging.getLogger(__name__)
 
 
 class ReflectionModuleConfig(BaseModel):
@@ -63,13 +64,12 @@ class MemoryConfig(BaseModel):
     ``default_*`` values.
     """
 
-    # Storage backend
-
-    backend: MemoryBackend = "filesystem"  # MEMORY_BACKEND
-    root: str = "~/.cache/codespy/memory"  # MEMORY_ROOT (filesystem backend)
-    s3_bucket: str | None = None  # MEMORY_S3_BUCKET (s3 backend)
-    s3_region: str | None = None  # MEMORY_S3_REGION (falls back to aws_region)
-    s3_endpoint_url: str | None = None  # MEMORY_S3_ENDPOINT_URL (MinIO/S3-compatible)
+    # PostgreSQL connection settings
+    postgres_uri: str | None = None  # MEMORY_POSTGRES_URI (production)
+    bank_id: str | None = None  # MEMORY_BANK_ID (defaults to "codespy")
+    pg0_name: str = "codespy"  # MEMORY_PG0_NAME (local dev)
+    pg0_port: int | None = None  # MEMORY_PG0_PORT (auto-detected if unset)
+    pg0_data_dir: str | None = None  # MEMORY_PG0_DATA_DIR (custom data directory for pg0)
 
     # Reflection defaults — overridable per-signature
     default_enabled: bool = False  # MEMORY_DEFAULT_ENABLED
@@ -124,11 +124,11 @@ class MemoryConfig(BaseModel):
 # ``env_nested_delimiter``, so pydantic-settings cannot populate these fields
 # from the environment on its own. apply_memory_env_overrides() bridges the gap.
 MEMORY_ENV_SETTINGS = {
-    "BACKEND": "backend",
-    "ROOT": "root",
-    "S3_BUCKET": "s3_bucket",
-    "S3_REGION": "s3_region",
-    "S3_ENDPOINT_URL": "s3_endpoint_url",
+    "POSTGRES_URI": "postgres_uri",
+    "BANK_ID": "bank_id",
+    "PG0_NAME": "pg0_name",
+    "PG0_PORT": "pg0_port",
+    "PG0_DATA_DIR": "pg0_data_dir",
     "DEFAULT_ENABLED": "default_enabled",
     "DEFAULT_MAX_REFLECTS": "default_max_reflects",
     "COMPACT_TRAJECTORY": "compact_trajectory",
@@ -157,14 +157,19 @@ REFLECTION_MODULE_ENV_SETTINGS = {
 REFLECTION_MODULE_PREFIXES = {f"{name.upper()}_": name for name in REFLECTION_MODULES}
 
 
+def _generate_bank_id() -> str:
+    """Generate a default bank_id."""
+    return "codespy"
+
+
 def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     """Apply ``MEMORY_*`` environment variable overrides to the ``memory`` block.
 
     Maps flat env vars onto the nested ``memory`` config, e.g.::
 
-        MEMORY_BACKEND=s3                          -> memory.backend
-        MEMORY_DEFAULT_ENABLED=true                -> memory.default_enabled
-        MEMORY_MAX_CONTEXT_MEMORY_TOKENS=512  -> memory.max_context_memory_tokens
+        MEMORY_POSTGRES_URI=postgresql://localhost/db  -> memory.postgres_uri
+        MEMORY_DEFAULT_ENABLED=true                    -> memory.default_enabled
+        MEMORY_MAX_CONTEXT_MEMORY_TOKENS=512           -> memory.max_context_memory_tokens
 
     Reflection module overrides use a second level of nesting::
 
@@ -233,75 +238,82 @@ def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     return config
 
 
-# Cached singleton store. Avoids reconstructing an S3Client's boto3 client
-# (credential resolution + connection pool setup) on every call — see
-# get_memory_store() for details. Filesystem stores are cheap to build but
-# there's no reason not to reuse them too.
-_store: Storage | None = None
+# Cached singleton store. Avoids reconstructing the EpisodeStore's connection pool
+# on every call.
+_store: EpisodeStore | None = None
 _store_built = False
 
 
-def get_memory_store(settings: Settings) -> Storage | None:
-    """Return the cached Storage backend for Hippocampus memory, or None if disabled.
+def get_episode_store(settings: Settings) -> EpisodeStore | None:
+    """Return the cached EpisodeStore for Hippocampus memory, or None if disabled.
 
     The store is built once and cached (module-level singleton). This matters
-    most for the S3 backend: constructing ``S3Client`` creates a boto3 client,
-    which resolves credentials and sets up a connection pool — work we don't
-    want repeated on every scope/signature call. Filesystem stores are cheap
-    to build, but caching them too keeps the function's behaviour uniform.
+    for the connection pool setup.
 
-    Call :func:`reset_memory_store` after changing settings (e.g. via
+    Call :func:`reset_episode_store` after changing settings (e.g. via
     ``reload_settings``) to force a rebuild on next access.
 
-    Filesystem backend: creates a ``FileSystem`` rooted at the resolved
-    ``memory.root`` path (``~`` is expanded).
-
-    S3 backend: creates an ``S3Client`` pointing at ``memory.s3_bucket`` with
-    optional region / endpoint overrides. Returns None if no bucket is configured.
+    Priority:
+    1. If ``memory.postgres_uri`` is set, use it directly.
+    2. Else, try to auto-start pg0-embedded for local dev.
+    3. If pg0 is not available, return None with a warning.
 
     Args:
         settings: Application settings.
 
     Returns:
-        Cached Storage instance, or None if storage is not configured.
+        Cached EpisodeStore instance, or None if storage is not configured.
     """
     global _store, _store_built
     if _store_built:
         return _store
 
     mem = settings.memory
+    bank_id = mem.bank_id or _generate_bank_id()
 
-    if mem.backend == "s3":
-        if not mem.s3_bucket:
-            _store = None
-        else:
-            from codespy.tools.storage.s3.client import S3Client
+    # Try external PostgreSQL first
+    if mem.postgres_uri:
+        from codespy.agents.memory.postgres import EpisodeStore
 
-            _store = S3Client(
-                bucket=mem.s3_bucket,
-                region=mem.s3_region or settings.aws_region,
-                endpoint_url=mem.s3_endpoint_url or None,
-            )
+        _store = EpisodeStore(mem.postgres_uri, bank_id)
+        logger.info(f"EpisodeStore connected to external PostgreSQL (bank={bank_id})")
     else:
-        # Filesystem (default)
-        from pathlib import Path
+        # Try pg0-embedded for local dev
+        try:
+            from codespy.agents.memory.pg0_manager import get_pg0_uri
 
-        from codespy.tools.storage.filesystem.client import FileSystem
+            uri = get_pg0_uri(name=mem.pg0_name, port=mem.pg0_port, data_dir=mem.pg0_data_dir)
+            from codespy.agents.memory.postgres import EpisodeStore
 
-        root = str(Path(mem.root).expanduser().resolve())
-        _store = FileSystem(root)
+            _store = EpisodeStore(uri, bank_id)
+            logger.info(f"EpisodeStore connected to pg0-embedded PostgreSQL (bank={bank_id})")
+        except ImportError:
+            logger.warning(
+                "Memory is enabled but no PostgreSQL URI is configured and pg0-embedded "
+                "is not installed. Install with: pip install pg0-embedded\n"
+                "Or set MEMORY_POSTGRES_URI to use an external PostgreSQL instance."
+            )
+            _store = None
+        except Exception as e:
+            logger.warning(f"Failed to start pg0-embedded: {e}")
+            _store = None
 
     _store_built = True
     return _store
 
 
-def reset_memory_store() -> None:
+def reset_episode_store() -> None:
     """Clear the cached memory store so it is rebuilt on next access.
 
     Call this after reloading settings (e.g. ``reload_settings()``) so a
     changed ``memory`` configuration takes effect.
     """
     global _store, _store_built
+    if _store is not None:
+        try:
+            _store.close()
+        except Exception:
+            pass
     _store = None
     _store_built = False
 
@@ -322,13 +334,16 @@ def verify_memory_access(settings: Settings) -> tuple[bool, str]:
     ):
         return True, "Memory disabled — skipping storage check"
 
-    store = get_memory_store(settings)
+    store = get_episode_store(settings)
     if store is None:
-        return False, "Memory is enabled but storage is not configured (missing S3 bucket?)"
+        return (
+            False,
+            "Memory is enabled but storage is not configured (set MEMORY_POSTGRES_URI or install pg0-embedded)",
+        )
 
     try:
         store.verify_access()
     except Exception as e:
         return False, f"Memory storage not accessible: {e}"
 
-    return True, f"Memory storage verified ({settings.memory.backend})"
+    return True, f"Memory storage verified (PostgreSQL, bank={settings.memory.bank_id or _generate_bank_id()})"

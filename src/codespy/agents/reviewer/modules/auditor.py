@@ -8,10 +8,11 @@ import dspy
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
+from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.reviewer.models import Issue, ReviewContext
 from codespy.agents.reviewer.modules.scope_resolver import _deepest_common_folder
 from codespy.config import get_settings
-from codespy.config_memory import get_memory_store
+from codespy.config_memory import get_episode_store
 
 if TYPE_CHECKING:
     from codespy.agents.reviewer.models import ScopeResult
@@ -66,19 +67,36 @@ class Auditor(dspy.Module):
 
         # Load prior "audit" episodes per scope
         initial_memory: ContextMemory | None = None
+        topic_ids: list[str] | None = None
+        store = None
         if self._settings.get_memory_enabled("audit") and scopes:
-            from codespy.agents.memory.hippocampus.episode import find_latest_episode
-            store = get_memory_store(self._settings)
-            per_scope_memories: list[ContextMemory] = []
-            for scope in scopes:
-                ep = find_latest_episode(store, scope.scope_path(), task="audit", exclude_run_id=run_id)
-                if ep is not None:
-                    per_scope_memories.append(ep.context_memory)
-            if per_scope_memories:
-                initial_memory = ContextMemory.merge(*per_scope_memories)
-                logger.info("Merged %d prior audit episode(s) into auditor memory", len(per_scope_memories))
+            store = get_episode_store(self._settings)
+            if store is not None:
+                # Build topic_ids from scope topics
+                topic_ids = []
+                for scope in scopes:
+                    if scope.topic(review_context.pr_context.repo_full_name):
+                        topic_ids.append(scope.topic(review_context.pr_context.repo_full_name).id)
+                initial_memory = store.load_context(
+                    task="audit",
+                    topic_ids=topic_ids if topic_ids else None,
+                )
+                if initial_memory:
+                    logger.info("Loaded prior audit episode(s) into auditor memory")
+                else:
+                    logger.info("No prior audit episode found")
 
-        if self._settings.get_memory_enabled("audit"):
+        if self._settings.get_memory_enabled("audit") and store is not None:
+            # Build topics list for Hippocampus
+            scope_topics: list[Topic] = []
+            for scope in scopes or []:
+                scope_topic = scope.topic(review_context.pr_context.repo_full_name)
+                if scope_topic:
+                    scope_topics.append(Topic(
+                        id=scope_topic.id,
+                        description=scope_topic.description,
+                    ))
+
             mem = Hippocampus(
                 auditor,
                 budget=self._settings.get_memory_budget("audit"),
@@ -87,7 +105,7 @@ class Auditor(dspy.Module):
                 task_name="audit",
                 run_id=run_id,
                 initial_memory=initial_memory,
-                topics=topics,
+                topics=scope_topics if scope_topics else None,
             )
             result = mem(
                 pr_title=review_context.pr_context.pr_title,
@@ -96,21 +114,13 @@ class Auditor(dspy.Module):
             )
             # Run episode save synchronously (auditor is the last module)
             try:
-                _store = get_memory_store(self._settings)
-                _common_dir = (
-                    _deepest_common_folder(scopes, review_context.pr_context.repo_slug)
-                    if scopes else f"/{review_context.pr_context.repo_slug}/"
-                )
                 _artifacts = {
                     "audit": (
                         f"## Quality Assessment\n\n{result.quality_assessment}\n\n"
                         f"## Recommendation\n\n{result.recommendation}\n"
                     )
                 }
-                mem.end_episode(_store, _common_dir, artifacts=_artifacts)
-                if scopes:
-                    for scope in scopes:
-                        mem.save_episode(_store, mem.episode_file_path(scope.scope_path()))
+                mem.end_episode(store, artifacts=_artifacts)
             except Exception:
                 logger.warning("Audit episode save failed", exc_info=True)
         else:

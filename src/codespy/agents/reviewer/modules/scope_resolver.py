@@ -11,7 +11,6 @@ import asyncio
 import fnmatch
 import logging
 import os
-from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +20,7 @@ from pydantic import BaseModel, Field
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
+from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.reviewer.models import (
     PackageManifest,
     ReviewContext,
@@ -29,7 +29,7 @@ from codespy.agents.reviewer.models import (
 )
 from codespy.agents.reviewer.modules.manifest_parser import extract_package_name
 from codespy.config import get_settings
-from codespy.config_memory import get_memory_store
+from codespy.config_memory import get_episode_store
 from codespy.tools.git.client import get_client
 from codespy.tools.git.models import ChangedFile, PullRequest, should_review_file
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -1066,12 +1066,20 @@ class ScopeResolver(dspy.Module):
                         f"{review_context.pr_context.summary}"
                     )
                     # Scope resolver loads its own prior episodes (no memory inheritance)
-                    from codespy.agents.memory.hippocampus.episode import find_latest_episode
-                    store = get_memory_store(self._settings)
-                    # Use repo root as the scope path for scope resolver episodes
-                    scope_path = f"/{review_context.pr_context.repo_slug}/"
-                    ep = find_latest_episode(store, scope_path, task="scope", exclude_run_id=run_id)
-                    scope_initial_memory: ContextMemory | None = ep.context_memory if ep is not None else None
+                    store = get_episode_store(self._settings)
+                    scope_initial_memory: ContextMemory | None = None
+                    if store is not None:
+                        # Load by repo prefix — matches any scope-level topic
+                        # (e.g. 'khezen/codespy' matches 'khezen/codespy/codespy-ai')
+                        repo_topic_id = pr.repo_full_name
+                        scope_initial_memory = store.load_context(
+                            task="scope",
+                            topic_prefix=repo_topic_id,
+                        )
+                        if scope_initial_memory:
+                            logger.info("Loaded prior scope episode for %s", repo_topic_id)
+                        else:
+                            logger.info("No prior scope episode for %s", repo_topic_id)
                     mem = Hippocampus(
                         agent,
                         budget=self._settings.get_memory_budget("scope"),
@@ -1160,16 +1168,14 @@ class ScopeResolver(dspy.Module):
                 mem.cmem.bind_topics(scope_topics, stamp_topic_ids)
 
             # Fire-and-forget background episode save
-            if mem is not None:
-                common_dir = _deepest_common_folder(final_scopes, pr.repo_slug)
+            if mem is not None and store is not None:
                 scope_desc = "\n".join(
                     f"- {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
                     for s in final_scopes
                 )
-                store = get_memory_store(self._settings)
                 def _persist():
                     try:
-                        mem.end_episode(store, common_dir, artifacts={"scopes": scope_desc})
+                        mem.end_episode(store, artifacts={"scopes": scope_desc})
                     except Exception:
                         logger.warning("Background scope episode save failed", exc_info=True)
                 submit_episode_save(_persist, name="scope-episode-save")

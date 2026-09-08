@@ -12,7 +12,7 @@ import dspy  # type: ignore[import-untyped]
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
-from codespy.agents.memory.hippocampus.episode import find_latest_episode, submit_episode_save
+from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
 from codespy.agents.reviewer.modules.helpers import (
     issues_to_markdown,
@@ -21,7 +21,7 @@ from codespy.agents.reviewer.modules.helpers import (
     strip_prefix,
 )
 from codespy.config import get_settings
-from codespy.config_memory import get_memory_store
+from codespy.config_memory import get_episode_store
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -392,16 +392,20 @@ class SupplyChainAuditor(dspy.Module):
             async with SignatureContext("supply_chain", self._cost_tracker):
                 # Load own prior "supply_chain" episode for this scope
                 scope_initial_memory: ContextMemory | None = None
+                store = None
                 if self._settings.get_memory_enabled("supply_chain"):
-                    ep = find_latest_episode(
-                        get_memory_store(self._settings),
-                        scope.scope_path(),
-                        task="supply_chain",
-                        exclude_run_id=run_id,
-                    )
-                    if ep is not None:
-                        scope_initial_memory = ep.context_memory
-                if self._settings.get_memory_enabled("supply_chain"):
+                    store = get_episode_store(self._settings)
+                    if store is not None:
+                        topic_ids = [scope.topic(review_context.pr_context.repo_full_name).id]
+                        scope_initial_memory = store.load_context(
+                            task="supply_chain",
+                            topic_ids=topic_ids,
+                        )
+                        if scope_initial_memory:
+                            logger.info("Loaded prior supply_chain episode for scope %s", scope.subroot)
+                        else:
+                            logger.info("No prior supply_chain episode for scope %s", scope.subroot)
+                if self._settings.get_memory_enabled("supply_chain") and store is not None:
                     question = (
                         f"review supply chain of {scope.repo}: {scope.subroot}: "
                         f"pull request {review_context.pr_context.pr_number} "
@@ -432,12 +436,10 @@ class SupplyChainAuditor(dspy.Module):
                         if issue.confidence >= self._settings.min_confidence
                     ]
                     # Fire-and-forget background episode save
-                    _store = get_memory_store(self._settings)
-                    _scope_path = scope.scope_path()
                     _artifacts = {"review": issues_to_markdown(issues)}
-                    def _persist(m=mem, s=_store, p=_scope_path, a=_artifacts):
+                    def _persist(m=mem, s=store, a=_artifacts):
                         try:
-                            m.end_episode(s, p, artifacts=a)
+                            m.end_episode(s, artifacts=a)
                         except Exception:
                             logger.warning("Background supply_chain episode save failed", exc_info=True)
                     submit_episode_save(_persist, name="supply-chain-episode-save")

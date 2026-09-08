@@ -19,7 +19,8 @@ parsing schemas — and reuse it in subsequent reviews of the same code area.
 ### Episodes
 
 - An Episode captures one agent's run: task, context_memory, mutations, timestamp
-- Stored as JSON at: `<root>/global/episodic/<repo>/<scope-subroot>/codespy-<task>-<timestamp>.json`
+- Stored in PostgreSQL (auto-created tables). pg0-embedded auto-starts
+  a local instance when no `MEMORY_POSTGRES_URI` is set.
 - `find_latest_episode()` loads the most recent episode by `modified_at` for a given path prefix
 
 ### Context Memory
@@ -65,13 +66,12 @@ Item capacity ≈ context_memory_tokens / item_tokens (16384/512 = 32 items)
 
 | Env Var | YAML Path | Default | Description |
 |---------|-----------|---------|-------------|
-| `MEMORY_BACKEND` | `memory.backend` | `filesystem` | Storage backend: `filesystem` or `s3` |
-| `MEMORY_ROOT` | `memory.root` | `~/.cache/codespy/memory` | Filesystem storage path |
-| `MEMORY_S3_BUCKET` | `memory.s3_bucket` | — | S3 bucket name |
-| `MEMORY_S3_REGION` | `memory.s3_region` | (aws_region) | S3 region |
-| `MEMORY_S3_ENDPOINT_URL` | `memory.s3_endpoint_url` | — | MinIO/S3-compatible endpoint |
+| `MEMORY_POSTGRES_URI` | `memory.postgres_uri` | — | External PostgreSQL connection URI |
+| `MEMORY_BANK_ID` | `memory.bank_id` | `codespy` | Scopes all memory data |
+| `MEMORY_PG0_NAME` | `memory.pg0_name` | `codespy` | pg0-embedded database name |
+| `MEMORY_PG0_PORT` | `memory.pg0_port` | auto | pg0-embedded port |
 | `MEMORY_DEFAULT_ENABLED` | `memory.default_enabled` | `false` | Enable memory globally |
-| `MEMORY_DEFAULT_MAX_REFLECTS` | `memory.default_max_reflects` | `0` | Reflection iterations (0 = once at end) |
+| `MEMORY_DEFAULT_MAX_REFLECTS` | `memory.default_max_reflects` | `0` | Reflection iterations |
 
 ### Reflection Module LLM Overrides
 
@@ -109,44 +109,27 @@ MEMORY_DISTILLER_MODEL=anthropic/claude-sonnet-4-5-20250929
 MEMORY_CARTOGRAPHER_MODEL=anthropic/claude-sonnet-4-5-20250929
 ```
 
+# Storage: pg0-embedded auto-starts when pg0-embedded is installed (default).
+# For production, set MEMORY_POSTGRES_URI:
+# MEMORY_POSTGRES_URI=postgresql://user:pass@host:5432/codespy
+
 ### GitHub Action
 
-Enable memory with S3 persistence:
 ```yaml
 - name: Run CodeSpy Review
   uses: khezen/codespy@v1
   with:
     model: 'anthropic/claude-opus-4-6'
     anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-    # AWS credentials (required for S3 memory backend)
-    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    aws-region: 'us-east-1'
-    # Memory
+    # Memory with external PostgreSQL
     memory-enabled: 'true'
-    memory-backend: 's3'
-    memory-s3-bucket: 'my-codespy-memory'
+    memory-postgres-uri: ${{ secrets.MEMORY_POSTGRES_URI }}
     memory-distiller-model: 'anthropic/claude-haiku-4-5-20251001'
     memory-cartographer-model: 'anthropic/claude-haiku-4-5-20251001'
 ```
 
-Enable only for code review (per-signature override):
-```yaml
-- name: Run CodeSpy Review
-  uses: khezen/codespy@v1
-  with:
-    model: 'anthropic/claude-opus-4-6'
-    anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    memory-backend: 's3'
-    memory-s3-bucket: 'my-codespy-memory'
-    code-review-memory-enabled: 'true'
-    memory-distiller-model: 'anthropic/claude-haiku-4-5-20251001'
-    memory-cartographer-model: 'anthropic/claude-haiku-4-5-20251001'
-```
-
-> **Note:** The `filesystem` backend is ephemeral in the GitHub Action (Docker container is removed after each run). Use `s3` for persistent memory across reviews.
+> **Note:** pg0-embedded is included in the Docker image. For persistent memory
+> across CI runs, use an external PostgreSQL instance via `memory-postgres-uri`.
 
 ---
 

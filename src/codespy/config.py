@@ -39,7 +39,7 @@ from codespy.config_memory import (
     LLMSettings,
     MemoryConfig,
     apply_memory_env_overrides,
-    reset_memory_store,
+    reset_episode_store,
 )
 
 if TYPE_CHECKING:
@@ -605,5 +605,5 @@ def reload_settings(config_file: str | None = None) -> Settings:
     if config_file is not None:
         _custom_config_path = config_file
     settings = Settings()
-    reset_memory_store()
+    reset_episode_store()
     return settings

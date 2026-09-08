@@ -272,8 +272,8 @@ class TestContextMemoryApply:
 
         assert len(new_memory.context_understanding) == 0
 
-    def test_replace_nonexistent_logs_warning(self, caplog):
-        """REPLACE on non-existent item logs warning and leaves memory unchanged."""
+    def test_replace_nonexistent_valid_prefix_falls_back_to_add(self, caplog):
+        """REPLACE on non-existent item with valid prefix falls back to ADD."""
         import logging
 
         memory = ContextMemory(
@@ -283,15 +283,54 @@ class TestContextMemoryApply:
         )
         ops = [Operation(type=OpType.REPLACE, item_id="cu-GONE", content="New content")]
         with caplog.at_level(
+            logging.INFO,
+            logger="codespy.agents.memory.hippocampus.context_memory",
+        ):
+            new_memory, new_ids = memory.apply(ops, topic_ids=["t2"])
+
+        assert len(new_ids) == 1  # fallback ADD created a new item
+        assert new_memory.context_understanding[0].content == "Existing"  # original untouched
+        assert len(new_memory.context_understanding) == 2  # original + fallback
+        fallback_item = new_memory.context_understanding[1]
+        assert fallback_item.content == "New content"
+        assert fallback_item.topic_ids == ["t2"]  # gets current topic_ids
+        assert fallback_item.id.startswith("cu-")  # correct prefix
+        assert "falling back to ADD" in caplog.text
+
+    def test_replace_topic_id_skipped(self, caplog):
+        """REPLACE with topic-ID-shaped item_id (no prefix) logs warning and skips."""
+        import logging
+
+        memory = ContextMemory(
+            context_understanding=[
+                Item(id="cu-abc", content="Existing", topic_ids=["t1"]),
+            ],
+        )
+        ops = [Operation(type=OpType.REPLACE, item_id="owner/repo/package", content="New")]
+        with caplog.at_level(
             logging.WARNING,
             logger="codespy.agents.memory.hippocampus.context_memory",
         ):
             new_memory, new_ids = memory.apply(ops, topic_ids=["t2"])
 
+        assert new_ids == []  # no fallback ADD
+        assert len(new_memory.context_understanding) == 1  # unchanged
+        assert "no valid prefix" in caplog.text
+
+    def test_replace_url_topic_id_skipped(self, caplog):
+        """REPLACE with PR URL as item_id logs warning and skips."""
+        import logging
+
+        memory = ContextMemory()
+        ops = [Operation(type=OpType.REPLACE, item_id="https://github.com/o/r/pull/1", content="X")]
+        with caplog.at_level(
+            logging.WARNING,
+            logger="codespy.agents.memory.hippocampus.context_memory",
+        ):
+            new_memory, new_ids = memory.apply(ops)
+
         assert new_ids == []
-        assert new_memory.context_understanding[0].content == "Existing"
-        assert "cu-GONE" in caplog.text
-        assert "not found" in caplog.text
+        assert "no valid prefix" in caplog.text
 
 
 class TestContextMemoryMerge:

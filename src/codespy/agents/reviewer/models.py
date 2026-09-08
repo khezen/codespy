@@ -33,6 +33,15 @@ class PRContext(BaseModel):
     pr_description: str = Field(default="", description="PR body/description")
     summary: str = Field(description="2-3 sentence PR summary produced by Summarizer")
 
+    @property
+    def repo_full_name(self) -> str:
+        """Get owner/repo from host-qualified repo_slug."""
+        # repo_slug is "github.com/owner/repo" or just "owner/repo"
+        parts = self.repo_slug.split("/")
+        if len(parts) >= 3:
+            return "/".join(parts[1:])  # strip host
+        return self.repo_slug
+
     def to_topic(self) -> "Topic":
         """Build a Topic representing this PR.
 

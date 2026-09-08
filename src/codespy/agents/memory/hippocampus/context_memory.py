@@ -71,6 +71,8 @@ _SECTION_PREFIX: dict[str, str] = {
     "reusable_results": "rr",
 }
 
+_PREFIX_TO_SECTION: dict[str, str] = {v: k for k, v in _SECTION_PREFIX.items()}
+
 
 class Topic(BaseModel):
     """A topic representing a scope in the repository.
@@ -276,10 +278,24 @@ class ContextMemory(BaseModel):
                     if replaced:
                         break
                 if not replaced:
-                    logger.warning(
-                        "REPLACE target %r not found in context memory; skipping",
-                        op.item_id,
-                    )
+                    # Infer section from item_id prefix; fall back to ADD
+                    prefix = op.item_id.split("-", 1)[0] if "-" in op.item_id else ""
+                    section_name = _PREFIX_TO_SECTION.get(prefix)
+                    if section_name:
+                        logger.info(
+                            "REPLACE target %r not found; falling back to ADD in %s",
+                            op.item_id, section_name,
+                        )
+                        new_id = f"{prefix}-{uuid.uuid4().hex}"
+                        new_item = Item(id=new_id, content=op.content, topic_ids=topic_ids or [])
+                        cm.section(section_name).append(new_item)
+                        new_ids.append(new_id)
+                    else:
+                        logger.warning(
+                            "REPLACE item_id %r has no valid prefix — "
+                            "likely a topic ID; skipping",
+                            op.item_id,
+                        )
 
             elif op.type == OpType.ADD and op.section and op.content:
                 prefix = _SECTION_PREFIX.get(op.section, op.section[:2])

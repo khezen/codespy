@@ -56,7 +56,9 @@ class CartographerSig(dspy.Signature):
     Each operation has exactly these fields:
     - type: one of "ADD", "DELETE", or "REPLACE"
     - section: (ADD only) one of the six section names
-    - item_id: (DELETE/REPLACE only) existing item ID from current memory
+    - item_id: (DELETE/REPLACE only) existing item ID from current memory.
+      Item IDs have short prefixes (cu-, cr-, dc-, ps-, rr-, ac-).
+      NEVER use topic IDs (owner/repo paths or URLs) as item_id.
     - content: (ADD/REPLACE only) the new content string
 
     Only reference `item_id`s that exist in the current memory. Never invent
@@ -108,12 +110,15 @@ class CartographerSig(dspy.Signature):
     """
 
     diagnosis: str = dspy.InputField(desc="Distiller's narrative diagnosis.")
-    item_tags: dict[str, ItemTag] = dspy.InputField(desc="Per-item tags from the Distiller.")
+    item_tags: dict[str, ItemTag] = dspy.InputField(
+        desc="Per-item tags from the Distiller. Keys are item IDs (prefixed cu-, cr-, dc-, ps-, rr-, ac-), never topic IDs."
+    )
     cache_candidates: list[CacheCandidate] = dspy.InputField(
         desc="Candidate items the Distiller proposed."
     )
     current_map: ContextMemory = dspy.InputField(
-        desc="Current context memory."
+        desc="Current context memory. 'topics' are metadata (not editable items). "
+        "Editable items live in the six sections and have prefixed IDs (cu-, cr-, dc-, ps-, rr-, ac-)."
     )
     question: str = dspy.InputField(desc="Question the agent was answering.")
     token_budget: int = dspy.InputField(desc="Hard token budget for the context memory.")
