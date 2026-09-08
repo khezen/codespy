@@ -9,12 +9,13 @@ import dspy
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
+from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.reviewer.modules.scope_resolver import _deepest_common_folder
 from codespy.config import get_settings
 from codespy.config_memory import get_memory_store
 
 if TYPE_CHECKING:
-    from codespy.agents.reviewer.models import ScopeResult
+    from codespy.agents.reviewer.models import PRContext, ScopeResult
 
 logger = logging.getLogger(__name__)
 
@@ -47,28 +48,22 @@ class Summarizer(dspy.Module):
 
     def forward(
         self,
-        pr_title: str,
-        pr_description: str,
-        pr_number: int,
+        pr_context: "PRContext",
         changed_file_paths: list[str],
         patches: str,
-        repo_slug: str,
         run_id: str | None = None,
         scopes: list["ScopeResult"] | None = None,
-        topic_ids: list[str] | None = None,
+        topics: list[Topic] | None = None,
     ) -> str:
         """Generate a PR summary.
 
         Args:
-            pr_title: Title of the pull request
-            pr_description: Description/body of the PR
-            pr_number: PR number
+            pr_context: PRContext with PR identity (repo_slug, pr_number, pr_title, pr_description, pr_url)
             changed_file_paths: List of changed file paths
             patches: Unified diff patches showing code changes
-            repo_slug: Host-qualified repo slug for episode path
             run_id: Pipeline run identifier
             scopes: List of resolved scopes for per-scope episode persistence
-            topic_ids: Optional list of topic IDs for auto-tagging
+            topics: Optional list of Topic objects for auto-tagging
 
         Returns:
             Summary string
@@ -76,7 +71,7 @@ class Summarizer(dspy.Module):
 
         if not self._settings.is_signature_enabled("summary"):
             logger.debug("Skipping summary: disabled")
-            return pr_title or "No title"
+            return pr_context.pr_title or "No title"
 
         # Load latest "summary" episode per scope and merge
         initial_memory: ContextMemory | None = None
@@ -110,7 +105,7 @@ class Summarizer(dspy.Module):
         )
         logger.info("Generating PR summary...")
 
-        question = f"summarize {repo_slug}: pull request {pr_number} {pr_title}"
+        question = f"summarize {pr_context.repo_slug}: pull request {pr_context.pr_number} {pr_context.pr_title}"
 
         mem: Hippocampus | None = None
         with SignatureContext("summary", self._cost_tracker):
@@ -123,17 +118,17 @@ class Summarizer(dspy.Module):
                     task_name="summary",
                     run_id=run_id,
                     initial_memory=initial_memory,
-                    topic_ids=topic_ids,
+                    topics=topics,
                 )
                 result = mem(
-                    pr_title=pr_title,
-                    pr_description=pr_description,
+                    pr_title=pr_context.pr_title,
+                    pr_description=pr_context.pr_description,
                     changed_file_paths=changed_file_paths,
                     patches=patches,
                 )
                 # Fire-and-forget episode save
                 _store = get_memory_store(self._settings)
-                _common_dir = _deepest_common_folder(scopes, repo_slug) if scopes else f"/{repo_slug}/"
+                _common_dir = _deepest_common_folder(scopes, pr_context.repo_slug) if scopes else f"/{pr_context.repo_slug}/"
                 _summary_text = result.summary
                 _scopes = scopes
                 def _persist():
@@ -147,8 +142,8 @@ class Summarizer(dspy.Module):
                 submit_episode_save(_persist, name="summary-episode-save")
             else:
                 result = summarizer(
-                    pr_title=pr_title,
-                    pr_description=pr_description,
+                    pr_title=pr_context.pr_title,
+                    pr_description=pr_context.pr_description,
                     changed_file_paths=changed_file_paths,
                     patches=patches,
                 )

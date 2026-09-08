@@ -48,6 +48,10 @@ llm:
 # Issues below this threshold are silently discarded.
 min_confidence: 0.81                          # MIN_CONFIDENCE
 
+# Expand diff context to full function bodies (Tree-sitter) before review.
+# When false (default), reviewers see the original PR patches.
+compact_patches: false                        # COMPACT_PATCHES
+
 
 # ============================================================================
 # GIT PLATFORMS
@@ -110,7 +114,7 @@ memory:
   # 1. max_context_memory_tokens — ceiling on the rendered ContextMemory. This is the
   #    persisted artifact, and it is prepended to every agent iteration, so it is
   #    re-sent ~default_max_iters times per scope. Divided by max_context_item_tokens it
-  #    gives the memory's item capacity (16384 / 410 ~= 39 items).
+  #    gives the memory's item capacity (16384 / 512 = 32 items).
   # 2. max_context_item_tokens — budget for a SINGLE context memory item, given to the Distiller
   #    and the Cartographer as a prompt input so no one item eats the whole memory.
   #    Soft limit (expressed to the LLM, not enforced — truncating an item could
@@ -124,7 +128,7 @@ memory:
   #    "question". Without it, every input field is sent in full (for code review that
   #    means the complete patch of every changed file). null = unbounded.
   max_context_memory_tokens: 16384    # MEMORY_MAX_CONTEXT_MEMORY_TOKENS
-  max_context_item_tokens: 410            # MEMORY_MAX_CONTEXT_ITEM_TOKENS
+  max_context_item_tokens: 512            # MEMORY_MAX_CONTEXT_ITEM_TOKENS
   max_trajectory_tokens: 16384     # MEMORY_MAX_TRAJECTORY_TOKENS
   max_question_tokens: 8192       # MEMORY_MAX_QUESTION_TOKENS
   compact_trajectory: true       # MEMORY_COMPACT_TRAJECTORY
@@ -259,8 +263,8 @@ signatures:
   # Unified code review: bugs, security vulnerabilities, and code smells in a single agent pass per scope
   code_review:
     enabled: true                        # CODE_REVIEW_ENABLED
-    max_iters: null                      # CODE_REVIEW_MAX_ITERS
-    max_llm_calls: null                  # CODE_REVIEW_MAX_LLM_CALLS
+    max_iters: 5                         # CODE_REVIEW_MAX_ITERS
+    max_llm_calls: 8                     # CODE_REVIEW_MAX_LLM_CALLS
     model: null                          # CODE_REVIEW_MODEL
     reasoning_effort: null               # CODE_REVIEW_REASONING_EFFORT
     temperature: null                    # CODE_REVIEW_TEMPERATURE
@@ -273,7 +277,8 @@ signatures:
   # Note: doc extraction is now deterministic (no LLM) — see doc_extractor.py
   doc:
     enabled: true                        # DOC_ENABLED
-    max_llm_calls: null                  # DOC_MAX_LLM_CALLS
+    max_iters: 1                         # DOC_MAX_ITERS
+    max_llm_calls: 2                     # DOC_MAX_LLM_CALLS
     model: null                          # DOC_MODEL
     reasoning_effort: null               # DOC_REASONING_EFFORT
     temperature: null                    # DOC_TEMPERATURE
@@ -285,8 +290,8 @@ signatures:
   # Scope Identifier signature
   scope:
     enabled: true                        # SCOPE_ENABLED
-    max_iters: null                      # SCOPE_MAX_ITERS
-    max_llm_calls: null                  # SCOPE_MAX_LLM_CALLS
+    max_iters: 3                         # SCOPE_MAX_ITERS
+    max_llm_calls: 5                     # SCOPE_MAX_LLM_CALLS
     model: null                          # SCOPE_MODEL
     reasoning_effort: null               # SCOPE_REASONING_EFFORT
     temperature: null                    # SCOPE_TEMPERATURE

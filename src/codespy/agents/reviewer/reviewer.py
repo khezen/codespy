@@ -9,6 +9,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 
+from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.reviewer.models import (
     Issue,
     LocalReviewConfig,
@@ -192,6 +193,8 @@ class ReviewPipeline(dspy.Module):
             repo_slug=pr.repo_slug,
             pr_number=pr.number,
             pr_title=pr.title,
+            pr_url=pr.url,
+            pr_description=pr.body or "",
             summary=pr.title,  # Use title as placeholder since summary hasn't run
         )
         metadata = ReviewMetadata(repo_path=repo_path, run_id=run_id, pr=pr, is_local=is_local)
@@ -212,24 +215,24 @@ class ReviewPipeline(dspy.Module):
         # Expand sparse checkout to cover full scope subtrees
         if not is_local:
             self._expand_sparse_for_scopes(scopes, repo_path)
-        # Compact patches: expand context to function bodies for better review context
-        logger.info("Compacting patches to function boundaries...")
         changed_file_paths = [f.filename for f in pr.changed_files]
         patches = build_patches(pr.changed_files)
-        compact_patches(scopes, repo_path)
+        if self.settings.compact_patches:
+            logger.info("Compacting patches to function boundaries...")
+            compact_patches(scopes, repo_path)
+        else:
+            logger.debug("Compact patches disabled, using original PR patches")
         # Step 2: Run Summarizer (now receives scopes for per-scope episode persistence)
-        # Compute all scope topic IDs for summarizer
-        all_scope_topic_ids = [s.topic(pr.repo_full_name).id for s in scopes]
+        # Build all scope topics (scope topics + PR topic)
+        all_scope_topics = [s.topic(pr.repo_full_name) for s in scopes]
+        all_scope_topics.append(pr_context.to_topic())
         pr_summary = self.summarizer(
-            pr_title=pr.title,
-            pr_description=pr.body or "No description provided.",
-            pr_number=pr.number,
+            pr_context=pr_context,
             changed_file_paths=changed_file_paths,
             patches=patches,
-            repo_slug=pr.repo_slug,
             run_id=run_id,
             scopes=scopes,
-            topic_ids=all_scope_topic_ids,
+            topics=all_scope_topics,
         )
         # Enrich review_ctx with actual summary
         pr_context.summary = pr_summary
@@ -253,7 +256,7 @@ class ReviewPipeline(dspy.Module):
             all_issues=all_issues,
             run_id=run_id,
             scopes=scopes,
-            topic_ids=all_scope_topic_ids,
+            topics=all_scope_topics,
         )
         # Collect per-signature statistics
         signature_stats_list = self._collect_signature_stats()

@@ -22,6 +22,7 @@ from codespy.agents.memory.hippocampus.context_memory import (
     Mutation,
     Operation,
     OpType,
+    Topic,
 )
 from codespy.agents.memory.hippocampus.episode import Episode
 from codespy.agents.memory.hippocampus.episode import load_episode as _load_episode
@@ -34,20 +35,13 @@ logger = logging.getLogger(__name__)
 
 
 def prepend_context_memory(sig):
-    """Prepend context_memory field to signature.
-
-    The context_memory is passed as a pre-rendered string to avoid
-    Pydantic serialization in the LLM prompt.
-    """
+    """Prepend context_memory field to signature."""
     return sig.prepend(
         name="context_memory",
         field=dspy.InputField(
-            desc=(
-                "Current context memory (topic-grouped, with item IDs and sections). "
-                "Use it before redundant tool calls."
-            )
+            desc="Current context memory. Use it before redundant tool calls."
         ),
-        type_=str,
+        type_=ContextMemory,
     )
 
 
@@ -134,7 +128,7 @@ class Hippocampus(dspy.Module):
         task_name: str | None = None,
         run_id: str | None = None,
         initial_memory: ContextMemory | None = None,
-        topic_ids: list[str] | None = None,
+        topics: list[Topic] | None = None,
     ):
         """
         Args:
@@ -171,8 +165,9 @@ class Hippocampus(dspy.Module):
             initial_memory: Optional context memory to seed the agent with. When
                 provided, the agent starts with this memory instead of an empty one,
                 inheriting accumulated understanding from upstream pipeline stages.
-            topic_ids: Optional list of topic IDs to auto-assign to all new items
-                created during this episode. Used for scope-aware memory organization.
+            topics: Optional list of Topic objects to register in the context memory.
+                Topic IDs are auto-assigned to all new items created during this episode.
+                Used for scope-aware memory organization.
         """
         super().__init__()
 
@@ -201,7 +196,14 @@ class Hippocampus(dspy.Module):
         self.max_reflects = max_reflects
         self.question = question
         self.cmem = initial_memory.model_copy(deep=True) if initial_memory else ContextMemory()
-        self._topic_ids = topic_ids or []
+        self._topic_ids: list[str] = []
+        if topics:
+            existing_ids = {t.id for t in self.cmem.topics}
+            for topic in topics:
+                self._topic_ids.append(topic.id)
+                if topic.id not in existing_ids:
+                    self.cmem.topics.append(topic)
+                    existing_ids.add(topic.id)
         self.scores: dict[str, int] = {}
         # Buffer of per-call bounded trajectory strings, cleared after end_episode().
         self._episode_trajectories: list[str] = []
@@ -244,13 +246,8 @@ class Hippocampus(dspy.Module):
         # Step counter incremented per _distill() call for mutation grouping.
         self._distill_step: int = 0
 
-    @property
-    def current_memory_text(self) -> str:
-        """Return the rendered context memory as text."""
-        return self.cmem.render()
-
     def forward(self, **kwargs) -> dspy.Prediction:
-        pred = self.agent(context_memory=self.cmem.render(), **kwargs)
+        pred = self.agent(context_memory=self.cmem, **kwargs)
         self._buffer_and_distill(pred, kwargs)
         return pred
 
@@ -263,7 +260,7 @@ class Hippocampus(dspy.Module):
         The Distiller/Cartographer reflection pass is still synchronous under
         the hood but is offloaded to a thread so it never blocks the loop.
         """
-        pred = await self.agent.acall(context_memory=self.cmem.render(), **kwargs)
+        pred = await self.agent.acall(context_memory=self.cmem, **kwargs)
         await asyncio.to_thread(self._buffer_and_distill, pred, kwargs)
         return pred
 
@@ -578,7 +575,7 @@ class Hippocampus(dspy.Module):
     def _distill(self, trajectory: str, question: str) -> None:
         distilled = self.distill(
             trajectory=trajectory,
-            context_memory=self.cmem.render(),
+            context_memory=self.cmem,
             question=question,
             max_context_item_tokens=self.budget.max_context_item_tokens,
         )
@@ -591,12 +588,12 @@ class Hippocampus(dspy.Module):
             diagnosis=distilled.diagnosis,
             item_tags=tags,
             cache_candidates=list(distilled.cache_candidates or []),
-            current_map=self.cmem.render(),
+            current_map=self.cmem,
             question=question,
             # The Cartographer's input field keeps the generic name: it is prompt
             # text, already scoped by its description, and pairs with current_tokens.
             token_budget=self.budget.max_context_memory_tokens,
-            current_tokens=count_tokens(self.cmem.render()),
+            current_tokens=count_tokens(self.cmem.model_dump_json()),
             max_context_item_tokens=self.budget.max_context_item_tokens,
         )
         ops = list(edits.operations or [])

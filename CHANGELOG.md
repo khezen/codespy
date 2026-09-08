@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [1.0.15] - 2026-09-01
+
+### Changed
+- Renamed `experiences` section to `actions` in `ContextMemory` (section prefix `"ex"` → `"ac"`)
+- `max_context_item_tokens` default: `410` → `512` (capacity: ~32 items with 16384 context memory tokens)
+- `Hippocampus` init parameter `topic_ids: list[str]` → `topics: list[Topic]` — topics auto-registered in context memory
+- `Summarizer.forward()` signature simplified: individual PR fields replaced with `pr_context: PRContext` parameter
+- Scope resolver no longer builds dependency graphs between scopes
+- Per-signature iteration defaults: `doc` (max_iters=1, max_llm_calls=2), `scope` (max_iters=3, max_llm_calls=5), `code_review` (max_iters=5, max_llm_calls=8)
+
+### Added
+- `PRContext.pr_url` and `PRContext.pr_description` fields
+- `PRContext.to_topic()` helper — builds a `Topic` from PR metadata for cross-review memory
+- PR URL topic automatically registered across all pipeline modules (scope resolver, summarizer, code reviewer, doc reviewer, supply chain auditor, auditor)
+- GitHub Action inputs: `doc-max-iters`, `doc-max-llm-calls`
+
+### Removed
+- `Topic.dependencies` field and all dependency resolution logic in scope resolver
+- `ScopeResult.is_dependency` field
+- Dependency extraction from `manifest_parser.py` (~578 lines): `PACKAGE_MANAGER_TO_ECOSYSTEM`, `extract_dependencies()`, `infer_repo_from_name()`, and 13 per-language `_extract_deps_from_*` functions — only `extract_package_name()` retained
+
 ## [1.0.14] - 2026-08-31
 
 ### Fixed
