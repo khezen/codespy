@@ -112,6 +112,7 @@ AUTO_DISCOVER_GEMINI=false
 | Temperature | `DEFAULT_TEMPERATURE` | `0.2` | Default temperature for LLM calls |
 | Max iterations | `DEFAULT_MAX_ITERS` | `5` | Maximum ReAct iterations for tool-using agents |
 | Prompt caching | `ENABLE_PROMPT_CACHING` | `true` | Provider-side prompt caching (Anthropic, OpenAI, Bedrock) |
+| Compact patches | `COMPACT_PATCHES` | `false` | Expand diff hunks to full function bodies using Tree-sitter |
 | RLM fallback | `RLM_FALLBACK_ENABLED` | `true` | Proactive RLM fallback for context rot prevention |
 | RLM react threshold | `RLM_FALLBACK_REACT_THRESHOLD` | `0.30` | Context ratio triggering RLM for ReAct modules |
 | RLM CoT threshold | `RLM_FALLBACK_CHAIN_OF_THOUGHT_THRESHOLD` | `0.40` | Context ratio triggering RLM for ChainOfThought modules |
