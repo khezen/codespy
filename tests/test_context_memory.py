@@ -229,7 +229,7 @@ class TestContextMemoryApply:
 
     def test_add_operation_with_topic_ids(self):
         """ADD operation assigns topic_ids to new items."""
-        memory = ContextMemory(topics=[Topic(id="t1", description="Test")])
+        memory = ContextMemory(topics=[Topic(id="t1", type="project_scope", description="Test")])
         ops = [Operation(type=OpType.ADD, section="context_understanding", content="New item")]
         new_memory, new_ids = memory.apply(ops, topic_ids=["t1"])
 
@@ -338,16 +338,16 @@ class TestContextMemoryMerge:
 
     def test_merge_deduplicates_topics(self):
         """Merge deduplicates topics by ID."""
-        mem1 = ContextMemory(topics=[Topic(id="t1", description="First")])
-        mem2 = ContextMemory(topics=[Topic(id="t1", description="Second")])
+        mem1 = ContextMemory(topics=[Topic(id="t1", type="project_scope", description="First")])
+        mem2 = ContextMemory(topics=[Topic(id="t1", type="project_scope", description="Second")])
         merged = ContextMemory.merge(mem1, mem2)
 
         assert len(merged.topics) == 1
 
     def test_merge_later_description_wins(self):
         """Later non-empty description wins in topic merge."""
-        mem1 = ContextMemory(topics=[Topic(id="t1", description="")])
-        mem2 = ContextMemory(topics=[Topic(id="t1", description="Better description")])
+        mem1 = ContextMemory(topics=[Topic(id="t1", type="project_scope", description="")])
+        mem2 = ContextMemory(topics=[Topic(id="t1", type="project_scope", description="Better description")])
         merged = ContextMemory.merge(mem1, mem2)
 
         assert merged.topics[0].description == "Better description"
@@ -368,15 +368,15 @@ class TestContextMemoryMerge:
     def test_merge_multiple_memories(self):
         """Merge can handle multiple memories."""
         mem1 = ContextMemory(
-            topics=[Topic(id="t1", description="T1")],
+            topics=[Topic(id="t1", type="project_scope", description="T1")],
             context_understanding=[Item(id="cu-1", content="Item 1", topic_ids=["t1"])],
         )
         mem2 = ContextMemory(
-            topics=[Topic(id="t2", description="T2")],
+            topics=[Topic(id="t2", type="project_scope", description="T2")],
             context_understanding=[Item(id="cu-2", content="Item 2", topic_ids=["t2"])],
         )
         mem3 = ContextMemory(
-            topics=[Topic(id="t3", description="T3")],
+            topics=[Topic(id="t3", type="project_scope", description="T3")],
             domain_constants=[Item(id="dc-1", content="Constant", topic_ids=["t3"])],
         )
         merged = ContextMemory.merge(mem1, mem2, mem3)

@@ -46,11 +46,12 @@ class PRContext(BaseModel):
         """Build a Topic representing this PR.
 
         Returns:
-            Topic object with id as PR URL and description as "PR #N: Title"
+            Topic object with id as PR URL, type as "pull_request", and description as "PR #N: Title"
         """
         from codespy.agents.memory.hippocampus.context_memory import Topic
         return Topic(
             id=self.pr_url,
+            type="pull_request",
             description=f"PR #{self.pr_number}: {self.pr_title}"[:500],
         )
 
@@ -178,7 +179,7 @@ class ScopeResult(BaseModel):
 
         package_name = self.package_manifest.package_name if self.package_manifest else None
         topic_id = make_topic_id(repo_full_name, self.subroot, package_name)
-        return Topic(id=topic_id, description=self.description)
+        return Topic(id=topic_id, type="project_scope", description=self.description)
 
 
 class Issue(BaseModel):

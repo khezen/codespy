@@ -26,7 +26,7 @@ def _wait_for_ready(
     The pg0 binary's ``info`` command runs ``psql -c 'SELECT 1'``
     internally and only returns a URI when the healthcheck passes.
     Polling this accounts for slow first-run initialization (initdb,
-    pgvector installation) without reimplementing the healthcheck.
+    extensions setup) without reimplementing the healthcheck.
 
     Returns:
         Connection URI string, or None on timeout.

@@ -68,7 +68,7 @@ class TestEpisodeStoreSaveLoad:
         """Should save a simple episode with context memory."""
         # Create a simple episode
         ctx = ContextMemory(
-            topics=[Topic(id="test/topic", description="Test topic")],
+            topics=[Topic(id="test/topic", type="project_scope", description="Test topic")],
             context_understanding=[
                 Item(id="cu-1", content="Test item", topic_ids=["test/topic"])
             ],
@@ -102,7 +102,7 @@ class TestEpisodeStoreSaveLoad:
         
         # Create and save an episode
         ctx = ContextMemory(
-            topics=[Topic(id="owner/repo/pkg", description="Test package")],
+            topics=[Topic(id="owner/repo/pkg", type="project_scope", description="Test package")],
             context_understanding=[
                 Item(id="cu-abc123", content="Test understanding", topic_ids=["owner/repo/pkg"])
             ],
@@ -145,7 +145,7 @@ class TestEpisodeStoreItemVersioning:
         
         # Episode 1: Add an item
         ctx1 = ContextMemory(
-            topics=[Topic(id=topic_id, description="Test repo")],
+            topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
             context_understanding=[
                 Item(id="cu-item1", content="Original content", topic_ids=[topic_id])
             ],
@@ -175,7 +175,7 @@ class TestEpisodeStoreItemVersioning:
 
         # Episode 2: Replace the item
         ctx2 = ContextMemory(
-            topics=[Topic(id=topic_id, description="Test repo")],
+            topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
             context_understanding=[
                 Item(id="cu-item1", content="Updated content", topic_ids=[topic_id])
             ],
@@ -221,7 +221,7 @@ class TestEpisodeStoreItemVersioning:
         
         # Episode 1: Add two items
         ctx1 = ContextMemory(
-            topics=[Topic(id=topic_id, description="Test repo")],
+            topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
             context_understanding=[
                 Item(id="cu-item1", content="Item 1 content", topic_ids=[topic_id]),
                 Item(id="cu-item2", content="Item 2 content", topic_ids=[topic_id]),
@@ -261,7 +261,7 @@ class TestEpisodeStoreItemVersioning:
 
         # Episode 2: Only replace item1, item2 is inherited
         ctx2 = ContextMemory(
-            topics=[Topic(id=topic_id, description="Test repo")],
+            topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
             context_understanding=[
                 Item(id="cu-item1", content="Item 1 updated", topic_ids=[topic_id]),
                 Item(id="cu-item2", content="Item 2 content", topic_ids=[topic_id]),  # inherited
@@ -320,7 +320,7 @@ class TestEpisodeStoreWithHippocampus:
             MockAgent(),
             task_name="test_task",
             run_id="test-run",
-            topics=[Topic(id="test/topic", description="Test topic")],
+            topics=[Topic(id="test/topic", type="project_scope", description="Test topic")],
         )
         
         # Make a call
@@ -343,7 +343,7 @@ class TestEpisodeStoreWithHippocampus:
         # Save multiple episodes
         for i in range(3):
             ctx = ContextMemory(
-                topics=[Topic(id=topic_id, description="Test repo")],
+                topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
                 context_understanding=[
                     Item(id=f"cu-item{i}", content=f"Content {i}", topic_ids=[topic_id])
                 ],
@@ -383,7 +383,7 @@ class TestEpisodeStoreDeleteTombstone:
         
         # Episode 1: Add an item
         ctx1 = ContextMemory(
-            topics=[Topic(id=topic_id, description="Test repo")],
+            topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
             context_understanding=[
                 Item(id="cu-item1", content="To be deleted", topic_ids=[topic_id])
             ],
@@ -413,7 +413,7 @@ class TestEpisodeStoreDeleteTombstone:
 
         # Episode 2: Delete the item (item not in context_memory, but in mutations)
         ctx2 = ContextMemory(
-            topics=[Topic(id=topic_id, description="Test repo")],
+            topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
             context_understanding=[],  # Empty after delete
         )
         episode2 = Episode(

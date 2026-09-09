@@ -92,10 +92,7 @@ class Auditor(dspy.Module):
             for scope in scopes or []:
                 scope_topic = scope.topic(review_context.pr_context.repo_full_name)
                 if scope_topic:
-                    scope_topics.append(Topic(
-                        id=scope_topic.id,
-                        description=scope_topic.description,
-                    ))
+                    scope_topics.append(scope_topic)
 
             mem = Hippocampus(
                 auditor,

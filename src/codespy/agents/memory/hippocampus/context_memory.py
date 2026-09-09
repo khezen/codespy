@@ -75,13 +75,17 @@ _PREFIX_TO_SECTION: dict[str, str] = {v: k for k, v in _SECTION_PREFIX.items()}
 
 
 class Topic(BaseModel):
-    """A topic representing a scope in the repository.
+    """A named entity that scopes context observations.
 
-    Topics are used to group context items by their relevant scope.
+    Topics group observations by domain — a project component, a customer,
+    a pull request, an external service, or any logical boundary the caller
+    defines.  The `type` field discriminates the kind of entity while `id`
+    uniquely identifies the instance within that kind.
     """
 
-    id: str = Field(description="Topic identifier (e.g., 'owner/repo/package-name')")
-    description: str = Field(description="Description of this topic's role")
+    id: str = Field(description="Unique topic identifier within its type")
+    type: str = Field(description="Topic kind, e.g. 'project_scope', 'pull_request', 'customer'")
+    description: str = Field(description="Human-readable description of this topic")
 
 
 class Item(BaseModel):

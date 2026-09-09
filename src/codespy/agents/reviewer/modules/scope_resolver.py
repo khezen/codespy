@@ -1024,7 +1024,6 @@ class ScopeResolver(dspy.Module):
             ContextMemory,
             Topic,
             compute_common_ancestor_topic_id,
-            make_topic_id,
         )
 
         # Local bindings from review_context metadata
@@ -1120,22 +1119,13 @@ class ScopeResolver(dspy.Module):
                 if scope.subroot in boundary_descriptions:
                     scope.description = boundary_descriptions[scope.subroot]
 
-            # Build topic IDs
-            scope_topic_ids: dict[str, str] = {}
-            for scope in final_scopes:
-                pkg_name = scope.package_manifest.package_name if scope.package_manifest else None
-                tid = make_topic_id(pr.repo_full_name, scope.subroot, pkg_name)
-                scope_topic_ids[scope.subroot] = tid
-
             # Build Topics
             scope_topics: list[Topic] = []
+            scope_topic_ids: dict[str, str] = {}
             for scope in final_scopes:
-                scope_topics.append(
-                    Topic(
-                        id=scope_topic_ids[scope.subroot],
-                        description=scope.description,
-                    )
-                )
+                t = scope.topic(pr.repo_full_name)
+                scope_topics.append(t)
+                scope_topic_ids[scope.subroot] = t.id
 
             # Compute common ancestor topic if >1 scope
             common_ancestor_topic_id = compute_common_ancestor_topic_id(
@@ -1145,7 +1135,7 @@ class ScopeResolver(dspy.Module):
                 # Build description: "Common context for scopes: subroot1, subroot2, ..."
                 subroot_list = ", ".join(s.subroot for s in final_scopes)
                 common_desc = f"Common context for scopes: {subroot_list}"
-                scope_topics.append(Topic(id=common_ancestor_topic_id, description=common_desc))
+                scope_topics.append(Topic(id=common_ancestor_topic_id, type="project_scope", description=common_desc))
                 stamp_topic_ids = [common_ancestor_topic_id]
             elif scope_topics:
                 # Single scope: stamp with its topic ID
@@ -1154,10 +1144,7 @@ class ScopeResolver(dspy.Module):
                 stamp_topic_ids = []
             # Add PR URL topic (provides description; not a scope)
             pr_ctx = review_context.pr_context
-            scope_topics.append(Topic(
-                id=pr_ctx.pr_url,
-                description=f"PR #{pr_ctx.pr_number}: {pr_ctx.pr_title}"[:500],
-            ))
+            scope_topics.append(pr_ctx.to_topic())
             # Attach hierarchical skills to each produced scope
             for scope in final_scopes:
                 scope.skills = collect_skills(repo_path, scope.subroot)
