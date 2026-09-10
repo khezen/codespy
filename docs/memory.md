@@ -129,13 +129,6 @@ erDiagram
         int version_occurrence "DEFAULT 0"
     }
 
-    episode_observations {
-        varchar(64) bank_id PK, FK
-        uuid episode_id PK, FK
-        varchar(48) observation_id PK, FK
-        int observation_version FK
-    }
-
     artifacts {
         varchar(64) bank_id PK, FK
         uuid episode_id PK, FK
@@ -150,8 +143,6 @@ erDiagram
     topics ||--o{ episode_topics : "tags"
     episodes ||--o{ observations : "creates"
     episodes ||--o{ artifacts : "produces"
-    episodes ||--o{ episode_observations : "references"
-    observations ||--o{ episode_observations : "referenced by"
     observations ||--o{ observation_topics : "scoped to"
     topics ||--o{ observation_topics : "scopes"
 ```
@@ -165,14 +156,12 @@ erDiagram
 | `idx_episode_topics_reverse` | episode_topics | `(bank_id, topic_id)` |
 | `idx_observations_episode` | observations | `(bank_id, episode_id)` |
 | `idx_observation_topics_reverse` | observation_topics | `(bank_id, topic_id)` |
-| `idx_episode_observations_reverse` | episode_observations | `(bank_id, observation_id)` |
 
 ### Notes
 
 - All tables cascade-delete from `banks`
 - `observations` is versioned: PK `(bank_id, id, version)` tracks ADD/REPLACE/DELETE history per observation
 - `episode_topics` and `observation_topics` are M:N junction tables
-- `episode_observations` links episodes to the specific observation versions they reference
 - `observation_topics.observation_occurrence` counts cumulative topic associations across all versions; `version_occurrence` counts within one version
 - Requires PostgreSQL extension: `pg_trgm`
 

@@ -127,7 +127,7 @@ def evict(context_memory: ContextMemory, scores: dict[str, int], budget: int) ->
     item_section: dict[str, str] = {
         it.id: sec for sec in context_memory.section_names() for it in context_memory.section(sec)
     }
-    flat = context_memory.all_items()
+    flat = context_memory.all_observations()
     order = {it.id: i for i, it in enumerate(flat)}
     victims = sorted(
         flat,

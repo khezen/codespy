@@ -101,11 +101,13 @@ class TestEpisodeStoreSaveLoad:
         """Should save and load an episode successfully."""
         import uuid
         
-        # Create and save an episode
+        topic_id = "owner/repo/pkg"
+        
+        # Create and save an episode with ADD mutation so observation persists
         ctx = ContextMemory(
-            topics=[Topic(id="owner/repo/pkg", type="project_scope", description="Test package")],
+            topics=[Topic(id=topic_id, type="project_scope", description="Test package")],
             context_understanding=[
-                Observation(id="cu-abc123", content="Test understanding", topic_ids=["owner/repo/pkg"])
+                Observation(id="cu-abc123", content="Test understanding", topic_ids=[topic_id])
             ],
         )
         episode = Episode(
@@ -116,7 +118,17 @@ class TestEpisodeStoreSaveLoad:
             context_memory=ctx,
             timestamp=datetime.now(UTC),
             run_id="run-456",
-            mutations=[],
+            mutations=[
+                Mutation(
+                    step=0,
+                    type=OpType.ADD,
+                    observation_id="cu-abc123",
+                    section="context_understanding",
+                    content="Test understanding",
+                    previous_content=None,
+                    topic_ids=[topic_id],
+                )
+            ],
             artifacts={"review": "LGTM"},
         )
         episode_store.save_episode(episode)
@@ -124,13 +136,13 @@ class TestEpisodeStoreSaveLoad:
         # Load context for the same task and topic
         loaded_ctx = episode_store.load_context(
             task="code_review",
-            topic_ids=["owner/repo/pkg"],
+            topic_ids=[topic_id],
         )
 
         # Should have loaded the context
         assert loaded_ctx is not None
         assert len(loaded_ctx.topics) == 1
-        assert loaded_ctx.topics[0].id == "owner/repo/pkg"
+        assert loaded_ctx.topics[0].id == topic_id
         assert len(loaded_ctx.context_understanding) == 1
         assert loaded_ctx.context_understanding[0].content == "Test understanding"
 
@@ -142,7 +154,7 @@ class TestEpisodeStoreObservationVersioning:
         """Observation versions should increment on REPLACE operations."""
         import uuid
         
-        topic_id = "owner/repo"
+        topic_id = "owner/repo/versioning-test"
         
         # Episode 1: Add an observation
         ctx1 = ContextMemory(
@@ -218,7 +230,7 @@ class TestEpisodeStoreObservationVersioning:
         """Inherited observations (no mutation) should preserve their content."""
         import uuid
         
-        topic_id = "owner/repo"
+        topic_id = "owner/repo/inherited-test"
         
         # Episode 1: Add two observations
         ctx1 = ContextMemory(
@@ -339,9 +351,9 @@ class TestEpisodeStoreWithHippocampus:
         """load_context should return the context from the latest episode."""
         import uuid
         
-        topic_id = "owner/repo"
+        topic_id = "owner/repo/latest-episode-test"
         
-        # Save multiple episodes
+        # Save multiple episodes with ADD mutations so observations persist
         for i in range(3):
             ctx = ContextMemory(
                 topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
@@ -357,7 +369,17 @@ class TestEpisodeStoreWithHippocampus:
                 context_memory=ctx,
                 timestamp=datetime.now(UTC),
                 run_id=f"run-{i}",
-                mutations=[],
+                mutations=[
+                    Mutation(
+                        step=0,
+                        type=OpType.ADD,
+                        observation_id=f"cu-obs{i}",
+                        section="context_understanding",
+                        content=f"Content {i}",
+                        previous_content=None,
+                        topic_ids=[topic_id],
+                    )
+                ],
                 artifacts={},
             )
             episode_store.save_episode(episode)
@@ -368,7 +390,7 @@ class TestEpisodeStoreWithHippocampus:
             topic_ids=[topic_id],
         )
 
-        # Should have the latest content (from episode 2)
+        # Should have all 3 observations (from ADD mutations)
         assert loaded_ctx is not None
         assert len(loaded_ctx.context_understanding) == 3  # All observations accumulated
 
@@ -380,7 +402,7 @@ class TestEpisodeStoreDeleteTombstone:
         """DELETE should create a tombstone version of the observation."""
         import uuid
         
-        topic_id = "owner/repo"
+        topic_id = "owner/repo/delete-test"
         
         # Episode 1: Add an observation
         ctx1 = ContextMemory(

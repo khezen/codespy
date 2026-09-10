@@ -176,24 +176,8 @@ class EpisodeStore:
                         ON observation_topics (bank_id, topic_id)
                 """)
 
-                # Episode observations junction
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS episode_observations (
-                        bank_id VARCHAR(64) NOT NULL,
-                        episode_id UUID NOT NULL,
-                        observation_id VARCHAR(48) NOT NULL,
-                        observation_version INT NOT NULL,
-                        PRIMARY KEY (bank_id, episode_id, observation_id),
-                        FOREIGN KEY (bank_id, episode_id)
-                            REFERENCES episodes(bank_id, id) ON DELETE CASCADE,
-                        FOREIGN KEY (bank_id, observation_id, observation_version)
-                            REFERENCES observations(bank_id, id, version) ON DELETE CASCADE
-                    )
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_episode_observations_reverse
-                        ON episode_observations (bank_id, observation_id)
-                """)
+                # Episode observations junction (dropped - no longer needed)
+                cur.execute("DROP TABLE IF EXISTS episode_observations")
 
                 # Artifacts table
                 cur.execute("""
@@ -369,16 +353,6 @@ class EpisodeStore:
                             ),
                         )
 
-                        # Insert episode_observations junction
-                        cur.execute(
-                            """
-                            INSERT INTO episode_observations (bank_id, episode_id, observation_id, observation_version)
-                            VALUES (%s, %s, %s, %s)
-                            ON CONFLICT (bank_id, episode_id, observation_id) DO NOTHING
-                            """,
-                            (self.bank_id, str(episode.id), observation_id, version),
-                        )
-
                         # Insert observation_topics for this version
                         for topic_id in obs.topic_ids:
                             # Count occurrences
@@ -432,21 +406,6 @@ class EpisodeStore:
                         )
                         row = cur.fetchone()
                         existing_version = row["max_ver"] if row and row["max_ver"] else 1
-
-                        # Insert episode_observations junction with existing version
-                        cur.execute(
-                            """
-                            INSERT INTO episode_observations (bank_id, episode_id, observation_id, observation_version)
-                            VALUES (%s, %s, %s, %s)
-                            ON CONFLICT (bank_id, episode_id, observation_id) DO NOTHING
-                            """,
-                            (
-                                self.bank_id,
-                                str(episode.id),
-                                observation_id,
-                                existing_version,
-                            ),
-                        )
 
                         # Increment observation_occurrence for inherited observations
                         for topic_id in obs.topic_ids:
@@ -513,7 +472,6 @@ class EpisodeStore:
                                     0,
                                 ),
                             )
-                            # Note: DELETE observations are NOT inserted into episode_observations
 
                 # 7. Insert artifacts
                 for name, content in (episode.artifacts or {}).items():
@@ -619,17 +577,28 @@ class EpisodeStore:
                         for row in cur.fetchall()
                     ]
 
-                    # 3. Load observations at their LATEST version (not the pinned version)
+                    # 3. Load observations at their LATEST version via topic bindings + task filter
+                    # Exclude observations whose latest version is a DELETE tombstone
+                    topic_id_list = [t.id for t in topics]
                     cur.execute(
                         """
-                        SELECT DISTINCT ON (o.id) o.id, o.type, o.content, o.version
-                        FROM episode_observations eo
-                        JOIN observations o ON o.bank_id = eo.bank_id AND o.id = eo.observation_id
-                        WHERE eo.bank_id = %s AND eo.episode_id = %s
+                        SELECT o.id, o.type, o.content, o.version
+                        FROM observations o
+                        JOIN episodes e ON e.bank_id = o.bank_id AND e.id = o.episode_id
+                        WHERE o.bank_id = %s
+                          AND e.task = %s
+                          AND EXISTS (
+                              SELECT 1 FROM observation_topics ot
+                              WHERE ot.bank_id = o.bank_id AND ot.observation_id = o.id
+                                AND ot.topic_id = ANY(%s)
+                          )
+                          AND o.version = (
+                              SELECT MAX(o2.version) FROM observations o2
+                              WHERE o2.bank_id = o.bank_id AND o2.id = o.id
+                          )
                           AND o.op_type != 'DELETE'
-                        ORDER BY o.id, o.version DESC
                         """,
-                        (self.bank_id, episode_id),
+                        (self.bank_id, task, topic_id_list),
                     )
                     observations_by_id: dict[str, dict] = {}
                     for row in cur.fetchall():
@@ -646,15 +615,16 @@ class EpisodeStore:
                             SELECT ot.observation_id, ot.topic_id, ot.observation_occurrence, ot.version_occurrence
                             FROM observation_topics ot
                             WHERE ot.bank_id = %s
-                              AND (ot.observation_id, ot.observation_version) IN (
-                                  SELECT o.id, MAX(o.version)
-                                  FROM episode_observations eo
-                                  JOIN observations o ON o.bank_id = eo.bank_id AND o.id = eo.observation_id
-                                  WHERE eo.bank_id = %s AND eo.episode_id = %s AND o.op_type != 'DELETE'
-                                  GROUP BY o.id
+                              AND ot.observation_id = ANY(%s)
+                              AND ot.observation_version = (
+                                  SELECT MAX(o2.version)
+                                  FROM observations o2
+                                  WHERE o2.bank_id = ot.bank_id
+                                    AND o2.id = ot.observation_id
+                                    AND o2.op_type != 'DELETE'
                               )
                             """,
-                            (self.bank_id, self.bank_id, episode_id),
+                            (self.bank_id, list(observations_by_id.keys())),
                         )
                         observation_topics_map: dict[str, list[str]] = {}
                         for row in cur.fetchall():
