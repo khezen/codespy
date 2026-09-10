@@ -172,7 +172,12 @@ Brief overview:
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| PostgreSQL URI | `MEMORY_POSTGRES_URI` | — | External PostgreSQL connection URI |
+| PostgreSQL host | `MEMORY_POSTGRES_HOST` | — | External PostgreSQL host |
+| PostgreSQL port | `MEMORY_POSTGRES_PORT` | `5432` | External PostgreSQL port |
+| PostgreSQL user | `MEMORY_POSTGRES_USER` | `postgres` | External PostgreSQL user |
+| PostgreSQL password | `MEMORY_POSTGRES_PASSWORD` | — | External PostgreSQL password |
+| PostgreSQL database | `MEMORY_POSTGRES_DATABASE` | `codespy` | External PostgreSQL database |
+| PostgreSQL schema | `MEMORY_POSTGRES_SCHEMA` | — | PostgreSQL search_path (optional) |
 | Bank ID | `MEMORY_BANK_ID` | `codespy` | Scopes all memory data |
 | pg0 name | `MEMORY_PG0_NAME` | `codespy` | pg0-embedded database name (local dev) |
 | pg0 port | `MEMORY_PG0_PORT` | auto | pg0-embedded port (local dev) |

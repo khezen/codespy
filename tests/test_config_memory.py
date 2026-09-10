@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from codespy.config_memory import (
+    PostgresConfig,
+    Pg0Config,
     _generate_bank_id,
     apply_memory_env_overrides,
     get_episode_store,
@@ -25,12 +27,47 @@ class TestGenerateBankId:
 class TestApplyMemoryEnvOverrides:
     """Tests for apply_memory_env_overrides function."""
 
-    def test_override_postgres_uri(self, monkeypatch):
-        """MEMORY_POSTGRES_URI should set memory.postgres_uri."""
-        monkeypatch.setenv("MEMORY_POSTGRES_URI", "postgresql://localhost:5432/test")
+    def test_override_postgres_host(self, monkeypatch):
+        """MEMORY_POSTGRES_HOST should set memory.postgres.host."""
+        monkeypatch.setenv("MEMORY_POSTGRES_HOST", "myhost.example.com")
         config = {}
         result = apply_memory_env_overrides(config)
-        assert result["memory"]["postgres_uri"] == "postgresql://localhost:5432/test"
+        assert result["memory"]["postgres"]["host"] == "myhost.example.com"
+
+    def test_override_postgres_port(self, monkeypatch):
+        """MEMORY_POSTGRES_PORT should set memory.postgres.port as int."""
+        monkeypatch.setenv("MEMORY_POSTGRES_PORT", "5433")
+        config = {}
+        result = apply_memory_env_overrides(config)
+        assert result["memory"]["postgres"]["port"] == 5433
+
+    def test_override_postgres_user(self, monkeypatch):
+        """MEMORY_POSTGRES_USER should set memory.postgres.user."""
+        monkeypatch.setenv("MEMORY_POSTGRES_USER", "admin")
+        config = {}
+        result = apply_memory_env_overrides(config)
+        assert result["memory"]["postgres"]["user"] == "admin"
+
+    def test_override_postgres_password(self, monkeypatch):
+        """MEMORY_POSTGRES_PASSWORD should set memory.postgres.password."""
+        monkeypatch.setenv("MEMORY_POSTGRES_PASSWORD", "secret123")
+        config = {}
+        result = apply_memory_env_overrides(config)
+        assert result["memory"]["postgres"]["password"] == "secret123"
+
+    def test_override_postgres_database(self, monkeypatch):
+        """MEMORY_POSTGRES_DATABASE should set memory.postgres.database."""
+        monkeypatch.setenv("MEMORY_POSTGRES_DATABASE", "mydb")
+        config = {}
+        result = apply_memory_env_overrides(config)
+        assert result["memory"]["postgres"]["database"] == "mydb"
+
+    def test_override_postgres_schema(self, monkeypatch):
+        """MEMORY_POSTGRES_SCHEMA should set memory.postgres.schema."""
+        monkeypatch.setenv("MEMORY_POSTGRES_SCHEMA", "public")
+        config = {}
+        result = apply_memory_env_overrides(config)
+        assert result["memory"]["postgres"]["schema"] == "public"
 
     def test_override_bank_id(self, monkeypatch):
         """MEMORY_BANK_ID should set memory.bank_id."""
@@ -40,18 +77,25 @@ class TestApplyMemoryEnvOverrides:
         assert result["memory"]["bank_id"] == "my-agent"
 
     def test_override_pg0_name(self, monkeypatch):
-        """MEMORY_PG0_NAME should set memory.pg0_name."""
+        """MEMORY_PG0_NAME should set memory.pg0.name."""
         monkeypatch.setenv("MEMORY_PG0_NAME", "custom_name")
         config = {}
         result = apply_memory_env_overrides(config)
-        assert result["memory"]["pg0_name"] == "custom_name"
+        assert result["memory"]["pg0"]["name"] == "custom_name"
 
     def test_override_pg0_port(self, monkeypatch):
-        """MEMORY_PG0_PORT should set memory.pg0_port as int."""
+        """MEMORY_PG0_PORT should set memory.pg0.port as int."""
         monkeypatch.setenv("MEMORY_PG0_PORT", "5433")
         config = {}
         result = apply_memory_env_overrides(config)
-        assert result["memory"]["pg0_port"] == 5433
+        assert result["memory"]["pg0"]["port"] == 5433
+
+    def test_override_pg0_data_dir(self, monkeypatch):
+        """MEMORY_PG0_DATA_DIR should set memory.pg0.data_dir."""
+        monkeypatch.setenv("MEMORY_PG0_DATA_DIR", "/custom/path")
+        config = {}
+        result = apply_memory_env_overrides(config)
+        assert result["memory"]["pg0"]["data_dir"] == "/custom/path"
 
     def test_override_default_enabled(self, monkeypatch):
         """MEMORY_DEFAULT_ENABLED should set memory.default_enabled as bool."""
@@ -69,22 +113,100 @@ class TestApplyMemoryEnvOverrides:
 
     def test_no_memory_prefix_ignored(self, monkeypatch):
         """Non-MEMORY_ env vars should be ignored."""
-        monkeypatch.setenv("OTHER_POSTGRES_URI", "postgresql://localhost/db")
+        monkeypatch.setenv("OTHER_POSTGRES_HOST", "myhost.example.com")
         config = {}
         result = apply_memory_env_overrides(config)
-        assert "memory" not in result or "postgres_uri" not in result.get("memory", {})
+        assert "memory" not in result or "postgres" not in result.get("memory", {})
+
+
+class TestPostgresConfigBuildUri:
+    """Tests for PostgresConfig.build_uri() method."""
+
+    def test_build_uri_returns_none_when_no_host(self):
+        """Should return None when host is unset."""
+        config = PostgresConfig()
+        assert config.build_uri() is None
+
+    def test_build_uri_basic(self):
+        """Should build basic URI with all fields."""
+        config = PostgresConfig(
+            host="db.example.com",
+            user="u",
+            password="p",
+            database="codespy"
+        )
+        result = config.build_uri()
+        assert result == "postgresql://u:p@db.example.com:5432/codespy"
+
+    def test_build_uri_no_password(self):
+        """Should not include password segment when password is None."""
+        config = PostgresConfig(
+            host="db.example.com",
+            user="u"
+        )
+        result = config.build_uri()
+        assert result == "postgresql://u@db.example.com:5432/codespy"
+
+    def test_build_uri_no_user_no_password(self):
+        """Should default to 'postgres' user when user is None."""
+        config = PostgresConfig(host="db.example.com")
+        result = config.build_uri()
+        assert result == "postgresql://postgres@db.example.com:5432/codespy"
+
+    def test_build_uri_special_chars_in_password(self):
+        """Should URL-encode special characters in password."""
+        config = PostgresConfig(
+            host="db.example.com",
+            user="u",
+            password="p@ss:w/rd"
+        )
+        result = config.build_uri()
+        assert "p%40ss%3Aw%2Frd" in result
+        assert result == "postgresql://u:p%40ss%3Aw%2Frd@db.example.com:5432/codespy"
+
+    def test_build_uri_with_schema(self):
+        """Should append search_path option when schema is set."""
+        config = PostgresConfig(
+            host="db.example.com",
+            schema="my_schema"
+        )
+        result = config.build_uri()
+        assert result == "postgresql://postgres@db.example.com:5432/codespy?options=-csearch_path%3Dmy_schema"
+
+    def test_build_uri_custom_port_and_database(self):
+        """Should use custom port and database."""
+        config = PostgresConfig(
+            host="db.example.com",
+            port=5433,
+            database="mydb"
+        )
+        result = config.build_uri()
+        assert result == "postgresql://postgres@db.example.com:5433/mydb"
+
+    def test_build_uri_empty_password_treated_as_none(self):
+        """Empty string password should be treated as no password."""
+        config = PostgresConfig(
+            host="db.example.com",
+            user="u",
+            password=""
+        )
+        result = config.build_uri()
+        assert result == "postgresql://u@db.example.com:5432/codespy"
 
 
 class TestGetEpisodeStore:
     """Tests for get_episode_store function."""
 
     def test_returns_none_when_no_config(self):
-        """Should return None when postgres_uri not set and pg0 not available."""
+        """Should return None when postgres.host not set and pg0 not available."""
         settings = MagicMock()
-        settings.memory.postgres_uri = None
+        settings.memory.postgres = MagicMock()
+        settings.memory.postgres.build_uri.return_value = None
+        settings.memory.pg0 = MagicMock()
+        settings.memory.pg0.name = "codespy"
+        settings.memory.pg0.port = None
+        settings.memory.pg0.data_dir = None
         settings.memory.bank_id = "test-bank"
-        settings.memory.pg0_name = "codespy"
-        settings.memory.pg0_port = None
 
         # Simulate pg0 not being available
         with patch("codespy.config_memory._store", None):
@@ -98,9 +220,10 @@ class TestGetEpisodeStore:
         assert result is None
 
     def test_uses_postgres_uri_when_set(self):
-        """Should use external PostgreSQL when MEMORY_POSTGRES_URI is set."""
+        """Should use external PostgreSQL when postgres.build_uri() returns a URI."""
         settings = MagicMock()
-        settings.memory.postgres_uri = "postgresql://localhost:5432/codespy"
+        settings.memory.postgres = MagicMock()
+        settings.memory.postgres.build_uri.return_value = "postgresql://u:p@host:5432/codespy"
         settings.memory.bank_id = "test-bank"
 
         mock_store = MagicMock()
@@ -114,14 +237,15 @@ class TestGetEpisodeStore:
                     result = get_episode_store(settings)
 
         mock_episode_store.assert_called_once_with(
-            "postgresql://localhost:5432/codespy", "test-bank"
+            "postgresql://u:p@host:5432/codespy", "test-bank"
         )
         assert result == mock_store
 
     def test_caching_behavior(self):
         """Should cache the store after first call."""
         settings = MagicMock()
-        settings.memory.postgres_uri = "postgresql://localhost:5432/codespy"
+        settings.memory.postgres = MagicMock()
+        settings.memory.postgres.build_uri.return_value = "postgresql://localhost:5432/codespy"
         settings.memory.bank_id = "test-bank"
 
         mock_store = MagicMock()

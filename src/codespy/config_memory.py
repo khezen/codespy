@@ -56,6 +56,35 @@ class LLMSettings(BaseModel):
     max_tokens: int
 
 
+class PostgresConfig(BaseModel):
+    """External PostgreSQL connection settings (production)."""
+    host: str | None = None      # MEMORY_POSTGRES_HOST
+    port: int = 5432             # MEMORY_POSTGRES_PORT
+    user: str | None = None      # MEMORY_POSTGRES_USER
+    password: str | None = None  # MEMORY_POSTGRES_PASSWORD
+    database: str = "codespy"    # MEMORY_POSTGRES_DATABASE
+    schema: str | None = None    # MEMORY_POSTGRES_SCHEMA (search_path)
+
+    def build_uri(self) -> str | None:
+        """Build a psycopg connection URI. Returns None when host is unset."""
+        if not self.host:
+            return None
+        from urllib.parse import quote_plus
+        user = quote_plus(self.user) if self.user else "postgres"
+        cred = f"{user}:{quote_plus(self.password)}" if self.password else user
+        uri = f"postgresql://{cred}@{self.host}:{self.port}/{self.database}"
+        if self.schema:
+            uri += f"?options=-csearch_path%3D{quote_plus(self.schema)}"
+        return uri
+
+
+class Pg0Config(BaseModel):
+    """pg0-embedded settings (local dev only, ignored when postgres.host is set)."""
+    name: str = "codespy"        # MEMORY_PG0_NAME
+    port: int | None = None      # MEMORY_PG0_PORT
+    data_dir: str | None = None  # MEMORY_PG0_DATA_DIR
+
+
 class MemoryConfig(BaseModel):
     """Global memory (Hippocampus) configuration.
 
@@ -65,11 +94,9 @@ class MemoryConfig(BaseModel):
     """
 
     # PostgreSQL connection settings
-    postgres_uri: str | None = None  # MEMORY_POSTGRES_URI (production)
+    postgres: PostgresConfig = Field(default_factory=PostgresConfig)
+    pg0: Pg0Config = Field(default_factory=Pg0Config)
     bank_id: str | None = None  # MEMORY_BANK_ID (defaults to "codespy")
-    pg0_name: str = "codespy"  # MEMORY_PG0_NAME (local dev)
-    pg0_port: int | None = None  # MEMORY_PG0_PORT (auto-detected if unset)
-    pg0_data_dir: str | None = None  # MEMORY_PG0_DATA_DIR (custom data directory for pg0)
 
     # Reflection defaults — overridable per-signature
     default_enabled: bool = False  # MEMORY_DEFAULT_ENABLED
@@ -119,16 +146,29 @@ class MemoryConfig(BaseModel):
     )  # MEMORY_CARTOGRAPHER_*
 
 
+# Env var suffix (after MEMORY_POSTGRES_) -> PostgresConfig field name.
+POSTGRES_ENV_SETTINGS = {
+    "HOST": "host",
+    "PORT": "port",
+    "USER": "user",
+    "PASSWORD": "password",
+    "DATABASE": "database",
+    "SCHEMA": "schema",
+}
+
+# Env var suffix (after MEMORY_PG0_) -> Pg0Config field name.
+PG0_ENV_SETTINGS = {
+    "NAME": "name",
+    "PORT": "port",
+    "DATA_DIR": "data_dir",
+}
+
 # Env var name (without the MEMORY_ prefix) -> MemoryConfig field name.
 # ``memory`` is a nested model and ``Settings`` does not set
 # ``env_nested_delimiter``, so pydantic-settings cannot populate these fields
 # from the environment on its own. apply_memory_env_overrides() bridges the gap.
 MEMORY_ENV_SETTINGS = {
-    "POSTGRES_URI": "postgres_uri",
     "BANK_ID": "bank_id",
-    "PG0_NAME": "pg0_name",
-    "PG0_PORT": "pg0_port",
-    "PG0_DATA_DIR": "pg0_data_dir",
     "DEFAULT_ENABLED": "default_enabled",
     "DEFAULT_MAX_REFLECTS": "default_max_reflects",
     "COMPACT_TRAJECTORY": "compact_trajectory",
@@ -153,8 +193,14 @@ REFLECTION_MODULE_ENV_SETTINGS = {
     name.upper(): name for name in ReflectionModuleConfig.model_fields
 }
 
-# Env var prefix (after MEMORY_) -> MemoryConfig field holding the nested model.
-REFLECTION_MODULE_PREFIXES = {f"{name.upper()}_": name for name in REFLECTION_MODULES}
+# Maps env prefix (after MEMORY_) -> (config field name, suffix->field map)
+NESTED_ENV_PREFIXES: dict[str, tuple[str, dict[str, str]]] = {
+    "POSTGRES_": ("postgres", POSTGRES_ENV_SETTINGS),
+    "PG0_": ("pg0", PG0_ENV_SETTINGS),
+}
+# Add reflection modules dynamically (same pattern, shared settings map)
+for _mod in REFLECTION_MODULES:
+    NESTED_ENV_PREFIXES[f"{_mod.upper()}_"] = (_mod, REFLECTION_MODULE_ENV_SETTINGS)
 
 
 def _generate_bank_id() -> str:
@@ -167,14 +213,17 @@ def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
 
     Maps flat env vars onto the nested ``memory`` config, e.g.::
 
-        MEMORY_POSTGRES_URI=postgresql://localhost/db  -> memory.postgres_uri
+        MEMORY_POSTGRES_HOST=myhost                    -> memory.postgres.host
         MEMORY_DEFAULT_ENABLED=true                    -> memory.default_enabled
         MEMORY_MAX_CONTEXT_MEMORY_TOKENS=512           -> memory.max_context_memory_tokens
 
-    Reflection module overrides use a second level of nesting::
+    Nested sub-model overrides use a second level of nesting::
 
         MEMORY_DISTILLER_MODEL=...        -> memory.distiller.model
         MEMORY_CARTOGRAPHER_TEMPERATURE=0 -> memory.cartographer.temperature
+
+        MEMORY_PG0_NAME=mydb              -> memory.pg0.name
+        MEMORY_PG0_PORT=5433              -> memory.pg0.port
 
     Env vars take precedence over YAML, matching the documented priority
     (Environment Variables > YAML Config > Defaults).
@@ -208,26 +257,26 @@ def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(memory_config, dict):
             continue
 
-        # Reflection module settings: MEMORY_<MODULE>_<SETTING>. Checked before
-        # the flat lookup, since e.g. MEMORY_DISTILLER_MODEL has no entry in
+        # Nested sub-model: MEMORY_<PREFIX><SETTING>
+        # Checked before the flat lookup, since e.g. MEMORY_PG0_NAME has no entry in
         # MEMORY_ENV_SETTINGS and would otherwise be silently dropped.
-        module_field = next(
+        nested = next(
             (
-                (field, remainder[len(prefix) :])
-                for prefix, field in REFLECTION_MODULE_PREFIXES.items()
+                (field, settings_map, remainder[len(prefix):])
+                for prefix, (field, settings_map) in NESTED_ENV_PREFIXES.items()
                 if remainder.startswith(prefix)
             ),
             None,
         )
-        if module_field is not None:
-            field, setting = module_field
-            module_setting = REFLECTION_MODULE_ENV_SETTINGS.get(setting)
-            if module_setting is None:
+        if nested is not None:
+            field, settings_map, setting = nested
+            setting_field = settings_map.get(setting)
+            if setting_field is None:
                 continue
-            module_config = memory_config.setdefault(field, {})
-            if not isinstance(module_config, dict):
+            sub_config = memory_config.setdefault(field, {})
+            if not isinstance(sub_config, dict):
                 continue
-            module_config[module_setting] = convert_env_value(value)
+            sub_config[setting_field] = convert_env_value(value)
             continue
 
         field = MEMORY_ENV_SETTINGS.get(remainder)
@@ -254,7 +303,7 @@ def get_episode_store(settings: Settings) -> EpisodeStore | None:
     ``reload_settings``) to force a rebuild on next access.
 
     Priority:
-    1. If ``memory.postgres_uri`` is set, use it directly.
+    1. If ``memory.postgres.host`` is set, use the built URI to connect.
     2. Else, try to auto-start pg0-embedded for local dev.
     3. If pg0 is not available, return None with a warning.
 
@@ -272,26 +321,27 @@ def get_episode_store(settings: Settings) -> EpisodeStore | None:
     bank_id = mem.bank_id or _generate_bank_id()
 
     # Try external PostgreSQL first
-    if mem.postgres_uri:
+    uri = mem.postgres.build_uri()
+    if uri:
         from codespy.agents.memory.postgres import EpisodeStore
 
-        _store = EpisodeStore(mem.postgres_uri, bank_id)
+        _store = EpisodeStore(uri, bank_id)
         logger.info(f"EpisodeStore connected to external PostgreSQL (bank={bank_id})")
     else:
         # Try pg0-embedded for local dev
         try:
             from codespy.agents.memory.pg0_manager import get_pg0_uri
 
-            uri = get_pg0_uri(name=mem.pg0_name, port=mem.pg0_port, data_dir=mem.pg0_data_dir)
+            uri = get_pg0_uri(name=mem.pg0.name, port=mem.pg0.port, data_dir=mem.pg0.data_dir)
             from codespy.agents.memory.postgres import EpisodeStore
 
             _store = EpisodeStore(uri, bank_id)
             logger.info(f"EpisodeStore connected to pg0-embedded PostgreSQL (bank={bank_id})")
         except ImportError:
             logger.warning(
-                "Memory is enabled but no PostgreSQL URI is configured and pg0-embedded "
+                "Memory is enabled but no PostgreSQL is configured and pg0-embedded "
                 "is not installed. Install with: pip install pg0-embedded\n"
-                "Or set MEMORY_POSTGRES_URI to use an external PostgreSQL instance."
+                "Or set MEMORY_POSTGRES_HOST (+ credentials) to use an external PostgreSQL instance."
             )
             _store = None
         except Exception as e:
@@ -338,7 +388,7 @@ def verify_memory_access(settings: Settings) -> tuple[bool, str]:
     if store is None:
         return (
             False,
-            "Memory is enabled but storage is not configured (set MEMORY_POSTGRES_URI or install pg0-embedded)",
+            "Memory is enabled but storage is not configured (set MEMORY_POSTGRES_HOST or install pg0-embedded)",
         )
 
     try:

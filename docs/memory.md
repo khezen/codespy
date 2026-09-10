@@ -29,7 +29,7 @@ and artifacts cascade-delete from a bank.
 
 - An Episode captures one agent's run: task, context_memory, mutations, artifacts, timestamp
 - Stored in PostgreSQL (auto-created tables). pg0-embedded auto-starts
-  a local instance when no `MEMORY_POSTGRES_URI` is set.
+  a local instance when no `MEMORY_POSTGRES_HOST` is set.
 - `EpisodeStore.load_context(task, topic_ids, topic_prefix)` retrieves
   the latest context by `timestamp DESC`, filtering on bank + task + topic
 
@@ -204,11 +204,16 @@ Observation capacity ≈ context_memory_tokens / observation_tokens (16384/512 =
 
 | Env Var | YAML Path | Default | Description |
 |---------|-----------|---------|-------------|
-| `MEMORY_POSTGRES_URI` | `memory.postgres_uri` | — | External PostgreSQL connection URI |
+| `MEMORY_POSTGRES_HOST` | `memory.postgres.host` | — | External PostgreSQL host |
+| `MEMORY_POSTGRES_PORT` | `memory.postgres.port` | `5432` | External PostgreSQL port |
+| `MEMORY_POSTGRES_USER` | `memory.postgres.user` | `postgres` | External PostgreSQL user |
+| `MEMORY_POSTGRES_PASSWORD` | `memory.postgres.password` | — | External PostgreSQL password |
+| `MEMORY_POSTGRES_DATABASE` | `memory.postgres.database` | `codespy` | External PostgreSQL database |
+| `MEMORY_POSTGRES_SCHEMA` | `memory.postgres.schema` | — | PostgreSQL search_path |
+| `MEMORY_PG0_NAME` | `memory.pg0.name` | `codespy` | pg0-embedded database name |
+| `MEMORY_PG0_PORT` | `memory.pg0.port` | auto | pg0-embedded port |
+| `MEMORY_PG0_DATA_DIR` | `memory.pg0.data_dir` | — | Custom data directory for pg0-embedded |
 | `MEMORY_BANK_ID` | `memory.bank_id` | `codespy` | Scopes all memory data |
-| `MEMORY_PG0_NAME` | `memory.pg0_name` | `codespy` | pg0-embedded database name |
-| `MEMORY_PG0_PORT` | `memory.pg0_port` | auto | pg0-embedded port |
-| `MEMORY_PG0_DATA_DIR` | `memory.pg0_data_dir` | — | Custom data directory for pg0-embedded |
 | `MEMORY_DEFAULT_ENABLED` | `memory.default_enabled` | `false` | Enable memory globally |
 | `MEMORY_DEFAULT_MAX_REFLECTS` | `memory.default_max_reflects` | `0` | Reflection iterations |
 | `MEMORY_COMPACT_TRAJECTORY` | `memory.compact_trajectory` | `true` | Apply head+tail trajectory bounding before distillation |
@@ -250,9 +255,11 @@ MEMORY_CARTOGRAPHER_MODEL=anthropic/claude-sonnet-4-5-20250929
 ```
 
 > **Note:** pg0-embedded auto-starts when installed (default for local dev).
-> For production, set `MEMORY_POSTGRES_URI`:
+> For production, set `MEMORY_POSTGRES_HOST`:
 > ```
-> MEMORY_POSTGRES_URI=postgresql://user:pass@host:5432/codespy
+> MEMORY_POSTGRES_HOST=rds-host.amazonaws.com
+> MEMORY_POSTGRES_USER=myuser
+> MEMORY_POSTGRES_PASSWORD=mypassword
 > ```
 
 ### GitHub Action
@@ -265,13 +272,15 @@ MEMORY_CARTOGRAPHER_MODEL=anthropic/claude-sonnet-4-5-20250929
     anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
     # Memory with external PostgreSQL
     memory-enabled: 'true'
-    memory-postgres-uri: ${{ secrets.MEMORY_POSTGRES_URI }}
+    memory-postgres-host: ${{ secrets.MEMORY_POSTGRES_HOST }}
+    memory-postgres-user: ${{ secrets.MEMORY_POSTGRES_USER }}
+    memory-postgres-password: ${{ secrets.MEMORY_POSTGRES_PASSWORD }}
     memory-distiller-model: 'anthropic/claude-haiku-4-5-20251001'
     memory-cartographer-model: 'anthropic/claude-haiku-4-5-20251001'
 ```
 
 > **Note:** pg0-embedded is included in the Docker image. For persistent memory
-> across CI runs, use an external PostgreSQL instance via `memory-postgres-uri`.
+> across CI runs, use an external PostgreSQL instance via `memory-postgres-host`.
 
 ---
 

@@ -74,22 +74,29 @@ gitlab:
 # default globally; enabled by default for summary — see `memory:`
 # blocks under each signature below.
 
-# Episodes are persisted in PostgreSQL. When no postgres_uri is set,
+# Episodes are persisted in PostgreSQL. When postgres.host is unset,
 # pg0-embedded auto-starts a local PostgreSQL instance (zero config).
-# For production, set postgres_uri to an external PostgreSQL (AWS RDS, etc.).
+# For production, set postgres.host to an external PostgreSQL (AWS RDS, etc.).
 memory:
-  # PostgreSQL connection URI for production (AWS RDS, etc.).
-  # When unset, pg0-embedded auto-starts a local PostgreSQL instance.
-  postgres_uri: null                      # MEMORY_POSTGRES_URI
+  # External PostgreSQL (production, AWS RDS, etc.).
+  # When postgres.host is unset, pg0-embedded auto-starts a local instance.
+  postgres:
+    host: null                            # MEMORY_POSTGRES_HOST
+    port: 5432                            # MEMORY_POSTGRES_PORT
+    user: null                            # MEMORY_POSTGRES_USER (default: postgres)
+    password: null                        # MEMORY_POSTGRES_PASSWORD
+    database: codespy                     # MEMORY_POSTGRES_DATABASE
+    schema: null                          # MEMORY_POSTGRES_SCHEMA (search_path; null = server default)
+
+  # pg0-embedded settings (local dev only, ignored when postgres.host is set)
+  pg0:
+    name: codespy                         # MEMORY_PG0_NAME
+    port: null                            # MEMORY_PG0_PORT (auto-detected if unset)
+    data_dir: null                        # MEMORY_PG0_DATA_DIR (default: ~/.cache/codespy/pg0)
 
   # Bank ID — scopes all memory data. Can be a nickname, username, email,
   # or agent name. When unset, auto-generated from hostname.
   bank_id: null                           # MEMORY_BANK_ID
-
-  # pg0-embedded settings (local dev only, ignored when postgres_uri is set)
-  pg0_name: codespy                       # MEMORY_PG0_NAME
-  pg0_port: null                          # MEMORY_PG0_PORT (auto-detected if unset)
-  pg0_data_dir: null                      # MEMORY_PG0_DATA_DIR (default: ~/.cache/codespy/pg0)
 
   # Reflection defaults — overridable per-signature via signatures.<name>.memory
   default_enabled: false                  # MEMORY_DEFAULT_ENABLED

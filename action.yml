@@ -314,8 +314,25 @@ inputs:
     required: false
     default: 'false'
 
-  memory-postgres-uri:
-    description: 'PostgreSQL connection URI for memory storage (e.g., postgresql://user:pass@host:5432/codespy). When unset, pg0-embedded auto-starts a local instance inside Docker.'
+  memory-postgres-host:
+    description: 'PostgreSQL host for memory storage (e.g., rds-host.amazonaws.com). When unset, pg0-embedded auto-starts.'
+    required: false
+  memory-postgres-port:
+    description: 'PostgreSQL port (default: 5432)'
+    required: false
+    default: '5432'
+  memory-postgres-user:
+    description: 'PostgreSQL user (default: postgres)'
+    required: false
+  memory-postgres-password:
+    description: 'PostgreSQL password'
+    required: false
+  memory-postgres-database:
+    description: 'PostgreSQL database name (default: codespy)'
+    required: false
+    default: 'codespy'
+  memory-postgres-schema:
+    description: 'PostgreSQL schema / search_path (optional)'
     required: false
 
   memory-bank-id:
@@ -528,7 +545,12 @@ runs:
 
         # Memory (Hippocampus)
         MEMORY_DEFAULT_ENABLED: ${{ inputs.memory-enabled }}
-        MEMORY_POSTGRES_URI: ${{ inputs.memory-postgres-uri }}
+        MEMORY_POSTGRES_HOST: ${{ inputs.memory-postgres-host }}
+        MEMORY_POSTGRES_PORT: ${{ inputs.memory-postgres-port }}
+        MEMORY_POSTGRES_USER: ${{ inputs.memory-postgres-user }}
+        MEMORY_POSTGRES_PASSWORD: ${{ inputs.memory-postgres-password }}
+        MEMORY_POSTGRES_DATABASE: ${{ inputs.memory-postgres-database }}
+        MEMORY_POSTGRES_SCHEMA: ${{ inputs.memory-postgres-schema }}
         MEMORY_BANK_ID: ${{ inputs.memory-bank-id }}
         MEMORY_DEFAULT_MAX_REFLECTS: ${{ inputs.memory-max-reflects }}
         MEMORY_DISTILLER_MODEL: ${{ inputs.memory-distiller-model }}
@@ -633,7 +655,12 @@ runs:
 
         # Memory (Hippocampus)
         [ -n "$MEMORY_DEFAULT_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DEFAULT_ENABLED"
-        [ -n "$MEMORY_POSTGRES_URI" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_POSTGRES_URI"
+        [ -n "$MEMORY_POSTGRES_HOST" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_POSTGRES_HOST"
+        [ -n "$MEMORY_POSTGRES_PORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_POSTGRES_PORT"
+        [ -n "$MEMORY_POSTGRES_USER" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_POSTGRES_USER"
+        [ -n "$MEMORY_POSTGRES_PASSWORD" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_POSTGRES_PASSWORD"
+        [ -n "$MEMORY_POSTGRES_DATABASE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_POSTGRES_DATABASE"
+        [ -n "$MEMORY_POSTGRES_SCHEMA" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_POSTGRES_SCHEMA"
         [ -n "$MEMORY_BANK_ID" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_BANK_ID"
         [ -n "$MEMORY_DEFAULT_MAX_REFLECTS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DEFAULT_MAX_REFLECTS"
         [ -n "$MEMORY_DISTILLER_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MODEL"
