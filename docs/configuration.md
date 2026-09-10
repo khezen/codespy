@@ -179,7 +179,7 @@ Brief overview:
 | Default enabled | `MEMORY_DEFAULT_ENABLED` | `false` | Enable memory globally |
 | Max reflects | `MEMORY_DEFAULT_MAX_REFLECTS` | `0` | Reflection iterations (0 = once at end) |
 | Context memory tokens | `MEMORY_MAX_CONTEXT_MEMORY_TOKENS` | `16384` | Ceiling on persisted context memory |
-| Item tokens | `MEMORY_MAX_CONTEXT_ITEM_TOKENS` | `512` | Soft per-item token limit |
+| Observation tokens | `MEMORY_MAX_CONTEXT_ITEM_TOKENS` | `512` | Soft per-observation token limit |
 | Trajectory tokens | `MEMORY_MAX_TRAJECTORY_TOKENS` | `16384` | Cap on trajectory fed to Distiller |
 | Question tokens | `MEMORY_MAX_QUESTION_TOKENS` | `8192` | Cap on serialized reflection inputs |
 

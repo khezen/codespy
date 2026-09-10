@@ -14,8 +14,8 @@ from psycopg_pool import ConnectionPool
 if TYPE_CHECKING:
     from codespy.agents.memory.hippocampus.context_memory import (
         ContextMemory,
-        Item,
         Mutation,
+        Observation,
         Topic,
     )
     from codespy.agents.memory.hippocampus.episode import Episode
@@ -222,13 +222,13 @@ class EpisodeStore:
         Single transaction:
         1. Ensure bank row exists (idempotent)
         2. Upsert episode row (no-op if already exists)
-        3. Upsert topics, insert items (versioned), insert junctions, insert artifacts
+        3. Upsert topics, insert observations (versioned), insert junctions, insert artifacts
         """
         # Import here to avoid circular imports
         from codespy.agents.memory.hippocampus.context_memory import (
             ContextMemory,
-            Item,
             Mutation,
+            Observation,
             OpType,
             Topic,
         )
@@ -285,26 +285,26 @@ class EpisodeStore:
                     )
 
                 # 5. Process observations and mutations
-                # Build map of item_id -> mutation for quick lookup
+                # Build map of observation_id -> mutation for quick lookup
                 mutation_map: dict[str, Mutation] = {}
                 for mut in episode.mutations:
-                    mutation_map[mut.item_id] = mut
+                    mutation_map[mut.observation_id] = mut
 
                 # Get all current observations from context_memory
-                current_items: dict[str, tuple[str, Item]] = {}  # observation_id -> (type, observation)
+                current_observations: dict[str, tuple[str, Observation]] = {}  # observation_id -> (type, observation)
                 for sec in episode.context_memory.section_names():
-                    for item in getattr(episode.context_memory, sec):
-                        current_items[item.id] = (sec, item)
+                    for obs in getattr(episode.context_memory, sec):
+                        current_observations[obs.id] = (sec, obs)
 
                 # Track observations we've processed to detect DELETEs
-                processed_item_ids: set[str] = set()
+                processed_observation_ids: set[str] = set()
 
                 # Process observations in current context memory
-                for item_id, (type, item) in current_items.items():
-                    processed_item_ids.add(item_id)
-                    mutation = mutation_map.get(item_id)
+                for observation_id, (type, obs) in current_observations.items():
+                    processed_observation_ids.add(observation_id)
+                    mutation = mutation_map.get(observation_id)
 
-                    # Determine if this is a new item (ADD) or existing (REPLACE/inherited)
+                    # Determine if this is a new observation (ADD) or existing (REPLACE/inherited)
                     is_new = False
                     version = 1
                     op_type = "ADD"
@@ -325,7 +325,7 @@ class EpisodeStore:
                             FROM observations
                             WHERE bank_id = %s AND id = %s
                             """,
-                            (self.bank_id, item_id),
+                            (self.bank_id, observation_id),
                         )
                         row = cur.fetchone()
                         if row and row["max_ver"]:
@@ -341,7 +341,7 @@ class EpisodeStore:
                             FROM observations
                             WHERE bank_id = %s AND id = %s
                             """,
-                            (self.bank_id, item_id),
+                            (self.bank_id, observation_id),
                         )
                         row = cur.fetchone()
                         version = row["next_ver"] if row else 1
@@ -357,10 +357,10 @@ class EpisodeStore:
                             """,
                             (
                                 self.bank_id,
-                                item_id,
+                                observation_id,
                                 version,
                                 type,
-                                item.content,
+                                obs.content,
                                 str(episode.id),
                                 step,
                                 op_type,
@@ -376,11 +376,11 @@ class EpisodeStore:
                             VALUES (%s, %s, %s, %s)
                             ON CONFLICT (bank_id, episode_id, observation_id) DO NOTHING
                             """,
-                            (self.bank_id, str(episode.id), item_id, version),
+                            (self.bank_id, str(episode.id), observation_id, version),
                         )
 
                         # Insert observation_topics for this version
-                        for topic_id in item.topic_ids:
+                        for topic_id in obs.topic_ids:
                             # Count occurrences
                             cur.execute(
                                 """
@@ -390,7 +390,7 @@ class EpisodeStore:
                                 ORDER BY observation_version DESC
                                 LIMIT 1
                                 """,
-                                (self.bank_id, item_id, topic_id),
+                                (self.bank_id, observation_id, topic_id),
                             )
                             prev_row = cur.fetchone()
                             if prev_row:
@@ -413,7 +413,7 @@ class EpisodeStore:
                                 """,
                                 (
                                     self.bank_id,
-                                    item_id,
+                                    observation_id,
                                     version,
                                     topic_id,
                                     observation_occ,
@@ -428,7 +428,7 @@ class EpisodeStore:
                             FROM observations
                             WHERE bank_id = %s AND id = %s
                             """,
-                            (self.bank_id, item_id),
+                            (self.bank_id, observation_id),
                         )
                         row = cur.fetchone()
                         existing_version = row["max_ver"] if row and row["max_ver"] else 1
@@ -443,13 +443,13 @@ class EpisodeStore:
                             (
                                 self.bank_id,
                                 str(episode.id),
-                                item_id,
+                                observation_id,
                                 existing_version,
                             ),
                         )
 
                         # Increment observation_occurrence for inherited observations
-                        for topic_id in item.topic_ids:
+                        for topic_id in obs.topic_ids:
                             cur.execute(
                                 """
                                 SELECT observation_occurrence
@@ -457,7 +457,7 @@ class EpisodeStore:
                                 WHERE bank_id = %s AND observation_id = %s AND topic_id = %s
                                 AND observation_version = %s
                                 """,
-                                (self.bank_id, item_id, topic_id, existing_version),
+                                (self.bank_id, observation_id, topic_id, existing_version),
                             )
                             occ_row = cur.fetchone()
                             if occ_row:
@@ -472,7 +472,7 @@ class EpisodeStore:
                                     (
                                         new_occ,
                                         self.bank_id,
-                                        item_id,
+                                        observation_id,
                                         topic_id,
                                         existing_version,
                                     ),
@@ -480,8 +480,8 @@ class EpisodeStore:
 
                 # 6. Process DELETE mutations (observations not in current context)
                 for mutation in episode.mutations:
-                    if mutation.type == OpType.DELETE and mutation.item_id:
-                        if mutation.item_id not in processed_item_ids:
+                    if mutation.type == OpType.DELETE and mutation.observation_id:
+                        if mutation.observation_id not in processed_observation_ids:
                             # Get next version number
                             cur.execute(
                                 """
@@ -489,7 +489,7 @@ class EpisodeStore:
                                 FROM observations
                                 WHERE bank_id = %s AND id = %s
                                 """,
-                                (self.bank_id, mutation.item_id),
+                                (self.bank_id, mutation.observation_id),
                             )
                             row = cur.fetchone()
                             version = row["next_ver"] if row else 1
@@ -502,7 +502,7 @@ class EpisodeStore:
                                 """,
                                 (
                                     self.bank_id,
-                                    mutation.item_id,
+                                    mutation.observation_id,
                                     version,
                                     mutation.section,
                                     None,  # content is NULL for DELETE
@@ -532,7 +532,7 @@ class EpisodeStore:
             "save_episode: persisted episode %s (bank=%s, task=%s, topics=%d, observations=%d)",
             episode.id, self.bank_id, episode.task,
             len(episode.context_memory.topics),
-            len(episode.context_memory.all_items()),
+            len(episode.context_memory.all_observations()),
         )
 
     def load_context(
@@ -541,7 +541,7 @@ class EpisodeStore:
         topic_ids: list[str] | None = None,
         topic_prefix: str | None = None,
     ) -> ContextMemory | None:
-        """Load context for a new episode: latest item versions from the
+        """Load context for a new episode: latest observation versions from the
         most recent episode for this (bank, task, topics).
 
         Args:
@@ -559,7 +559,7 @@ class EpisodeStore:
             # Import here to avoid circular imports
             from codespy.agents.memory.hippocampus.context_memory import (
                 ContextMemory,
-                Item,
+                Observation,
                 Topic,
             )
 
@@ -631,16 +631,16 @@ class EpisodeStore:
                         """,
                         (self.bank_id, episode_id),
                     )
-                    items_by_id: dict[str, dict] = {}
+                    observations_by_id: dict[str, dict] = {}
                     for row in cur.fetchall():
-                        items_by_id[row["id"]] = {
+                        observations_by_id[row["id"]] = {
                             "section": row["type"],
                             "content": row["content"],
                             "version": row["version"],
                         }
 
                     # 4. Load observation-topic bindings for those latest versions
-                    if items_by_id:
+                    if observations_by_id:
                         cur.execute(
                             """
                             SELECT ot.observation_id, ot.topic_id, ot.observation_occurrence, ot.version_occurrence
@@ -656,15 +656,15 @@ class EpisodeStore:
                             """,
                             (self.bank_id, self.bank_id, episode_id),
                         )
-                        item_topics: dict[str, list[str]] = {}
+                        observation_topics_map: dict[str, list[str]] = {}
                         for row in cur.fetchall():
                             observation_id = row["observation_id"]
-                            if observation_id not in item_topics:
-                                item_topics[observation_id] = []
-                            item_topics[observation_id].append(row["topic_id"])
+                            if observation_id not in observation_topics_map:
+                                observation_topics_map[observation_id] = []
+                            observation_topics_map[observation_id].append(row["topic_id"])
 
                         # Build ContextMemory sections
-                        sections: dict[str, list[Item]] = {
+                        sections: dict[str, list[Observation]] = {
                             "context_roadmap": [],
                             "context_understanding": [],
                             "domain_constants": [],
@@ -673,25 +673,25 @@ class EpisodeStore:
                             "reusable_results": [],
                         }
 
-                        for item_id, item_data in items_by_id.items():
-                            section = item_data["section"]
+                        for observation_id, observation_data in observations_by_id.items():
+                            section = observation_data["section"]
                             if section not in sections:
                                 section = "context_understanding"  # fallback
 
-                            item = Item(
-                                id=item_id,
-                                content=item_data["content"],
-                                topic_ids=item_topics.get(item_id, []),
+                            obs = Observation(
+                                id=observation_id,
+                                content=observation_data["content"],
+                                topic_ids=observation_topics_map.get(observation_id, []),
                             )
-                            sections[section].append(item)
+                            sections[section].append(obs)
 
                         # Build ContextMemory
                         ctx = ContextMemory(topics=topics)
-                        for section_name, items in sections.items():
-                            setattr(ctx, section_name, items)
+                        for section_name, observations in sections.items():
+                            setattr(ctx, section_name, observations)
 
-                        total_items = sum(len(items) for items in sections.values())
-                        logger.debug("load_context: loaded %d topics, %d observations from episode %s", len(topics), total_items, episode_id)
+                        total_observations = sum(len(observations) for observations in sections.values())
+                        logger.debug("load_context: loaded %d topics, %d observations from episode %s", len(topics), total_observations, episode_id)
 
                         return ctx
 

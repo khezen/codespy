@@ -13,8 +13,9 @@ except ImportError:
 from codespy.agents.memory.hippocampus import (
     ContextMemory,
     Hippocampus,
-    Item,
     Mutation,
+    Observation,
+    ObservationTag,
     Operation,
     OpType,
     Topic,
@@ -70,7 +71,7 @@ class TestEpisodeStoreSaveLoad:
         ctx = ContextMemory(
             topics=[Topic(id="test/topic", type="project_scope", description="Test topic")],
             context_understanding=[
-                Item(id="cu-1", content="Test item", topic_ids=["test/topic"])
+                Observation(id="cu-1", content="Test observation", topic_ids=["test/topic"])
             ],
         )
         episode = Episode(
@@ -104,7 +105,7 @@ class TestEpisodeStoreSaveLoad:
         ctx = ContextMemory(
             topics=[Topic(id="owner/repo/pkg", type="project_scope", description="Test package")],
             context_understanding=[
-                Item(id="cu-abc123", content="Test understanding", topic_ids=["owner/repo/pkg"])
+                Observation(id="cu-abc123", content="Test understanding", topic_ids=["owner/repo/pkg"])
             ],
         )
         episode = Episode(
@@ -134,20 +135,20 @@ class TestEpisodeStoreSaveLoad:
         assert loaded_ctx.context_understanding[0].content == "Test understanding"
 
 
-class TestEpisodeStoreItemVersioning:
-    """Tests for item versioning on REPLACE operations."""
+class TestEpisodeStoreObservationVersioning:
+    """Tests for observation versioning on REPLACE operations."""
 
-    def test_item_versioning_on_replace(self, episode_store):
-        """Item versions should increment on REPLACE operations."""
+    def test_observation_versioning_on_replace(self, episode_store):
+        """Observation versions should increment on REPLACE operations."""
         import uuid
         
         topic_id = "owner/repo"
         
-        # Episode 1: Add an item
+        # Episode 1: Add an observation
         ctx1 = ContextMemory(
             topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
             context_understanding=[
-                Item(id="cu-item1", content="Original content", topic_ids=[topic_id])
+                Observation(id="cu-obs1", content="Original content", topic_ids=[topic_id])
             ],
         )
         episode1 = Episode(
@@ -162,7 +163,7 @@ class TestEpisodeStoreItemVersioning:
                 Mutation(
                     step=0,
                     type=OpType.ADD,
-                    item_id="cu-item1",
+                    observation_id="cu-obs1",
                     section="context_understanding",
                     content="Original content",
                     previous_content=None,
@@ -173,11 +174,11 @@ class TestEpisodeStoreItemVersioning:
         )
         episode_store.save_episode(episode1)
 
-        # Episode 2: Replace the item
+        # Episode 2: Replace the observation
         ctx2 = ContextMemory(
             topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
             context_understanding=[
-                Item(id="cu-item1", content="Updated content", topic_ids=[topic_id])
+                Observation(id="cu-obs1", content="Updated content", topic_ids=[topic_id])
             ],
         )
         episode2 = Episode(
@@ -192,7 +193,7 @@ class TestEpisodeStoreItemVersioning:
                 Mutation(
                     step=0,
                     type=OpType.REPLACE,
-                    item_id="cu-item1",
+                    observation_id="cu-obs1",
                     section="context_understanding",
                     content="Updated content",
                     previous_content="Original content",
@@ -213,18 +214,18 @@ class TestEpisodeStoreItemVersioning:
         assert loaded_ctx is not None
         assert loaded_ctx.context_understanding[0].content == "Updated content"
 
-    def test_inherited_items_preserved(self, episode_store):
-        """Inherited items (no mutation) should preserve their content."""
+    def test_inherited_observations_preserved(self, episode_store):
+        """Inherited observations (no mutation) should preserve their content."""
         import uuid
         
         topic_id = "owner/repo"
         
-        # Episode 1: Add two items
+        # Episode 1: Add two observations
         ctx1 = ContextMemory(
             topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
             context_understanding=[
-                Item(id="cu-item1", content="Item 1 content", topic_ids=[topic_id]),
-                Item(id="cu-item2", content="Item 2 content", topic_ids=[topic_id]),
+                Observation(id="cu-obs1", content="Observation 1 content", topic_ids=[topic_id]),
+                Observation(id="cu-obs2", content="Observation 2 content", topic_ids=[topic_id]),
             ],
         )
         episode1 = Episode(
@@ -239,18 +240,18 @@ class TestEpisodeStoreItemVersioning:
                 Mutation(
                     step=0,
                     type=OpType.ADD,
-                    item_id="cu-item1",
+                    observation_id="cu-obs1",
                     section="context_understanding",
-                    content="Item 1 content",
+                    content="Observation 1 content",
                     previous_content=None,
                     topic_ids=[topic_id],
                 ),
                 Mutation(
                     step=0,
                     type=OpType.ADD,
-                    item_id="cu-item2",
+                    observation_id="cu-obs2",
                     section="context_understanding",
-                    content="Item 2 content",
+                    content="Observation 2 content",
                     previous_content=None,
                     topic_ids=[topic_id],
                 ),
@@ -259,12 +260,12 @@ class TestEpisodeStoreItemVersioning:
         )
         episode_store.save_episode(episode1)
 
-        # Episode 2: Only replace item1, item2 is inherited
+        # Episode 2: Only replace obs1, obs2 is inherited
         ctx2 = ContextMemory(
             topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
             context_understanding=[
-                Item(id="cu-item1", content="Item 1 updated", topic_ids=[topic_id]),
-                Item(id="cu-item2", content="Item 2 content", topic_ids=[topic_id]),  # inherited
+                Observation(id="cu-obs1", content="Observation 1 updated", topic_ids=[topic_id]),
+                Observation(id="cu-obs2", content="Observation 2 content", topic_ids=[topic_id]),  # inherited
             ],
         )
         episode2 = Episode(
@@ -279,10 +280,10 @@ class TestEpisodeStoreItemVersioning:
                 Mutation(
                     step=0,
                     type=OpType.REPLACE,
-                    item_id="cu-item1",
+                    observation_id="cu-obs1",
                     section="context_understanding",
-                    content="Item 1 updated",
-                    previous_content="Item 1 content",
+                    content="Observation 1 updated",
+                    previous_content="Observation 1 content",
                     topic_ids=[topic_id],
                 ),
             ],
@@ -296,11 +297,11 @@ class TestEpisodeStoreItemVersioning:
             topic_ids=[topic_id],
         )
 
-        # Both items should be present with correct content
+        # Both observations should be present with correct content
         assert loaded_ctx is not None
-        items_by_id = {item.id: item for item in loaded_ctx.context_understanding}
-        assert items_by_id["cu-item1"].content == "Item 1 updated"
-        assert items_by_id["cu-item2"].content == "Item 2 content"
+        observations_by_id = {obs.id: obs for obs in loaded_ctx.context_understanding}
+        assert observations_by_id["cu-obs1"].content == "Observation 1 updated"
+        assert observations_by_id["cu-obs2"].content == "Observation 2 content"
 
 
 class TestEpisodeStoreWithHippocampus:
@@ -345,7 +346,7 @@ class TestEpisodeStoreWithHippocampus:
             ctx = ContextMemory(
                 topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
                 context_understanding=[
-                    Item(id=f"cu-item{i}", content=f"Content {i}", topic_ids=[topic_id])
+                    Observation(id=f"cu-obs{i}", content=f"Content {i}", topic_ids=[topic_id])
                 ],
             )
             episode = Episode(
@@ -369,23 +370,23 @@ class TestEpisodeStoreWithHippocampus:
 
         # Should have the latest content (from episode 2)
         assert loaded_ctx is not None
-        assert len(loaded_ctx.context_understanding) == 3  # All items accumulated
+        assert len(loaded_ctx.context_understanding) == 3  # All observations accumulated
 
 
 class TestEpisodeStoreDeleteTombstone:
     """Tests for DELETE operations (tombstone handling)."""
 
     def test_delete_creates_tombstone(self, episode_store):
-        """DELETE should create a tombstone version of the item."""
+        """DELETE should create a tombstone version of the observation."""
         import uuid
         
         topic_id = "owner/repo"
         
-        # Episode 1: Add an item
+        # Episode 1: Add an observation
         ctx1 = ContextMemory(
             topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
             context_understanding=[
-                Item(id="cu-item1", content="To be deleted", topic_ids=[topic_id])
+                Observation(id="cu-obs1", content="To be deleted", topic_ids=[topic_id])
             ],
         )
         episode1 = Episode(
@@ -400,7 +401,7 @@ class TestEpisodeStoreDeleteTombstone:
                 Mutation(
                     step=0,
                     type=OpType.ADD,
-                    item_id="cu-item1",
+                    observation_id="cu-obs1",
                     section="context_understanding",
                     content="To be deleted",
                     previous_content=None,
@@ -411,7 +412,7 @@ class TestEpisodeStoreDeleteTombstone:
         )
         episode_store.save_episode(episode1)
 
-        # Episode 2: Delete the item (item not in context_memory, but in mutations)
+        # Episode 2: Delete the observation (observation not in context_memory, but in mutations)
         ctx2 = ContextMemory(
             topics=[Topic(id=topic_id, type="project_scope", description="Test repo")],
             context_understanding=[],  # Empty after delete
@@ -428,7 +429,7 @@ class TestEpisodeStoreDeleteTombstone:
                 Mutation(
                     step=0,
                     type=OpType.DELETE,
-                    item_id="cu-item1",
+                    observation_id="cu-obs1",
                     section="context_understanding",
                     content=None,  # DELETE has no new content
                     previous_content="To be deleted",
@@ -439,13 +440,13 @@ class TestEpisodeStoreDeleteTombstone:
         )
         episode_store.save_episode(episode2)
 
-        # Load the latest context - deleted item should not appear
+        # Load the latest context - deleted observation should not appear
         loaded_ctx = episode_store.load_context(
             task="code_review",
             topic_ids=[topic_id],
         )
 
-        # Should have no items (deleted)
+        # Should have no observations (deleted)
         assert loaded_ctx is not None
         assert len(loaded_ctx.context_understanding) == 0
 
@@ -462,12 +463,12 @@ class TestRecordMutations:
         return hip
 
     def test_add_backfill_with_mixed_ops(self):
-        """ADD item_ids back-filled correctly when DELETEs precede them."""
+        """ADD observation_ids back-filled correctly when DELETEs precede them."""
         pre = ContextMemory(
-            context_understanding=[Item(id="cu-existing", content="Old", topic_ids=["t1"])],
+            context_understanding=[Observation(id="cu-existing", content="Old", topic_ids=["t1"])],
         )
         ops = [
-            Operation(type=OpType.DELETE, item_id="cu-existing"),
+            Operation(type=OpType.DELETE, observation_id="cu-existing"),
             Operation(type=OpType.ADD, section="context_understanding", content="New 1"),
             Operation(type=OpType.ADD, section="domain_constants", content="New 2"),
         ]
@@ -478,17 +479,17 @@ class TestRecordMutations:
 
         assert len(mutations) == 3
         assert mutations[0].type == OpType.DELETE
-        assert mutations[0].item_id == "cu-existing"
+        assert mutations[0].observation_id == "cu-existing"
         assert mutations[1].type == OpType.ADD
-        assert mutations[1].item_id == "cu-aaa"
+        assert mutations[1].observation_id == "cu-aaa"
         assert mutations[2].type == OpType.ADD
-        assert mutations[2].item_id == "dc-bbb"
+        assert mutations[2].observation_id == "dc-bbb"
 
     def test_add_backfill_skipped_delete(self):
         """ADD correct even when DELETE target not found (no mutation emitted)."""
         pre = ContextMemory()  # empty — DELETE won't find anything
         ops = [
-            Operation(type=OpType.DELETE, item_id="cu-ghost"),
+            Operation(type=OpType.DELETE, observation_id="cu-ghost"),
             Operation(type=OpType.ADD, section="context_understanding", content="New"),
         ]
         new_ids = ["cu-xyz"]
@@ -498,7 +499,7 @@ class TestRecordMutations:
 
         assert len(mutations) == 1
         assert mutations[0].type == OpType.ADD
-        assert mutations[0].item_id == "cu-xyz"
+        assert mutations[0].observation_id == "cu-xyz"
 
     def test_add_backfill_all_adds(self):
         """All-ADD batch back-fills in order."""
@@ -513,7 +514,7 @@ class TestRecordMutations:
         hip = self._make_hip()
         mutations = hip._record_mutations(ops, new_ids, pre)
 
-        assert [m.item_id for m in mutations] == ["cu-1", "dc-2", "rr-3"]
+        assert [m.observation_id for m in mutations] == ["cu-1", "dc-2", "rr-3"]
         assert all(m.type == OpType.ADD for m in mutations)
 
     def test_add_backfill_length_mismatch_raises(self):
@@ -529,8 +530,8 @@ class TestRecordMutations:
             hip._record_mutations(ops, new_ids, pre)
 
 
-class TestUpdateItemScores:
-    """Unit tests for _update_item_scores scoring logic."""
+class TestUpdateObservationScores:
+    """Unit tests for _update_observation_scores scoring logic."""
 
     @staticmethod
     def _make_hip():
@@ -541,39 +542,33 @@ class TestUpdateItemScores:
 
     def test_helpful_increments(self):
         hip = self._make_hip()
-        from codespy.agents.memory.hippocampus import ItemTag
-        hip._update_item_scores({"a": ItemTag.HELPFUL})
+        hip._update_observation_scores({"a": ObservationTag.HELPFUL})
         assert hip.scores == {"a": 1}
 
     def test_helpful_accumulates(self):
         hip = self._make_hip()
-        from codespy.agents.memory.hippocampus import ItemTag
         hip.scores = {"a": 3}
-        hip._update_item_scores({"a": ItemTag.HELPFUL})
+        hip._update_observation_scores({"a": ObservationTag.HELPFUL})
         assert hip.scores == {"a": 4}
 
     def test_harmful_decrements(self):
         hip = self._make_hip()
-        from codespy.agents.memory.hippocampus import ItemTag
         hip.scores = {"a": 2}
-        hip._update_item_scores({"a": ItemTag.HARMFUL})
+        hip._update_observation_scores({"a": ObservationTag.HARMFUL})
         assert hip.scores == {"a": 1}
 
     def test_stale_decrements(self):
         hip = self._make_hip()
-        from codespy.agents.memory.hippocampus import ItemTag
-        hip._update_item_scores({"a": ItemTag.STALE})
+        hip._update_observation_scores({"a": ObservationTag.STALE})
         assert hip.scores == {"a": -1}
 
     def test_neutral_initializes_zero(self):
         hip = self._make_hip()
-        from codespy.agents.memory.hippocampus import ItemTag
-        hip._update_item_scores({"a": ItemTag.NEUTRAL})
+        hip._update_observation_scores({"a": ObservationTag.NEUTRAL})
         assert hip.scores == {"a": 0}
 
     def test_neutral_preserves_existing(self):
         hip = self._make_hip()
-        from codespy.agents.memory.hippocampus import ItemTag
         hip.scores = {"a": 5}
-        hip._update_item_scores({"a": ItemTag.NEUTRAL})
+        hip._update_observation_scores({"a": ObservationTag.NEUTRAL})
         assert hip.scores == {"a": 5}

@@ -44,21 +44,21 @@ Six sections (from general to specific):
 5. **`parsing_schema`** — How to parse the context's format: delimiters, boundary patterns, field structure
 6. **`reusable_results`** — Agent-derived aggregated outputs (counts, distributions, classifications) reusable across questions
 
-Each section contains `Item` objects with `id`, `content`, and `topic_ids` linking
-the item to its relevant scopes.
+Each section contains `Observation` objects with `id`, `content`, and `topic_ids` linking
+the observation to its relevant scopes.
 
 ### Observations
 
 Observations are the versioned audit trail of context memory items in the database.
-Each time the Cartographer ADDs, REPLACEs, or DELETEs an item, a new observation
-row is inserted with an incremented `version` number.
+Each time the Cartographer ADDs, REPLACEs, or DELETEs an observation, a new
+observation row is inserted with an incremented `version` number.
 
 - `content` holds the new value (`NULL` for DELETE)
 - `previous_content` preserves the prior state (for REPLACE / DELETE)
 - `op_type` records the operation: `ADD`, `REPLACE`, or `DELETE`
 - Linked to the episode that produced the mutation and the topics it belongs to
 
-Items in `ContextMemory` map 1:1 to the latest non-deleted observation version.
+Observations in `ContextMemory` map 1:1 to the latest non-deleted observation version.
 
 ### Artifacts
 
@@ -170,7 +170,7 @@ erDiagram
 ### Notes
 
 - All tables cascade-delete from `banks`
-- `observations` is versioned: PK `(bank_id, id, version)` tracks ADD/REPLACE/DELETE history per item
+- `observations` is versioned: PK `(bank_id, id, version)` tracks ADD/REPLACE/DELETE history per observation
 - `episode_topics` and `observation_topics` are M:N junction tables
 - `episode_observations` links episodes to the specific observation versions they reference
 - `observation_topics.observation_occurrence` counts cumulative topic associations across all versions; `version_occurrence` counts within one version
@@ -180,14 +180,14 @@ erDiagram
 
 After each agent run (at `end_episode()`):
 
-1. **Distiller** — Analyzes the agent's trajectory (head 60% + tail 40%, capped at `max_trajectory_tokens`) and proposes `CacheCandidate` items for context memory
+1. **Distiller** — Analyzes the agent's trajectory (head 60% + tail 40%, capped at `max_trajectory_tokens`) and proposes `CacheCandidate` observations for context memory
 2. **Cartographer** — Takes candidates + current context memory, decides operations:
-   - `ADD` — Insert new item
-   - `REPLACE` — Update existing item with new knowledge
-   - `DELETE` — Remove outdated/irrelevant item
-3. **Eviction** — If memory exceeds `max_context_memory_tokens`, oldest general items are evicted first
+   - `ADD` — Insert new observation
+   - `REPLACE` — Update existing observation with new knowledge
+   - `DELETE` — Remove outdated/irrelevant observation
+3. **Eviction** — If memory exceeds `max_context_memory_tokens`, oldest general observations are evicted first
 
-The Distiller also tags each existing context memory item with an `ItemTag`:
+The Distiller also tags each existing context memory observation with an `ObservationTag`:
 
 - **`helpful`** — directly aided the agent; keep
 - **`harmful`** — misled the agent or contradicted observations; remove
@@ -203,11 +203,11 @@ Reflection iterates `max_reflects` times (0 = reflect once at end_episode).
 | Budget | Env Var | Default | Purpose |
 |--------|---------|---------|---------|
 | Context memory | `MEMORY_MAX_CONTEXT_MEMORY_TOKENS` | 16384 | Ceiling on persisted ContextMemory (re-sent every iteration) |
-| Item | `MEMORY_MAX_CONTEXT_ITEM_TOKENS` | 512 | Soft per-item limit (expressed to LLM, not truncated) |
+| Observation | `MEMORY_MAX_CONTEXT_ITEM_TOKENS` | 512 | Soft per-observation limit (expressed to LLM, not truncated) |
 | Trajectory | `MEMORY_MAX_TRAJECTORY_TOKENS` | 16384 | Head+tail cap on trajectory fed to Distiller |
 | Question | `MEMORY_MAX_QUESTION_TOKENS` | 8192 | Cap on serialized inputs as reflection question |
 
-Item capacity ≈ context_memory_tokens / item_tokens (16384/512 = 32 items)
+Observation capacity ≈ context_memory_tokens / observation_tokens (16384/512 = 32 observations)
 
 ## Configuration
 
