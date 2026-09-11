@@ -6,7 +6,7 @@ from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus.context_memory import (
     CacheCandidate,
     ContextMemory,
-    ItemTag,
+    ObservationTag,
 )
 
 
@@ -33,7 +33,7 @@ class DistillerSig(dspy.Signature):
          needed for THIS question. This rarely helps other questions.
 
     Focus on caching category (1). Ask: "If a different, unrelated question
-    were asked about this same context, would this cached item save the
+    were asked about this same context, would this cached observation save the
     agent work?"
 
     ## Produce three outputs
@@ -47,18 +47,18 @@ class DistillerSig(dspy.Signature):
        - What kind of contextual understanding the agent built that
          could transfer to future questions
 
-    2. ITEM_TAGS — For EVERY item currently in the context memory, tag it exactly:
+    2. OBSERVATION_TAGS — For EVERY observation currently in the context memory, tag it exactly:
        - helpful: directly helped or would directly help this run
        - harmful: misleading, incorrect, or actively hurts performance
        - neutral: correct domain knowledge not relevant to THIS question
-                  but plausibly useful for other questions
+                   but plausibly useful for other questions
        - stale:   outdated, superseded, or no longer accurate
        When tagging, distinguish between "not needed for this question"
        (neutral) from "not useful for any question" (harmful/stale).
        Domain constants, formulas, and output schemas not exercised this
        run are typically NEUTRAL, not harmful.
 
-    3. CACHE_CANDIDATES — Items to ADD. Value tiers:
+    3. CACHE_CANDIDATES — Observations to ADD. Value tiers:
 
        Highest value — structural understanding that transfers across
        questions:
@@ -82,12 +82,12 @@ class DistillerSig(dspy.Signature):
           was. Focus on tool-use strategies that would save a future agent
           exploration work. Do NOT record every individual tool call — only patterns
           that a future run on the same context would benefit from.
-       - Parsing schema: document delimiters, boundary patterns, field
-         format, how to reliably split or locate items in the context
-       - Shared intermediate computations: aggregated results (counts,
-         distributions, classifications) that the agent derived by
-         processing the full context and that multiple questions would
-         need. Note the computation method to judge reliability.
+        - Parsing schema: document delimiters, boundary patterns, field
+          format, how to reliably split or locate observations in the context
+        - Shared intermediate computations: aggregated results (counts,
+          distributions, classifications) that the agent derived by
+          processing the full context and that multiple questions would
+          need. Note the computation method to judge reliability.
 
        Do NOT cache:
        - Facts that answer only one specific question (e.g., a verbatim
@@ -125,7 +125,7 @@ class DistillerSig(dspy.Signature):
     )
     question: str = dspy.InputField(desc="The question the agent was answering.")
     max_context_item_tokens: int = dspy.InputField(
-        desc="Token budget for a SINGLE context memory item. Keep every candidate within "
+        desc="Token budget for a SINGLE context memory observation. Keep every candidate within "
         "it; if one exceeds it, rewrite it more compactly or split it."
     )
 
@@ -134,12 +134,12 @@ class DistillerSig(dspy.Signature):
         "whether structural info was re-discovered that should have been cached, and "
         "what transferable understanding the agent built. Feeds the Cartographer prompt."
     )
-    item_tags: dict[str, ItemTag] = dspy.OutputField(
-        desc="Per-item-id tag for EVERY item currently in the context memory. "
-        "Keys must match existing item ids exactly."
+    observation_tags: dict[str, ObservationTag] = dspy.OutputField(
+        desc="Per-observation-id tag for EVERY observation currently in the context memory. "
+        "Keys must match existing observation ids exactly."
     )
     cache_candidates: list[CacheCandidate] = dspy.OutputField(
-        desc="Candidate items to add. Each within the max_context_item_tokens budget; "
+        desc="Candidate observations to add. Each within the max_context_item_tokens budget; "
         "structural/transferable only. "
         "Each candidate's `section` must be one of the six section names above."
     )
@@ -151,7 +151,7 @@ class Distiller(dspy.Module):
     The context memory is a prompt-resident cache of *understanding*, not
     answers. The Distiller separates orientation work (what the context
     contains, how it's organized, which constants matter) from question-
-    specific work, tags every existing item, and proposes new candidates.
+    specific work, tags every existing observation, and proposes new candidates.
     """
 
     # Name this module's settings live under: memory.distiller.

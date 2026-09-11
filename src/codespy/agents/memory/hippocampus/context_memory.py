@@ -11,8 +11,8 @@ from pydantic import AliasChoices, BaseModel, Field
 logger = logging.getLogger(__name__)
 
 
-class ItemTag(StrEnum):
-    """How a context-memory item performed in the trajectory just observed.
+class ObservationTag(StrEnum):
+    """How a context-memory observation performed in the trajectory just observed.
 
     - helpful: directly aided orientation or answering; keep.
     - harmful: misled the agent or contradicted observations; remove.
@@ -26,7 +26,7 @@ class ItemTag(StrEnum):
     STALE = "stale"
 
     @classmethod
-    def _missing_(cls, value: object) -> ItemTag | None:
+    def _missing_(cls, value: object) -> ObservationTag | None:
         if isinstance(value, str):
             lower = value.lower()
             for member in cls:
@@ -71,34 +71,40 @@ _SECTION_PREFIX: dict[str, str] = {
     "reusable_results": "rr",
 }
 
+_PREFIX_TO_SECTION: dict[str, str] = {v: k for k, v in _SECTION_PREFIX.items()}
+
 
 class Topic(BaseModel):
-    """A topic representing a scope in the repository.
+    """A named entity that scopes context observations.
 
-    Topics are used to group context items by their relevant scope.
+    Topics group observations by domain — a project component, a customer,
+    a pull request, an external service, or any logical boundary the caller
+    defines.  The `type` field discriminates the kind of entity while `id`
+    uniquely identifies the instance within that kind.
     """
 
-    id: str = Field(description="Topic identifier (e.g., 'owner/repo/package-name')")
-    description: str = Field(description="Description of this topic's role")
+    id: str = Field(description="Unique topic identifier within its type")
+    type: str = Field(description="Topic kind, e.g. 'project_scope', 'pull_request', 'customer'")
+    description: str = Field(description="Human-readable description of this topic")
 
 
-class Item(BaseModel):
-    """A single item in the context memory."""
+class Observation(BaseModel):
+    """A single observation in the context memory."""
 
-    id: str = Field(description="Unique item identifier")
-    content: str = Field(description="Item content")
+    id: str = Field(description="Unique observation identifier")
+    content: str = Field(description="Observation content")
     topic_ids: list[str] = Field(
-        default_factory=list, description="IDs of topics this item belongs to"
+        default_factory=list, description="IDs of topics this observation belongs to"
     )
 
     def bind_topics(self, topic_ids: list[str]) -> None:
-        """Bind this item to the given topic_ids (only if currently unbound)."""
+        """Bind this observation to the given topic_ids (only if currently unbound)."""
         if not self.topic_ids:
             self.topic_ids = list(topic_ids)
 
 
 class CacheCandidate(BaseModel):
-    """A candidate item to be added to the context memory."""
+    """A candidate observation to be added to the context memory."""
 
     section: SectionName = Field(
         default="context_understanding",
@@ -108,7 +114,7 @@ class CacheCandidate(BaseModel):
         ),
     )
     value: str = Field(
-        description="Compact candidate cache item, within the max_context_item_tokens budget."
+        description="Compact candidate cache observation, within the max_context_item_tokens budget."
     )
     transferability: str = Field(
         default="",
@@ -128,7 +134,7 @@ class Operation(BaseModel):
         validation_alias=AliasChoices("type", "op"),
     )
     section: SectionName | None = Field(default=None, description="Required for ADD.")
-    item_id: str | None = Field(default=None, description="Required for DELETE / REPLACE.")
+    observation_id: str | None = Field(default=None, description="Required for DELETE / REPLACE.")
     content: str | None = Field(default=None, description="Required for ADD / REPLACE.")
 
 
@@ -141,8 +147,8 @@ class Mutation(BaseModel):
 
     step: int = Field(description="Which _distill() pass produced this mutation (0-indexed)")
     type: OpType = Field(description="Type of mutation: ADD, DELETE, or REPLACE")
-    item_id: str = Field(description="Generated ID (ADD) or existing ID (DELETE/REPLACE)")
-    section: SectionName = Field(description="Section the item belongs to")
+    observation_id: str = Field(description="Generated ID (ADD) or existing ID (DELETE/REPLACE)")
+    section: SectionName = Field(description="Section the observation belongs to")
     content: str | None = Field(
         default=None, description="New content (ADD/REPLACE); None for DELETE"
     )
@@ -155,45 +161,45 @@ class Mutation(BaseModel):
 
 
 class ContextMemory(BaseModel):
-    """Context memory with topics and sectioned items.
+    """Context memory with topics and sectioned observations.
 
-    Topic-aware structure where each Item links to one or more topics via topic_ids.
+    Topic-aware structure where each Observation links to one or more topics via topic_ids.
     """
 
     topics: list[Topic] = Field(default_factory=list, description="Topics representing repo scopes")
-    context_roadmap: list[Item] = Field(
+    context_roadmap: list[Observation] = Field(
         default_factory=list,
         description="Index of what the context contains and where to find it",
     )
-    context_understanding: list[Item] = Field(
+    context_understanding: list[Observation] = Field(
         default_factory=list,
         description="High-level understanding of the context",
     )
-    domain_constants: list[Item] = Field(
+    domain_constants: list[Observation] = Field(
         default_factory=list,
         description=(
             "Exact parameters, formulas, thresholds, reference values, "
             "enum sets, and output field requirements"
         ),
     )
-    parsing_schema: list[Item] = Field(
+    parsing_schema: list[Observation] = Field(
         default_factory=list,
         description=(
             "How to parse and navigate the context's format: "
             "delimiters, boundary patterns, field structure"
         ),
     )
-    reusable_results: list[Item] = Field(
+    reusable_results: list[Observation] = Field(
         default_factory=list,
         description=(
             "Agent-derived aggregated outputs (counts, distributions, classifications) "
             "that multiple questions would need"
         ),
     )
-    actions: list[Item] = Field(
+    actions: list[Observation] = Field(
         default_factory=list,
         description=(
-            "Tool execution actions: what tool was used, for what purpose, "
+            "Tool execution action patterns: what tool was used, for what purpose, "
             "and what the result was. Helps avoid redundant tool calls in future runs."
         ),
     )
@@ -203,44 +209,44 @@ class ContextMemory(BaseModel):
         """Return list of section field names (excluding 'topics')."""
         return [f for f in cls.model_fields if f != "topics"]
 
-    def section(self, name: str) -> list[Item]:
-        """Get items from a section by name."""
+    def section(self, name: str) -> list[Observation]:
+        """Get observations from a section by name."""
         return getattr(self, name)
 
     def bind_topics(self, topics: list[Topic], default_topic_ids: list[str]) -> None:
-        """Set topics and bind all untagged items to default_topic_ids.
+        """Set topics and bind all untagged observations to default_topic_ids.
 
         Used by the scope resolver after topics are computed post-hoc
         (chicken-and-egg: Hippocampus runs before topics are known).
 
         Args:
             topics: Full list of Topic objects to set on this memory.
-            default_topic_ids: topic_ids to assign to any item with empty topic_ids.
+            default_topic_ids: topic_ids to assign to any observation with empty topic_ids.
         """
         self.topics = topics
         for sec in self.section_names():
-            for item in self.section(sec):
-                item.bind_topics(default_topic_ids)
+            for obs in self.section(sec):
+                obs.bind_topics(default_topic_ids)
 
-    def all_items(self) -> list[Item]:
-        """Return all items across all sections."""
+    def all_observations(self) -> list[Observation]:
+        """Return all observations across all sections."""
         return [it for s in self.section_names() for it in self.section(s)]
 
-    def find_item(self, item_id: str) -> tuple[SectionName, Item] | None:
-        """Look up an item by ID across all sections.
+    def find_observation(self, observation_id: str) -> tuple[SectionName, Observation] | None:
+        """Look up an observation by ID across all sections.
 
         Returns:
-            Tuple of (section_name, item) if found, None otherwise.
+            Tuple of (section_name, observation) if found, None otherwise.
         """
         for sec in self.section_names():
-            for it in self.section(sec):
-                if it.id == item_id:
-                    return sec, it  # type: ignore[return-value]
+            for obs in self.section(sec):
+                if obs.id == observation_id:
+                    return sec, obs  # type: ignore[return-value]
         return None
 
     def ids(self) -> set[str]:
-        """Return set of all item IDs."""
-        return {it.id for it in self.all_items()}
+        """Return set of all observation IDs."""
+        return {obs.id for obs in self.all_observations()}
 
     def apply(
         self, ops: list[Operation], topic_ids: list[str] | None = None
@@ -249,109 +255,68 @@ class ContextMemory(BaseModel):
 
         Args:
             ops: List of operations to apply (ADD, DELETE, REPLACE)
-            topic_ids: Optional list of topic IDs to assign to new items
+            topic_ids: Optional list of topic IDs to assign to new observations
 
         Returns:
-            Tuple of (new ContextMemory, list of IDs of newly-added items)
+            Tuple of (new ContextMemory, list of IDs of newly-added observations)
         """
         cm = self.model_copy(deep=True)
         new_ids: list[str] = []
 
         for op in ops:
-            if op.type == OpType.DELETE and op.item_id:
+            if op.type == OpType.DELETE and op.observation_id:
                 for sec in cm.section_names():
                     lst = cm.section(sec)
-                    lst[:] = [it for it in lst if it.id != op.item_id]
+                    lst[:] = [obs for obs in lst if obs.id != op.observation_id]
 
-            elif op.type == OpType.REPLACE and op.item_id and op.content:
+            elif op.type == OpType.REPLACE and op.observation_id and op.content:
                 replaced = False
                 for sec in cm.section_names():
                     lst = cm.section(sec)
-                    for i, it in enumerate(lst):
-                        if it.id == op.item_id:
+                    for i, obs in enumerate(lst):
+                        if obs.id == op.observation_id:
                             # Preserve existing topic_ids on REPLACE
-                            lst[i] = Item(id=it.id, content=op.content, topic_ids=it.topic_ids)
+                            lst[i] = Observation(id=obs.id, content=op.content, topic_ids=obs.topic_ids)
                             replaced = True
                             break
                     if replaced:
                         break
                 if not replaced:
-                    logger.warning(
-                        "REPLACE target %r not found in context memory; skipping",
-                        op.item_id,
-                    )
+                    # Infer section from observation_id prefix; fall back to ADD
+                    prefix = op.observation_id.split("-", 1)[0] if "-" in op.observation_id else ""
+                    section_name = _PREFIX_TO_SECTION.get(prefix)
+                    if section_name:
+                        logger.info(
+                            "REPLACE target %r not found; falling back to ADD in %s",
+                            op.observation_id, section_name,
+                        )
+                        new_id = f"{prefix}-{uuid.uuid4().hex}"
+                        new_obs = Observation(id=new_id, content=op.content, topic_ids=topic_ids or [])
+                        cm.section(section_name).append(new_obs)
+                        new_ids.append(new_id)
+                    else:
+                        logger.warning(
+                            "REPLACE observation_id %r has no valid prefix — "
+                            "likely a topic ID; skipping",
+                            op.observation_id,
+                        )
 
             elif op.type == OpType.ADD and op.section and op.content:
                 prefix = _SECTION_PREFIX.get(op.section, op.section[:2])
                 new_id = f"{prefix}-{uuid.uuid4().hex}"
-                new_item = Item(id=new_id, content=op.content, topic_ids=topic_ids or [])
-                cm.section(op.section).append(new_item)
+                new_obs = Observation(id=new_id, content=op.content, topic_ids=topic_ids or [])
+                cm.section(op.section).append(new_obs)
                 new_ids.append(new_id)
 
         return cm, new_ids
 
     def without(self, ids: set[str]) -> ContextMemory:
-        """Return a new ContextMemory without the specified items."""
+        """Return a new ContextMemory without the specified observations."""
         cm = self.model_copy(deep=True)
         for sec in cm.section_names():
             lst = cm.section(sec)
-            lst[:] = [it for it in lst if it.id not in ids]
+            lst[:] = [obs for obs in lst if obs.id not in ids]
         return cm
-
-    def to_json(self) -> str:
-        """Serialize the memory to a JSON string."""
-        return self.model_dump_json(indent=2)
-
-    @classmethod
-    def from_json(cls, text: str) -> ContextMemory:
-        """Deserialize a memory from a JSON string."""
-        return cls.model_validate_json(text)
-
-    @classmethod
-    def merge(cls, *memories: ContextMemory) -> ContextMemory:
-        """Merge multiple context memories into a single memory.
-
-        Later memories win on ID collision (items with duplicate IDs are
-        replaced by those from later memories in the argument list).
-
-        Topics are deduplicated by ID, with later non-empty descriptions winning.
-
-        Args:
-            *memories: One or more ContextMemory instances to merge.
-
-        Returns:
-            A new ContextMemory containing merged topics and items.
-        """
-        merged = cls()
-
-        # Merge topics (deduplicate by id, later non-empty description wins)
-        topic_map: dict[str, Topic] = {}
-        for mem in memories:
-            for topic in mem.topics:
-                if topic.id not in topic_map:
-                    topic_map[topic.id] = topic
-                elif topic.description and not topic_map[topic.id].description:
-                    # Later non-empty description wins
-                    topic_map[topic.id] = topic
-        merged.topics = list(topic_map.values())
-
-        # Merge items
-        for mem in memories:
-            for sec in cls.section_names():
-                merged_section = merged.section(sec)
-                existing_ids = {item.id for item in merged_section}
-                for item in mem.section(sec):
-                    if item.id in existing_ids:
-                        # Replace existing item (later wins)
-                        merged_section[:] = [
-                            it if it.id != item.id else item.model_copy(deep=True)
-                            for it in merged_section
-                        ]
-                    else:
-                        merged_section.append(item.model_copy(deep=True))
-                        existing_ids.add(item.id)
-
-        return merged
 
 
 def make_topic_id(repo_full_name: str, subroot: str, package_name: str | None = None) -> str:

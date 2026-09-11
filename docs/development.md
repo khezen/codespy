@@ -61,7 +61,9 @@ src/codespy/
 │   ├── cost_tracker.py       # Token/cost tracking
 │   ├── dspy_config.py        # DSPy runtime config
 │   ├── memory/               # Hippocampus memory system
-│   │   └── hippocampus/      # Episode persistence, context memory, budget
+│   │   ├── hippocampus/      # Episode persistence, context memory, budget
+│   │   ├── pg0_manager.py    # pg0-embedded PostgreSQL lifecycle
+│   │   └── postgres.py       # PostgreSQL episode persistence
 │   └── reviewer/             # Review pipeline
 │       ├── models.py         # Review data models
 │       ├── reviewer.py       # Main review orchestrator

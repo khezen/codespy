@@ -31,6 +31,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ripgrep \
+    libgssapi-krb5-2 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 1000 codespy
 

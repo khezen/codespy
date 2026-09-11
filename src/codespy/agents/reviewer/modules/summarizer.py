@@ -1,7 +1,6 @@
 """PR summarizer module — produces a concise summary before scope identification."""
 
 import logging
-from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from typing import TYPE_CHECKING
 
 import dspy
@@ -9,10 +8,11 @@ import dspy
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
+from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.reviewer.modules.scope_resolver import _deepest_common_folder
 from codespy.config import get_settings
-from codespy.config_memory import get_memory_store
+from codespy.config_memory import get_episode_store
 
 if TYPE_CHECKING:
     from codespy.agents.reviewer.models import PRContext, ScopeResult
@@ -73,28 +73,27 @@ class Summarizer(dspy.Module):
             logger.debug("Skipping summary: disabled")
             return pr_context.pr_title or "No title"
 
-        # Load latest "summary" episode per scope and merge
+        # Load latest "summary" episode for the given topics
         initial_memory: ContextMemory | None = None
+        store = None
+        topic_ids: list[str] | None = None
         if self._settings.get_memory_enabled("summary") and scopes:
-            from codespy.agents.memory.hippocampus.episode import find_latest_episode
-
-            store = get_memory_store(self._settings)
-            per_scope_memories: list[ContextMemory] = []
-            for scope in scopes:
-                ep = find_latest_episode(
-                    store,
-                    scope.scope_path(),
+            store = get_episode_store(self._settings)
+            if store is not None:
+                # Build topic_ids from scope topics
+                topic_ids = []
+                for scope in scopes:
+                    if scope.topic(pr_context.repo_full_name):
+                        topic_ids.append(scope.topic(pr_context.repo_full_name).id)
+                initial_memory = store.load_context(
                     task="summary",
-                    exclude_run_id=run_id,
+                    topic_ids=topic_ids if topic_ids else None,
                 )
-                if ep is not None:
-                    per_scope_memories.append(ep.context_memory)
-            if per_scope_memories:
-                initial_memory = ContextMemory.merge(*per_scope_memories)
-                logger.info(
-                    "Merged %d prior summary episode(s) into summarizer memory",
-                    len(per_scope_memories),
-                )
+                if initial_memory:
+                    logger.info("Loaded prior summary episode(s) into summarizer memory")
+                else:
+                    logger.info("No prior summary episode found")
+
         summarizer = ContextSafe(
             dspy.ChainOfThought(PRSummarySignature),
             PRSummarySignature,
@@ -109,7 +108,14 @@ class Summarizer(dspy.Module):
 
         mem: Hippocampus | None = None
         with SignatureContext("summary", self._cost_tracker):
-            if self._settings.get_memory_enabled("summary"):
+            if self._settings.get_memory_enabled("summary") and store is not None:
+                # Build topics list for Hippocampus
+                scope_topics: list[Topic] = []
+                for scope in scopes or []:
+                    scope_topic = scope.topic(pr_context.repo_full_name)
+                    if scope_topic:
+                        scope_topics.append(scope_topic)
+
                 mem = Hippocampus(
                     summarizer,
                     budget=self._settings.get_memory_budget("summary"),
@@ -118,7 +124,7 @@ class Summarizer(dspy.Module):
                     task_name="summary",
                     run_id=run_id,
                     initial_memory=initial_memory,
-                    topics=topics,
+                    topics=scope_topics if scope_topics else topics,
                 )
                 result = mem(
                     pr_title=pr_context.pr_title,
@@ -127,16 +133,10 @@ class Summarizer(dspy.Module):
                     patches=patches,
                 )
                 # Fire-and-forget episode save
-                _store = get_memory_store(self._settings)
-                _common_dir = _deepest_common_folder(scopes, pr_context.repo_slug) if scopes else f"/{pr_context.repo_slug}/"
                 _summary_text = result.summary
-                _scopes = scopes
                 def _persist():
                     try:
-                        mem.end_episode(_store, _common_dir, artifacts={"summary": _summary_text})
-                        if _scopes:
-                            for scope in _scopes:
-                                mem.save_episode(_store, mem.episode_file_path(scope.scope_path()))
+                        mem.end_episode(store, artifacts={"summary": _summary_text})
                     except Exception:
                         logger.warning("Background summary episode save failed", exc_info=True)
                 submit_episode_save(_persist, name="summary-episode-save")

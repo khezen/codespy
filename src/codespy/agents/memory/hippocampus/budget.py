@@ -75,7 +75,7 @@ class MemoryBudget:
 # Eviction priority — lower number = evict first
 _SECTION_EVICT_PRIORITY: dict[str, int] = {
     "parsing_schema": 0,  # evict first — cheap to rediscover
-    "actions": 1,  # agent-derived tool-use patterns; can be re-observed
+    "actions": 1,  # agent-derived tool-use action patterns; can be re-observed
     "reusable_results": 2,  # agent-derived; can be recomputed
     "domain_constants": 3,  # exact values worth protecting
     "context_roadmap": 4,  # protected — structural index
@@ -127,7 +127,7 @@ def evict(context_memory: ContextMemory, scores: dict[str, int], budget: int) ->
     item_section: dict[str, str] = {
         it.id: sec for sec in context_memory.section_names() for it in context_memory.section(sec)
     }
-    flat = context_memory.all_items()
+    flat = context_memory.all_observations()
     order = {it.id: i for i, it in enumerate(flat)}
     victims = sorted(
         flat,

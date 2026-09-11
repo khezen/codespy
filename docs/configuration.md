@@ -108,10 +108,11 @@ AUTO_DISCOVER_GEMINI=false
 |---------|---------|---------|-------------|
 | Model | `DEFAULT_MODEL` | `anthropic/claude-opus-4-6` | Primary model for all signatures |
 | Reasoning effort | `DEFAULT_REASONING_EFFORT` | `medium` | Provider reasoning budget: `minimal`, `low`, `medium`, `high` |
-| Max tokens | `DEFAULT_MAX_TOKENS` | `64000` | Output token budget per completion (reasoning tokens included) |
+| Max tokens | `DEFAULT_MAX_TOKENS` | `32000` | Output token budget per completion (reasoning tokens included) |
 | Temperature | `DEFAULT_TEMPERATURE` | `0.2` | Default temperature for LLM calls |
 | Max iterations | `DEFAULT_MAX_ITERS` | `5` | Maximum ReAct iterations for tool-using agents |
 | Prompt caching | `ENABLE_PROMPT_CACHING` | `true` | Provider-side prompt caching (Anthropic, OpenAI, Bedrock) |
+| Compact patches | `COMPACT_PATCHES` | `false` | Expand diff hunks to full function bodies using Tree-sitter |
 | RLM fallback | `RLM_FALLBACK_ENABLED` | `true` | Proactive RLM fallback for context rot prevention |
 | RLM react threshold | `RLM_FALLBACK_REACT_THRESHOLD` | `0.30` | Context ratio triggering RLM for ReAct modules |
 | RLM CoT threshold | `RLM_FALLBACK_CHAIN_OF_THOUGHT_THRESHOLD` | `0.40` | Context ratio triggering RLM for ChainOfThought modules |
@@ -171,14 +172,22 @@ Brief overview:
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| Backend | `MEMORY_BACKEND` | `filesystem` | Storage: `filesystem` or `s3` |
-| Root path | `MEMORY_ROOT` | `~/.cache/codespy/memory` | Filesystem storage location |
+| PostgreSQL host | `MEMORY_POSTGRES_HOST` | — | External PostgreSQL host |
+| PostgreSQL port | `MEMORY_POSTGRES_PORT` | `5432` | External PostgreSQL port |
+| PostgreSQL user | `MEMORY_POSTGRES_USER` | `postgres` | External PostgreSQL user |
+| PostgreSQL password | `MEMORY_POSTGRES_PASSWORD` | — | External PostgreSQL password |
+| PostgreSQL database | `MEMORY_POSTGRES_DATABASE` | `codespy` | External PostgreSQL database |
+| PostgreSQL schema | `MEMORY_POSTGRES_SCHEMA` | `episodic` | PostgreSQL schema / search_path per memory type |
+| Bank ID | `MEMORY_BANK_ID` | `codespy` | Scopes all memory data |
+| pg0 name | `MEMORY_PG0_NAME` | `codespy` | pg0-embedded database name (local dev) |
+| pg0 port | `MEMORY_PG0_PORT` | auto | pg0-embedded port (local dev) |
+| pg0 data dir | `MEMORY_PG0_DATA_DIR` | — | pg0-embedded data directory (local dev) |
 | Default enabled | `MEMORY_DEFAULT_ENABLED` | `false` | Enable memory globally |
 | Max reflects | `MEMORY_DEFAULT_MAX_REFLECTS` | `0` | Reflection iterations (0 = once at end) |
-| Context memory tokens | `MEMORY_DEFAULT_MAX_CONTEXT_MEMORY_TOKENS` | `16384` | Max tokens for persisted context memory |
-| Item tokens | `MEMORY_DEFAULT_MAX_CONTEXT_ITEM_TOKENS` | `512` | Soft per-item token limit |
-| Trajectory tokens | `MEMORY_DEFAULT_MAX_TRAJECTORY_TOKENS` | `16384` | Cap on trajectory fed to Distiller |
-| Question tokens | `MEMORY_DEFAULT_MAX_QUESTION_TOKENS` | `8192` | Cap on serialized reflection inputs |
+| Context memory tokens | `MEMORY_MAX_CONTEXT_MEMORY_TOKENS` | `16384` | Ceiling on persisted context memory |
+| Observation tokens | `MEMORY_MAX_CONTEXT_ITEM_TOKENS` | `512` | Soft per-observation token limit |
+| Trajectory tokens | `MEMORY_MAX_TRAJECTORY_TOKENS` | `16384` | Cap on trajectory fed to Distiller |
+| Question tokens | `MEMORY_MAX_QUESTION_TOKENS` | `8192` | Cap on serialized reflection inputs |
 
 See [Memory System](memory.md) for full memory configuration details.
 

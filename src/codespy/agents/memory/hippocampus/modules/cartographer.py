@@ -6,7 +6,7 @@ from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus.context_memory import (
     CacheCandidate,
     ContextMemory,
-    ItemTag,
+    ObservationTag,
     Operation,
 )
 
@@ -25,42 +25,44 @@ class CartographerSig(dspy.Signature):
     ## Instructions
 
     - Review the latest Distiller diagnosis and the current context memory.
-    - Prioritize items representing SHARED UNDERSTANDING — knowledge
+    - Prioritize observations representing SHARED UNDERSTANDING — knowledge
       useful across many different questions on this context.
     - Demote or remove question-specific facts that only help one query.
-    - Keep items that are structural, relational, or globally informative.
-    - Remove items that are stale, misleading, redundant, or low-value.
-    - Rewrite items when a more compact or more useful version exists.
+    - Keep observations that are structural, relational, or globally informative.
+    - Remove observations that are stale, misleading, redundant, or low-value.
+    - Rewrite observations when a more compact or more useful version exists.
       Prefer REPLACE over ADD when possible.
-    - Add new items only when they represent transferable understanding.
-    - Each item must be short and budget-efficient — stay within the
+    - Add new observations only when they represent transferable understanding.
+    - Each observation must be short and budget-efficient — stay within the
       `max_context_item_tokens` budget given as an input. If a candidate exceeds
       it, rewrite it more compactly or split it.
     - If nothing new is worth keeping, return an empty operations list.
 
-    The litmus test: For each item, ask "Would a future agent asking a
+    The litmus test: For each observation, ask "Would a future agent asking a
     completely DIFFERENT question about this context benefit from knowing
     this?" If not, it probably isn't worth the budget.
 
-    ## How to use item_tags
+    ## How to use observation_tags
 
-    The Distiller assigns each existing item a tag. Let it drive your ops:
-    - harmful / stale → DELETE the item (unless a corrected REPLACE is
+    The Distiller assigns each existing observation a tag. Let it drive your ops:
+    - harmful / stale → DELETE the observation (unless a corrected REPLACE is
       clearly the better fix).
     - helpful but verbose or redundant → REPLACE with a tighter version.
     - helpful and already compact → leave it; don't spend an op.
-    - neutral → keep as-is; do not churn ops on neutral items.
+    - neutral → keep as-is; do not churn ops on neutral observations.
 
     ## Operation rules
 
     Each operation has exactly these fields:
     - type: one of "ADD", "DELETE", or "REPLACE"
     - section: (ADD only) one of the six section names
-    - item_id: (DELETE/REPLACE only) existing item ID from current memory
+    - observation_id: (DELETE/REPLACE only) existing observation ID from current memory.
+      Observation IDs have short prefixes (cu-, cr-, dc-, ps-, rr-, ac-).
+      NEVER use topic IDs (owner/repo paths or URLs) as observation_id.
     - content: (ADD/REPLACE only) the new content string
 
-    Only reference `item_id`s that exist in the current memory. Never invent
-    ids — new items get their ids assigned automatically on ADD.
+    Only reference `observation_id`s that exist in the current memory. Never invent
+    ids — new observations get their ids assigned automatically on ADD.
 
     ## Value Priority (highest to lowest)
 
@@ -79,7 +81,7 @@ class CartographerSig(dspy.Signature):
        distributions, classifications) from processing the full context
        that multiple questions would need. Note the computation method
        to judge reliability.
-    5. actions — tool execution patterns (what tool, what purpose,
+    5. actions — tool execution action patterns (what tool, what purpose,
        what result) that transfer across runs. Evict when the tool-use
        pattern is obvious or no longer relevant.
     6. parsing_schema — format observations, delimiters, splitting
@@ -108,18 +110,21 @@ class CartographerSig(dspy.Signature):
     """
 
     diagnosis: str = dspy.InputField(desc="Distiller's narrative diagnosis.")
-    item_tags: dict[str, ItemTag] = dspy.InputField(desc="Per-item tags from the Distiller.")
+    observation_tags: dict[str, ObservationTag] = dspy.InputField(
+        desc="Per-observation tags from the Distiller. Keys are observation IDs (prefixed cu-, cr-, dc-, ps-, rr-, ac-), never topic IDs."
+    )
     cache_candidates: list[CacheCandidate] = dspy.InputField(
-        desc="Candidate items the Distiller proposed."
+        desc="Candidate observations the Distiller proposed."
     )
     current_map: ContextMemory = dspy.InputField(
-        desc="Current context memory."
+        desc="Current context memory. 'topics' are metadata (not editable observations). "
+        "Editable observations live in the six sections and have prefixed IDs (cu-, cr-, dc-, ps-, rr-, ac-)."
     )
     question: str = dspy.InputField(desc="Question the agent was answering.")
     token_budget: int = dspy.InputField(desc="Hard token budget for the context memory.")
     current_tokens: int = dspy.InputField(desc="Current token count of the context memory.")
     max_context_item_tokens: int = dspy.InputField(
-        desc="Token budget for a SINGLE context memory item. Every ADD/REPLACE content "
+        desc="Token budget for a SINGLE context memory observation. Every ADD/REPLACE content "
         "must stay within it."
     )
 
@@ -137,8 +142,8 @@ class Cartographer(dspy.Module):
     """Translates the Distiller's structured reflection into concrete edits
     against the context memory.
 
-    Owns *what is worth keeping* — selects which tagged items to drop, which
-    candidates to add, and which existing items to rewrite. Token-budget
+    Owns *what is worth keeping* — selects which tagged observations to drop, which
+    candidates to add, and which existing observations to rewrite. Token-budget
     enforcement is the Evictor's job.
     """
 
@@ -161,7 +166,7 @@ class Cartographer(dspy.Module):
     def forward(
         self,
         diagnosis,
-        item_tags,
+        observation_tags,
         cache_candidates,
         current_map,
         question,
@@ -177,7 +182,7 @@ class Cartographer(dspy.Module):
         with SignatureContext(self.SIGNATURE, get_cost_tracker()):
             return self.predict(
                 diagnosis=diagnosis,
-                item_tags=item_tags,
+                observation_tags=observation_tags,
                 cache_candidates=cache_candidates,
                 current_map=current_map,
                 question=question,

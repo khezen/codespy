@@ -74,36 +74,29 @@ gitlab:
 # default globally; enabled by default for summary — see `memory:`
 # blocks under each signature below.
 
-#
-# Episodes are written to:
-#   global/episodic/<repo>/<scope-subroot>/codespy-<task>-<timestamp>.json
-# under `root` (filesystem) or `s3_bucket` (s3).
+# Episodes are persisted in PostgreSQL. When postgres.host is unset,
+# pg0-embedded auto-starts a local PostgreSQL instance (zero config).
+# For production, set postgres.host to an external PostgreSQL (AWS RDS, etc.).
 memory:
-  backend: filesystem                     # MEMORY_BACKEND (filesystem | s3)
+  # External PostgreSQL (production, AWS RDS, etc.).
+  # When postgres.host is unset, pg0-embedded auto-starts a local instance.
+  postgres:
+    host: null                            # MEMORY_POSTGRES_HOST
+    port: 5432                            # MEMORY_POSTGRES_PORT
+    user: null                            # MEMORY_POSTGRES_USER (default: postgres)
+    password: null                        # MEMORY_POSTGRES_PASSWORD
+    database: codespy                     # MEMORY_POSTGRES_DATABASE
+    schema: episodic                      # MEMORY_POSTGRES_SCHEMA (search_path per memory type; null = public)
 
-  # Filesystem backend
-  root: ~/.cache/codespy/memory           # MEMORY_ROOT
+  # pg0-embedded settings (local dev only, ignored when postgres.host is set)
+  pg0:
+    name: codespy                         # MEMORY_PG0_NAME
+    port: null                            # MEMORY_PG0_PORT (auto-detected if unset)
+    data_dir: null                        # MEMORY_PG0_DATA_DIR (default: ~/.cache/codespy/pg0)
 
-  # S3 backend (used when backend: s3)
-  # ---------------------------------------------------------------------------
-  # Use this to store memory episodes in S3-compatible object storage instead of
-  # the local filesystem. Useful for:
-  #   - Shared memory across multiple codespy instances (CI/CD, distributed setups)
-  #   - Centralized episode storage
-  #   - Integration with MinIO, AWS S3, or other S3-compatible services
-  # ---------------------------------------------------------------------------
-  s3_bucket: null                         # MEMORY_S3_BUCKET - The bucket name
-                                          # Example: "codespy-memory" or "mycompany-codespy"
-
-  s3_region: null                         # MEMORY_S3_REGION - AWS region for the bucket
-                                          # Falls back to aws_region (from llm.* section above)
-                                          # Example: "us-east-1", "eu-west-1"
-
-  s3_endpoint_url: null                   # MEMORY_S3_ENDPOINT_URL - Custom endpoint
-                                          # Only needed for MinIO or non-AWS S3-compatible storage
-                                          # Leave as null for AWS S3
-                                          # Example: "http://localhost:9000" (MinIO local)
-                                          # Example: "https://minio.example.com" (MinIO remote)
+  # Bank ID — scopes all memory data. Can be a nickname, username, email,
+  # or agent name. When unset, auto-generated from hostname.
+  bank_id: null                           # MEMORY_BANK_ID
 
   # Reflection defaults — overridable per-signature via signatures.<name>.memory
   default_enabled: false                  # MEMORY_DEFAULT_ENABLED

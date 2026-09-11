@@ -2,9 +2,9 @@ from codespy.agents.memory.hippocampus.budget import MemoryBudget
 from codespy.agents.memory.hippocampus.context_memory import (
     CacheCandidate,
     ContextMemory,
-    Item,
-    ItemTag,
     Mutation,
+    Observation,
+    ObservationTag,
     Operation,
     OpType,
     SectionName,
@@ -14,7 +14,6 @@ from codespy.agents.memory.hippocampus.context_memory import (
 )
 from codespy.agents.memory.hippocampus.episode import (
     Episode,
-    find_latest_episode,
     join_episode_saves,
     submit_episode_save,
 )
@@ -31,16 +30,15 @@ __all__ = [
     "DistillerSig",
     "Episode",
     "Hippocampus",
-    "Item",
-    "ItemTag",
     "MemoryBudget",
     "Mutation",
+    "Observation",
+    "ObservationTag",
     "Operation",
     "OpType",
     "SectionName",
     "Topic",
     "compute_common_ancestor_topic_id",
-    "find_latest_episode",
     "join_episode_saves",
     "make_topic_id",
     "submit_episode_save",

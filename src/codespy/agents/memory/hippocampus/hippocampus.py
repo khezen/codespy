@@ -1,3 +1,5 @@
+"""Hippocampus memory module for context-aware agents."""
+
 from __future__ import annotations
 
 import asyncio
@@ -5,6 +7,7 @@ import copy
 import logging
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import dspy
 
@@ -18,18 +21,19 @@ from codespy.agents.memory.hippocampus.budget import (
 )
 from codespy.agents.memory.hippocampus.context_memory import (
     ContextMemory,
-    ItemTag,
+    ObservationTag,
     Mutation,
     Operation,
     OpType,
     Topic,
+    _PREFIX_TO_SECTION,
 )
 from codespy.agents.memory.hippocampus.episode import Episode
-from codespy.agents.memory.hippocampus.episode import load_episode as _load_episode
-from codespy.agents.memory.hippocampus.episode import save_episode as _save_episode
-from codespy.agents.memory.hippocampus.modules.cartographer import Cartographer
 from codespy.agents.memory.hippocampus.modules.distiller import Distiller
-from codespy.tools.storage.base import Storage
+from codespy.agents.memory.hippocampus.modules.cartographer import Cartographer
+
+if TYPE_CHECKING:
+    from codespy.agents.memory.postgres import EpisodeStore
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +170,7 @@ class Hippocampus(dspy.Module):
                 provided, the agent starts with this memory instead of an empty one,
                 inheriting accumulated understanding from upstream pipeline stages.
             topics: Optional list of Topic objects to register in the context memory.
-                Topic IDs are auto-assigned to all new items created during this episode.
+                Topic IDs are auto-assigned to all new observations created during this episode.
                 Used for scope-aware memory organization.
         """
         super().__init__()
@@ -236,9 +240,6 @@ class Hippocampus(dspy.Module):
         # above). Falls back to a random UUID for standalone usage where no
         # orchestrator provides one.
         self._run_id: str = run_id or uuid.uuid4().hex
-        # Counter for episode filenames to avoid collisions when the same
-        # signature is invoked multiple times on the same scope within one run.
-        self._episode_index: int = 0
         # The most recent consolidated Episode; set by end_episode(), None until then.
         self.episode: Episode | None = None
         # Accumulated mutations across _distill() calls within the current episode.
@@ -319,6 +320,7 @@ class Hippocampus(dspy.Module):
                 empty dict when omitted.
         """
         self.episode = Episode(
+            id=uuid.uuid4(),
             task=self._task_name,
             module=self._module_name,
             question=self._episode_question or "",
@@ -334,32 +336,9 @@ class Hippocampus(dspy.Module):
         self._mutations.clear()
         self._distill_step = 0
 
-    def episode_file_path(self, dir: str, index: int = 0) -> str:
-        """Build the full episode file path from a directory.
-
-        Path format: ``orgs/<owner>/episodic/.codespy/<owner>.<repo>``
-        ``[.<subroot>].<run_id>-<task>-<index>.json``  # noqa: E501
-
-        Args:
-            dir: Directory identifying where this episode belongs (e.g. a
-                scope's ``/{host}/{owner}/{repo}/{subroot}/`` path or
-                ``/{owner}/{repo}/{subroot}/`` without host).
-            index: Episode index for this scope/task combination.
-        """
-        segments = [s for s in dir.strip("/").split("/") if s]
-        # Strip host segment (contains a dot, e.g. github.com/gitlab.com)
-        if segments and "." in segments[0]:
-            segments = segments[1:]
-        owner = segments[0] if segments else "unknown"
-        slug = ".".join(segments)
-        return (
-            f"orgs/{owner}/episodic/.codespy/{slug}.{self._run_id}-{self._task_name}-{index}.json"
-        )
-
     def end_episode(
         self,
-        store: Storage | None = None,
-        dir: str | None = None,
+        store: EpisodeStore | None = None,
         artifacts: dict[str, str] | None = None,
     ) -> None:
         """Consolidate the buffered trajectories into the memory and record an Episode snapshot.
@@ -374,16 +353,10 @@ class Hippocampus(dspy.Module):
         containing the task/module identity and a deep-copy snapshot of the
         updated context memory.
 
-        If both ``store`` and ``dir`` are provided the episode is persisted
-        via ``save_episode()`` after consolidation, at
-        ``orgs/<owner>/episodic/.codespy/<slug>.<run_id>-<task>-<index>.json``. ``store`` may be a
-        ``FileSystem`` or an ``S3Client`` instance.
+        If ``store`` is provided, the episode is persisted via ``store.save_episode()``.
 
         Args:
-            store: Optional ``Storage`` backend to persist the episode after
-                consolidation (``FileSystem`` or ``S3Client``).
-            dir: Directory identifying where this episode belongs (e.g. a
-                scope's path). Required when ``store`` is set.
+            store: Optional ``EpisodeStore`` to persist the episode after consolidation.
             artifacts: Named output artifacts to attach to the recorded
                 episode (e.g. ``{"review": "<markdown>"}``). Agent-agnostic —
                 any caller can attach whatever markdown/text output it
@@ -397,14 +370,12 @@ class Hippocampus(dspy.Module):
         if not has_content:
             return
         self._finalize_episode(artifacts)
-        if store is not None and dir is not None:
-            _save_episode(store, self.episode_file_path(dir, self._episode_index), self.episode)
-            self._episode_index += 1
+        if store is not None:
+            store.save_episode(self.episode)
 
     async def aend_episode(
         self,
-        store: Storage | None = None,
-        dir: str | None = None,
+        store: EpisodeStore | None = None,
         artifacts: dict[str, str] | None = None,
     ) -> None:
         """Async counterpart of :meth:`end_episode`.
@@ -414,10 +385,7 @@ class Hippocampus(dspy.Module):
         caller's event loop.
 
         Args:
-            store: Optional ``Storage`` backend to persist the episode after
-                consolidation (``FileSystem`` or ``S3Client``).
-            dir: Directory identifying where this episode belongs (e.g. a
-                scope's path). Required when ``store`` is set.
+            store: Optional ``EpisodeStore`` to persist the episode after consolidation.
             artifacts: Named output artifacts to attach to the recorded
                 episode (e.g. ``{"review": "<markdown>"}``).
         """
@@ -426,60 +394,14 @@ class Hippocampus(dspy.Module):
         if not has_content:
             return
         await asyncio.to_thread(self._finalize_episode, artifacts)
-        if store is not None and dir is not None:
-            path = self.episode_file_path(dir, self._episode_index)
-            await asyncio.to_thread(_save_episode, store, path, self.episode)
-            self._episode_index += 1
-
-    def save_episode(self, store: Storage, path: str) -> None:
-        """Persist the current episode to ``path`` via ``store``.
-
-        Args:
-            store: Storage backend (``FileSystem`` or ``S3Client``).
-            path: Destination path within the store.
-
-        Raises:
-            ValueError: If no episode has been consolidated yet (call
-                ``end_episode()`` first).
-            OSError: If the write fails.
-        """
-        if self.episode is None:
-            raise ValueError("No episode to save — call end_episode() to consolidate first.")
-        _save_episode(store, path, self.episode)
-
-    def load_episode(self, store: Storage, path: str) -> None:
-        """Replace the current state with an episode loaded from ``path`` via ``store``.
-
-        Restores both ``self.episode`` and the live context memory
-        (``self.cmem = episode.context_memory``) so the agent resumes from the
-        persisted state. Also resets ``scores`` and clears the trajectory
-        buffer since they belong to the previous state.
-
-        Args:
-            store: Storage backend (``FileSystem`` or ``S3Client``).
-            path: Source path within the store.
-
-        Raises:
-            FileNotFoundError: If the path does not exist.
-            OSError: If reading or parsing fails.
-        """
-        ep = _load_episode(store, path)
-        self.episode = ep
-        self.cmem = ep.context_memory
-        self.scores = {}
-        self._episode_trajectories.clear()
-        self._episode_question = None
-        self._reflected_count = 0
-        self._episode_index = 0
-        self._mutations.clear()
-        self._distill_step = 0
+        if store is not None:
+            await asyncio.to_thread(store.save_episode, self.episode)
 
     def reset_episode(self) -> None:
         """Discard the buffered trajectories without reflecting."""
         self._episode_trajectories.clear()
         self._episode_question = None
         self._reflected_count = 0
-        self._episode_index = 0
         self._mutations.clear()
         self._distill_step = 0
 
@@ -498,11 +420,11 @@ class Hippocampus(dspy.Module):
         """Build Mutation records from operations and the new IDs generated by apply().
 
         For DELETE/REPLACE, looks up pre-mutation state (section and previous_content).
-        For ADD, back-fills item_ids from new_ids in order.
+        For ADD, back-fills observation_ids from new_ids in order.
 
         Args:
             ops: Cartographer operations (ADD/DELETE/REPLACE).
-            new_ids: IDs of items created by apply() in the same order as ADD ops.
+            new_ids: IDs of observations created by apply() in the same order as ADD ops.
             pre_memory: Context memory state before apply() — used to look up
                 previous content for DELETE/REPLACE.
 
@@ -512,41 +434,59 @@ class Hippocampus(dspy.Module):
         mutations: list[Mutation] = []
         add_mutations: list[Mutation] = []
         for op in ops:
-            if op.type == OpType.DELETE and op.item_id:
-                found = pre_memory.find_item(op.item_id)
+            if op.type == OpType.DELETE and op.observation_id:
+                found = pre_memory.find_observation(op.observation_id)
                 if found:
-                    section, old_item = found
+                    section, old_obs = found
                     mutations.append(
                         Mutation(
                             step=self._distill_step,
                             type=OpType.DELETE,
-                            item_id=op.item_id,
+                            observation_id=op.observation_id,
                             section=section,
                             content=None,
-                            previous_content=old_item.content,
-                            topic_ids=old_item.topic_ids,
+                            previous_content=old_obs.content,
+                            topic_ids=old_obs.topic_ids,
                         )
                     )
-            elif op.type == OpType.REPLACE and op.item_id and op.content:
-                found = pre_memory.find_item(op.item_id)
+            elif op.type == OpType.REPLACE and op.observation_id and op.content:
+                found = pre_memory.find_observation(op.observation_id)
                 if found:
-                    section, old_item = found
+                    section, old_obs = found
                     mutations.append(
                         Mutation(
                             step=self._distill_step,
                             type=OpType.REPLACE,
-                            item_id=op.item_id,
+                            observation_id=op.observation_id,
                             section=section,
                             content=op.content,
-                            previous_content=old_item.content,
-                            topic_ids=old_item.topic_ids,
+                            previous_content=old_obs.content,
+                            topic_ids=old_obs.topic_ids,
                         )
                     )
+                else:
+                    # Fallback REPLACE→ADD: mirrors apply()'s fallback
+                    # so add_mutations stays aligned with new_ids
+                    prefix = op.observation_id.split("-", 1)[0] if "-" in op.observation_id else ""
+                    section_name = _PREFIX_TO_SECTION.get(prefix)
+                    if section_name:
+                        mut = Mutation(
+                            step=self._distill_step,
+                            type=OpType.ADD,
+                            observation_id="",  # back-filled from new_ids
+                            section=section_name,
+                            content=op.content,
+                            previous_content=None,
+                            topic_ids=list(self._topic_ids),
+                        )
+                        mutations.append(mut)
+                        add_mutations.append(mut)
+                    # else: topic-ID — apply() already skipped, nothing to record
             elif op.type == OpType.ADD and op.section and op.content:
                 mut = Mutation(
                     step=self._distill_step,
                     type=OpType.ADD,
-                    item_id="",
+                    observation_id="",
                     section=op.section,
                     content=op.content,
                     previous_content=None,
@@ -554,20 +494,20 @@ class Hippocampus(dspy.Module):
                 )
                 mutations.append(mut)
                 add_mutations.append(mut)
-        # Back-fill ADD mutation item_ids from new_ids
+        # Back-fill ADD mutation observation_ids from new_ids
         for mut, new_id in zip(add_mutations, new_ids, strict=True):
-            mut.item_id = new_id
+            mut.observation_id = new_id
         return mutations
 
-    def _update_item_scores(self, tags: dict[str, ItemTag]) -> None:
-        """Adjust item scores based on Distiller-assigned tags.
+    def _update_observation_scores(self, tags: dict[str, ObservationTag]) -> None:
+        """Adjust observation scores based on Distiller-assigned tags.
 
         HELPFUL: +1, HARMFUL/STALE: -1, NEUTRAL: ensure entry exists (default 0).
         """
         for bid, tag in tags.items():
-            if tag == ItemTag.HELPFUL:
+            if tag == ObservationTag.HELPFUL:
                 self.scores[bid] = self.scores.get(bid, 0) + 1
-            elif tag in (ItemTag.HARMFUL, ItemTag.STALE):
+            elif tag in (ObservationTag.HARMFUL, ObservationTag.STALE):
                 self.scores[bid] = self.scores.get(bid, 0) - 1
             else:
                 self.scores.setdefault(bid, 0)
@@ -581,12 +521,12 @@ class Hippocampus(dspy.Module):
         )
 
         known = self.cmem.ids()
-        tags = {k: v for k, v in (distilled.item_tags or {}).items() if k in known}
-        self._update_item_scores(tags)
+        tags = {k: v for k, v in (distilled.observation_tags or {}).items() if k in known}
+        self._update_observation_scores(tags)
 
         edits = self.cartograph(
             diagnosis=distilled.diagnosis,
-            item_tags=tags,
+            observation_tags=tags,
             cache_candidates=list(distilled.cache_candidates or []),
             current_map=self.cmem,
             question=question,

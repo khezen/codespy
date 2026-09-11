@@ -7,7 +7,7 @@ from pydantic import TypeAdapter
 
 from codespy.agents.memory.hippocampus import (
     ContextMemory,
-    Item,
+    Observation,
     Operation,
     OpType,
     Topic,
@@ -33,7 +33,7 @@ class TestOperationAliases:
         assert op.type == OpType.ADD
 
     def test_keyword_construction_unchanged(self):
-        op = Operation(type=OpType.DELETE, item_id="cu-abc")
+        op = Operation(type=OpType.DELETE, observation_id="cu-abc")
         assert op.type == OpType.DELETE
 
     def test_type_adapter_list_mixed_keys(self):
@@ -42,8 +42,8 @@ class TestOperationAliases:
         ops = ta.validate_python(
             [
                 {"op": "ADD", "section": "domain_constants", "content": "test"},
-                {"type": "DELETE", "item_id": "cu-123"},
-                {"op": "REPLACE", "item_id": "cu-456", "content": "new"},
+                {"type": "DELETE", "observation_id": "cu-123"},
+                {"op": "REPLACE", "observation_id": "cu-456", "content": "new"},
             ]
         )
         assert [o.type for o in ops] == [OpType.ADD, OpType.DELETE, OpType.REPLACE]
@@ -228,123 +228,109 @@ class TestContextMemoryApply:
     """Tests for ContextMemory.apply() method."""
 
     def test_add_operation_with_topic_ids(self):
-        """ADD operation assigns topic_ids to new items."""
-        memory = ContextMemory(topics=[Topic(id="t1", description="Test")])
-        ops = [Operation(type=OpType.ADD, section="context_understanding", content="New item")]
+        """ADD operation assigns topic_ids to new observations."""
+        memory = ContextMemory(topics=[Topic(id="t1", type="project_scope", description="Test")])
+        ops = [Operation(type=OpType.ADD, section="context_understanding", content="New observation")]
         new_memory, new_ids = memory.apply(ops, topic_ids=["t1"])
 
         assert len(new_ids) == 1
-        item = new_memory.context_understanding[0]
-        assert item.topic_ids == ["t1"]
+        obs = new_memory.context_understanding[0]
+        assert obs.topic_ids == ["t1"]
 
     def test_replace_preserves_existing_topic_ids(self):
         """REPLACE operation preserves existing topic_ids."""
         memory = ContextMemory(
             context_understanding=[
-                Item(id="cu-abc", content="Original", topic_ids=["t1"]),
+                Observation(id="cu-abc", content="Original", topic_ids=["t1"]),
             ],
         )
-        ops = [Operation(type=OpType.REPLACE, item_id="cu-abc", content="Replaced")]
+        ops = [Operation(type=OpType.REPLACE, observation_id="cu-abc", content="Replaced")]
         new_memory, _ = memory.apply(ops, topic_ids=["t2"])
 
-        item = new_memory.context_understanding[0]
-        assert item.content == "Replaced"
-        assert item.topic_ids == ["t1"]  # Preserved, not overwritten
+        obs = new_memory.context_understanding[0]
+        assert obs.content == "Replaced"
+        assert obs.topic_ids == ["t1"]  # Preserved, not overwritten
 
     def test_add_without_topic_ids(self):
-        """ADD without topic_ids creates item with empty topic_ids."""
+        """ADD without topic_ids creates observation with empty topic_ids."""
         memory = ContextMemory()
-        ops = [Operation(type=OpType.ADD, section="context_understanding", content="New item")]
+        ops = [Operation(type=OpType.ADD, section="context_understanding", content="New observation")]
         new_memory, _ = memory.apply(ops)
 
-        item = new_memory.context_understanding[0]
-        assert item.topic_ids == []
+        obs = new_memory.context_understanding[0]
+        assert obs.topic_ids == []
 
-    def test_delete_removes_item(self):
-        """DELETE operation removes item."""
+    def test_delete_removes_observation(self):
+        """DELETE operation removes observation."""
         memory = ContextMemory(
             context_understanding=[
-                Item(id="cu-abc", content="To delete", topic_ids=["t1"]),
+                Observation(id="cu-abc", content="To delete", topic_ids=["t1"]),
             ],
         )
-        ops = [Operation(type=OpType.DELETE, item_id="cu-abc")]
+        ops = [Operation(type=OpType.DELETE, observation_id="cu-abc")]
         new_memory, _ = memory.apply(ops)
 
         assert len(new_memory.context_understanding) == 0
 
-    def test_replace_nonexistent_logs_warning(self, caplog):
-        """REPLACE on non-existent item logs warning and leaves memory unchanged."""
+    def test_replace_nonexistent_valid_prefix_falls_back_to_add(self, caplog):
+        """REPLACE on non-existent observation with valid prefix falls back to ADD."""
         import logging
 
         memory = ContextMemory(
             context_understanding=[
-                Item(id="cu-abc", content="Existing", topic_ids=["t1"]),
+                Observation(id="cu-abc", content="Existing", topic_ids=["t1"]),
             ],
         )
-        ops = [Operation(type=OpType.REPLACE, item_id="cu-GONE", content="New content")]
+        ops = [Operation(type=OpType.REPLACE, observation_id="cu-GONE", content="New content")]
+        with caplog.at_level(
+            logging.INFO,
+            logger="codespy.agents.memory.hippocampus.context_memory",
+        ):
+            new_memory, new_ids = memory.apply(ops, topic_ids=["t2"])
+
+        assert len(new_ids) == 1  # fallback ADD created a new observation
+        assert new_memory.context_understanding[0].content == "Existing"  # original untouched
+        assert len(new_memory.context_understanding) == 2  # original + fallback
+        fallback_obs = new_memory.context_understanding[1]
+        assert fallback_obs.content == "New content"
+        assert fallback_obs.topic_ids == ["t2"]  # gets current topic_ids
+        assert fallback_obs.id.startswith("cu-")  # correct prefix
+        assert "falling back to ADD" in caplog.text
+
+    def test_replace_topic_id_skipped(self, caplog):
+        """REPLACE with topic-ID-shaped observation_id (no prefix) logs warning and skips."""
+        import logging
+
+        memory = ContextMemory(
+            context_understanding=[
+                Observation(id="cu-abc", content="Existing", topic_ids=["t1"]),
+            ],
+        )
+        ops = [Operation(type=OpType.REPLACE, observation_id="owner/repo/package", content="New")]
         with caplog.at_level(
             logging.WARNING,
             logger="codespy.agents.memory.hippocampus.context_memory",
         ):
             new_memory, new_ids = memory.apply(ops, topic_ids=["t2"])
 
+        assert new_ids == []  # no fallback ADD
+        assert len(new_memory.context_understanding) == 1  # unchanged
+        assert "no valid prefix" in caplog.text
+
+    def test_replace_url_topic_id_skipped(self, caplog):
+        """REPLACE with PR URL as observation_id logs warning and skips."""
+        import logging
+
+        memory = ContextMemory()
+        ops = [Operation(type=OpType.REPLACE, observation_id="https://github.com/o/r/pull/1", content="X")]
+        with caplog.at_level(
+            logging.WARNING,
+            logger="codespy.agents.memory.hippocampus.context_memory",
+        ):
+            new_memory, new_ids = memory.apply(ops)
+
         assert new_ids == []
-        assert new_memory.context_understanding[0].content == "Existing"
-        assert "cu-GONE" in caplog.text
-        assert "not found" in caplog.text
-
-
-class TestContextMemoryMerge:
-    """Tests for ContextMemory.merge() method."""
-
-    def test_merge_deduplicates_topics(self):
-        """Merge deduplicates topics by ID."""
-        mem1 = ContextMemory(topics=[Topic(id="t1", description="First")])
-        mem2 = ContextMemory(topics=[Topic(id="t1", description="Second")])
-        merged = ContextMemory.merge(mem1, mem2)
-
-        assert len(merged.topics) == 1
-
-    def test_merge_later_description_wins(self):
-        """Later non-empty description wins in topic merge."""
-        mem1 = ContextMemory(topics=[Topic(id="t1", description="")])
-        mem2 = ContextMemory(topics=[Topic(id="t1", description="Better description")])
-        merged = ContextMemory.merge(mem1, mem2)
-
-        assert merged.topics[0].description == "Better description"
-
-    def test_merge_items_by_id(self):
-        """Merge replaces items with same ID (later wins)."""
-        mem1 = ContextMemory(
-            context_understanding=[Item(id="cu-abc", content="First", topic_ids=["t1"])],
-        )
-        mem2 = ContextMemory(
-            context_understanding=[Item(id="cu-abc", content="Second", topic_ids=["t2"])],
-        )
-        merged = ContextMemory.merge(mem1, mem2)
-
-        assert len(merged.context_understanding) == 1
-        assert merged.context_understanding[0].content == "Second"
-
-    def test_merge_multiple_memories(self):
-        """Merge can handle multiple memories."""
-        mem1 = ContextMemory(
-            topics=[Topic(id="t1", description="T1")],
-            context_understanding=[Item(id="cu-1", content="Item 1", topic_ids=["t1"])],
-        )
-        mem2 = ContextMemory(
-            topics=[Topic(id="t2", description="T2")],
-            context_understanding=[Item(id="cu-2", content="Item 2", topic_ids=["t2"])],
-        )
-        mem3 = ContextMemory(
-            topics=[Topic(id="t3", description="T3")],
-            domain_constants=[Item(id="dc-1", content="Constant", topic_ids=["t3"])],
-        )
-        merged = ContextMemory.merge(mem1, mem2, mem3)
-
-        assert len(merged.topics) == 3
-        assert len(merged.context_understanding) == 2
-        assert len(merged.domain_constants) == 1
+        assert "no valid prefix" in caplog.text
 
 
 class TestScopeResultTopicHelper:
