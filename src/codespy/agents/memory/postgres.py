@@ -546,26 +546,26 @@ class EpisodeStore:
                 conn.row_factory = dict_row
                 with conn.cursor() as cur:
                     # 1. Find the latest episode for this task + topics
-                    topic_filter = ""
                     params: list = [self.bank_id, task]
 
                     if topic_ids:
-                        topic_filter = "AND et.topic_id = ANY(%s)"
+                        filter_clause = sql.SQL("AND et.topic_id = ANY(%s)")
                         params.append(topic_ids)
                     elif topic_prefix:
-                        topic_filter = "AND et.topic_id LIKE %s"
+                        filter_clause = sql.SQL("AND et.topic_id LIKE %s")
                         params.append(f"{topic_prefix}%")
+                    else:
+                        filter_clause = sql.SQL("")
 
-                    cur.execute(
-                        f"""
+                    query = sql.SQL("""
                         SELECT e.id FROM episodes e
                         JOIN episode_topics et ON et.bank_id = e.bank_id AND et.episode_id = e.id
-                        WHERE e.bank_id = %s AND e.task = %s {topic_filter}
+                        WHERE e.bank_id = %s AND e.task = %s {}
                         ORDER BY e.timestamp DESC
                         LIMIT 1
-                        """,
-                        params,
-                    )
+                    """).format(filter_clause)
+
+                    cur.execute(query, params)
                     row = cur.fetchone()
                     if not row:
                         # Diagnostic: how many episodes exist for this bank+task (ignoring topic filter)?
