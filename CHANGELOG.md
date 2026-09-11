@@ -2,6 +2,54 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-11
+
+### Changed
+- **BREAKING**: Memory storage backend migrated from filesystem/S3 to PostgreSQL
+  - `MemoryConfig` fields removed: `backend`, `root`, `s3_bucket`, `s3_region`, `s3_endpoint_url`
+  - New `PostgresConfig` sub-model (`memory.postgres.*`): `host`, `port`, `user`, `password`, `database`, `schema`
+  - New `Pg0Config` sub-model (`memory.pg0.*`): `name`, `port`, `data_dir` (local dev via pg0-embedded)
+  - New `bank_id` field on `MemoryConfig` scoping all memory data
+  - Env vars removed: `MEMORY_BACKEND`, `MEMORY_ROOT`, `MEMORY_S3_BUCKET`, `MEMORY_S3_REGION`, `MEMORY_S3_ENDPOINT_URL`
+  - Env vars added: `MEMORY_POSTGRES_HOST`, `MEMORY_POSTGRES_PORT`, `MEMORY_POSTGRES_USER`, `MEMORY_POSTGRES_PASSWORD`, `MEMORY_POSTGRES_DATABASE`, `MEMORY_POSTGRES_SCHEMA`, `MEMORY_PG0_NAME`, `MEMORY_PG0_PORT`, `MEMORY_PG0_DATA_DIR`, `MEMORY_BANK_ID`
+- **BREAKING**: `Item` renamed to `Observation` throughout context memory
+  - `ItemTag` → `ObservationTag`
+  - `Operation.item_id` → `Operation.observation_id`
+  - `Mutation.item_id` → `Mutation.observation_id`
+  - `ContextMemory.all_items()` → `ContextMemory.all_observations()`
+  - `ContextMemory.find_item()` → `ContextMemory.find_observation()`
+  - `Hippocampus._update_item_scores()` → `Hippocampus._update_observation_scores()`
+- **BREAKING**: `Topic` model gains required `type` field (e.g. `"project_scope"`, `"pull_request"`)
+- **BREAKING**: `get_memory_store()` / `reset_memory_store()` renamed to `get_episode_store()` / `reset_episode_store()`
+- **BREAKING**: `Hippocampus.end_episode()` signature: `store` type `Storage` → `EpisodeStore`; `dir` parameter removed
+- **BREAKING**: `Hippocampus.save_episode()`, `Hippocampus.load_episode()` removed; use `EpisodeStore.save_episode()` directly
+- **BREAKING**: `find_latest_episode()`, `save_episode()`, `load_episode()` removed from `episode.py`; replaced by `EpisodeStore.load_context()`
+- **BREAKING**: `ContextMemory.merge()`, `.to_json()`, `.from_json()` removed; `EpisodeStore.load_context()` returns a merged view via SQL
+- **BREAKING**: GitHub Action inputs replaced: `memory-backend`, `memory-root`, `memory-s3-*` → `memory-postgres-*`, `memory-bank-id`
+- All review modules (code_reviewer, doc_reviewer, supply_chain_auditor, auditor, summarizer, scope_resolver) now use `EpisodeStore.load_context()` with topic-based queries instead of `find_latest_episode()` with filesystem path patterns
+- `PRContext.repo_full_name` property added, stripping host prefix from `repo_slug`
+- REPLACE on non-existent observation with valid section prefix now falls back to ADD instead of silently skipping
+- REPLACE with topic-ID-shaped `observation_id` (no section prefix) logs warning and skips
+- `Hippocampus._record_mutations()` handles REPLACE-to-ADD fallback to keep mutations aligned with `new_ids`
+- `Episode.id` field added (caller-provided UUID); `Episode.timestamp` no longer auto-generated
+- `reset_episode_store()` calls `store.close()` before clearing the cache
+- SQL in `postgres.py` refactored from f-strings to `psycopg.sql.SQL().format()`
+
+### Added
+- `src/codespy/agents/memory/postgres.py` — `EpisodeStore`: relational episode storage with schema (banks, episodes, topics, observations, observation_topics, episode_topics, mutations)
+- `src/codespy/agents/memory/pg0_manager.py` — pg0-embedded lifecycle (`get_pg0_uri()`, `stop_pg0()`) for zero-config local dev
+- `psycopg` dependency (>=3.1, extras: binary + pool)
+- `pg0-embedded` dependency (>=0.15)
+- `libgssapi-krb5-2` in Dockerfile for Kerberos/GSSAPI PostgreSQL auth
+- `_PREFIX_TO_SECTION` reverse mapping in `context_memory.py`
+
+### Removed
+- `ContextMemory.merge()`, `.to_json()`, `.from_json()`
+- `find_latest_episode()`, `save_episode()`, `load_episode()` from `episode.py`
+- `Hippocampus.save_episode()`, `.load_episode()`, `.episode_file_path()`, `_episode_index`
+- `MemoryBackend` type alias
+- Storage dependency (`codespy.tools.storage.base.Storage`, `codespy.tools.storage.models`) in hippocampus/episode modules
+
 ## [1.0.16] - 2026-09-01
 
 ### Changed
