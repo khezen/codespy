@@ -177,7 +177,7 @@ Brief overview:
 | PostgreSQL user | `MEMORY_POSTGRES_USER` | `postgres` | External PostgreSQL user |
 | PostgreSQL password | `MEMORY_POSTGRES_PASSWORD` | — | External PostgreSQL password |
 | PostgreSQL database | `MEMORY_POSTGRES_DATABASE` | `codespy` | External PostgreSQL database |
-| PostgreSQL schema | `MEMORY_POSTGRES_SCHEMA` | — | PostgreSQL search_path (optional) |
+| PostgreSQL schema | `MEMORY_POSTGRES_SCHEMA` | `episodic` | PostgreSQL schema / search_path per memory type |
 | Bank ID | `MEMORY_BANK_ID` | `codespy` | Scopes all memory data |
 | pg0 name | `MEMORY_PG0_NAME` | `codespy` | pg0-embedded database name (local dev) |
 | pg0 port | `MEMORY_PG0_PORT` | auto | pg0-embedded port (local dev) |

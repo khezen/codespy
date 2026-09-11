@@ -209,7 +209,7 @@ Observation capacity ≈ context_memory_tokens / observation_tokens (16384/512 =
 | `MEMORY_POSTGRES_USER` | `memory.postgres.user` | `postgres` | External PostgreSQL user |
 | `MEMORY_POSTGRES_PASSWORD` | `memory.postgres.password` | — | External PostgreSQL password |
 | `MEMORY_POSTGRES_DATABASE` | `memory.postgres.database` | `codespy` | External PostgreSQL database |
-| `MEMORY_POSTGRES_SCHEMA` | `memory.postgres.schema` | — | PostgreSQL search_path |
+| `MEMORY_POSTGRES_SCHEMA` | `memory.postgres.schema` | `episodic` | PostgreSQL schema (search_path per memory type) |
 | `MEMORY_PG0_NAME` | `memory.pg0.name` | `codespy` | pg0-embedded database name |
 | `MEMORY_PG0_PORT` | `memory.pg0.port` | auto | pg0-embedded port |
 | `MEMORY_PG0_DATA_DIR` | `memory.pg0.data_dir` | — | Custom data directory for pg0-embedded |

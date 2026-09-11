@@ -86,7 +86,7 @@ memory:
     user: null                            # MEMORY_POSTGRES_USER (default: postgres)
     password: null                        # MEMORY_POSTGRES_PASSWORD
     database: codespy                     # MEMORY_POSTGRES_DATABASE
-    schema: null                          # MEMORY_POSTGRES_SCHEMA (search_path; null = server default)
+    schema: episodic                      # MEMORY_POSTGRES_SCHEMA (search_path per memory type; null = public)
 
   # pg0-embedded settings (local dev only, ignored when postgres.host is set)
   pg0:

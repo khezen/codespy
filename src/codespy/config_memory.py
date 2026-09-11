@@ -63,19 +63,22 @@ class PostgresConfig(BaseModel):
     user: str | None = None      # MEMORY_POSTGRES_USER
     password: str | None = None  # MEMORY_POSTGRES_PASSWORD
     database: str = "codespy"    # MEMORY_POSTGRES_DATABASE
-    schema: str | None = None    # MEMORY_POSTGRES_SCHEMA (search_path)
+    schema: str | None = "episodic"  # MEMORY_POSTGRES_SCHEMA (search_path per memory type; None = public)
 
     def build_uri(self) -> str | None:
-        """Build a psycopg connection URI. Returns None when host is unset."""
+        """Build a psycopg connection URI. Returns None when host is unset.
+
+        Schema is NOT included in the URI. Each memory store (EpisodeStore,
+        future SemanticStore) handles CREATE SCHEMA and SET search_path
+        itself, so multiple stores can share the same base URI while
+        targeting different schemas.
+        """
         if not self.host:
             return None
         from urllib.parse import quote_plus
         user = quote_plus(self.user) if self.user else "postgres"
         cred = f"{user}:{quote_plus(self.password)}" if self.password else user
-        uri = f"postgresql://{cred}@{self.host}:{self.port}/{self.database}"
-        if self.schema:
-            uri += f"?options=-csearch_path%3D{quote_plus(self.schema)}"
-        return uri
+        return f"postgresql://{cred}@{self.host}:{self.port}/{self.database}"
 
 
 class Pg0Config(BaseModel):
@@ -319,14 +322,15 @@ def get_episode_store(settings: Settings) -> EpisodeStore | None:
 
     mem = settings.memory
     bank_id = mem.bank_id or _generate_bank_id()
+    schema = mem.postgres.schema  # "episodic" by default
 
     # Try external PostgreSQL first
     uri = mem.postgres.build_uri()
     if uri:
         from codespy.agents.memory.postgres import EpisodeStore
 
-        _store = EpisodeStore(uri, bank_id)
-        logger.info(f"EpisodeStore connected to external PostgreSQL (bank={bank_id})")
+        _store = EpisodeStore(uri, bank_id, schema=schema)
+        logger.info(f"EpisodeStore connected to external PostgreSQL (bank={bank_id}, schema={schema})")
     else:
         # Try pg0-embedded for local dev
         try:
@@ -335,8 +339,8 @@ def get_episode_store(settings: Settings) -> EpisodeStore | None:
             uri = get_pg0_uri(name=mem.pg0.name, port=mem.pg0.port, data_dir=mem.pg0.data_dir)
             from codespy.agents.memory.postgres import EpisodeStore
 
-            _store = EpisodeStore(uri, bank_id)
-            logger.info(f"EpisodeStore connected to pg0-embedded PostgreSQL (bank={bank_id})")
+            _store = EpisodeStore(uri, bank_id, schema=schema)
+            logger.info(f"EpisodeStore connected to pg0-embedded PostgreSQL (bank={bank_id}, schema={schema})")
         except ImportError:
             logger.warning(
                 "Memory is enabled but no PostgreSQL is configured and pg0-embedded "

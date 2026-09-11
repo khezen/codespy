@@ -164,14 +164,16 @@ class TestPostgresConfigBuildUri:
         assert "p%40ss%3Aw%2Frd" in result
         assert result == "postgresql://u:p%40ss%3Aw%2Frd@db.example.com:5432/codespy"
 
-    def test_build_uri_with_schema(self):
-        """Should append search_path option when schema is set."""
+    def test_build_uri_does_not_include_schema(self):
+        """Schema is handled by each store, not in the URI."""
         config = PostgresConfig(
             host="db.example.com",
             schema="my_schema"
         )
         result = config.build_uri()
-        assert result == "postgresql://postgres@db.example.com:5432/codespy?options=-csearch_path%3Dmy_schema"
+        assert "search_path" not in result
+        assert "options" not in result
+        assert result == "postgresql://postgres@db.example.com:5432/codespy"
 
     def test_build_uri_custom_port_and_database(self):
         """Should use custom port and database."""
@@ -202,6 +204,7 @@ class TestGetEpisodeStore:
         settings = MagicMock()
         settings.memory.postgres = MagicMock()
         settings.memory.postgres.build_uri.return_value = None
+        settings.memory.postgres.schema = "episodic"
         settings.memory.pg0 = MagicMock()
         settings.memory.pg0.name = "codespy"
         settings.memory.pg0.port = None
@@ -224,6 +227,7 @@ class TestGetEpisodeStore:
         settings = MagicMock()
         settings.memory.postgres = MagicMock()
         settings.memory.postgres.build_uri.return_value = "postgresql://u:p@host:5432/codespy"
+        settings.memory.postgres.schema = "episodic"
         settings.memory.bank_id = "test-bank"
 
         mock_store = MagicMock()
@@ -237,7 +241,7 @@ class TestGetEpisodeStore:
                     result = get_episode_store(settings)
 
         mock_episode_store.assert_called_once_with(
-            "postgresql://u:p@host:5432/codespy", "test-bank"
+            "postgresql://u:p@host:5432/codespy", "test-bank", schema="episodic"
         )
         assert result == mock_store
 

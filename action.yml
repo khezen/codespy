@@ -332,8 +332,9 @@ inputs:
     required: false
     default: 'codespy'
   memory-postgres-schema:
-    description: 'PostgreSQL schema / search_path (optional)'
+    description: 'PostgreSQL schema / search_path (default: episodic)'
     required: false
+    default: 'episodic'
 
   memory-bank-id:
     description: 'Bank ID scoping all memory data (e.g., project name or agent name). Defaults to "codespy".'

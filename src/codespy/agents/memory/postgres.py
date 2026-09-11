@@ -34,18 +34,30 @@ class EpisodeStore:
         self,
         conninfo: str,
         bank_id: str,
+        schema: str | None = None,
         min_size: int = 1,
         max_size: int = 4,
     ):
         """Create store with a psycopg ConnectionPool, scoped to a bank.
 
         Args:
-            conninfo: PostgreSQL connection string (e.g., postgresql://localhost:5432/dbname)
-            bank_id: Identifier for the bank (nickname, username, email, agent name)
+            conninfo: PostgreSQL connection string
+            bank_id: Identifier for the bank
+            schema: PostgreSQL schema name. When set, CREATE SCHEMA IF NOT
+                    EXISTS is run and search_path is set for every pooled
+                    connection. Each memory type uses its own schema
+                    (e.g. "episodic", "semantic"). None = server default (public).
             min_size: Minimum connections in pool
             max_size: Maximum connections in pool
         """
         self.bank_id = bank_id
+        self._schema = schema
+        # Inject search_path into the connection string so every pooled
+        # connection targets the right schema automatically.
+        if schema:
+            from urllib.parse import quote_plus
+            sep = "&" if "?" in conninfo else "?"
+            conninfo = f"{conninfo}{sep}options=-csearch_path%3D{quote_plus(schema)}%2Cpublic"
         self._pool = ConnectionPool(
             conninfo=conninfo,
             min_size=min_size,
@@ -62,8 +74,17 @@ class EpisodeStore:
         """Auto-create tables if not present (idempotent)."""
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                # Extensions
-                cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+                # Create the target schema if it doesn't exist yet
+                if self._schema:
+                    cur.execute(
+                        sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
+                            sql.Identifier(self._schema)
+                        )
+                    )
+
+                # Extensions — explicitly in public so they're accessible
+                # from any schema's search_path (episodic, semantic, etc.)
+                cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public")
 
                 # Schema version table
                 cur.execute("""
