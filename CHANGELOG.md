@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-14
+
+### Fixed
+- GitHub Action: Added `--network host` to Docker run arguments to fix connectivity to external PostgreSQL (AWS RDS) hosts
+  - Resolves `PoolTimeout` errors when connecting to RDS from GitHub Actions runners
+  - The Docker container now shares the host's network stack, avoiding bridge network NAT/DNS issues
+
 ## [1.2.0] - 2026-09-11
 
 ### Changed
