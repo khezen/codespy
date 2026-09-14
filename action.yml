@@ -574,7 +574,7 @@ runs:
         set -eo pipefail
         
         # Build docker run arguments - add all env vars that are set
-        DOCKER_ARGS="--rm"
+        DOCKER_ARGS="--rm --network host"
         
         # Core settings
         DOCKER_ARGS="$DOCKER_ARGS -e GITHUB_TOKEN -e DEFAULT_MODEL -e OUTPUT_FORMAT"
