@@ -18,8 +18,8 @@ from codespy.agents.memory.hippocampus.episode import (
     submit_episode_save,
 )
 from codespy.agents.memory.hippocampus.hippocampus import Hippocampus
-from codespy.agents.memory.hippocampus.modules.cartographer import Cartographer, CartographerSig
-from codespy.agents.memory.hippocampus.modules.distiller import Distiller, DistillerSig
+from codespy.agents.memory.hippocampus.cartographer import Cartographer, CartographerSig
+from codespy.agents.memory.hippocampus.distiller import Distiller, DistillerSig
 
 __all__ = [
     "CacheCandidate",

@@ -29,8 +29,8 @@ from codespy.agents.memory.hippocampus.context_memory import (
     _PREFIX_TO_SECTION,
 )
 from codespy.agents.memory.hippocampus.episode import Episode
-from codespy.agents.memory.hippocampus.modules.distiller import Distiller
-from codespy.agents.memory.hippocampus.modules.cartographer import Cartographer
+from codespy.agents.memory.hippocampus.distiller import Distiller
+from codespy.agents.memory.hippocampus.cartographer import Cartographer
 
 if TYPE_CHECKING:
     from codespy.agents.memory.postgres import EpisodeStore

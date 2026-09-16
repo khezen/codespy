@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-09-16
+
+### Changed
+- **Internal**: Flattened `hippocampus/modules/` directory structure
+  - Moved `distiller.py` and `cartographer.py` from `hippocampus/modules/` to `hippocampus/` package root
+  - Removed `hippocampus/modules/__init__.py` and deleted `modules/` subdirectory
+  - Updated imports in `hippocampus.py` and `hippocampus/__init__.py` to reference new locations
+  - No external API changes — imports through `hippocampus/__init__.py` remain unchanged
+
 ## [1.2.2] - 2026-09-16
 
 ### Changed
