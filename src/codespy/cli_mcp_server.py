@@ -52,6 +52,6 @@ def serve(
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1) from None
 
-    from codespy.agents.reviewer.server import run_server
+    from codespy.workflows.review.server import run_server
 
     run_server(settings=settings)

@@ -14,7 +14,7 @@ from codespy.agents.memory.hippocampus import (
     compute_common_ancestor_topic_id,
     make_topic_id,
 )
-from codespy.agents.reviewer.modules.manifest_parser import extract_package_name
+from codespy.agents.review.scope.manifest_parser import extract_package_name
 
 
 class TestOperationAliases:
@@ -338,7 +338,7 @@ class TestScopeResultTopicHelper:
 
     def test_topic_with_package_manifest(self):
         """Topic uses package_name from manifest when available."""
-        from codespy.agents.reviewer.models import PackageManifest, ScopeResult, ScopeType
+        from codespy.agents.review.scope.models import PackageManifest, ScopeResult, ScopeType
 
         scope = ScopeResult(
             repo="owner/repo",
@@ -359,7 +359,7 @@ class TestScopeResultTopicHelper:
 
     def test_topic_without_package_manifest(self):
         """Topic uses subroot when no package manifest."""
-        from codespy.agents.reviewer.models import ScopeResult, ScopeType
+        from codespy.agents.review.scope.models import ScopeResult, ScopeType
 
         scope = ScopeResult(
             repo="owner/repo",
@@ -375,7 +375,7 @@ class TestScopeResultTopicHelper:
 
     def test_topic_for_root_scope(self):
         """Root scope topic uses just repo_full_name."""
-        from codespy.agents.reviewer.models import ScopeResult, ScopeType
+        from codespy.agents.review.scope.models import ScopeResult, ScopeType
 
         scope = ScopeResult(
             repo="owner/repo",

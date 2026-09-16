@@ -13,9 +13,10 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
-from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
-from codespy.agents.reviewer.modules.doc_extractor import extract_documentation
-from codespy.agents.reviewer.modules.helpers import (
+from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
+from codespy.agents.review.scope.models import ScopeResult
+from codespy.agents.review.doc.doc_extractor import extract_documentation
+from codespy.agents.review.helpers import (
     build_patches,
     issues_to_markdown,
     make_scope_relative,

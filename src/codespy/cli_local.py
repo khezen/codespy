@@ -107,8 +107,8 @@ def review_local(
     )
 
     try:
-        from codespy.agents.reviewer.models import LocalReviewConfig
-        from codespy.agents.reviewer.reviewer import ReviewPipeline
+        from codespy.workflows.review.models import LocalReviewConfig
+        from codespy.workflows.review.pipeline import ReviewPipeline
 
         pipeline = ReviewPipeline(settings)
 
@@ -129,7 +129,7 @@ def review_local(
                 )
             )
 
-        from codespy.agents.reviewer.reporters import StdoutReporter
+        from codespy.workflows.review.reporters import StdoutReporter
 
         stdout_reporter = StdoutReporter(format=settings.output_format, console=console)
         stdout_reporter.report(result)
@@ -220,8 +220,8 @@ def review_uncommitted(
     )
 
     try:
-        from codespy.agents.reviewer.models import LocalReviewConfig
-        from codespy.agents.reviewer.reviewer import ReviewPipeline
+        from codespy.workflows.review.models import LocalReviewConfig
+        from codespy.workflows.review.pipeline import ReviewPipeline
 
         pipeline = ReviewPipeline(settings)
 
@@ -242,7 +242,7 @@ def review_uncommitted(
                 )
             )
 
-        from codespy.agents.reviewer.reporters import StdoutReporter
+        from codespy.workflows.review.reporters import StdoutReporter
 
         stdout_reporter = StdoutReporter(format=settings.output_format, console=console)
         stdout_reporter.report(result)

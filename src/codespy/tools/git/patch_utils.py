@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from codespy.agents.reviewer.models import ScopeResult
+    from codespy.agents.review.scope.models import ScopeResult
 
 from codespy.tools.git.models import ChangedFile, FileStatus
 from codespy.tools.parsers.treesitter import FunctionInfo, TreeSitterParser

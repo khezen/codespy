@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from codespy.agents.reviewer.models import ReviewResult
+from codespy.workflows.review.models import ReviewResult
 
 
 class BaseReporter(ABC):

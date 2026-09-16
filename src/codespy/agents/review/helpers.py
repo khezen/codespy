@@ -8,11 +8,11 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from codespy.agents.reviewer.models import Issue
+from codespy.agents.review.models import Issue
 from codespy.tools.git.models import ChangedFile
 
 if TYPE_CHECKING:
-    from codespy.agents.reviewer.models import ScopeResult
+    from codespy.agents.review.scope.models import ScopeResult, PackageManifest
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,29 @@ def resolve_scope_root(repo_path: Path, subroot: str) -> Path:
     return repo_path if subroot == "." else repo_path / subroot
 
 
-def make_scope_relative(scope: ScopeResult) -> ScopeResult:
+def deepest_common_folder(scopes: list["ScopeResult"], repo_slug: str) -> str:
+    """Compute the deepest common ancestor directory across all scope subroots.
+
+    Args:
+        scopes: List of scope results
+        repo_slug: Repository slug for fallback path
+
+    Returns:
+        Deepest common ancestor path (e.g., "/repo/scope/subroot/")
+    """
+    subroots = [s.subroot for s in scopes]
+    if not subroots or any(sr in (".", "") for sr in subroots):
+        return f"/{repo_slug}/"
+    try:
+        common = os.path.commonpath(subroots)
+    except ValueError:
+        common = ""
+    if not common or common == ".":
+        return f"/{repo_slug}/"
+    return f"/{repo_slug}/{common.strip('/')}/"
+
+
+def make_scope_relative(scope: "ScopeResult") -> "ScopeResult":
     """Create a copy of a ScopeResult with file paths relative to scope.subroot.
 
     When MCP tools are rooted at repo_path/scope.subroot, the agent needs file
@@ -116,7 +138,7 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
         New ScopeResult with scope-relative file paths in changed_files.
         The subroot is set to "." since paths are now relative to it.
     """
-    from codespy.agents.reviewer.models import PackageManifest, ScopeResult
+    from codespy.agents.review.scope.models import ScopeResult, PackageManifest
 
     if scope.subroot == ".":
         return scope  # Already at repo root, no transformation needed
@@ -145,6 +167,7 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
             ),
             package_manager=scope.package_manifest.package_manager,
             dependencies_changed=scope.package_manifest.dependencies_changed,
+            package_name=scope.package_manifest.package_name,
         )
     return ScopeResult(
         repo=scope.repo,
@@ -156,6 +179,7 @@ def make_scope_relative(scope: ScopeResult) -> ScopeResult:
         changed_files=relative_files,
         reason=scope.reason,
         skills=scope.skills,
+        description=scope.description,
     )
 
 

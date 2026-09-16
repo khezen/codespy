@@ -21,13 +21,9 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
-from codespy.agents.reviewer.models import (
-    PackageManifest,
-    ReviewContext,
-    ScopeResult,
-    ScopeType,
-)
-from codespy.agents.reviewer.modules.manifest_parser import extract_package_name
+from codespy.agents.review.models import ReviewContext
+from codespy.agents.review.scope.manifest_parser import extract_package_name
+from codespy.agents.review.scope.models import PackageManifest, ScopeResult, ScopeType
 from codespy.config import get_settings
 from codespy.config_memory import get_episode_store
 from codespy.tools.git.client import get_client
@@ -85,28 +81,6 @@ def collect_skills(repo_path: Path, subroot: str) -> str | None:
                         sections.append(f"=== {rel} ===\n{content}")
 
     return "\n\n".join(sections) if sections else None
-
-
-def _deepest_common_folder(scopes: list[ScopeResult], repo_slug: str) -> str:
-    """Compute the deepest common ancestor directory across all scope subroots.
-
-    Args:
-        scopes: List of scope results
-        repo_slug: Repository slug for fallback path
-
-    Returns:
-        Deepest common ancestor path (e.g., "/repo/scope/subroot/")
-    """
-    subroots = [s.subroot for s in scopes]
-    if not subroots or any(sr in (".", "") for sr in subroots):
-        return f"/{repo_slug}/"
-    try:
-        common = os.path.commonpath(subroots)
-    except ValueError:
-        common = ""
-    if not common or common == ".":
-        return f"/{repo_slug}/"
-    return f"/{repo_slug}/{common.strip('/')}/"
 
 
 # Exact filename matches -> package manager
@@ -556,7 +530,7 @@ class ScopeResolver(dspy.Module):
         )
         logger.info("Clone complete: %s", repo_path)
 
-        # Ensure manifest files are present at root and parent directories
+        # Ensure manifest files at root and parent directories are checked out
         await self._ensure_manifests(repo_path, changed_file_paths)
 
     async def _ensure_manifests(self, repo_path: Path, changed_files: list[str]) -> None:

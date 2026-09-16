@@ -26,7 +26,7 @@ def _get_pipeline() -> Any:
     """Get or create the ReviewPipeline (lazy init to avoid slow startup)."""
     global _pipeline
     if _pipeline is None:
-        from codespy.agents.reviewer.reviewer import ReviewPipeline
+        from codespy.workflows.review.pipeline import ReviewPipeline
 
         _pipeline = ReviewPipeline(_settings)
     return _pipeline
@@ -47,7 +47,7 @@ def _do_local_review(repo_path: str, base_ref: str, output_format: str) -> str:
     """Synchronous local review — runs in thread pool."""
     import json
 
-    from codespy.agents.reviewer.models import LocalReviewConfig
+    from codespy.workflows.review.models import LocalReviewConfig
 
     repo = Path(repo_path).resolve()
     config = LocalReviewConfig(repo_path=repo, base_ref=base_ref, uncommitted=False)
@@ -64,7 +64,7 @@ def _do_uncommitted_review(repo_path: str, output_format: str) -> str:
     """Synchronous uncommitted review — runs in thread pool."""
     import json
 
-    from codespy.agents.reviewer.models import LocalReviewConfig
+    from codespy.workflows.review.models import LocalReviewConfig
 
     repo = Path(repo_path).resolve()
     config = LocalReviewConfig(repo_path=repo, uncommitted=True)
@@ -81,7 +81,7 @@ def _do_pr_review(pr_url: str, output_format: str) -> str:
     """Synchronous PR review — runs in thread pool."""
     import json
 
-    from codespy.agents.reviewer.models import RemoteReviewConfig
+    from codespy.workflows.review.models import RemoteReviewConfig
 
     config = RemoteReviewConfig(url=pr_url)
 

@@ -3,8 +3,9 @@
 import logging
 from typing import TYPE_CHECKING
 
-from codespy.agents.reviewer.models import Issue, IssueSeverity, ReviewResult
-from codespy.agents.reviewer.reporters.base import BaseReporter
+from codespy.agents.review.models import Issue, IssueSeverity
+from codespy.workflows.review.models import ReviewResult
+from codespy.workflows.review.reporters.base import BaseReporter
 from codespy.tools.git.client import get_client
 
 if TYPE_CHECKING:

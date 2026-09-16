@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from codespy.agents.reviewer.models import ScopeResult, ScopeType
+from codespy.agents.review.scope.models import ScopeResult, ScopeType
 from codespy.tools.git.models import ChangedFile, FileStatus
 from codespy.tools.git.patch_utils import (
     _expand_hunk_to_functions,

@@ -13,8 +13,9 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
-from codespy.agents.reviewer.models import Issue, IssueCategory, ReviewContext, ScopeResult
-from codespy.agents.reviewer.modules.helpers import (
+from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
+from codespy.agents.review.scope.models import ScopeResult
+from codespy.agents.review.helpers import (
     issues_to_markdown,
     resolve_scope_root,
     restore_repo_paths,
@@ -67,7 +68,7 @@ class SupplyChainSecuritySignature(dspy.Signature):
     - description: ≤25 words, imperative tone, no filler ("Fix X", "Pin Y").
     - No polite or conversational language ("I suggest", "Please consider", "Great").
     - Do not populate code_snippet—use line numbers instead.
-    - File paths in issues must be relative to the scope root.
+    - File paths in issues must be relative to scope root.
 
     ## 2. DEPENDENCY SECURITY (package manifests)
 
