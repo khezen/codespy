@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-09-16
+
+### Changed
+- **BREAKING**: Codebase restructured to separate agents from workflow orchestration
+  - Review agents moved from `codespy.agents.reviewer.modules.*` to `codespy.agents.review.*` subpackages (audit, code_review, doc, scope, summary, supply_chain)
+  - Workflow orchestration moved from `codespy.agents.reviewer` to `codespy.workflows.review` (pipeline, reporters, server, workflow-owned models)
+  - Agent-owned types (`Issue`, `PRContext`, `ReviewContext`, `ReviewMetadata`, `IssueCategory`, `IssueSeverity`) moved to `codespy.agents.review.models`
+  - Scope-specific types (`ScopeResult`, `ScopeType`, `PackageManifest`) moved to `codespy.agents.review.scope.models`
+  - Workflow-owned types (`ReviewResult`, `ReviewConfig`, `RemoteReviewConfig`, `LocalReviewConfig`, `SignatureStatsResult`) moved to `codespy.workflows.review.models`
+  - `helpers.py` moved from `codespy.agents.reviewer.modules` to `codespy.agents.review`
+  - `doc_extractor.py` moved from `codespy.agents.reviewer.modules` to `codespy.agents.review.doc`
+  - `manifest_parser.py` moved from `codespy.agents.reviewer.modules` to `codespy.agents.review.scope`
+  - MCP server moved from `codespy.agents.reviewer.server` to `codespy.workflows.review.server`
+  - CLI modules (`cli_local`, `cli_remote`, `cli_mcp_server`) updated for new import paths
+  - All tests updated for new import paths
+
+### Removed
+- `codespy.agents.reviewer` package (replaced by `codespy.agents.review` + `codespy.workflows.review`)
+
 ## [1.2.1] - 2026-09-14
 
 ### Fixed
