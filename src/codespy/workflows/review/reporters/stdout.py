@@ -5,8 +5,8 @@ from typing import Literal
 
 from rich.console import Console
 
-from codespy.agents.reviewer.models import ReviewResult
-from codespy.agents.reviewer.reporters.base import BaseReporter
+from codespy.workflows.review.models import ReviewResult
+from codespy.workflows.review.reporters.base import BaseReporter
 
 
 class StdoutReporter(BaseReporter):

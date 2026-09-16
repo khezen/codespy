@@ -159,8 +159,8 @@ def review(
     )
 
     try:
-        from codespy.agents.reviewer.models import RemoteReviewConfig
-        from codespy.agents.reviewer.reviewer import ReviewPipeline
+        from codespy.workflows.review.models import RemoteReviewConfig
+        from codespy.workflows.review.pipeline import ReviewPipeline
 
         pipeline = ReviewPipeline(settings)
 
@@ -183,7 +183,7 @@ def review(
             )
 
         # Output results using reporters
-        from codespy.agents.reviewer.reporters import GitReporter, StdoutReporter
+        from codespy.workflows.review.reporters import GitReporter, StdoutReporter
 
         if settings.output_stdout:
             stdout_reporter = StdoutReporter(format=settings.output_format, console=console)

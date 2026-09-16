@@ -8,14 +8,13 @@ import dspy
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
-from codespy.agents.memory.hippocampus.context_memory import Topic
-from codespy.agents.reviewer.models import Issue, ReviewContext
-from codespy.agents.reviewer.modules.scope_resolver import _deepest_common_folder
+from codespy.agents.review.models import Issue, ReviewContext
+from codespy.agents.review.helpers import deepest_common_folder
 from codespy.config import get_settings
 from codespy.config_memory import get_episode_store
 
 if TYPE_CHECKING:
-    from codespy.agents.reviewer.models import ScopeResult
+    from codespy.agents.review.scope.models import ScopeResult
 
 logger = logging.getLogger(__name__)
 

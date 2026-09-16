@@ -10,18 +10,8 @@ import dspy  # type: ignore[import-untyped]
 from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 
 from codespy.agents.memory.hippocampus.context_memory import Topic
-from codespy.agents.reviewer.models import (
-    Issue,
-    LocalReviewConfig,
-    PRContext,
-    RemoteReviewConfig,
-    ReviewConfig,
-    ReviewContext,
-    ReviewMetadata,
-    ReviewResult,
-    SignatureStatsResult,
-)
-from codespy.agents.reviewer.modules import (
+from codespy.agents.review.models import Issue, PRContext, ReviewContext, ReviewMetadata
+from codespy.agents.review import (
     Auditor,
     CodeReviewer,
     DocReviewer,
@@ -30,13 +20,20 @@ from codespy.agents.reviewer.modules import (
     SupplyChainAuditor,
 )
 from codespy.agents.memory.hippocampus.episode import join_episode_saves
-from codespy.agents.reviewer.modules.helpers import build_patches
-from codespy.agents.reviewer.modules.scope_resolver import MANIFEST_FILES, MANIFEST_GLOBS
+from codespy.agents.review.helpers import build_patches
+from codespy.agents.review.scope import MANIFEST_FILES, MANIFEST_GLOBS
 from codespy.config import Settings, get_settings
 from codespy.config_memory import verify_memory_access
 from codespy.tools.git import ChangedFile, GitClient, PullRequest, get_client
 from codespy.tools.git.local_diff import build_pr_from_diff
 from codespy.tools.git.patch_utils import compact_patches
+from codespy.workflows.review.models import (
+    LocalReviewConfig,
+    RemoteReviewConfig,
+    ReviewConfig,
+    ReviewResult,
+    SignatureStatsResult,
+)
 
 logger = logging.getLogger(__name__)
 

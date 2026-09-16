@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from codespy.agents.reviewer.models import ScopeType
-from codespy.agents.reviewer.modules.scope_resolver import (
+from codespy.agents.review.scope.models import ScopeType
+from codespy.agents.review.scope import (
     ScopeResolver,
     derive_sparse_paths,
 )
@@ -291,7 +291,7 @@ class TestAssignFilesDeterminism:
 
     def test_same_depth_scopes_deterministic(self):
         """Scopes at the same depth should assign files consistently."""
-        from codespy.agents.reviewer.models import ScopeResult, ScopeType
+        from codespy.agents.review.scope.models import ScopeResult, ScopeType
 
         # Two scopes at depth 1 (one slash each)
         scope_a = ScopeResult(subroot="packages/alpha", scope_type=ScopeType.LIBRARY, reason="test")
