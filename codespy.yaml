@@ -98,9 +98,8 @@ memory:
   # or agent name. When unset, auto-generated from hostname.
   bank_id: null                           # MEMORY_BANK_ID
 
-  # Reflection defaults — overridable per-signature via signatures.<name>.memory
+  # Memory default — overridable per-signature via signatures.<name>.memory
   default_enabled: false                  # MEMORY_DEFAULT_ENABLED
-  default_max_reflects: 0                 # MEMORY_DEFAULT_MAX_REFLECTS (0 = reflect once at end_episode)
 
   # Four independent token budgets, from most to least cost-sensitive:
   #
@@ -250,7 +249,6 @@ signatures:
     # When false (default): only scans artifacts/manifests that were modified in the MR
     memory:
       enabled: null                      # SUPPLY_CHAIN_MEMORY_ENABLED (null -> memory.default_enabled)
-      max_reflects: null                 # SUPPLY_CHAIN_MEMORY_MAX_REFLECTS
 
   # Code Reviewer signature (bugs, security, removed defensive code, code smells)
   # Unified code review: bugs, security vulnerabilities, and code smells in a single agent pass per scope
@@ -264,7 +262,6 @@ signatures:
     max_tokens: null                     # CODE_REVIEW_MAX_TOKENS
     memory:
       enabled: null                      # CODE_REVIEW_MEMORY_ENABLED (null -> memory.default_enabled)
-      max_reflects: null                 # CODE_REVIEW_MEMORY_MAX_REFLECTS
 
   # Documentation Reviewer signature (compares patches against extracted documentation)
   # Note: doc extraction is now deterministic (no LLM) — see doc_extractor.py
@@ -278,7 +275,6 @@ signatures:
     max_tokens: null                     # DOC_MAX_TOKENS
     memory:
       enabled: null                      # DOC_MEMORY_ENABLED (null -> memory.default_enabled)
-      max_reflects: null                 # DOC_MEMORY_MAX_REFLECTS
 
   # Scope Identifier signature
   scope:
@@ -291,7 +287,6 @@ signatures:
     max_tokens: null                     # SCOPE_MAX_TOKENS
     memory:
       enabled: null                      # SCOPE_MEMORY_ENABLED (null -> memory.default_enabled)
-      max_reflects: null                 # SCOPE_MEMORY_MAX_REFLECTS
 
   # Summarizer signature
   summary:
@@ -304,7 +299,6 @@ signatures:
     max_tokens: null                     # SUMMARY_MAX_TOKENS
     memory:
       enabled: true                      # SUMMARY_MEMORY_ENABLED (null -> memory.default_enabled)
-      max_reflects: null                 # SUMMARY_MEMORY_MAX_REFLECTS
 
   # Auditor signature (quality assessment + recommendation after all reviews)
   audit:
@@ -317,7 +311,6 @@ signatures:
     max_tokens: null                     # AUDIT_MAX_TOKENS
     memory:
       enabled: null                      # AUDIT_MEMORY_ENABLED (null -> memory.default_enabled)
-      max_reflects: null                 # AUDIT_MEMORY_MAX_REFLECTS
 
 # ============================================================================
 # OUTPUT

@@ -7,7 +7,8 @@ import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
+from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.review.models import Issue, ReviewContext
 from codespy.agents.review.helpers import deepest_common_folder
 from codespy.config import get_settings
@@ -93,21 +94,22 @@ class Auditor(dspy.Module):
                 if scope_topic:
                     scope_topics.append(scope_topic)
 
-            mem = Hippocampus(
-                auditor,
-                budget=self._settings.get_memory_budget("audit"),
-                max_reflects=self._settings.get_memory_max_reflects("audit"),
-                question=question,
+            inject_context_memory(auditor)
+            hippo = Hippocampus(
                 task_name="audit",
+                budget=self._settings.get_memory_budget("audit"),
+                question=question,
                 run_id=run_id,
                 initial_memory=initial_memory,
                 topics=scope_topics if scope_topics else None,
             )
-            result = mem(
+            result = auditor(
+                context_memory=hippo.context_memory,
                 pr_title=review_context.pr_context.pr_title,
                 summary=review_context.pr_context.summary,
                 all_issues=all_issues,
             )
+            hippo.observe(result)
             # Run episode save synchronously (auditor is the last module)
             try:
                 _artifacts = {
@@ -116,7 +118,7 @@ class Auditor(dspy.Module):
                         f"## Recommendation\n\n{result.recommendation}\n"
                     )
                 }
-                mem.end_episode(store, artifacts=_artifacts)
+                hippo.end_episode(store, artifacts=_artifacts)
             except Exception:
                 logger.warning("Audit episode save failed", exc_info=True)
         else:

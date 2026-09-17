@@ -340,11 +340,6 @@ inputs:
     description: 'Bank ID scoping all memory data (e.g., project name or agent name). Defaults to "codespy".'
     required: false
 
-  memory-max-reflects:
-    description: 'Max online reflections per agent call (0 = batch-only, default: 0)'
-    required: false
-    default: '0'
-
   memory-distiller-model:
     description: 'Model for the Distiller reflection module (smaller model recommended)'
     required: false
@@ -553,7 +548,6 @@ runs:
         MEMORY_POSTGRES_DATABASE: ${{ inputs.memory-postgres-database }}
         MEMORY_POSTGRES_SCHEMA: ${{ inputs.memory-postgres-schema }}
         MEMORY_BANK_ID: ${{ inputs.memory-bank-id }}
-        MEMORY_DEFAULT_MAX_REFLECTS: ${{ inputs.memory-max-reflects }}
         MEMORY_DISTILLER_MODEL: ${{ inputs.memory-distiller-model }}
         MEMORY_DISTILLER_REASONING_EFFORT: ${{ inputs.memory-distiller-reasoning-effort }}
         MEMORY_DISTILLER_TEMPERATURE: ${{ inputs.memory-distiller-temperature }}
@@ -663,7 +657,6 @@ runs:
         [ -n "$MEMORY_POSTGRES_DATABASE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_POSTGRES_DATABASE"
         [ -n "$MEMORY_POSTGRES_SCHEMA" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_POSTGRES_SCHEMA"
         [ -n "$MEMORY_BANK_ID" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_BANK_ID"
-        [ -n "$MEMORY_DEFAULT_MAX_REFLECTS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DEFAULT_MAX_REFLECTS"
         [ -n "$MEMORY_DISTILLER_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MODEL"
         [ -n "$MEMORY_DISTILLER_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_REASONING_EFFORT"
         [ -n "$MEMORY_DISTILLER_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_TEMPERATURE"

@@ -185,8 +185,6 @@ The Distiller also tags each existing context memory observation with an `Observ
 
 These tags inform the Cartographer's edit decisions.
 
-Reflection iterates `max_reflects` times (0 = reflect once at end_episode).
-
 ## Token Budgets
 
 | Budget | Env Var | Default | Purpose |
@@ -215,7 +213,6 @@ Observation capacity ≈ context_memory_tokens / observation_tokens (16384/512 =
 | `MEMORY_PG0_DATA_DIR` | `memory.pg0.data_dir` | — | Custom data directory for pg0-embedded |
 | `MEMORY_BANK_ID` | `memory.bank_id` | `codespy` | Scopes all memory data |
 | `MEMORY_DEFAULT_ENABLED` | `memory.default_enabled` | `false` | Enable memory globally |
-| `MEMORY_DEFAULT_MAX_REFLECTS` | `memory.default_max_reflects` | `0` | Reflection iterations |
 | `MEMORY_COMPACT_TRAJECTORY` | `memory.compact_trajectory` | `true` | Apply head+tail trajectory bounding before distillation |
 
 ### Reflection Module LLM Overrides
@@ -232,9 +229,8 @@ Each signature's `memory:` block in YAML (or `<SIGNATURE>_MEMORY_*` env vars):
 | Setting | Env Var Suffix | Description |
 |---------|---------------|-------------|
 | enabled | `_MEMORY_ENABLED` | Enable/disable memory for this signature |
-| max_reflects | `_MEMORY_MAX_REFLECTS` | Override reflection count |
 
-Example: `CODE_REVIEW_MEMORY_ENABLED=true` or `SUMMARY_MEMORY_MAX_REFLECTS=2`
+Example: `CODE_REVIEW_MEMORY_ENABLED=true`
 
 See [Configuration](configuration.md#recommended-model-strategy) for recommended reflection models.
 

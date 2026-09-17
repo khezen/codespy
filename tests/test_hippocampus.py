@@ -19,6 +19,7 @@ from codespy.agents.memory.hippocampus import (
     Operation,
     OpType,
     Topic,
+    inject_context_memory,
 )
 from codespy.agents.memory.hippocampus.episode import Episode
 from codespy.agents.memory.postgres import EpisodeStore
@@ -328,24 +329,25 @@ class TestEpisodeStoreWithHippocampus:
             def forward(self, **kwargs):
                 return dspy.Prediction(result="test")
         
-        # Create Hippocampus with the mock agent
-        mem = Hippocampus(
-            MockAgent(),
+        # Create agent and hippocampus (composable pattern)
+        agent = MockAgent()
+        hippo = Hippocampus(
             task_name="test_task",
             run_id="test-run",
             topics=[Topic(id="test/topic", type="project_scope", description="Test topic")],
         )
         
-        # Make a call
-        mem.forward()
+        # Make a call (MockAgent accepts any kwargs, so no inject needed for this test)
+        result = agent(context_memory=hippo.context_memory)
+        hippo.observe(result)
         
         # End episode with the store
-        mem.end_episode(store=episode_store, artifacts={"test": "value"})
+        hippo.end_episode(store=episode_store, artifacts={"test": "value"})
         
         # Episode should be set
-        assert mem.episode is not None
-        assert mem.episode.task == "test_task"
-        assert mem.episode.run_id == "test-run"
+        assert hippo.episode is not None
+        assert hippo.episode.task == "test_task"
+        assert hippo.episode.run_id == "test-run"
 
     def test_load_context_returns_latest_episode(self, episode_store):
         """load_context should return the context from the latest episode."""

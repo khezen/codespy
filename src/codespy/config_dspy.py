@@ -38,7 +38,6 @@ class MemorySignatureConfig(BaseModel):
     """
 
     enabled: bool | None = None  # <SIG>_MEMORY_ENABLED
-    max_reflects: int | None = None  # <SIG>_MEMORY_MAX_REFLECTS
 
 
 class SignatureConfig(BaseModel):

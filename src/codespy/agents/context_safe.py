@@ -60,7 +60,7 @@ class ContextSafe(dspy.Module):
     - Try/catch: if the inner module raises a context overflow error (unknown
       models where pre-flight can't estimate), catches it and retries with RLM.
 
-    Transparent to Hippocampus — delegates .signature to inner module.
+    Transparent to inject_context_memory — delegates .signature to inner module.
     """
 
     def __init__(
@@ -116,7 +116,7 @@ class ContextSafe(dspy.Module):
             return self._create_rlm_fallback()(**kwargs)
 
     async def aforward(self, **kwargs) -> dspy.Prediction:
-        """Async path — used by code_review, scope, supply_chain via Hippocampus.aforward."""
+        """Async path — used by code_review, scope, supply_chain, doc via agent.acall()."""
         should_fallback, reason = self._should_use_rlm(kwargs)
         if should_fallback:
             logger.warning(
@@ -186,7 +186,7 @@ class ContextSafe(dspy.Module):
             return False, ""
 
     def _get_current_signature(self):
-        """Get current signature (may include context_memory if Hippocampus modified it)."""
+        """Get current signature (may include context_memory if inject_context_memory was called)."""
         sig = getattr(self.module, "signature", None)
         if sig is not None:
             return sig

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -16,7 +15,6 @@ from codespy.agents.memory.hippocampus.budget import (
     _head_tail_text,
     count_tokens,
     evict,
-    format_inputs,
     format_trajectory,
 )
 from codespy.agents.memory.hippocampus.context_memory import (
@@ -29,8 +27,8 @@ from codespy.agents.memory.hippocampus.context_memory import (
     _PREFIX_TO_SECTION,
 )
 from codespy.agents.memory.hippocampus.episode import Episode
-from codespy.agents.memory.hippocampus.modules.distiller import Distiller
-from codespy.agents.memory.hippocampus.modules.cartographer import Cartographer
+from codespy.agents.memory.hippocampus.distiller import Distiller
+from codespy.agents.memory.hippocampus.cartographer import Cartographer
 
 if TYPE_CHECKING:
     from codespy.agents.memory.postgres import EpisodeStore
@@ -49,65 +47,76 @@ def prepend_context_memory(sig):
     )
 
 
-class Hippocampus(dspy.Module):
-    """Wraps a dspy.Module with a context memory that evolves via LLM-driven reflection.
+def inject_context_memory(module: dspy.Module) -> dspy.Module:
+    """Prepend context_memory input field to a dspy.Module's signatures.
 
-    The context memory is prepended to every agent call so the agent starts each run
+    Idempotent — skips predictors that already have context_memory.
+    Mutates the module in place and returns it for chaining.
+    Works through ContextSafe's signature delegation.
+    """
+    top_sig = getattr(module, "signature", None)
+    if top_sig is not None:
+        module_inputs = set(top_sig.input_fields)
+        if "context_memory" not in top_sig.input_fields:
+            module.signature = prepend_context_memory(top_sig)
+        for _, pred in module.named_predictors():
+            if (
+                set(pred.signature.input_fields) & module_inputs
+                and "context_memory" not in pred.signature.input_fields
+            ):
+                pred.signature = prepend_context_memory(pred.signature)
+    else:
+        for _, pred in module.named_predictors():
+            if "context_memory" not in pred.signature.input_fields:
+                pred.signature = prepend_context_memory(pred.signature)
+    return module
+
+
+class Hippocampus:
+    """Memory component that evolves via LLM-driven reflection.
+
+    The context memory is provided to agents so they start each run
     with accumulated orientation knowledge (structure, entities, constants) about
     the external context. After calls, the Distiller extracts transferable
     understanding and the Cartographer edits the memory — "caching understanding,
     not answers."
 
-    ## Two independent controls
+    ## Lifecycle
 
-    Reflection behaviour is governed by two orthogonal knobs:
+    Typical usage pattern::
 
-    1. **``max_reflects``** — maximum number of forward() calls that also reflect *online*
-       (in-episode warm-up). ``None`` (default) = no limit, reflect after every call.
-       ``0`` = never reflect online. ``N`` = reflect for the first N calls, buffer-only
-       thereafter.
+        # Construct Hippocampus with task name and optional memory budget
+        hippo = Hippocampus(task_name="...")
 
-    2. **Calling ``end_episode()``** (or not) — whether to consolidate the buffered
-       episode into the memory at the end. Every call is *always* buffered so
-       ``end_episode()`` is available regardless of the online setting.
+        # Inject context memory into agent
+        inject_context_memory(agent)
 
-    Common patterns::
+        # Run agent with context_memory input
+        pred = agent(context_memory=hippo.context_memory, task="…")
 
-        # Classic per-call (default) — reflect after every call, no end consolidation
-        mem = Hippocampus(agent)
-        pred = mem(task="…")
+        # Observe the result (buffers trajectory)
+        hippo.observe(pred)
 
-        # Pure batch — no online reflection, one holistic pass at the end
-        mem = Hippocampus(agent, max_reflects=0)
-        for task in tasks:
-            pred = mem(task=task)
-        mem.end_episode()
+        # Optional: bind topics before end_episode
+        hippo.bind_topics(topics, topic_ids)
 
-        # Hybrid — warm up online for the first 3 calls, then holistic consolidation
-        mem = Hippocampus(agent, max_reflects=3)
-        for task in tasks:
-            pred = mem(task=task)
-        mem.end_episode()
+        # End episode (consolidates and persists)
+        hippo.end_episode(store, artifacts={"key": "value"})
 
-        # Read-only (memory never changes) — pure inference
-        mem = Hippocampus(agent, max_reflects=0)
-        pred = mem(task="…")    # no end_episode() call
-
-        # Async variants (for callers running inside an event loop, e.g.
-        # reviewer modules using `await agent.acall(...)`)
-        mem = Hippocampus(agent, max_reflects=0)
-        pred = await mem.acall(task="…")
-        await mem.aend_episode(store, dir)
+        # Async variant (for callers running inside an event loop)
+        pred = await agent.acall(context_memory=hippo.context_memory, task="…")
+        await hippo.aobserve(pred)
+        await hippo.aend_episode(store, artifacts={"key": "value"})
 
     ## Trajectory bounding (two-stage)
 
     When ``budget.compact_trajectory`` is ``True`` and
     ``budget.max_trajectory_tokens`` is set:
 
-    - **Stage 1** (per call) — each trajectory is head+tail bounded at ``format_trajectory``
+    - **Stage 1** (per observation) — each trajectory is head+tail bounded at ``format_trajectory``
       time. This keeps the buffer lightweight.
     - **Stage 2** (``end_episode``) — the joined episode is head+tail bounded again, so
-      the combined result is guaranteed to fit the budget even if many calls are buffered.
+      the combined result is guaranteed to fit the budget even if many observations are buffered.
 
     With ``budget.compact_trajectory=False`` both stages are skipped and the
     Distiller receives the full trajectory. The ContextSafe wrapper on the
@@ -125,41 +134,27 @@ class Hippocampus(dspy.Module):
 
     def __init__(
         self,
-        module: dspy.Module,
+        task_name: str,
         budget: MemoryBudget | None = None,
-        max_reflects: int | None = None,
         question: str | None = None,
-        task_name: str | None = None,
         run_id: str | None = None,
         initial_memory: ContextMemory | None = None,
         topics: list[Topic] | None = None,
     ):
         """
         Args:
-            module: Any dspy.Module (ReAct, RLM, Predict, …) to wrap.
             budget: The four token budgets bounding memory, as a
                 :class:`MemoryBudget`. Defaults to ``MemoryBudget()`` — see that
                 class for per-field guidance. Resolve one from configuration with
                 ``Settings.get_memory_budget(signature_name)``.
-            max_reflects: Maximum number of forward() calls that also reflect online.
-                None (default): no limit — reflect after every call (classic online learning).
-                0: never reflect online — pure buffering until end_episode().
-                N: reflect online for the first N calls, buffer-only afterwards.
-                Every call is always buffered regardless of this setting, so
-                end_episode() is always available.
             question: Pre-computed question string for the reflection "question".
                 If set, this string is used directly as the Distiller question.
-                If None, all input fields are serialized (bounded by
-                ``budget.max_question_tokens``).
-                Set this when one field cleanly captures user intent.
+                If None, uses empty string (callers typically pass question at init).
             task_name: Identity recorded in ``Episode.task`` and used in the episode
                 filename. Pass the signature's snake_case name (``"doc"``,
                 ``"code_review"``, …) — the same key that drives config, LM
                 selection and cost attribution — so the episode path lines up with
-                the rest of the system. Inference is a last resort: only
-                ``dspy.RLM``/``dspy.ReAct``-style modules expose ``.signature``,
-                ``dspy.ChainOfThought`` does not, so the fallback would yield a
-                meaningless (and collision-prone) ``"ChainOfThought"``.
+                the rest of the system. Required parameter.
             run_id: Identifier of the pipeline run this agent belongs to. Passed
                 down by the orchestrating ``ReviewPipeline`` so every module
                 invoked within the same review run shares the same identifier,
@@ -173,31 +168,9 @@ class Hippocampus(dspy.Module):
                 Topic IDs are auto-assigned to all new observations created during this episode.
                 Used for scope-aware memory organization.
         """
-        super().__init__()
-
-        module = copy.deepcopy(module)
-
-        # Prepend context_memory only to predictors that receive the module's own
-        # input fields.
-        top_sig = getattr(module, "signature", None)
-        if top_sig is not None:
-            module_inputs = set(top_sig.input_fields)
-            module.signature = prepend_context_memory(top_sig)
-            for _, pred in module.named_predictors():
-                if (
-                    set(pred.signature.input_fields) & module_inputs
-                    and "context_memory" not in pred.signature.input_fields
-                ):
-                    pred.signature = prepend_context_memory(pred.signature)
-        else:
-            for _, pred in module.named_predictors():
-                pred.signature = prepend_context_memory(pred.signature)
-
-        self.agent = module
         self.distill = Distiller()
         self.cartograph = Cartographer()
         self.budget = budget or MemoryBudget()
-        self.max_reflects = max_reflects
         self.question = question
         self.cmem = initial_memory.model_copy(deep=True) if initial_memory else ContextMemory()
         self._topic_ids: list[str] = []
@@ -209,33 +182,14 @@ class Hippocampus(dspy.Module):
                     self.cmem.topics.append(topic)
                     existing_ids.add(topic.id)
         self.scores: dict[str, int] = {}
-        # Buffer of per-call bounded trajectory strings, cleared after end_episode().
+        # Buffer of per-observation bounded trajectory strings, cleared after end_episode().
         self._episode_trajectories: list[str] = []
-        # Count of buffered trajectories already distilled online (via max_reflects).
-        # Used to skip a redundant consolidation distill in the single-call case,
-        # and to detect "everything was reflected online" so end_episode() still
-        # persists a snapshot even when nothing remains to consolidate.
-        self._reflected_count: int = 0
-        # Question derived from the latest buffered call; used as Distiller consolidation input.
+        # Question derived from the latest buffered observation; used as Distiller consolidation input.
         self._episode_question: str | None = None
 
-        # Identity of the wrapped module/signature for Episode metadata. An explicit
-        # task_name wins: inference only works for modules exposing .signature.
-        self._task_name: str
-        if task_name:
-            self._task_name = task_name
-        elif top_sig is not None:
-            self._task_name = top_sig.__name__
-        else:
-            fallback = type(module).__name__
-            logger.warning(
-                "Hippocampus: task_name not provided and module %r has no .signature; "
-                "using collision-prone fallback %r. Pass task_name explicitly.",
-                module,
-                fallback,
-            )
-            self._task_name = fallback
-        self._module_name: str = type(module).__name__
+        # Identity for Episode metadata.
+        self._task_name = task_name
+        self._module_name = task_name  # Default to task_name (more meaningful than "ContextSafe")
         # Identifier of the pipeline run this agent belongs to (see run_id arg
         # above). Falls back to a random UUID for standalone usage where no
         # orchestrator provides one.
@@ -247,45 +201,58 @@ class Hippocampus(dspy.Module):
         # Step counter incremented per _distill() call for mutation grouping.
         self._distill_step: int = 0
 
-    def forward(self, **kwargs) -> dspy.Prediction:
-        pred = self.agent(context_memory=self.cmem, **kwargs)
-        self._buffer_and_distill(pred, kwargs)
-        return pred
+    @property
+    def context_memory(self) -> ContextMemory:
+        """Read-only access to the current context memory.
 
-    async def aforward(self, **kwargs) -> dspy.Prediction:
-        """Async counterpart of :meth:`forward`.
-
-        Awaits the wrapped agent's ``acall`` instead of invoking it
-        synchronously — required when the caller is already inside a running
-        event loop (e.g. reviewer modules using ``await agent.acall(...)``).
-        The Distiller/Cartographer reflection pass is still synchronous under
-        the hood but is offloaded to a thread so it never blocks the loop.
+        Returns the live reference (mutations through it like ``bind_topics`` work).
+        Assignment is blocked (read-only property).
         """
-        pred = await self.agent.acall(context_memory=self.cmem, **kwargs)
-        await asyncio.to_thread(self._buffer_and_distill, pred, kwargs)
-        return pred
+        return self.cmem
 
-    def _buffer_and_distill(self, pred: dspy.Prediction, kwargs: dict) -> None:
-        """Shared post-call work for both ``forward`` and ``aforward``.
+    def observe(self, result: dspy.Prediction | str, *, question: str | None = None) -> None:
+        """Feed an observation (trajectory) to Hippocampus for buffering.
 
-        Buffers the (stage-1 bounded) trajectory and, depending on
-        ``max_reflects``, runs an online distill+apply pass immediately.
+        The trajectory is buffered and will be consolidated at ``end_episode()``.
+
+        Args:
+            result: Either a ``dspy.Prediction`` (stage-1 trajectory bounding applies)
+                or a raw ``str`` (no bounding, caller controls input).
+            question: Optional per-observation question override. If not provided,
+                uses ``self.question`` or empty string.
         """
-        max_traj = self.budget.max_trajectory_tokens if self.budget.compact_trajectory else None
-        traj = format_trajectory(pred, max_traj)
+        # Extract trajectory
+        if isinstance(result, str):
+            traj = result  # raw string: no stage-1 bounding (caller controls input)
+        else:
+            max_traj = self.budget.max_trajectory_tokens if self.budget.compact_trajectory else None
+            traj = format_trajectory(result, max_traj)  # stage-1 bounding for Predictions
+
+        # Buffer
         self._episode_trajectories.append(traj)
-        self._episode_question = self._make_question(kwargs)
-        # Online reflection: None = no limit (always); N = for the first N calls.
-        if self.max_reflects is None or len(self._episode_trajectories) <= self.max_reflects:
-            try:
-                self._distill(traj, self._episode_question)
-                self._reflected_count += 1
-            except Exception:
-                logger.warning(
-                    "Online reflection failed for %s; trajectory buffered for end_episode().",
-                    self._task_name,
-                    exc_info=True,
-                )
+        self._episode_question = question or self.question or ""
+
+    async def aobserve(self, result: dspy.Prediction | str, *, question: str | None = None) -> None:
+        """Async counterpart of :meth:`observe`.
+
+        Offloads the observation processing to a thread so it never blocks
+        the caller's event loop.
+        """
+        await asyncio.to_thread(self.observe, result, question=question)
+
+    def bind_topics(self, topics: list[Topic], topic_ids: list[str]) -> None:
+        """Bind topics to the context memory for episode persistence.
+
+        Used by the scope agent post-call to bind scope-specific topics.
+        Replaces the previous pattern of direct ``_topic_ids`` access and
+        ``cmem.bind_topics()`` calls.
+
+        Args:
+            topics: List of Topic objects to register.
+            topic_ids: List of topic IDs to stamp on new observations.
+        """
+        self._topic_ids = topic_ids
+        self.cmem.bind_topics(topics, topic_ids)
 
     def _consolidate(self) -> str | None:
         """Join buffered trajectories (stage-2 bounded) and distill+apply once.
@@ -293,8 +260,7 @@ class Hippocampus(dspy.Module):
         Returns the combined trajectory text used for consolidation, or
         ``None`` if the buffer is empty (no-op).
         """
-        skip_double_distill = len(self._episode_trajectories) == 1 and self._reflected_count > 0
-        if not self._episode_trajectories or skip_double_distill:
+        if not self._episode_trajectories:
             return None
         combined = "\n\n".join(
             f"=== Call {i + 1} ===\n{t}" for i, t in enumerate(self._episode_trajectories)
@@ -332,7 +298,6 @@ class Hippocampus(dspy.Module):
         )
         self._episode_trajectories.clear()
         self._episode_question = None
-        self._reflected_count = 0
         self._mutations.clear()
         self._distill_step = 0
 
@@ -345,9 +310,9 @@ class Hippocampus(dspy.Module):
 
         A single Distiller pass sees all buffered trajectories joined with
         ``=== Call k ===`` headers. If ``budget.max_trajectory_tokens`` is set, the
-        combined text is head+tail bounded (stage 2) after per-call bounding
+        combined text is head+tail bounded (stage 2) after per-observation bounding
         (stage 1) already applied at append time. The question is derived from
-        the first buffered call. No-op if the buffer is empty.
+        the first buffered observation. No-op if the buffer is empty.
 
         After consolidation ``self.episode`` is set to a new :class:`Episode`
         containing the task/module identity and a deep-copy snapshot of the
@@ -366,8 +331,7 @@ class Hippocampus(dspy.Module):
             OSError: If persistence is requested and the write fails.
         """
         combined = self._consolidate()
-        has_content = combined is not None or self._reflected_count > 0
-        if not has_content:
+        if combined is None:
             return
         self._finalize_episode(artifacts)
         if store is not None:
@@ -390,8 +354,7 @@ class Hippocampus(dspy.Module):
                 episode (e.g. ``{"review": "<markdown>"}``).
         """
         combined = await asyncio.to_thread(self._consolidate)
-        has_content = combined is not None or self._reflected_count > 0
-        if not has_content:
+        if combined is None:
             return
         await asyncio.to_thread(self._finalize_episode, artifacts)
         if store is not None:
@@ -401,18 +364,12 @@ class Hippocampus(dspy.Module):
         """Discard the buffered trajectories without reflecting."""
         self._episode_trajectories.clear()
         self._episode_question = None
-        self._reflected_count = 0
         self._mutations.clear()
         self._distill_step = 0
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
-
-    def _make_question(self, inputs: dict) -> str:
-        if self.question is not None:
-            return self.question
-        return format_inputs(inputs, self.budget.max_question_tokens)
 
     def _record_mutations(
         self, ops: list[Operation], new_ids: list[str], pre_memory: ContextMemory
