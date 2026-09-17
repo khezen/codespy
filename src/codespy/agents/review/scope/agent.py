@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.review.models import ReviewContext
 from codespy.agents.review.scope.manifest_parser import extract_package_name
@@ -1028,7 +1028,7 @@ class ScopeResolver(dspy.Module):
                 max_llm_calls=self._settings.get_max_llm_calls("scope"),
                 rlm_threshold=self._settings.get_rlm_threshold("react"),
             )
-            mem: Hippocampus | None = None
+            hippo: Hippocampus | None = None
 
             async with SignatureContext("scope", self._cost_tracker):
                 if self._settings.get_memory_enabled("scope"):
@@ -1053,22 +1053,23 @@ class ScopeResolver(dspy.Module):
                             logger.info("Loaded prior scope episode for %s", repo_topic_id)
                         else:
                             logger.info("No prior scope episode for %s", repo_topic_id)
-                    mem = Hippocampus(
-                        agent,
-                        budget=self._settings.get_memory_budget("scope"),
-                        max_reflects=self._settings.get_memory_max_reflects("scope"),
-                        question=question,
+                    inject_context_memory(agent)
+                    hippo = Hippocampus(
                         task_name="scope",
+                        budget=self._settings.get_memory_budget("scope"),
+                        question=question,
                         run_id=run_id,
                         initial_memory=scope_initial_memory,
                     )
-                    result = await mem.aforward(
+                    result = await agent.acall(
+                        context_memory=hippo.context_memory,
                         candidates=candidates_str,
                         orphan_files=[f.filename for f in orphans],
                         pr_title=pr.title or "No title",
                         pr_description=pr.body or "No description",
                         project_instructions=project_instructions,
                     )
+                    await hippo.aobserve(result)
                 else:
                     result = await agent.acall(
                         candidates=candidates_str,
@@ -1123,20 +1124,19 @@ class ScopeResolver(dspy.Module):
             for scope in final_scopes:
                 scope.skills = collect_skills(repo_path, scope.subroot)
             # Bind topics to hippocampus cmem for episode persistence
-            if mem is not None and stamp_topic_ids:
+            if hippo is not None and stamp_topic_ids:
                 stamp_topic_ids.append(pr_ctx.pr_url)
-                mem._topic_ids = stamp_topic_ids
-                mem.cmem.bind_topics(scope_topics, stamp_topic_ids)
+                hippo.bind_topics(scope_topics, stamp_topic_ids)
 
             # Fire-and-forget background episode save
-            if mem is not None and store is not None:
+            if hippo is not None and store is not None:
                 scope_desc = "\n".join(
                     f"- {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
                     for s in final_scopes
                 )
                 def _persist():
                     try:
-                        mem.end_episode(store, artifacts={"scopes": scope_desc})
+                        hippo.end_episode(store, artifacts={"scopes": scope_desc})
                     except Exception:
                         logger.warning("Background scope episode save failed", exc_info=True)
                 submit_episode_save(_persist, name="scope-episode-save")

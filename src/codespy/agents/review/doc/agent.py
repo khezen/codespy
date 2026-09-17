@@ -11,7 +11,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
 from codespy.agents.review.scope.models import ScopeResult
@@ -211,7 +211,7 @@ class DocReviewer(dspy.Module):
             logger.info(
                 f"  Doc review: scope {scope.subroot} ({len(scope.changed_files)} files)"
             )
-            mem: Hippocampus | None = None
+            hippo: Hippocampus | None = None
             async with SignatureContext("doc", self._cost_tracker):
                 # Load own prior "doc" episode for this scope
                 scope_initial_memory: ContextMemory | None = None
@@ -237,21 +237,22 @@ class DocReviewer(dspy.Module):
                     )
                     pr_ctx = review_context.pr_context
                     topics = [scope.topic(pr.repo_full_name), pr_ctx.to_topic()] if pr else []
-                    mem = Hippocampus(
-                        reviewer,
-                        budget=self._settings.get_memory_budget("doc"),
-                        max_reflects=self._settings.get_memory_max_reflects("doc"),
-                        question=question,
+                    inject_context_memory(reviewer)
+                    hippo = Hippocampus(
                         task_name="doc",
+                        budget=self._settings.get_memory_budget("doc"),
+                        question=question,
                         run_id=run_id,
                         initial_memory=scope_initial_memory,
                         topics=topics,
                     )
-                    result = await mem.aforward(
+                    result = await reviewer.aforward(
+                        context_memory=hippo.context_memory,
                         patches=patches,
                         documentation=documentation,
                         categories=[IssueCategory.DOCUMENTATION],
                     )
+                    await hippo.aobserve(result)
                     issues = [
                         issue
                         for issue in (result.issues or [])
@@ -259,9 +260,9 @@ class DocReviewer(dspy.Module):
                     ]
                     # Fire-and-forget background episode save
                     _artifacts = {"review": issues_to_markdown(issues)}
-                    def _persist(m=mem, s=store, a=_artifacts):
+                    def _persist(h=hippo, s=store, a=_artifacts):
                         try:
-                            m.end_episode(s, artifacts=a)
+                            h.end_episode(s, artifacts=a)
                         except Exception:
                             logger.warning("Background doc episode save failed", exc_info=True)
                     submit_episode_save(_persist, name="doc-episode-save")

@@ -7,7 +7,7 @@ import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.review.helpers import deepest_common_folder
@@ -107,7 +107,7 @@ class Summarizer(dspy.Module):
 
         question = f"summarize {pr_context.repo_slug}: pull request {pr_context.pr_number} {pr_context.pr_title}"
 
-        mem: Hippocampus | None = None
+        hippo: Hippocampus | None = None
         with SignatureContext("summary", self._cost_tracker):
             if self._settings.get_memory_enabled("summary") and store is not None:
                 # Build topics list for Hippocampus
@@ -117,27 +117,28 @@ class Summarizer(dspy.Module):
                     if scope_topic:
                         scope_topics.append(scope_topic)
 
-                mem = Hippocampus(
-                    summarizer,
-                    budget=self._settings.get_memory_budget("summary"),
-                    max_reflects=self._settings.get_memory_max_reflects("summary"),
-                    question=question,
+                inject_context_memory(summarizer)
+                hippo = Hippocampus(
                     task_name="summary",
+                    budget=self._settings.get_memory_budget("summary"),
+                    question=question,
                     run_id=run_id,
                     initial_memory=initial_memory,
                     topics=scope_topics if scope_topics else topics,
                 )
-                result = mem(
+                result = summarizer(
+                    context_memory=hippo.context_memory,
                     pr_title=pr_context.pr_title,
                     pr_description=pr_context.pr_description,
                     changed_file_paths=changed_file_paths,
                     patches=patches,
                 )
+                hippo.observe(result)
                 # Fire-and-forget episode save
                 _summary_text = result.summary
                 def _persist():
                     try:
-                        mem.end_episode(store, artifacts={"summary": _summary_text})
+                        hippo.end_episode(store, artifacts={"summary": _summary_text})
                     except Exception:
                         logger.warning("Background summary episode save failed", exc_info=True)
                 submit_episode_save(_persist, name="summary-episode-save")

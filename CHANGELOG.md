@@ -5,6 +5,14 @@
 ## [1.2.3] - 2026-09-16
 
 ### Changed
+- **BREAKING**: `Hippocampus` refactored from wrapper to composable component
+  - `Hippocampus` no longer inherits from `dspy.Module` or accepts a `module` parameter
+  - Removed `forward()`, `aforward()` — agents call their own modules and pass `hippo.context_memory`
+  - Added `observe(result)` / `aobserve(result)` to feed agent results back for reflection
+  - Added `context_memory` read-only property
+  - Added `bind_topics(topics, topic_ids)` public method (replaces direct `_topic_ids` access)
+  - Added `inject_context_memory(module)` standalone utility for signature injection
+  - All 6 review agents updated to composable pattern
 - **Internal**: Flattened `hippocampus/modules/` directory structure
   - Moved `distiller.py` and `cartographer.py` from `hippocampus/modules/` to `hippocampus/` package root
   - Removed `hippocampus/modules/__init__.py` and deleted `modules/` subdirectory

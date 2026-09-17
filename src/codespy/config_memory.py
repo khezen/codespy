@@ -91,7 +91,7 @@ class Pg0Config(BaseModel):
 class MemoryConfig(BaseModel):
     """Global memory (Hippocampus) configuration.
 
-    Controls where episodes are persisted and the default reflection knobs
+    Controls where episodes are persisted and the default memory knob
     applied to every agent. Per-signature ``memory:`` blocks override the
     ``default_*`` values.
     """
@@ -101,9 +101,8 @@ class MemoryConfig(BaseModel):
     pg0: Pg0Config = Field(default_factory=Pg0Config)
     bank_id: str | None = None  # MEMORY_BANK_ID (defaults to "codespy")
 
-    # Reflection defaults — overridable per-signature
+    # Memory default — overridable per-signature
     default_enabled: bool = False  # MEMORY_DEFAULT_ENABLED
-    default_max_reflects: int = Field(default=0)  # MEMORY_DEFAULT_MAX_REFLECTS
 
     # Whether to apply head+tail trajectory bounding before distillation.
     # When false, the full trajectory goes to the Distiller and ContextSafe
@@ -173,7 +172,6 @@ PG0_ENV_SETTINGS = {
 MEMORY_ENV_SETTINGS = {
     "BANK_ID": "bank_id",
     "DEFAULT_ENABLED": "default_enabled",
-    "DEFAULT_MAX_REFLECTS": "default_max_reflects",
     "COMPACT_TRAJECTORY": "compact_trajectory",
     "MAX_CONTEXT_MEMORY_TOKENS": "max_context_memory_tokens",
     "MAX_CONTEXT_ITEM_TOKENS": "max_context_item_tokens",

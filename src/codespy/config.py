@@ -265,20 +265,11 @@ class Settings(BaseSettings):
         config = self.get_signature_config(signature_name).memory
         return config.enabled if config.enabled is not None else self.memory.default_enabled
 
-    def get_memory_max_reflects(self, signature_name: str) -> int | None:
-        """Get max_reflects for a signature's memory (signature-specific or default)."""
-        config = self.get_signature_config(signature_name).memory
-        return (
-            config.max_reflects
-            if config.max_reflects is not None
-            else self.memory.default_max_reflects
-        )
-
     def get_memory_budget(self, signature_name: str) -> "MemoryBudget":
         """Resolve the ``MemoryBudget`` for a signature.
 
-        Token budgets are global (``memory.default_*``); only ``enabled`` and
-        ``max_reflects`` support per-signature overrides.
+        Token budgets are global (``memory.default_*``); only ``enabled``
+        supports per-signature overrides.
         """
         from codespy.agents.memory.hippocampus.budget import MemoryBudget
 
