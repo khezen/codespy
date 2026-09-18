@@ -249,10 +249,11 @@ class ReviewPipeline(dspy.Module):
             scopes=scopes,
             topics=all_scope_topics,
         )
-        # Collect per-signature statistics
-        signature_stats_list = self._collect_signature_stats()
-        # Ensure all background episode saves complete before returning
+        # Ensure all background episode saves complete before stats collection
+        # (audit's episode save runs in background and contains distiller/cartographer calls)
         join_episode_saves()
+        # Collect per-signature statistics (after all saves complete)
+        signature_stats_list = self._collect_signature_stats()
         return ReviewResult(
             pr_number=pr.number,
             pr_title=pr.title,

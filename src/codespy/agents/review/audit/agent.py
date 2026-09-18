@@ -9,6 +9,7 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
 from codespy.agents.memory.hippocampus.context_memory import Topic
+from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.review.models import Issue, ReviewContext
 from codespy.agents.review.helpers import deepest_common_folder
 from codespy.config import get_settings
@@ -16,6 +17,7 @@ from codespy.config_memory import get_episode_store
 
 if TYPE_CHECKING:
     from codespy.agents.review.scope.models import ScopeResult
+    from codespy.agents.memory.hippocampus.episode import EpisodeStore
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +59,13 @@ class Auditor(dspy.Module):
         run_id: str | None,
         scopes: list["ScopeResult"] | None,
         topics: list["ScopeResult"] | None = None,
-    ) -> dspy.Prediction:
-        """Execute the auditor predictor (with or without Hippocampus memory)."""
+    ) -> tuple[dspy.Prediction, Hippocampus | None, "EpisodeStore | None", dict[str, str] | None]:
+        """Execute the auditor predictor (with or without Hippocampus memory).
+
+        Returns:
+            Tuple of (result, hippo, store, artifacts) where hippo/store/artifacts
+            are None when memory is disabled.
+        """
         question = (
             f"final audit of {review_context.pr_context.repo_slug}: "
             f"pull request {review_context.pr_context.pr_number} "
@@ -110,25 +117,20 @@ class Auditor(dspy.Module):
                 all_issues=all_issues,
             )
             hippo.observe(result)
-            # Run episode save synchronously (auditor is the last module)
-            try:
-                _artifacts = {
-                    "audit": (
-                        f"## Quality Assessment\n\n{result.quality_assessment}\n\n"
-                        f"## Recommendation\n\n{result.recommendation}\n"
-                    )
-                }
-                hippo.end_episode(store, artifacts=_artifacts)
-            except Exception:
-                logger.warning("Audit episode save failed", exc_info=True)
+            _artifacts = {
+                "audit": (
+                    f"## Quality Assessment\n\n{result.quality_assessment}\n\n"
+                    f"## Recommendation\n\n{result.recommendation}\n"
+                )
+            }
+            return result, hippo, store, _artifacts
         else:
             result = auditor(
                 pr_title=review_context.pr_context.pr_title,
                 summary=review_context.pr_context.summary,
                 all_issues=all_issues,
             )
-
-        return result
+            return result, None, None, None
 
     def forward(
         self,
@@ -168,7 +170,7 @@ class Auditor(dspy.Module):
         logger.info("Running audit...")
 
         with SignatureContext("audit", self._cost_tracker):
-            result = self._call_auditor(
+            result, hippo, store, _artifacts = self._call_auditor(
                 auditor,
                 review_context,
                 all_issues,
@@ -176,5 +178,14 @@ class Auditor(dspy.Module):
                 scopes,
                 topics,
             )
+
+        # Background episode save (after SignatureContext closes)
+        if hippo is not None and store is not None:
+            def _persist():
+                try:
+                    hippo.end_episode(store, artifacts=_artifacts)
+                except Exception:
+                    logger.warning("Audit episode save failed", exc_info=True)
+            submit_episode_save(_persist, name="audit-episode-save")
 
         return result.quality_assessment, result.recommendation

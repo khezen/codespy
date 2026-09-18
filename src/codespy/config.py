@@ -281,6 +281,18 @@ class Settings(BaseSettings):
             compact_trajectory=self.memory.compact_trajectory,
         )
 
+    def get_scope_skip_refinement(self) -> bool:
+        """Whether to skip LLM refinement when deterministic resolution is clean.
+
+        Returns True (skip) when:
+        - There's 1 scope and 0 orphans (single scope, all files assigned)
+        - The setting skip_refinement_when_clean is True or not explicitly set
+
+        Per-signature ``skip_refinement_when_clean`` overrides default (True).
+        """
+        val = self.get_signature_config("scope").skip_refinement_when_clean
+        return val if val is not None else True  # default: skip
+
     def get_rlm_threshold(self, module_type: str) -> float:
         """Resolve RLM fallback threshold for a module type.
 
