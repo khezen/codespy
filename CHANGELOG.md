@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-09-18
+
+### Changed
+- **Performance**: Scope resolution fast-path for clean single-scope repos
+  - When deterministic resolution finds exactly 1 scope and 0 orphans, skip expensive ReAct LLM refinement
+  - New `skip_refinement_when_clean` setting on scope signature (default: `true`)
+  - Env var: `SCOPE_SKIP_REFINEMENT_WHEN_CLEAN=true|false`
+  - Improves scope duration from ~45s to <1s for typical single-scope repositories
+  - Enhanced deterministic scope descriptions to include package name and scope type
+- **Performance**: Audit episode save now runs in background
+  - Moved `hippo.end_episode()` from synchronous to `submit_episode_save()` background thread
+  - Audit duration drops from ~48s to ~5-15s (just the ChainOfThought LLM call + memory load)
+  - Stats collection now runs after `join_episode_saves()` to ensure complete distiller/cartographer stats
+
+### Added
+- New `SignatureConfig.skip_refinement_when_clean` field (scope-specific optimization)
+- New `Settings.get_scope_skip_refinement()` method (returns `True` by default)
+- New `_finalize_scopes()` helper in scope resolver for skills attachment
+
 ## [1.2.3] - 2026-09-16
 
 ### Changed

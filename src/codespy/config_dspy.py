@@ -51,6 +51,7 @@ class SignatureConfig(BaseModel):
     temperature: float | None = None
     max_tokens: int | None = None  # Output token budget (reasoning tokens included)
     scan_unchanged: bool | None = None  # For supply_chain: scan unmodified artifacts/manifests
+    skip_refinement_when_clean: bool | None = None  # For scope: skip LLM refinement when 1 scope, 0 orphans
 
     memory: MemorySignatureConfig = Field(default_factory=MemorySignatureConfig)
 

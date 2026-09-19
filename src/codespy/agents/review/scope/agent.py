@@ -625,10 +625,17 @@ class ScopeResolver(dspy.Module):
             # Extract package name from manifest
             package_name = extract_package_name(manifest_path, repo_path)
 
-            # Build deterministic description
-            description = (
-                f"{pkg_mgr} package at {subroot}" if subroot != "." else f"{pkg_mgr} package (root)"
-            )
+            # Build deterministic description with package name and scope type
+            parts = []
+            if package_name:
+                parts.append(package_name)
+            parts.append(f"{scope_type.value}")
+            if subroot != ".":
+                parts.append(f"at {subroot}")
+            else:
+                parts.append("(repository root)")
+            parts.append(f"managed by {pkg_mgr}")
+            description = " — ".join([parts[0], " ".join(parts[1:])]) if len(parts) > 1 else " ".join(parts)
 
             scopes[subroot] = ScopeResult(
                 repo=repo,
@@ -658,7 +665,9 @@ class ScopeResolver(dspy.Module):
             indicator_type, indicator_path = self._find_scope_indicator(file.filename)
             if indicator_path and indicator_type and indicator_path not in scopes:
                 # Build deterministic description for indicator-based scope
-                description = f"{indicator_type.value} scope at {indicator_path}"
+                parts = [f"{indicator_type.value}", "scope"]
+                parts.append(f"at {indicator_path}")
+                description = " ".join(parts)
                 scopes[indicator_path] = ScopeResult(
                     repo=repo,
                     subroot=indicator_path,
@@ -978,6 +987,33 @@ class ScopeResolver(dspy.Module):
 
         return [s for s in final_boundaries.values() if s.changed_files]
 
+    def _finalize_scopes(
+        self,
+        scopes: list[ScopeResult],
+        review_context: ReviewContext,
+    ) -> list[ScopeResult]:
+        """Finalize scopes by building topics and attaching hierarchical skills.
+
+        This helper is called both by the fast-path (deterministic resolution only)
+        and by _refine_scopes after LLM refinement. It does NOT handle Hippocampus
+        binding or episode persistence — those are handled separately.
+
+        Args:
+            scopes: List of ScopeResult to finalize
+            review_context: Review context with PR identity and metadata
+
+        Returns:
+            Finalized list of ScopeResult with skills attached
+        """
+        pr = review_context.metadata.pr
+        repo_path = review_context.metadata.repo_path
+
+        # Attach hierarchical skills to each scope
+        for scope in scopes:
+            scope.skills = collect_skills(repo_path, scope.subroot)
+
+        return scopes
+
     async def _refine_scopes(
         self,
         scopes: list[ScopeResult],
@@ -1120,9 +1156,8 @@ class ScopeResolver(dspy.Module):
             # Add PR URL topic (provides description; not a scope)
             pr_ctx = review_context.pr_context
             scope_topics.append(pr_ctx.to_topic())
-            # Attach hierarchical skills to each produced scope
-            for scope in final_scopes:
-                scope.skills = collect_skills(repo_path, scope.subroot)
+            # Finalize scopes with hierarchical skills
+            self._finalize_scopes(final_scopes, review_context)
             # Bind topics to hippocampus cmem for episode persistence
             if hippo is not None and stamp_topic_ids:
                 stamp_topic_ids.append(pr_ctx.pr_url)
@@ -1204,7 +1239,20 @@ class ScopeResolver(dspy.Module):
                 )
             if orphans:
                 logger.info("Deterministic identification produced %d orphan(s)", len(orphans))
-            scopes = await self._refine_scopes(scopes, orphans, review_context)
+
+            # Fast-path: skip LLM refinement when clean single-scope resolution
+            if (
+                len(scopes) == 1
+                and not orphans
+                and self._settings.get_scope_skip_refinement()
+            ):
+                logger.info(
+                    "Deterministic resolution sufficient (1 scope, 0 orphans); "
+                    "skipping LLM refinement"
+                )
+                scopes = self._finalize_scopes(scopes, review_context)
+            else:
+                scopes = await self._refine_scopes(scopes, orphans, review_context)
             # Log final scopes for visibility
             scope_summary = "\n".join(
                 f"  - {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
