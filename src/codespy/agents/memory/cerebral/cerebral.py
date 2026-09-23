@@ -149,7 +149,7 @@ class Cerebral:
             for obs in getattr(episode.context_memory, section_name):
                 contents.append({
                     "content": f"[{section_name}] {obs.content}",
-                    "context": f"code review {episode.task} observation ({section_name})",
+                    "context": f"{episode.task}: {episode.question}: observation ({section_name})",
                     "tags": tags,
                     "document_id": episode_doc_id,
                     "event_date": episode.timestamp.isoformat(),
@@ -158,7 +158,7 @@ class Cerebral:
         for name, content in (episode.artifacts or {}).items():
             contents.append({
                 "content": content,
-                "context": f"code review {episode.task} artifact ({name})",
+                "context": f"{episode.task}: {episode.question}: artifact ({name})",
                 "tags": tags,
                 "document_id": episode_doc_id,
                 "event_date": episode.timestamp.isoformat(),
