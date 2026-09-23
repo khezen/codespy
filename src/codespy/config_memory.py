@@ -18,6 +18,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Default embedding model per LLM provider prefix. Used by get_cerebral()
+# when hindsight.embeddings_model is None. litellm-sdk routes through litellm.
+EMBEDDING_MODELS: dict[str, str] = {
+    "bedrock": "bedrock/cohere.embed-multilingual-v3",
+    "openai": "openai/text-embedding-3-small",
+    "anthropic": "openai/text-embedding-3-small",
+    "gemini": "gemini/text-embedding-004",
+    "azure": "azure/text-embedding-3-small",
+    "litellm": "openai/text-embedding-3-small",
+}
+
+
+class HindsightConfig(BaseModel):
+    """Hindsight MemoryEngine settings for Cerebral semantic memory."""
+    embeddings_model: str | None = None  # MEMORY_HINDSIGHT_EMBEDDINGS_MODEL
+
+
 class ReflectionModuleConfig(BaseModel):
     """LLM overrides for a single reflection module (Distiller / Cartographer).
 
@@ -89,11 +106,10 @@ class Pg0Config(BaseModel):
 
 
 class MemoryConfig(BaseModel):
-    """Global memory (Hippocampus) configuration.
+    """Global memory (Hippocampus + Cerebral) configuration.
 
-    Controls where episodes are persisted and the default memory knob
-    applied to every agent. Per-signature ``memory:`` blocks override the
-    ``default_*`` values.
+    Controls where episodes are persisted and the memory knob applied to
+    every agent.  Per-signature ``memory:`` blocks override ``enabled``.
     """
 
     # PostgreSQL connection settings
@@ -101,8 +117,8 @@ class MemoryConfig(BaseModel):
     pg0: Pg0Config = Field(default_factory=Pg0Config)
     bank_id: str | None = None  # MEMORY_BANK_ID (defaults to "codespy")
 
-    # Memory default — overridable per-signature
-    default_enabled: bool = False  # MEMORY_DEFAULT_ENABLED
+    # Master switch — overridable per-signature via signatures.<name>.memory.enabled
+    enabled: bool = False  # MEMORY_ENABLED
 
     # Whether to apply head+tail trajectory bounding before distillation.
     # When false, the full trajectory goes to the Distiller and ContextSafe
@@ -139,13 +155,10 @@ class MemoryConfig(BaseModel):
     max_question_tokens: int | None = 8192  # MEMORY_MAX_QUESTION_TOKENS
 
     # Per-module LLM overrides for the reflection pipeline.
-    # Unset fields fall back to the top-level ``default_*`` settings.
-    distiller: ReflectionModuleConfig = Field(
-        default_factory=ReflectionModuleConfig
-    )  # MEMORY_DISTILLER_*
-    cartographer: ReflectionModuleConfig = Field(
-        default_factory=ReflectionModuleConfig
-    )  # MEMORY_CARTOGRAPHER_*
+    distiller: ReflectionModuleConfig = Field(default_factory=ReflectionModuleConfig)
+    cartographer: ReflectionModuleConfig = Field(default_factory=ReflectionModuleConfig)
+    cerebral: ReflectionModuleConfig = Field(default_factory=ReflectionModuleConfig)  # MEMORY_CEREBRAL_*
+    hindsight: HindsightConfig = Field(default_factory=HindsightConfig)
 
 
 # Env var suffix (after MEMORY_POSTGRES_) -> PostgresConfig field name.
@@ -165,13 +178,17 @@ PG0_ENV_SETTINGS = {
     "DATA_DIR": "data_dir",
 }
 
+HINDSIGHT_ENV_SETTINGS = {
+    "EMBEDDINGS_MODEL": "embeddings_model",
+}
+
 # Env var name (without the MEMORY_ prefix) -> MemoryConfig field name.
 # ``memory`` is a nested model and ``Settings`` does not set
 # ``env_nested_delimiter``, so pydantic-settings cannot populate these fields
 # from the environment on its own. apply_memory_env_overrides() bridges the gap.
 MEMORY_ENV_SETTINGS = {
     "BANK_ID": "bank_id",
-    "DEFAULT_ENABLED": "default_enabled",
+    "ENABLED": "enabled",
     "COMPACT_TRAJECTORY": "compact_trajectory",
     "MAX_CONTEXT_MEMORY_TOKENS": "max_context_memory_tokens",
     "MAX_CONTEXT_ITEM_TOKENS": "max_context_item_tokens",
@@ -198,6 +215,7 @@ REFLECTION_MODULE_ENV_SETTINGS = {
 NESTED_ENV_PREFIXES: dict[str, tuple[str, dict[str, str]]] = {
     "POSTGRES_": ("postgres", POSTGRES_ENV_SETTINGS),
     "PG0_": ("pg0", PG0_ENV_SETTINGS),
+    "HINDSIGHT_": ("hindsight", HINDSIGHT_ENV_SETTINGS),
 }
 # Add reflection modules dynamically (same pattern, shared settings map)
 for _mod in REFLECTION_MODULES:
@@ -215,7 +233,7 @@ def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     Maps flat env vars onto the nested ``memory`` config, e.g.::
 
         MEMORY_POSTGRES_HOST=myhost                    -> memory.postgres.host
-        MEMORY_DEFAULT_ENABLED=true                    -> memory.default_enabled
+        MEMORY_ENABLED=true                            -> memory.enabled
         MEMORY_MAX_CONTEXT_MEMORY_TOKENS=512           -> memory.max_context_memory_tokens
 
     Nested sub-model overrides use a second level of nesting::
@@ -399,3 +417,153 @@ def verify_memory_access(settings: Settings) -> tuple[bool, str]:
         return False, f"Memory storage not accessible: {e}"
 
     return True, f"Memory storage verified (PostgreSQL, bank={settings.memory.bank_id or _generate_bank_id()})"
+
+
+# Cached singleton Cerebral instance.
+_cerebral: "Cerebral" | None = None
+_cerebral_built = False
+
+
+def _derive_cerebral_llm_params(settings: "Settings") -> tuple[str, str | None, str | None, str | None]:
+    """Derive MemoryEngine LLM params from the cerebral model config + LLM credentials.
+
+    Parses the litellm model string to extract the provider prefix and maps
+    credentials from ``settings.llm``.
+
+    Returns:
+        ``(provider, model, api_key, base_url)``
+    """
+    llm_config = settings.get_llm_config("cerebral")
+    model = llm_config.model  # e.g. "bedrock/converse/moonshotai.kimi-k2.5"
+
+    # Parse litellm model string: "provider/model_path"
+    parts = model.split("/", 1)
+    provider = parts[0] if len(parts) > 1 else "openai"
+    model_name = parts[1] if len(parts) > 1 else model
+
+    # Map credentials from Settings.llm
+    api_key: str | None = None
+    base_url: str | None = None
+    llm = settings.llm
+
+    if provider == "bedrock":
+        pass  # Uses AWS env vars (AWS_ACCESS_KEY_ID, etc.)
+    elif provider == "openai":
+        api_key = llm.openai_api_key.get_secret_value() if llm.openai_api_key else None
+        base_url = llm.openai_api_base
+    elif provider == "anthropic":
+        api_key = llm.anthropic_api_key.get_secret_value() if llm.anthropic_api_key else None
+    elif provider == "gemini":
+        api_key = llm.gemini_api_key.get_secret_value() if llm.gemini_api_key else None
+    elif provider in ("azure", "azure_ai"):
+        api_key = llm.azure_api_key.get_secret_value() if llm.azure_api_key else None
+        base_url = llm.azure_api_base
+    else:
+        # Unknown provider — pass model as-is, let MemoryEngine/litellm resolve
+        provider = "litellm"
+        model_name = model
+
+    return provider, model_name, api_key, base_url
+
+
+def get_cerebral(settings: "Settings") -> "Cerebral" | None:
+    """Return the cached Cerebral instance, or None if unavailable.
+
+    Cerebral activates unconditionally (like ``get_episode_store``).
+    Agent-level ``get_memory_enabled(sig)`` handles per-signature gating.
+    LLM parameters are auto-derived from the ``cerebral``
+    ReflectionModuleConfig model string and ``settings.llm`` credentials.
+
+    The store is built once and cached (module-level singleton).
+
+    Call :func:`reset_cerebral` after changing settings (e.g. via
+    ``reload_settings``) to force a rebuild on next access.
+
+    Args:
+        settings: Application settings.
+
+    Returns:
+        Cached Cerebral instance, or None when hindsight-api-slim is
+        not installed or PostgreSQL is not available.
+    """
+    global _cerebral, _cerebral_built
+    if _cerebral_built:
+        return _cerebral
+
+    try:
+        from codespy.agents.memory.cerebral import Cerebral
+    except ImportError:
+        logger.warning(
+            "Memory is enabled but hindsight-api-slim is not installed. "
+            "Semantic memory disabled. Install with: pip install hindsight-api-slim"
+        )
+        _cerebral = None
+        _cerebral_built = True
+        return None
+
+    pg_uri = settings.memory.postgres.build_uri()
+    if not pg_uri:
+        try:
+            from codespy.agents.memory.pg0_manager import get_pg0_uri
+
+            pg_uri = get_pg0_uri(
+                name=settings.memory.pg0.name,
+                port=settings.memory.pg0.port,
+                data_dir=settings.memory.pg0.data_dir,
+            )
+        except Exception:
+            logger.warning("Memory enabled but no PostgreSQL available for Cerebral")
+            _cerebral = None
+            _cerebral_built = True
+            return None
+
+    provider, model_name, api_key, base_url = _derive_cerebral_llm_params(settings)
+    bank_id = settings.memory.bank_id or "codespy"
+    embeddings_model = (
+        settings.memory.hindsight.embeddings_model
+        or EMBEDDING_MODELS.get(provider, "openai/text-embedding-3-small")
+    )
+
+    try:
+        _cerebral = Cerebral(
+            database_url=pg_uri,
+            llm_provider=provider,
+            llm_model=model_name,
+            llm_api_key=api_key,
+            llm_base_url=base_url,
+            bank_id=bank_id,
+            embeddings_model=embeddings_model,
+        )
+    except Exception:
+        logger.error(
+            "Cerebral initialization FAILED (bank=%s, schema=semantic). "
+            "Semantic memory is disabled for this run.",
+            bank_id, exc_info=True,
+        )
+        _cerebral = None
+        _cerebral_built = True
+        return None
+
+    llm_config = settings.get_llm_config("cerebral")
+    logger.info(
+        "Cerebral initialized (bank=%s, model=%s, provider=%s, schema=semantic)",
+        bank_id, llm_config.model, provider,
+    )
+    _cerebral_built = True
+    return _cerebral
+
+
+def reset_cerebral() -> None:
+    """Clear the cached Cerebral instance so it is rebuilt on next access.
+
+    Call this after reloading settings (e.g. ``reload_settings()``) so a
+    changed ``memory`` configuration takes effect.
+    """
+    global _cerebral, _cerebral_built
+    if _cerebral is not None:
+        try:
+            _cerebral.close()
+        except Exception:
+            pass
+    _cerebral = None
+    _cerebral_built = False

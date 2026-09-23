@@ -12,7 +12,7 @@ from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.review.helpers import deepest_common_folder
 from codespy.config import get_settings
-from codespy.config_memory import get_episode_store
+from codespy.config_memory import get_cerebral, get_episode_store
 
 if TYPE_CHECKING:
     from codespy.agents.review.models import PRContext
@@ -136,11 +136,18 @@ class Summarizer(dspy.Module):
                 hippo.observe(result)
                 # Fire-and-forget episode save
                 _summary_text = result.summary
+                cerebral = get_cerebral(self._settings)
+                _cerebral = cerebral
                 def _persist():
                     try:
                         hippo.end_episode(store, artifacts={"summary": _summary_text})
                     except Exception:
                         logger.warning("Background summary episode save failed", exc_info=True)
+                    if _cerebral is not None and hippo.episode is not None:
+                        try:
+                            _cerebral.retain_episode(hippo.episode)
+                        except Exception:
+                            logger.warning("Background summary cerebral retain failed", exc_info=True)
                 submit_episode_save(_persist, name="summary-episode-save")
             else:
                 result = summarizer(

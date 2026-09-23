@@ -126,6 +126,7 @@ AUTO_DISCOVER_GEMINI=false
 | Mid-tier | Field extraction | `EXTRACTION_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
 | Cheap | PR summary | `SUMMARY_MODEL` | Falls back to DEFAULT_MODEL | Claude Haiku |
 | Mid-tier | Memory reflection | `MEMORY_DISTILLER_MODEL` / `MEMORY_CARTOGRAPHER_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
+| Mid-tier | Semantic memory (fact extraction) | `MEMORY_CEREBRAL_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
 
 ## Per-Signature Configuration
 
@@ -182,13 +183,27 @@ Brief overview:
 | pg0 name | `MEMORY_PG0_NAME` | `codespy` | pg0-embedded database name (local dev) |
 | pg0 port | `MEMORY_PG0_PORT` | auto | pg0-embedded port (local dev) |
 | pg0 data dir | `MEMORY_PG0_DATA_DIR` | — | pg0-embedded data directory (local dev) |
-| Default enabled | `MEMORY_DEFAULT_ENABLED` | `false` | Enable memory globally |
+| Enabled | `MEMORY_ENABLED` | `false` | Enable memory globally (episodic + semantic) |
 | Context memory tokens | `MEMORY_MAX_CONTEXT_MEMORY_TOKENS` | `16384` | Ceiling on persisted context memory |
 | Observation tokens | `MEMORY_MAX_CONTEXT_ITEM_TOKENS` | `512` | Soft per-observation token limit |
 | Trajectory tokens | `MEMORY_MAX_TRAJECTORY_TOKENS` | `16384` | Cap on trajectory fed to Distiller |
 | Question tokens | `MEMORY_MAX_QUESTION_TOKENS` | `8192` | Cap on serialized reflection inputs |
 
 See [Memory System](memory.md) for full memory configuration details.
+
+## Cerebral Semantic Memory
+
+Cerebral retains episode observations and artifacts into Hindsight AI semantic memory, creating a knowledge layer alongside the episodic store. It activates automatically when `MEMORY_ENABLED=true`.
+
+LLM provider and credentials are auto-derived from the model string and existing LLM config (e.g., `bedrock/*` uses AWS env vars, `openai/*` uses `OPENAI_API_KEY`).
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| Cerebral Model | `MEMORY_CEREBRAL_MODEL` | `DEFAULT_MODEL` | Model for fact extraction (ReflectionModuleConfig) |
+| Cerebral Temperature | `MEMORY_CEREBRAL_TEMPERATURE` | `DEFAULT_TEMPERATURE` | Temperature for fact extraction |
+| Cerebral Max Tokens | `MEMORY_CEREBRAL_MAX_TOKENS` | `DEFAULT_MAX_TOKENS` | Output token budget |
+
+Hindsight MemoryEngine uses the same PostgreSQL instance under the `semantic` schema (created automatically alongside `episodic`).
 
 ## Output Settings
 

@@ -140,7 +140,7 @@ def apply_signature_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     - ``SUPPLY_CHAIN_ENABLED``       -> signatures.supply_chain.enabled
     - ``CODE_REVIEW_MEMORY_ENABLED`` -> signatures.code_review.memory.enabled
 
-    Top-level settings (DEFAULT_MODEL, AWS_REGION, MEMORY_DEFAULT_ENABLED, etc.)
+    Top-level settings (DEFAULT_MODEL, AWS_REGION, MEMORY_ENABLED, etc.)
     are handled directly by pydantic-settings and should NOT be processed here.
     """
     # Load .env file first to ensure env vars are available

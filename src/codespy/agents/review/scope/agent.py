@@ -25,7 +25,7 @@ from codespy.agents.review.models import ReviewContext
 from codespy.agents.review.scope.manifest_parser import extract_package_name
 from codespy.agents.review.scope.models import PackageManifest, ScopeResult, ScopeType
 from codespy.config import get_settings
-from codespy.config_memory import get_episode_store
+from codespy.config_memory import get_cerebral, get_episode_store
 from codespy.tools.git.client import get_client
 from codespy.tools.git.models import ChangedFile, PullRequest, should_review_file
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -1164,16 +1164,23 @@ class ScopeResolver(dspy.Module):
                 hippo.bind_topics(scope_topics, stamp_topic_ids)
 
             # Fire-and-forget background episode save
+            cerebral = get_cerebral(self._settings)
             if hippo is not None and store is not None:
                 scope_desc = "\n".join(
                     f"- {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
                     for s in final_scopes
                 )
+                _cerebral = cerebral
                 def _persist():
                     try:
                         hippo.end_episode(store, artifacts={"scopes": scope_desc})
                     except Exception:
                         logger.warning("Background scope episode save failed", exc_info=True)
+                    if _cerebral is not None and hippo.episode is not None:
+                        try:
+                            _cerebral.retain_episode(hippo.episode)
+                        except Exception:
+                            logger.warning("Background cerebral retain failed", exc_info=True)
                 submit_episode_save(_persist, name="scope-episode-save")
 
             return final_scopes

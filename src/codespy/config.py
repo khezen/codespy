@@ -260,10 +260,10 @@ class Settings(BaseSettings):
     def get_memory_enabled(self, signature_name: str) -> bool:
         """Whether Hippocampus memory is enabled for a signature.
 
-        Per-signature ``memory.enabled`` overrides ``memory.default_enabled``.
+        Per-signature ``memory.enabled`` overrides ``memory.enabled``.
         """
         config = self.get_signature_config(signature_name).memory
-        return config.enabled if config.enabled is not None else self.memory.default_enabled
+        return config.enabled if config.enabled is not None else self.memory.enabled
 
     def get_memory_budget(self, signature_name: str) -> "MemoryBudget":
         """Resolve the ``MemoryBudget`` for a signature.

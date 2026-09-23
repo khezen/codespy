@@ -97,12 +97,12 @@ class TestApplyMemoryEnvOverrides:
         result = apply_memory_env_overrides(config)
         assert result["memory"]["pg0"]["data_dir"] == "/custom/path"
 
-    def test_override_default_enabled(self, monkeypatch):
-        """MEMORY_DEFAULT_ENABLED should set memory.default_enabled as bool."""
-        monkeypatch.setenv("MEMORY_DEFAULT_ENABLED", "true")
+    def test_override_enabled(self, monkeypatch):
+        """MEMORY_ENABLED should set memory.enabled as bool."""
+        monkeypatch.setenv("MEMORY_ENABLED", "true")
         config = {}
         result = apply_memory_env_overrides(config)
-        assert result["memory"]["default_enabled"] is True
+        assert result["memory"]["enabled"] is True
 
     def test_override_reflection_module(self, monkeypatch):
         """MEMORY_DISTILLER_MODEL should set memory.distiller.model."""

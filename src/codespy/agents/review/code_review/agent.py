@@ -22,7 +22,7 @@ from codespy.agents.review.helpers import (
     restore_repo_paths,
 )
 from codespy.config import get_settings
-from codespy.config_memory import get_episode_store
+from codespy.config_memory import get_cerebral, get_episode_store
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -337,11 +337,17 @@ class CodeReviewer(dspy.Module):
                     ]
                     # Fire-and-forget background episode save
                     _artifacts = {"review": issues_to_markdown(issues)}
-                    def _persist(h=hippo, s=store, a=_artifacts):
+                    cerebral = get_cerebral(self._settings)
+                    def _persist(h=hippo, s=store, a=_artifacts, c=cerebral):
                         try:
                             h.end_episode(s, artifacts=a)
                         except Exception:
                             logger.warning("Background code_review episode save failed", exc_info=True)
+                        if c is not None and h.episode is not None:
+                            try:
+                                c.retain_episode(h.episode)
+                            except Exception:
+                                logger.warning("Background cerebral retain failed", exc_info=True)
                     submit_episode_save(_persist, name="code-review-episode-save")
                 else:
                     result = await agent.acall(

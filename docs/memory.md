@@ -212,7 +212,7 @@ Observation capacity ≈ context_memory_tokens / observation_tokens (16384/512 =
 | `MEMORY_PG0_PORT` | `memory.pg0.port` | auto | pg0-embedded port |
 | `MEMORY_PG0_DATA_DIR` | `memory.pg0.data_dir` | — | Custom data directory for pg0-embedded |
 | `MEMORY_BANK_ID` | `memory.bank_id` | `codespy` | Scopes all memory data |
-| `MEMORY_DEFAULT_ENABLED` | `memory.default_enabled` | `false` | Enable memory globally |
+| `MEMORY_ENABLED` | `memory.enabled` | `false` | Enable memory globally (episodic + semantic) |
 | `MEMORY_COMPACT_TRAJECTORY` | `memory.compact_trajectory` | `true` | Apply head+tail trajectory bounding before distillation |
 
 ### Reflection Module LLM Overrides
@@ -238,7 +238,7 @@ See [Configuration](configuration.md#recommended-model-strategy) for recommended
 
 Enable memory for code review:
 ```bash
-MEMORY_DEFAULT_ENABLED=true
+MEMORY_ENABLED=true
 # Or per-signature:
 CODE_REVIEW_MEMORY_ENABLED=true
 SUMMARY_MEMORY_ENABLED=true

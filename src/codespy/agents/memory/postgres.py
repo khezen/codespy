@@ -86,6 +86,19 @@ class EpisodeStore:
                 # from any schema's search_path (episodic, semantic, etc.)
                 cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public")
 
+                # Ensure the semantic schema exists (used by Cerebral/MemoryEngine)
+                cur.execute("CREATE SCHEMA IF NOT EXISTS semantic")
+
+                # pgvector extension — required by MemoryEngine for semantic search.
+                # Wrapped in a nested transaction (savepoint): pgvector may not
+                # be installed on all PostgreSQL instances; episodic memory
+                # works fine without it.
+                try:
+                    with conn.transaction():
+                        cur.execute("CREATE EXTENSION IF NOT EXISTS vector SCHEMA public")
+                except Exception:
+                    logger.debug("pgvector extension not available — semantic search requires it")
+
                 # Schema version table
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS schema_version (

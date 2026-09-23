@@ -98,8 +98,8 @@ memory:
   # or agent name. When unset, auto-generated from hostname.
   bank_id: null                           # MEMORY_BANK_ID
 
-  # Memory default — overridable per-signature via signatures.<name>.memory
-  default_enabled: false                  # MEMORY_DEFAULT_ENABLED
+  # Master switch — overridable per-signature via signatures.<name>.memory
+  enabled: false                          # MEMORY_ENABLED
 
   # Four independent token budgets, from most to least cost-sensitive:
   #
@@ -143,6 +143,22 @@ memory:
     max_tokens: null                      # MEMORY_CARTOGRAPHER_MAX_TOKENS
     max_iters: 1                          # MEMORY_CARTOGRAPHER_MAX_ITERS
     max_llm_calls: 2                      # MEMORY_CARTOGRAPHER_MAX_LLM_CALLS
+  cerebral:
+    model: null                           # MEMORY_CEREBRAL_MODEL (falls back to default_model)
+    reasoning_effort: null                # MEMORY_CEREBRAL_REASONING_EFFORT
+    temperature: null                     # MEMORY_CEREBRAL_TEMPERATURE
+    max_tokens: null                      # MEMORY_CEREBRAL_MAX_TOKENS
+    max_iters: 1                          # MEMORY_CEREBRAL_MAX_ITERS
+    max_llm_calls: 2                      # MEMORY_CEREBRAL_MAX_LLM_CALLS
+
+  # Hindsight MemoryEngine settings (semantic memory).
+  # The LLM for fact extraction is configured via cerebral: above.
+  # embeddings_model is auto-derived from the LLM provider when null:
+  #   bedrock → bedrock/cohere.embed-multilingual-v3
+  #   openai  → openai/text-embedding-3-small
+  #   gemini  → gemini/text-embedding-004
+  hindsight:
+    embeddings_model: null                # MEMORY_HINDSIGHT_EMBEDDINGS_MODEL
 
 
 # ============================================================================
@@ -192,6 +208,10 @@ rlm_fallback:
 #
   #   Mid-tier (memory.distiller / memory.cartographer): Memory reflection —
   #     summarizing a trajectory and curating the context memory. Requires nuance.
+  #     Recommended: anthropic/claude-sonnet-4-5-20250929 or equivalent.
+  #
+  #   Mid-tier (memory.cerebral): Hindsight fact extraction — distils episode
+  #     observations and artifacts into structured facts, entities, and knowledge.
   #     Recommended: anthropic/claude-sonnet-4-5-20250929 or equivalent.
 #
 # By default, all models fall back to default_model. Override extraction_model,
@@ -248,7 +268,7 @@ signatures:
     # When true: scans ALL artifacts (Dockerfiles, etc.) and manifests
     # When false (default): only scans artifacts/manifests that were modified in the MR
     memory:
-      enabled: null                      # SUPPLY_CHAIN_MEMORY_ENABLED (null -> memory.default_enabled)
+      enabled: null                      # SUPPLY_CHAIN_MEMORY_ENABLED (null -> memory.enabled)
 
   # Code Reviewer signature (bugs, security, removed defensive code, code smells)
   # Unified code review: bugs, security vulnerabilities, and code smells in a single agent pass per scope
@@ -261,7 +281,7 @@ signatures:
     temperature: null                    # CODE_REVIEW_TEMPERATURE
     max_tokens: null                     # CODE_REVIEW_MAX_TOKENS
     memory:
-      enabled: null                      # CODE_REVIEW_MEMORY_ENABLED (null -> memory.default_enabled)
+      enabled: null                      # CODE_REVIEW_MEMORY_ENABLED (null -> memory.enabled)
 
   # Documentation Reviewer signature (compares patches against extracted documentation)
   # Note: doc extraction is now deterministic (no LLM) — see doc_extractor.py
@@ -274,7 +294,7 @@ signatures:
     temperature: null                    # DOC_TEMPERATURE
     max_tokens: null                     # DOC_MAX_TOKENS
     memory:
-      enabled: null                      # DOC_MEMORY_ENABLED (null -> memory.default_enabled)
+      enabled: null                      # DOC_MEMORY_ENABLED (null -> memory.enabled)
 
   # Scope Identifier signature
   scope:
@@ -286,7 +306,7 @@ signatures:
     temperature: null                    # SCOPE_TEMPERATURE
     max_tokens: null                     # SCOPE_MAX_TOKENS
     memory:
-      enabled: null                      # SCOPE_MEMORY_ENABLED (null -> memory.default_enabled)
+      enabled: null                      # SCOPE_MEMORY_ENABLED (null -> memory.enabled)
 
   # Summarizer signature
   summary:
@@ -298,7 +318,7 @@ signatures:
     temperature: null                    # SUMMARY_TEMPERATURE
     max_tokens: null                     # SUMMARY_MAX_TOKENS
     memory:
-      enabled: true                      # SUMMARY_MEMORY_ENABLED (null -> memory.default_enabled)
+      enabled: null                      # SUMMARY_MEMORY_ENABLED (null -> memory.enabled)
 
   # Auditor signature (quality assessment + recommendation after all reviews)
   audit:
@@ -310,7 +330,7 @@ signatures:
     temperature: null                    # AUDIT_TEMPERATURE
     max_tokens: null                     # AUDIT_MAX_TOKENS
     memory:
-      enabled: null                      # AUDIT_MEMORY_ENABLED (null -> memory.default_enabled)
+      enabled: null                      # AUDIT_MEMORY_ENABLED (null -> memory.enabled)
 
 # ============================================================================
 # OUTPUT
