@@ -120,10 +120,16 @@ def review_local(
 
         if result.llm_calls > 0:
             cost_str = f"${result.total_cost:.4f}" if result.total_cost > 0 else "N/A"
+            # Calculate input/output totals from signature_stats
+            total_in_tokens = sum(s.input_tokens for s in result.signature_stats)
+            total_out_tokens = sum(s.output_tokens for s in result.signature_stats)
+            total_in_cost = sum(s.input_cost for s in result.signature_stats)
+            total_out_cost = sum(s.output_cost for s in result.signature_stats)
             console.print(
                 Panel(
                     f"[bold]LLM Calls:[/bold] {result.llm_calls}\n"
-                    f"[bold]Total Tokens:[/bold] {result.total_tokens:,}\n"
+                    f"[bold]In Tokens:[/bold] {total_in_tokens:,}  [bold]Out Tokens:[/bold] {total_out_tokens:,}\n"
+                    f"[bold]In Cost:[/bold] ${total_in_cost:.4f}  [bold]Out Cost:[/bold] ${total_out_cost:.4f}\n"
                     f"[bold]Total Cost:[/bold] {cost_str}",
                     title="Cost Summary",
                 )
@@ -233,10 +239,16 @@ def review_uncommitted(
 
         if result.llm_calls > 0:
             cost_str = f"${result.total_cost:.4f}" if result.total_cost > 0 else "N/A"
+            # Calculate input/output totals from signature_stats
+            total_in_tokens = sum(s.input_tokens for s in result.signature_stats)
+            total_out_tokens = sum(s.output_tokens for s in result.signature_stats)
+            total_in_cost = sum(s.input_cost for s in result.signature_stats)
+            total_out_cost = sum(s.output_cost for s in result.signature_stats)
             console.print(
                 Panel(
                     f"[bold]LLM Calls:[/bold] {result.llm_calls}\n"
-                    f"[bold]Total Tokens:[/bold] {result.total_tokens:,}\n"
+                    f"[bold]In Tokens:[/bold] {total_in_tokens:,}  [bold]Out Tokens:[/bold] {total_out_tokens:,}\n"
+                    f"[bold]In Cost:[/bold] ${total_in_cost:.4f}  [bold]Out Cost:[/bold] ${total_out_cost:.4f}\n"
                     f"[bold]Total Cost:[/bold] {cost_str}",
                     title="Cost Summary",
                 )

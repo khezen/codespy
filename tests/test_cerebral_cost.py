@@ -60,7 +60,7 @@ class TestCerebralCostRecorder:
         """scope='retain_extract_facts' → cerebral_retain bucket."""
         with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
             with patch.object(
-                CerebralCostRecorder, "_price_call", return_value=0.05
+                CerebralCostRecorder, "_price_call_split", return_value=(0.03, 0.02)
             ):
                 recorder = CerebralCostRecorder()
                 recorder.record_llm_call(
@@ -72,13 +72,17 @@ class TestCerebralCostRecorder:
 
         stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_RETAIN)
         assert stats is not None
-        assert stats.cost == 0.05
+        assert stats.cost == 0.05  # 0.03 + 0.02
         assert stats.tokens == 150
+        assert stats.input_tokens == 100
+        assert stats.output_tokens == 50
+        assert stats.input_cost == 0.03
+        assert stats.output_cost == 0.02
 
     def test_record_llm_call_with_consolidation_scope(self, mock_tracker, fresh_recorder):
         """scope='consolidation' → cerebral_other bucket."""
         with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
-            with patch.object(CerebralCostRecorder, "_price_call", return_value=0.03):
+            with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.02, 0.01)):
                 recorder = CerebralCostRecorder()
                 recorder.record_llm_call(
                     model="openai/gpt-4",
@@ -89,11 +93,13 @@ class TestCerebralCostRecorder:
 
         stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_OTHER)
         assert stats is not None
+        assert stats.input_tokens == 100
+        assert stats.output_tokens == 50
 
     def test_record_llm_call_with_other_scope(self, mock_tracker, fresh_recorder):
         """Any other scope → cerebral_other bucket."""
         with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
-            with patch.object(CerebralCostRecorder, "_price_call", return_value=0.01):
+            with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.005, 0.005)):
                 recorder = CerebralCostRecorder()
                 recorder.record_llm_call(
                     model="openai/gpt-4",

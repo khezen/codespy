@@ -135,11 +135,14 @@ class TestCalculateCostsFromEntries:
         ]
         exclude = set()
 
-        cost, tokens, calls = _calculate_costs_from_entries(entries, exclude)
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
 
         assert cost == 0.8
         assert tokens == 450
         assert calls == 2
+        assert input_tokens == 300
+        assert output_tokens == 150
+        assert input_cost + output_cost == cost  # Costs should sum correctly
 
     def test_excludes_specified_uuids(self):
         entries = [
@@ -148,17 +151,19 @@ class TestCalculateCostsFromEntries:
         ]
         exclude = {"uuid-1"}
 
-        cost, tokens, calls = _calculate_costs_from_entries(entries, exclude)
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
 
         assert cost == 0.3
         assert tokens == 200
         assert calls == 1
+        assert input_tokens == 200  # Only uuid-2's tokens
+        assert output_tokens == 0
 
     def test_handles_non_dict_entries(self):
         entries = ["not a dict", {"uuid": "uuid-1", "cost": 0.5, "usage": {}}]
         exclude = set()
 
-        cost, tokens, calls = _calculate_costs_from_entries(entries, exclude)
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
 
         assert cost == 0.5
         assert calls == 1
@@ -169,11 +174,13 @@ class TestCalculateCostsFromEntries:
         ]
         exclude = set()
 
-        cost, tokens, calls = _calculate_costs_from_entries(entries, exclude)
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
 
         assert cost == 0.5
         assert tokens == 0
         assert calls == 1
+        assert input_tokens == 0
+        assert output_tokens == 0
 
 
 class TestCostTracker:
@@ -200,24 +207,32 @@ class TestCostTracker:
     def test_end_signature_updates_stats(self):
         tracker = CostTracker()
         tracker.start_signature("test_sig")
-        tracker.end_signature("test_sig", 0.5, 100, 2)
+        tracker.end_signature("test_sig", 0.5, 100, 2, input_tokens=80, output_tokens=20, input_cost=0.3, output_cost=0.2)
 
         stats = tracker.get_signature_stats("test_sig")
         assert stats.cost == 0.5
         assert stats.tokens == 100
         assert stats.call_count == 2
         assert stats.end_time is not None
+        assert stats.input_tokens == 80
+        assert stats.output_tokens == 20
+        assert stats.input_cost == 0.3
+        assert stats.output_cost == 0.2
 
     def test_end_signature_accumulates_multiple_calls(self):
         tracker = CostTracker()
         tracker.start_signature("test_sig")
-        tracker.end_signature("test_sig", 0.5, 100, 2)
-        tracker.end_signature("test_sig", 0.3, 50, 1)
+        tracker.end_signature("test_sig", 0.5, 100, 2, input_tokens=80, output_tokens=20, input_cost=0.3, output_cost=0.2)
+        tracker.end_signature("test_sig", 0.3, 50, 1, input_tokens=30, output_tokens=20, input_cost=0.2, output_cost=0.1)
 
         stats = tracker.get_signature_stats("test_sig")
         assert stats.cost == 0.8
         assert stats.tokens == 150
         assert stats.call_count == 3
+        assert stats.input_tokens == 110  # 80 + 30
+        assert stats.output_tokens == 40  # 20 + 20
+        assert stats.input_cost == pytest.approx(0.5)  # 0.3 + 0.2
+        assert stats.output_cost == pytest.approx(0.3)  # 0.2 + 0.1
 
     def test_total_cost_sums_all_signatures(self):
         tracker = CostTracker()
@@ -262,7 +277,7 @@ class TestCostTrackerAddExternalCall:
 
     def test_add_external_call_creates_new_entry(self):
         tracker = CostTracker()
-        tracker.add_external_call("cerebral_retain", 0.5, 100, 1)
+        tracker.add_external_call("cerebral_retain", 0.5, 100, 1, input_tokens=100, output_tokens=0, input_cost=0.5, output_cost=0.0)
 
         stats = tracker.get_signature_stats("cerebral_retain")
         assert stats is not None
@@ -270,16 +285,24 @@ class TestCostTrackerAddExternalCall:
         assert stats.cost == 0.5
         assert stats.tokens == 100
         assert stats.call_count == 1
+        assert stats.input_tokens == 100
+        assert stats.output_tokens == 0
+        assert stats.input_cost == 0.5
+        assert stats.output_cost == 0.0
 
     def test_add_external_call_accumulates_existing_entry(self):
         tracker = CostTracker()
-        tracker.add_external_call("cerebral_retain", 0.5, 100, 1)
-        tracker.add_external_call("cerebral_retain", 0.3, 50, 2)
+        tracker.add_external_call("cerebral_retain", 0.5, 100, 1, input_tokens=100, output_tokens=0, input_cost=0.5, output_cost=0.0)
+        tracker.add_external_call("cerebral_retain", 0.3, 50, 2, input_tokens=30, output_tokens=20, input_cost=0.2, output_cost=0.1)
 
         stats = tracker.get_signature_stats("cerebral_retain")
         assert stats.cost == 0.8
         assert stats.tokens == 150
         assert stats.call_count == 3
+        assert stats.input_tokens == 130  # 100 + 30
+        assert stats.output_tokens == 20  # 0 + 20
+        assert stats.input_cost == 0.7  # 0.5 + 0.2
+        assert stats.output_cost == 0.1  # 0.0 + 0.1
 
     def test_add_external_call_does_not_touch_start_end_time(self):
         tracker = CostTracker()
@@ -291,10 +314,15 @@ class TestCostTrackerAddExternalCall:
 
     def test_add_external_call_default_calls_is_one(self):
         tracker = CostTracker()
-        tracker.add_external_call("cerebral_retain", 0.5, 100)
+        tracker.add_external_call("cerebral_retain", 0.5, 100)  # Uses defaults for new fields
 
         stats = tracker.get_signature_stats("cerebral_retain")
         assert stats.call_count == 1
+        # Default values for new fields
+        assert stats.input_tokens == 0
+        assert stats.output_tokens == 0
+        assert stats.input_cost == 0.0
+        assert stats.output_cost == 0.0
 
     def test_add_external_call_is_thread_safe(self):
         """Concurrent add_external_call calls should all be counted."""
@@ -303,7 +331,7 @@ class TestCostTrackerAddExternalCall:
 
         def add_call(n):
             try:
-                tracker.add_external_call("cerebral_retain", 0.1, 10, 1)
+                tracker.add_external_call("cerebral_retain", 0.1, 10, 1, input_tokens=8, output_tokens=2, input_cost=0.08, output_cost=0.02)
             except Exception as e:
                 errors.append(e)
 
@@ -318,6 +346,10 @@ class TestCostTrackerAddExternalCall:
         assert stats.cost == pytest.approx(10.0, rel=0.01)
         assert stats.tokens == 1000
         assert stats.call_count == 100
+        assert stats.input_tokens == 800
+        assert stats.output_tokens == 200
+        assert stats.input_cost == pytest.approx(8.0, rel=0.01)
+        assert stats.output_cost == pytest.approx(2.0, rel=0.01)
 
 
 class TestSignatureContext:

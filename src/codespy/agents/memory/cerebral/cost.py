@@ -73,14 +73,24 @@ class CerebralCostRecorder:
                 bucket = BUCKET_CEREBRAL_OTHER
 
             # Price the call using litellm
-            cost = self._price_call(model, input_tokens, output_tokens)
+            prompt_cost, completion_cost = self._price_call_split(model, input_tokens, output_tokens)
+            cost = prompt_cost + completion_cost
+            tokens = input_tokens + output_tokens
 
             # Import here to avoid circular imports at module load
             from codespy.agents.cost_tracker import get_cost_tracker
 
             tracker = get_cost_tracker()
-            tokens = input_tokens + output_tokens
-            tracker.add_external_call(bucket, cost, tokens, calls=1)
+            tracker.add_external_call(
+                bucket,
+                cost=cost,
+                tokens=tokens,
+                calls=1,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                input_cost=prompt_cost,
+                output_cost=completion_cost,
+            )
 
         except Exception as e:
             # Metering must never break the actual operation
@@ -91,6 +101,22 @@ class CerebralCostRecorder:
 
         Returns 0.0 if the model has no price registered. Logs a warning
         once per unpriced model.
+
+        Deprecated: Use _price_call_split for input/output cost breakdown.
+        """
+        prompt_cost, completion_cost = self._price_call_split(model, input_tokens, output_tokens)
+        return prompt_cost + completion_cost
+
+    def _price_call_split(
+        self, model: str, input_tokens: int, output_tokens: int
+    ) -> tuple[float, float]:
+        """Price a call using litellm.cost_per_token.
+
+        Returns (prompt_cost, completion_cost). Returns (0.0, 0.0) if the model
+        has no price registered. Logs a warning once per unpriced model.
+
+        Returns:
+            Tuple of (input/prompt cost, output/completion cost)
         """
         try:
             import litellm
@@ -100,7 +126,7 @@ class CerebralCostRecorder:
                 prompt_tokens=input_tokens,
                 completion_tokens=output_tokens,
             )
-            return prompt_cost + completion_cost
+            return float(prompt_cost), float(completion_cost)
         except Exception:
             # Model may not have a price
             if model not in _warned_unpriced_models:
@@ -110,7 +136,7 @@ class CerebralCostRecorder:
                     "Tokens are still recorded.",
                     model,
                 )
-            return 0.0
+            return 0.0, 0.0
 
 
 class _LiteLLMProxy:
@@ -170,7 +196,17 @@ class _LiteLLMProxy:
             from codespy.agents.cost_tracker import get_cost_tracker
 
             tracker = get_cost_tracker()
-            tracker.add_external_call(BUCKET_CEREBRAL_EMBEDDINGS, cost or 0.0, tokens, calls=1)
+            # Embeddings have no output tokens - all tokens are input
+            tracker.add_external_call(
+                BUCKET_CEREBRAL_EMBEDDINGS,
+                cost=cost or 0.0,
+                tokens=tokens,
+                calls=1,
+                input_tokens=tokens,
+                output_tokens=0,
+                input_cost=cost or 0.0,
+                output_cost=0.0,
+            )
 
         except Exception as e:
             logger.debug("Failed to meter embedding call: %s", e)

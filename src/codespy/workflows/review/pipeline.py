@@ -288,6 +288,10 @@ class ReviewPipeline(dspy.Module):
                     tokens=stats.tokens,
                     call_count=stats.call_count,
                     duration_seconds=stats.duration_seconds,
+                    input_tokens=stats.input_tokens,
+                    output_tokens=stats.output_tokens,
+                    input_cost=stats.input_cost,
+                    output_cost=stats.output_cost,
                 )
             )
 

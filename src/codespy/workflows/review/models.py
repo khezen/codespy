@@ -20,6 +20,10 @@ class SignatureStatsResult(BaseModel):
     tokens: int = Field(default=0, description="Tokens used by this signature")
     call_count: int = Field(default=0, description="Number of LLM calls made by this signature")
     duration_seconds: float = Field(default=0.0, description="Execution time in seconds")
+    input_tokens: int = Field(default=0, description="Input/prompt tokens used")
+    output_tokens: int = Field(default=0, description="Output/completion tokens used")
+    input_cost: float = Field(default=0.0, description="Cost for input tokens")
+    output_cost: float = Field(default=0.0, description="Cost for output tokens")
 
     @property
     def cost_per_call(self) -> float:
@@ -169,7 +173,6 @@ class ReviewResult(BaseModel):
                     "## Cost",
                     "",
                     f"- **LLM Calls:** {self.llm_calls}",
-                    f"- **Total Tokens:** {self.total_tokens:,}",
                     f"- **Total Cost:** ${self.total_cost:.4f}",
                     "",
                 ]
@@ -181,15 +184,15 @@ class ReviewResult(BaseModel):
                     [
                         "### Per-Signature Breakdown",
                         "",
-                        "| Signature | Cost | Tokens | Calls | Duration |",
-                        "|-----------|------|--------|-------|----------|",
+                        "| Signature | In Tokens | Out Tokens | In Cost | Out Cost | Calls | Duration |",
+                        "|-----------|-----------|------------|---------|----------|-------|----------|",
                     ]
                 )
                 for stats in sorted(self.signature_stats, key=lambda x: x.cost, reverse=True):
                     duration_str = f"{stats.duration_seconds:.1f}s"
                     lines.append(
-                        f"| {stats.name} | ${stats.cost:.4f} | {stats.tokens:,} | "
-                        f"{stats.call_count} | {duration_str} |"
+                        f"| {stats.name} | {stats.input_tokens:,} | {stats.output_tokens:,} | "
+                        f"${stats.input_cost:.4f} | ${stats.output_cost:.4f} | {stats.call_count} | {duration_str} |"
                     )
                 lines.append("")
 

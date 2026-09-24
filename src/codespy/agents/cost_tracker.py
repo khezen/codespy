@@ -28,6 +28,10 @@ class SignatureStats:
     call_count: int = 0
     start_time: float | None = None
     end_time: float | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    input_cost: float = 0.0
+    output_cost: float = 0.0
 
     @property
     def duration_seconds(self) -> float:
@@ -45,6 +49,10 @@ class SignatureStats:
             "tokens": self.tokens,
             "call_count": self.call_count,
             "duration_seconds": self.duration_seconds,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "input_cost": self.input_cost,
+            "output_cost": self.output_cost,
         }
 
 
@@ -77,7 +85,17 @@ class CostTracker:
             self._signature_stats[signature_name].start_time = time.time()
             self._signature_stats[signature_name].end_time = None
 
-    def end_signature(self, signature_name: str, cost: float, tokens: int, call_count: int) -> None:
+    def end_signature(
+        self,
+        signature_name: str,
+        cost: float,
+        tokens: int,
+        call_count: int,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        input_cost: float = 0.0,
+        output_cost: float = 0.0,
+    ) -> None:
         """Mark the end of a signature's execution with its costs.
 
         Args:
@@ -85,6 +103,10 @@ class CostTracker:
             cost: Total cost for this signature's LLM calls
             tokens: Total tokens used by this signature
             call_count: Number of LLM calls made by this signature
+            input_tokens: Input/prompt tokens used
+            output_tokens: Output/completion tokens used
+            input_cost: Cost for input tokens
+            output_cost: Cost for output tokens
         """
         with self._lock:
             if signature_name not in self._signature_stats:
@@ -94,8 +116,22 @@ class CostTracker:
             stats.cost += cost
             stats.tokens += tokens
             stats.call_count += call_count
+            stats.input_tokens += input_tokens
+            stats.output_tokens += output_tokens
+            stats.input_cost += input_cost
+            stats.output_cost += output_cost
 
-    def add_external_call(self, name: str, cost: float, tokens: int, calls: int = 1) -> None:
+    def add_external_call(
+        self,
+        name: str,
+        cost: float,
+        tokens: int,
+        calls: int = 1,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        input_cost: float = 0.0,
+        output_cost: float = 0.0,
+    ) -> None:
         """Accumulate costs from external LLM calls (not tracked by DSPy).
 
         Creates a SignatureStats entry if missing, without touching
@@ -106,6 +142,10 @@ class CostTracker:
             cost: Cost in USD for the call(s)
             tokens: Total tokens used
             calls: Number of calls (default 1)
+            input_tokens: Input/prompt tokens used
+            output_tokens: Output/completion tokens used
+            input_cost: Cost for input tokens
+            output_cost: Cost for output tokens
         """
         with self._lock:
             if name not in self._signature_stats:
@@ -114,6 +154,10 @@ class CostTracker:
             stats.cost += cost
             stats.tokens += tokens
             stats.call_count += calls
+            stats.input_tokens += input_tokens
+            stats.output_tokens += output_tokens
+            stats.input_cost += input_cost
+            stats.output_cost += output_cost
 
     @property
     def total_cost(self) -> float:
@@ -161,6 +205,10 @@ class CostTracker:
                     call_count=v.call_count,
                     start_time=v.start_time,
                     end_time=v.end_time,
+                    input_tokens=v.input_tokens,
+                    output_tokens=v.output_tokens,
+                    input_cost=v.input_cost,
+                    output_cost=v.output_cost,
                 )
                 for k, v in self._signature_stats.items()
             }
@@ -216,7 +264,7 @@ def _as_number(value: object) -> float:
 
 def _calculate_costs_from_entries(
     entries: list[dict], exclude_uuids: set[str]
-) -> tuple[float, int, int]:
+) -> tuple[float, int, int, int, int, float, float]:
     """Calculate costs from history entries, excluding specific UUIDs.
 
     Every field is read defensively: cost accounting is observability, so a
@@ -228,11 +276,16 @@ def _calculate_costs_from_entries(
         exclude_uuids: Set of UUIDs to exclude from calculation
 
     Returns:
-        Tuple of (total_cost, total_tokens, call_count)
+        Tuple of (total_cost, total_tokens, call_count, input_tokens, output_tokens,
+                  input_cost, output_cost)
     """
     total_cost = 0.0
     total_tokens = 0
     call_count = 0
+    input_tokens = 0
+    output_tokens = 0
+    input_cost = 0.0
+    output_cost = 0.0
 
     for entry in entries:
         if not isinstance(entry, dict):
@@ -240,17 +293,84 @@ def _calculate_costs_from_entries(
 
         entry_uuid = entry.get("uuid", "")
         if entry_uuid and entry_uuid not in exclude_uuids:
-            total_cost += _as_number(entry.get("cost"))
+            entry_cost = _as_number(entry.get("cost"))
+            total_cost += entry_cost
 
             # Get tokens from usage
             usage = entry.get("usage")
+            entry_input_tokens = 0
+            entry_output_tokens = 0
             if isinstance(usage, dict):
-                total_tokens += int(_as_number(usage.get("prompt_tokens")))
-                total_tokens += int(_as_number(usage.get("completion_tokens")))
+                entry_input_tokens = int(_as_number(usage.get("prompt_tokens")))
+                entry_output_tokens = int(_as_number(usage.get("completion_tokens")))
+                input_tokens += entry_input_tokens
+                output_tokens += entry_output_tokens
+                total_tokens += entry_input_tokens + entry_output_tokens
+
+            # Calculate split costs using litellm if model is available
+            entry_input_cost, entry_output_cost = _calculate_split_cost(
+                entry, entry_input_tokens, entry_output_tokens, entry_cost
+            )
+            input_cost += entry_input_cost
+            output_cost += entry_output_cost
 
             call_count += 1
 
-    return total_cost, total_tokens, call_count
+    return total_cost, total_tokens, call_count, input_tokens, output_tokens, input_cost, output_cost
+
+
+def _calculate_split_cost(
+    entry: dict, prompt_tokens: int, completion_tokens: int, fallback_cost: float
+) -> tuple[float, float]:
+    """Calculate split input/output cost for a history entry.
+
+    Uses litellm.cost_per_token if model is available, otherwise falls back
+    to proportional split of the fallback_cost.
+
+    Args:
+        entry: History entry dict
+        prompt_tokens: Number of prompt tokens
+        completion_tokens: Number of completion tokens
+        fallback_cost: Fallback total cost for proportional split
+
+    Returns:
+        Tuple of (input_cost, output_cost)
+    """
+    model = entry.get("model")
+    if not model:
+        # Fall back to proportional split by token ratio
+        return _proportional_split(prompt_tokens, completion_tokens, fallback_cost)
+
+    try:
+        import litellm
+
+        prompt_cost, completion_cost = litellm.cost_per_token(
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
+        return float(prompt_cost), float(completion_cost)
+    except Exception:
+        # Model may not have pricing or be available; use proportional split
+        return _proportional_split(prompt_tokens, completion_tokens, fallback_cost)
+
+
+def _proportional_split(input_tokens: int, output_tokens: int, total_cost: float) -> tuple[float, float]:
+    """Split cost proportionally by token count.
+
+    Args:
+        input_tokens: Number of input tokens
+        output_tokens: Number of output tokens
+        total_cost: Total cost to split
+
+    Returns:
+        Tuple of (input_cost, output_cost)
+    """
+    total = input_tokens + output_tokens
+    if total == 0:
+        return 0.0, 0.0
+    input_ratio = input_tokens / total
+    return total_cost * input_ratio, total_cost * (1 - input_ratio)
 
 
 class SignatureContext:
@@ -332,8 +452,19 @@ class SignatureContext:
             # Read history before leaving the LM context, so dspy.settings.lm
             # still points at the LM whose history we need.
             entries = _get_history_entries()
-            cost, tokens, call_count = _calculate_costs_from_entries(entries, self._before_uuids)
-            self.tracker.end_signature(self.signature_name, cost, tokens, call_count)
+            cost, tokens, call_count, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(
+                entries, self._before_uuids
+            )
+            self.tracker.end_signature(
+                self.signature_name,
+                cost=cost,
+                tokens=tokens,
+                call_count=call_count,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                input_cost=input_cost,
+                output_cost=output_cost,
+            )
         except Exception as e:
             logger.warning("Cost calculation failed for %s: %s", self.signature_name, e)
         finally:
