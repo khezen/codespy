@@ -141,6 +141,11 @@ class Cerebral:
                     self._bank_id,
                     updates={
                         "retain_extraction_mode": "concise",
+                        # Chunk size must accommodate the merged observations blob.
+                        # Observations are bounded by max_context_memory_tokens (~65K chars),
+                        # so 65536 chars ensures each episode's observations stay a single chunk.
+                        # If max_context_memory_tokens is raised above ~65K, bump this too.
+                        "retain_chunk_size": 65536,
                         "retain_mission": (
                             "Retain code review observations, analysis results, and artifacts. "
                             "Focus on patterns, architectural decisions, dependency relationships, "
@@ -161,24 +166,33 @@ class Cerebral:
         tags = self._build_tags(episode)
         episode_doc_id = f"episode-{episode.id}"
 
-        # Build contents list: one dict per observation + one per artifact
-        # Each dict has 'content', 'context', 'tags', 'document_id', 'event_date'
+        # Build contents list: at most TWO items per episode
+        # One merged observations blob + one merged artifacts blob
+        # This reduces LLM call count by bundling items that share tags/document_id/event_date
         contents: list[dict] = []
 
+        # Merge all observations into a single content item
+        obs_lines: list[str] = []
         for section_name in episode.context_memory.section_names():
             for obs in getattr(episode.context_memory, section_name):
-                contents.append({
-                    "content": f"[{section_name}] {obs.content}",
-                    "context": f"{episode.task}: {episode.question}: observation ({section_name})",
-                    "tags": tags,
-                    "document_id": episode_doc_id,
-                    "event_date": episode.timestamp.isoformat(),
-                })
-
-        for name, content in (episode.artifacts or {}).items():
+                obs_lines.append(f"[{section_name}] {obs.content}")
+        if obs_lines:
             contents.append({
-                "content": content,
-                "context": f"{episode.task}: {episode.question}: artifact ({name})",
+                "content": "\n\n".join(obs_lines),
+                "context": f"{episode.task}: {episode.question}: observations",
+                "tags": tags,
+                "document_id": episode_doc_id,
+                "event_date": episode.timestamp.isoformat(),
+            })
+
+        # Merge all artifacts into a single content item
+        artifact_lines: list[str] = []
+        for name, content in (episode.artifacts or {}).items():
+            artifact_lines.append(f"[artifact:{name}] {content}")
+        if artifact_lines:
+            contents.append({
+                "content": "\n\n".join(artifact_lines),
+                "context": f"{episode.task}: {episode.question}: artifacts",
                 "tags": tags,
                 "document_id": episode_doc_id,
                 "event_date": episode.timestamp.isoformat(),
@@ -197,7 +211,7 @@ class Cerebral:
                 )
             )
             logger.info(
-                "cerebral: retained %d items for episode %s (bank=%s, task=%s)",
+                "cerebral: retained %d content blobs for episode %s (bank=%s, task=%s)",
                 len(contents), episode.id, self._bank_id, episode.task,
             )
         except Exception:

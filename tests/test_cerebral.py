@@ -237,7 +237,7 @@ class TestCerebralRetainEpisode:
             assert tags == expected_tags
 
     def test_retain_episode_creates_contents_for_observations(self, mock_memory_engine_class, episode, mock_engine, mock_litellm):
-        """Test that retain_episode creates content items for each observation."""
+        """Test that retain_episode creates a single merged content item for all observations."""
         with patch.object(Cerebral, "_run_async") as mock_run_async:
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
@@ -252,13 +252,20 @@ class TestCerebralRetainEpisode:
             # Should call retain_batch_async
             mock_run_async.assert_called_once()
 
-            # Get the arguments passed to retain_batch_async
+            # Get the contents passed to retain_batch_async
             call_args = mock_run_async.call_args
+            assert call_args is not None
+
+            # Extract the contents argument from the coroutine call
+            # The first positional arg is the coroutine, we need to inspect it
+            coro = call_args[0][0]
+            # Access the bound arguments via the coroutine's __self__ if possible
+            # or check the call was made to retain_batch_async
             engine_call = mock_engine.retain_batch_async
             assert call_args is not None
 
     def test_retain_episode_creates_contents_for_artifacts(self, mock_memory_engine_class, episode, mock_litellm):
-        """Test that retain_episode creates content items for each artifact."""
+        """Test that retain_episode creates a single merged content item for all artifacts."""
         with patch.object(Cerebral, "_run_async") as mock_run_async:
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
@@ -315,6 +322,74 @@ class TestCerebralRetainEpisode:
 
             # Should not raise
             cerebral.retain_episode(episode)
+
+    def test_retain_episode_bundles_content_correctly(self, mock_memory_engine_class, episode, mock_litellm):
+        """Test that observations and artifacts are merged into at most 2 content items with proper headers."""
+        captured_contents = []
+
+        # Create a mock engine that captures the contents passed to retain_batch_async
+        async def mock_retain_batch_async(*, bank_id, contents, request_context):
+            captured_contents.extend(contents)
+            return None
+
+        # Create async mock coroutines for other methods
+        async def mock_coro(*args, **kwargs):
+            return None
+
+        def mock_memory_engine(*args, **kwargs):
+            engine = MagicMock()
+            engine.initialize = mock_coro
+            engine.ensure_bank_profile = mock_coro
+            engine.update_bank_config = mock_coro
+            engine.retain_batch_async = mock_retain_batch_async
+            engine.close = mock_coro
+            return engine
+
+        # Patch the MemoryEngine class at the module level
+        with patch("codespy.agents.memory.cerebral.cerebral.MemoryEngine", mock_memory_engine):
+            cerebral = Cerebral(
+                database_url="postgresql://localhost:5432/test",
+                llm_provider="litellm",
+            )
+            cerebral._bank_ensured = True
+
+            cerebral.retain_episode(episode)
+
+            # Episode has 2 observations (context_understanding, actions) + 1 artifact (review)
+            # Should be bundled into 2 content items max (observations + artifacts)
+            assert len(captured_contents) <= 2, f"Expected at most 2 content items, got {len(captured_contents)}"
+            assert len(captured_contents) >= 1, f"Expected at least 1 content item, got {len(captured_contents)}"
+
+            # Find observations and artifacts content items
+            obs_item = None
+            art_item = None
+            for item in captured_contents:
+                if "observations" in item.get("context", ""):
+                    obs_item = item
+                elif "artifacts" in item.get("context", ""):
+                    art_item = item
+
+            # Verify observations item
+            assert obs_item is not None, "Observations content item not found"
+            assert "[context_understanding]" in obs_item["content"], "Missing context_understanding header"
+            assert "[actions]" in obs_item["content"], "Missing actions header"
+            assert "This is a test observation" in obs_item["content"], "Missing observation content"
+            assert "Performed tool call" in obs_item["content"], "Missing action content"
+
+            # Verify artifacts item
+            assert art_item is not None, "Artifacts content item not found"
+            assert "[artifact:review]" in art_item["content"], "Missing artifact header"
+            assert "# Review Results" in art_item["content"], "Missing artifact content"
+
+            # Verify shared fields
+            expected_tags = cerebral._build_tags(episode)
+            expected_doc_id = f"episode-{episode.id}"
+            expected_event_date = episode.timestamp.isoformat()
+
+            for item in captured_contents:
+                assert item["tags"] == expected_tags, f"Tags mismatch: {item['tags']} != {expected_tags}"
+                assert item["document_id"] == expected_doc_id, f"document_id mismatch"
+                assert item["event_date"] == expected_event_date, f"event_date mismatch"
 
     def test_retain_episode_uses_correct_document_id(self, mock_memory_engine_class, episode, mock_engine, mock_litellm):
         """Test that retain_episode uses correct document_id format."""
