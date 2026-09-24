@@ -161,6 +161,24 @@ class TestCerebralCostRecorder:
         stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_RETAIN)
         assert stats.cost == 0.03  # 0.01 + 0.02
 
+    def test_record_llm_call_forwards_duration(self, mock_tracker, fresh_recorder):
+        """duration parameter is forwarded to add_external_call."""
+        with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
+            with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.03, 0.02)):
+                recorder = CerebralCostRecorder()
+                recorder.record_llm_call(
+                    model="openai/gpt-4",
+                    scope="retain_extract_facts",
+                    input_tokens=100,
+                    output_tokens=50,
+                    duration=1.25,
+                )
+
+        stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_RETAIN)
+        assert stats is not None
+        assert stats.external_duration_seconds == 1.25
+        assert stats.duration_seconds == 1.25
+
     def test_record_llm_call_logs_warning_for_unpriced_model(
         self, mock_tracker, fresh_recorder, caplog
     ):
@@ -227,6 +245,22 @@ class TestLiteLLMProxy:
         assert stats is not None
         assert stats.tokens == 100
         assert stats.cost == 0.01
+
+    @pytest.mark.asyncio
+    async def test_aembedding_records_duration(self, mock_litellm, mock_response, mock_tracker):
+        """Embedding call records nonzero duration to cerebral_embeddings bucket."""
+        mock_litellm.aembedding.return_value = asyncio.Future()
+        mock_litellm.aembedding.return_value.set_result(mock_response)
+
+        with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
+            cost_recorder = CerebralCostRecorder()
+            proxy = _LiteLLMProxy(mock_litellm, cost_recorder)
+            await proxy.aembedding(model="openai/text-embedding-3-small", input=["test"])
+
+        stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_EMBEDDINGS)
+        assert stats is not None
+        assert stats.external_duration_seconds >= 0.0  # Should have some duration (could be very small)
+        assert stats.duration_seconds == stats.external_duration_seconds
 
     @pytest.mark.asyncio
     async def test_aembedding_returns_response_unchanged(self, mock_litellm, mock_response):
@@ -388,3 +422,11 @@ class TestPinTests:
         recorder = CompositeSpanRecorder()
         assert hasattr(recorder, "_recorders")
         assert isinstance(recorder._recorders, list)
+
+    def test_llm_span_recorder_accepts_duration_param(self):
+        """LLMSpanRecorder.record_llm_call accepts duration parameter (upstream contract)."""
+        import inspect
+        from hindsight_api.tracing import LLMSpanRecorder
+
+        sig = inspect.signature(LLMSpanRecorder.record_llm_call)
+        assert "duration" in sig.parameters, "record_llm_call must accept 'duration' parameter"

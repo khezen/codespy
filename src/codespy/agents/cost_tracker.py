@@ -32,14 +32,22 @@ class SignatureStats:
     output_tokens: int = 0
     input_cost: float = 0.0
     output_cost: float = 0.0
+    external_duration_seconds: float = 0.0
 
     @property
     def duration_seconds(self) -> float:
-        """Get duration in seconds, or 0 if not completed."""
-        if self.start_time is None:
-            return 0.0
-        end = self.end_time if self.end_time is not None else time.time()
-        return end - self.start_time
+        """Get duration in seconds, or 0 if not completed.
+
+        For signatures tracked via SignatureContext, this is wall-clock time
+        from start to end. For external calls (e.g., cerebral), this is the
+        sum of per-call work durations (not wall-clock), consistent with how
+        cost/tokens are summed.
+        """
+        wall = 0.0
+        if self.start_time is not None:
+            end = self.end_time if self.end_time is not None else time.time()
+            wall = end - self.start_time
+        return wall + self.external_duration_seconds
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
@@ -53,6 +61,7 @@ class SignatureStats:
             "output_tokens": self.output_tokens,
             "input_cost": self.input_cost,
             "output_cost": self.output_cost,
+            "external_duration_seconds": self.external_duration_seconds,
         }
 
 
@@ -131,11 +140,13 @@ class CostTracker:
         output_tokens: int = 0,
         input_cost: float = 0.0,
         output_cost: float = 0.0,
+        duration: float = 0.0,
     ) -> None:
         """Accumulate costs from external LLM calls (not tracked by DSPy).
 
         Creates a SignatureStats entry if missing, without touching
-        start_time/end_time (external calls have no duration tracking).
+        start_time/end_time. Duration is summed per-call work time for the
+        bucket (not wall-clock), consistent with how cost/tokens are summed.
 
         Args:
             name: Bucket name for the external call (e.g., "cerebral_retain")
@@ -146,6 +157,7 @@ class CostTracker:
             output_tokens: Output/completion tokens used
             input_cost: Cost for input tokens
             output_cost: Cost for output tokens
+            duration: Duration in seconds for this call (default 0.0)
         """
         with self._lock:
             if name not in self._signature_stats:
@@ -158,6 +170,7 @@ class CostTracker:
             stats.output_tokens += output_tokens
             stats.input_cost += input_cost
             stats.output_cost += output_cost
+            stats.external_duration_seconds += duration
 
     @property
     def total_cost(self) -> float:
@@ -209,6 +222,7 @@ class CostTracker:
                     output_tokens=v.output_tokens,
                     input_cost=v.input_cost,
                     output_cost=v.output_cost,
+                    external_duration_seconds=v.external_duration_seconds,
                 )
                 for k, v in self._signature_stats.items()
             }

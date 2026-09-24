@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -45,6 +46,7 @@ class CerebralCostRecorder:
         input_tokens: int = 0,
         output_tokens: int = 0,
         error: Exception | None = None,
+        duration: float = 0.0,
         **_: Any,
     ) -> None:
         """Record a completed LLM call.
@@ -55,6 +57,7 @@ class CerebralCostRecorder:
             input_tokens: Input/prompt token count
             output_tokens: Output/completion token count
             error: Exception if the call failed
+            duration: Duration of the call in seconds
             **_: Ignored extra kwargs for forward compatibility
         """
         try:
@@ -90,6 +93,7 @@ class CerebralCostRecorder:
                 output_tokens=output_tokens,
                 input_cost=prompt_cost,
                 output_cost=completion_cost,
+                duration=duration,
             )
 
         except Exception as e:
@@ -152,15 +156,17 @@ class _LiteLLMProxy:
 
     async def aembedding(self, **kwargs: Any) -> Any:
         """Call litellm.aembedding and meter the usage."""
+        start = time.perf_counter()
         response = await self._real.aembedding(**kwargs)
-        self._meter_embedding(response, kwargs.get("model", ""))
+        elapsed = time.perf_counter() - start
+        self._meter_embedding(response, kwargs.get("model", ""), elapsed)
         return response
 
     def __getattr__(self, name: str) -> Any:
         """Forward all other attributes to the real litellm."""
         return getattr(self._real, name)
 
-    def _meter_embedding(self, response: Any, model: str) -> None:
+    def _meter_embedding(self, response: Any, model: str, duration: float = 0.0) -> None:
         """Extract usage from embedding response and record cost."""
         try:
             # Try _hidden_params["response_cost"] first (litellm populates this)
@@ -206,6 +212,7 @@ class _LiteLLMProxy:
                 output_tokens=0,
                 input_cost=cost or 0.0,
                 output_cost=0.0,
+                duration=duration,
             )
 
         except Exception as e:

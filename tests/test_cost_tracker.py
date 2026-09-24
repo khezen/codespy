@@ -37,6 +37,16 @@ class TestSignatureStats:
         stats = SignatureStats(name="test", start_time=0.0, end_time=5.0)
         assert stats.duration_seconds == 5.0
 
+    def test_duration_seconds_includes_external_duration(self):
+        """Duration should include external_duration_seconds."""
+        stats = SignatureStats(name="test", start_time=0.0, end_time=5.0, external_duration_seconds=2.0)
+        assert stats.duration_seconds == 7.0  # 5.0 wall + 2.0 external
+
+    def test_duration_seconds_external_only_when_no_start_time(self):
+        """Duration should be external_duration_seconds when start_time is None."""
+        stats = SignatureStats(name="test", external_duration_seconds=3.0)
+        assert stats.duration_seconds == 3.0
+
     def test_to_dict_includes_all_fields(self):
         """to_dict should include all relevant fields."""
         stats = SignatureStats(
@@ -49,6 +59,7 @@ class TestSignatureStats:
         assert result["tokens"] == 1000
         assert result["call_count"] == 5
         assert result["duration_seconds"] == 5.0
+        assert "external_duration_seconds" in result
 
 
 class TestAsNumber:
@@ -350,6 +361,36 @@ class TestCostTrackerAddExternalCall:
         assert stats.output_tokens == 200
         assert stats.input_cost == pytest.approx(8.0, rel=0.01)
         assert stats.output_cost == pytest.approx(2.0, rel=0.01)
+
+    def test_add_external_call_accumulates_duration(self):
+        """add_external_call with duration accumulates external_duration_seconds."""
+        tracker = CostTracker()
+        tracker.add_external_call("cerebral_retain", 0.5, 100, duration=1.5)
+        tracker.add_external_call("cerebral_retain", 0.3, 50, duration=2.5)
+
+        stats = tracker.get_signature_stats("cerebral_retain")
+        assert stats.external_duration_seconds == 4.0  # 1.5 + 2.5
+        assert stats.duration_seconds == 4.0  # No start_time, so just external
+        assert stats.start_time is None  # Should not touch start_time
+        assert stats.end_time is None  # Should not touch end_time
+
+    def test_add_external_call_duration_default_is_zero(self):
+        """add_external_call without duration defaults to 0.0."""
+        tracker = CostTracker()
+        tracker.add_external_call("cerebral_retain", 0.5, 100)
+
+        stats = tracker.get_signature_stats("cerebral_retain")
+        assert stats.external_duration_seconds == 0.0
+        assert stats.duration_seconds == 0.0
+
+    def test_get_all_signature_stats_preserves_external_duration(self):
+        """get_all_signature_stats copy preserves external_duration_seconds."""
+        tracker = CostTracker()
+        tracker.add_external_call("cerebral_retain", 0.5, 100, duration=2.0)
+
+        all_stats = tracker.get_all_signature_stats()
+        assert all_stats["cerebral_retain"].external_duration_seconds == 2.0
+        assert all_stats["cerebral_retain"].duration_seconds == 2.0
 
 
 class TestSignatureContext:
