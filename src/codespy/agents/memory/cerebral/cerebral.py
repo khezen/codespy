@@ -18,6 +18,12 @@ from hindsight_api.engine.embeddings import LiteLLMSDKEmbeddings
 from hindsight_api.extensions.builtin.tenant import DefaultTenantExtension
 from hindsight_api.models import RequestContext
 
+from codespy.agents.memory.cerebral.cost import (
+    CerebralCostRecorder,
+    MeteredLiteLLMSDKEmbeddings,
+    register_cerebral_cost_recorder,
+)
+
 if TYPE_CHECKING:
     from codespy.agents.memory.hippocampus.episode import Episode
 
@@ -65,13 +71,27 @@ class Cerebral:
         )
         self._loop_thread.start()
 
+        # Register cost recorder before initializing MemoryEngine so
+        # all LLM calls (including the probe) are captured.
+        cost_recorder = register_cerebral_cost_recorder()
+
+        # Use metered embeddings that capture usage costs
+        base_embeddings = LiteLLMSDKEmbeddings(
+            model=embeddings_model,
+            api_key=None,  # litellm reads from env
+        )
+        metered_embeddings = MeteredLiteLLMSDKEmbeddings(
+            base=base_embeddings,
+            cost_recorder=cost_recorder,
+        )
+
         self._engine = MemoryEngine(
             db_url=database_url,
             memory_llm_provider=llm_provider,
             memory_llm_model=llm_model,
             memory_llm_api_key=llm_api_key,
             memory_llm_base_url=llm_base_url or None,
-            embeddings=LiteLLMSDKEmbeddings(model=embeddings_model),
+            embeddings=metered_embeddings,
             cross_encoder=RRFPassthroughCrossEncoder(),
             tenant_extension=DefaultTenantExtension(config={"schema": HINDSIGHT_SCHEMA}),
             skip_llm_verification=True,
@@ -82,8 +102,8 @@ class Cerebral:
         self._bank_ensured = False
 
         logger.info(
-            "Cerebral MemoryEngine initialized (schema=%s, bank=%s, embeddings=%s)",
-            HINDSIGHT_SCHEMA, bank_id, embeddings_model,
+            "Cerebral MemoryEngine initialized (schema=%s, bank=%s, embeddings=%s, provider=%s)",
+            HINDSIGHT_SCHEMA, bank_id, embeddings_model, llm_provider,
         )
 
     def _run_async(self, coro):
@@ -120,7 +140,7 @@ class Cerebral:
                 self._engine.update_bank_config(
                     self._bank_id,
                     updates={
-                        "retain_extraction_mode": "verbose",
+                        "retain_extraction_mode": "concise",
                         "retain_mission": (
                             "Retain code review observations, analysis results, and artifacts. "
                             "Focus on patterns, architectural decisions, dependency relationships, "

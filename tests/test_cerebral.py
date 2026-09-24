@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from codespy.agents.memory.cerebral import Cerebral
+from codespy.agents.memory.cerebral.cost import MeteredLiteLLMSDKEmbeddings
 from codespy.agents.memory.hippocampus.context_memory import (
     ContextMemory,
     Observation,
@@ -109,8 +110,8 @@ class TestCerebralInit:
         """Test that MemoryEngine is created with correct parameters."""
         Cerebral(
             database_url="postgresql://localhost:5432/test",
-            llm_provider="openai",
-            llm_model="gpt-4",
+            llm_provider="litellm",
+            llm_model="openai/gpt-4",
             llm_api_key="sk-test",
             llm_base_url="https://custom.openai.com",
             bank_id="test-bank",
@@ -118,8 +119,8 @@ class TestCerebralInit:
 
         mock_memory_engine_class.assert_called_once_with(
             db_url="postgresql://localhost:5432/test",
-            memory_llm_provider="openai",
-            memory_llm_model="gpt-4",
+            memory_llm_provider="litellm",
+            memory_llm_model="openai/gpt-4",
             memory_llm_api_key="sk-test",
             memory_llm_base_url="https://custom.openai.com",
             embeddings=mock_memory_engine_class.call_args.kwargs["embeddings"],
@@ -128,12 +129,25 @@ class TestCerebralInit:
             skip_llm_verification=mock_memory_engine_class.call_args.kwargs["skip_llm_verification"],
         )
 
+    def test_init_uses_metered_embeddings(self, mock_memory_engine_class, mock_litellm):
+        """Test that MemoryEngine is created with MeteredLiteLLMSDKEmbeddings."""
+        Cerebral(
+            database_url="postgresql://localhost:5432/test",
+            llm_provider="litellm",
+            llm_model="openai/gpt-4",
+            embeddings_model="openai/text-embedding-3-small",
+        )
+
+        # Check that embeddings is a MeteredLiteLLMSDKEmbeddings
+        embeddings = mock_memory_engine_class.call_args.kwargs["embeddings"]
+        assert isinstance(embeddings, MeteredLiteLLMSDKEmbeddings)
+
     def test_init_calls_initialize(self, mock_memory_engine_class, mock_engine, mock_litellm):
         """Test that initialize() is called on engine during construction."""
         with patch.object(Cerebral, "_run_async") as mock_run_async:
             Cerebral(
                 database_url="postgresql://localhost:5432/test",
-                llm_provider="openai",
+                llm_provider="litellm",
             )
             mock_run_async.assert_called_once()
 
@@ -141,16 +155,16 @@ class TestCerebralInit:
         """Test that None base_url is handled correctly."""
         Cerebral(
             database_url="postgresql://localhost:5432/test",
-            llm_provider="openai",
-            llm_model="gpt-4",
+            llm_provider="litellm",
+            llm_model="openai/gpt-4",
             llm_api_key="sk-test",
             llm_base_url=None,
         )
 
         mock_memory_engine_class.assert_called_once_with(
             db_url="postgresql://localhost:5432/test",
-            memory_llm_provider="openai",
-            memory_llm_model="gpt-4",
+            memory_llm_provider="litellm",
+            memory_llm_model="openai/gpt-4",
             memory_llm_api_key="sk-test",
             memory_llm_base_url=None,
             embeddings=mock_memory_engine_class.call_args.kwargs["embeddings"],
@@ -168,7 +182,7 @@ class TestCerebralBank:
         with patch.object(Cerebral, "_run_async") as mock_run_async:
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
-                llm_provider="openai",
+                llm_provider="litellm",
             )
 
             # Reset the mock to track only _ensure_bank calls
@@ -188,7 +202,7 @@ class TestCerebralBank:
         with patch.object(Cerebral, "_run_async") as mock_run_async:
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
-                llm_provider="openai",
+                llm_provider="litellm",
                 bank_id="test-bank",
             )
 
@@ -208,7 +222,7 @@ class TestCerebralRetainEpisode:
         with patch.object(Cerebral, "_run_async"):
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
-                llm_provider="openai",
+                llm_provider="litellm",
             )
 
             tags = cerebral._build_tags(episode)
@@ -227,7 +241,7 @@ class TestCerebralRetainEpisode:
         with patch.object(Cerebral, "_run_async") as mock_run_async:
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
-                llm_provider="openai",
+                llm_provider="litellm",
             )
 
             mock_run_async.reset_mock()
@@ -248,7 +262,7 @@ class TestCerebralRetainEpisode:
         with patch.object(Cerebral, "_run_async") as mock_run_async:
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
-                llm_provider="openai",
+                llm_provider="litellm",
             )
 
             mock_run_async.reset_mock()
@@ -275,7 +289,7 @@ class TestCerebralRetainEpisode:
         with patch.object(Cerebral, "_run_async") as mock_run_async:
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
-                llm_provider="openai",
+                llm_provider="litellm",
             )
 
             mock_run_async.reset_mock()
@@ -291,7 +305,7 @@ class TestCerebralRetainEpisode:
         with patch.object(Cerebral, "_run_async") as mock_run_async:
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
-                llm_provider="openai",
+                llm_provider="litellm",
             )
 
             cerebral._bank_ensured = True
@@ -307,7 +321,7 @@ class TestCerebralRetainEpisode:
         with patch.object(Cerebral, "_run_async") as mock_run_async:
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
-                llm_provider="openai",
+                llm_provider="litellm",
             )
 
             mock_run_async.reset_mock()
@@ -328,7 +342,7 @@ class TestCerebralRunAsync:
         with mock_memory_engine_class:
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
-                llm_provider="openai",
+                llm_provider="litellm",
             )
 
             async def test_coro():
@@ -347,7 +361,7 @@ class TestCerebralRunAsync:
         with mock_memory_engine_class:
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
-                llm_provider="openai",
+                llm_provider="litellm",
             )
 
             async def test_coro():
@@ -369,7 +383,7 @@ class TestCerebralClose:
         with mock_memory_engine_class:
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
-                llm_provider="openai",
+                llm_provider="litellm",
             )
 
             # Verify loop is running before close
@@ -387,7 +401,7 @@ class TestCerebralClose:
         with mock_memory_engine_class:
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
-                llm_provider="openai",
+                llm_provider="litellm",
             )
 
             cerebral.close()

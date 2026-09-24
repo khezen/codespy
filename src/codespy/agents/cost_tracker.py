@@ -95,6 +95,26 @@ class CostTracker:
             stats.tokens += tokens
             stats.call_count += call_count
 
+    def add_external_call(self, name: str, cost: float, tokens: int, calls: int = 1) -> None:
+        """Accumulate costs from external LLM calls (not tracked by DSPy).
+
+        Creates a SignatureStats entry if missing, without touching
+        start_time/end_time (external calls have no duration tracking).
+
+        Args:
+            name: Bucket name for the external call (e.g., "cerebral_retain")
+            cost: Cost in USD for the call(s)
+            tokens: Total tokens used
+            calls: Number of calls (default 1)
+        """
+        with self._lock:
+            if name not in self._signature_stats:
+                self._signature_stats[name] = SignatureStats(name=name)
+            stats = self._signature_stats[name]
+            stats.cost += cost
+            stats.tokens += tokens
+            stats.call_count += calls
+
     @property
     def total_cost(self) -> float:
         """Get total cost in USD across all signatures."""

@@ -5,8 +5,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from codespy.config_memory import (
+    EMBEDDING_MODELS,
     PostgresConfig,
     Pg0Config,
+    _cerebral_litellm_params,
     _generate_bank_id,
     apply_memory_env_overrides,
     get_episode_store,
@@ -389,3 +391,119 @@ class TestVerifyMemoryAccess:
         assert success is False
         assert "not accessible" in message
         assert "Cannot connect" in message
+
+
+class TestCerebralLitellmParams:
+    """Tests for _cerebral_litellm_params function."""
+
+    @pytest.fixture
+    def mock_settings(self):
+        """Create a mock settings object with LLM config."""
+        settings = MagicMock()
+        settings.llm.openai_api_key.get_secret_value.return_value = "sk-openai-test"
+        settings.llm.openai_api_base = "https://api.openai.com/v1"
+        settings.llm.anthropic_api_key.get_secret_value.return_value = "sk-anthropic-test"
+        settings.llm.gemini_api_key.get_secret_value.return_value = "gemini-test"
+        settings.llm.azure_api_key.get_secret_value.return_value = "azure-test"
+        settings.llm.azure_api_base = "https://my-resource.openai.azure.com"
+        return settings
+
+    def test_openai_prefix(self, mock_settings):
+        """openai/ prefix should use OpenAI credentials."""
+        mock_settings.get_llm_config.return_value.model = "openai/gpt-4"
+
+        model, api_key, base_url = _cerebral_litellm_params(mock_settings)
+
+        assert model == "openai/gpt-4"
+        assert api_key == "sk-openai-test"
+        assert base_url == "https://api.openai.com/v1"
+
+    def test_anthropic_prefix(self, mock_settings):
+        """anthropic/ prefix should use Anthropic credentials."""
+        mock_settings.get_llm_config.return_value.model = "anthropic/claude-3-opus-4-1"
+
+        model, api_key, base_url = _cerebral_litellm_params(mock_settings)
+
+        assert model == "anthropic/claude-3-opus-4-1"
+        assert api_key == "sk-anthropic-test"
+        assert base_url is None
+
+    def test_gemini_prefix(self, mock_settings):
+        """gemini/ prefix should use Gemini credentials."""
+        mock_settings.get_llm_config.return_value.model = "gemini/gemini-pro"
+
+        model, api_key, base_url = _cerebral_litellm_params(mock_settings)
+
+        assert model == "gemini/gemini-pro"
+        assert api_key == "gemini-test"
+        assert base_url is None
+
+    def test_azure_prefix(self, mock_settings):
+        """azure/ prefix should use Azure credentials."""
+        mock_settings.get_llm_config.return_value.model = "azure/gpt-4"
+
+        model, api_key, base_url = _cerebral_litellm_params(mock_settings)
+
+        assert model == "azure/gpt-4"
+        assert api_key == "azure-test"
+        assert base_url == "https://my-resource.openai.azure.com"
+
+    def test_azure_ai_prefix(self, mock_settings):
+        """azure_ai/ prefix should use Azure credentials."""
+        mock_settings.get_llm_config.return_value.model = "azure_ai/gpt-4"
+
+        model, api_key, base_url = _cerebral_litellm_params(mock_settings)
+
+        assert model == "azure_ai/gpt-4"
+        assert api_key == "azure-test"
+        assert base_url == "https://my-resource.openai.azure.com"
+
+    def test_bedrock_prefix(self, mock_settings):
+        """bedrock/ prefix should use no credentials (AWS env vars)."""
+        mock_settings.get_llm_config.return_value.model = "bedrock/converse/moonshotai.kimi-k2.5"
+
+        model, api_key, base_url = _cerebral_litellm_params(mock_settings)
+
+        assert model == "bedrock/converse/moonshotai.kimi-k2.5"
+        assert api_key is None
+        assert base_url is None
+
+    def test_unknown_prefix(self, mock_settings):
+        """Unknown prefix should still return model with no credentials."""
+        mock_settings.get_llm_config.return_value.model = "custom/model"
+
+        model, api_key, base_url = _cerebral_litellm_params(mock_settings)
+
+        assert model == "custom/model"
+        assert api_key is None
+        assert base_url is None
+
+    def test_model_unchanged(self, mock_settings):
+        """Full litellm model string should be passed unchanged."""
+        mock_settings.get_llm_config.return_value.model = "bedrock/converse/moonshotai.kimi-k2.5"
+
+        model, _, _ = _cerebral_litellm_params(mock_settings)
+
+        assert model == "bedrock/converse/moonshotai.kimi-k2.5"
+
+    def test_embedding_models_mapping_bedrock(self):
+        """EMBEDDING_MODELS should have entry for bedrock."""
+        assert "bedrock" in EMBEDDING_MODELS
+        assert "cohere" in EMBEDDING_MODELS["bedrock"]
+
+    def test_embedding_models_mapping_openai(self):
+        """EMBEDDING_MODELS should have entry for openai."""
+        assert "openai" in EMBEDDING_MODELS
+        assert "text-embedding-3-small" in EMBEDDING_MODELS["openai"]
+
+    def test_embedding_models_mapping_anthropic(self):
+        """EMBEDDING_MODELS should have entry for anthropic."""
+        assert "anthropic" in EMBEDDING_MODELS
+
+    def test_embedding_models_mapping_gemini(self):
+        """EMBEDDING_MODELS should have entry for gemini."""
+        assert "gemini" in EMBEDDING_MODELS
+
+    def test_embedding_models_mapping_azure(self):
+        """EMBEDDING_MODELS should have entry for azure."""
+        assert "azure" in EMBEDDING_MODELS

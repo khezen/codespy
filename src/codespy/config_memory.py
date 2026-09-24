@@ -424,14 +424,14 @@ _cerebral: "Cerebral" | None = None
 _cerebral_built = False
 
 
-def _derive_cerebral_llm_params(settings: "Settings") -> tuple[str, str | None, str | None, str | None]:
-    """Derive MemoryEngine LLM params from the cerebral model config + LLM credentials.
+def _cerebral_litellm_params(settings: "Settings") -> tuple[str, str | None, str | None]:
+    """Derive MemoryEngine litellm params from the cerebral model config + LLM credentials.
 
-    Parses the litellm model string to extract the provider prefix and maps
-    credentials from ``settings.llm``.
+    All Cerebral LLM calls go through litellm. This function parses the litellm
+    model string and extracts credentials based on the provider prefix.
 
     Returns:
-        ``(provider, model, api_key, base_url)``
+        ``(model, api_key, base_url)`` - model is the full litellm string unchanged
     """
     llm_config = settings.get_llm_config("cerebral")
     model = llm_config.model  # e.g. "bedrock/converse/moonshotai.kimi-k2.5"
@@ -439,7 +439,6 @@ def _derive_cerebral_llm_params(settings: "Settings") -> tuple[str, str | None, 
     # Parse litellm model string: "provider/model_path"
     parts = model.split("/", 1)
     provider = parts[0] if len(parts) > 1 else "openai"
-    model_name = parts[1] if len(parts) > 1 else model
 
     # Map credentials from Settings.llm
     api_key: str | None = None
@@ -447,7 +446,7 @@ def _derive_cerebral_llm_params(settings: "Settings") -> tuple[str, str | None, 
     llm = settings.llm
 
     if provider == "bedrock":
-        pass  # Uses AWS env vars (AWS_ACCESS_KEY_ID, etc.)
+        pass  # Uses AWS env vars (AWS_ACCESS_KEY_ID, etc.) - litellm reads these
     elif provider == "openai":
         api_key = llm.openai_api_key.get_secret_value() if llm.openai_api_key else None
         base_url = llm.openai_api_base
@@ -458,12 +457,10 @@ def _derive_cerebral_llm_params(settings: "Settings") -> tuple[str, str | None, 
     elif provider in ("azure", "azure_ai"):
         api_key = llm.azure_api_key.get_secret_value() if llm.azure_api_key else None
         base_url = llm.azure_api_base
-    else:
-        # Unknown provider — pass model as-is, let MemoryEngine/litellm resolve
-        provider = "litellm"
-        model_name = model
+        # Azure API version comes from env var AZURE_API_VERSION, same as DSPy
+    # For any other provider, let litellm resolve from env/globals
 
-    return provider, model_name, api_key, base_url
+    return model, api_key, base_url
 
 
 def get_cerebral(settings: "Settings") -> "Cerebral" | None:
@@ -517,18 +514,20 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
             _cerebral_built = True
             return None
 
-    provider, model_name, api_key, base_url = _derive_cerebral_llm_params(settings)
+    model, api_key, base_url = _cerebral_litellm_params(settings)
     bank_id = settings.memory.bank_id or "codespy"
+    # Choose embedding default based on the provider prefix
+    provider_prefix = model.split("/", 1)[0] if "/" in model else "openai"
     embeddings_model = (
         settings.memory.hindsight.embeddings_model
-        or EMBEDDING_MODELS.get(provider, "openai/text-embedding-3-small")
+        or EMBEDDING_MODELS.get(provider_prefix, "openai/text-embedding-3-small")
     )
 
     try:
         _cerebral = Cerebral(
             database_url=pg_uri,
-            llm_provider=provider,
-            llm_model=model_name,
+            llm_provider="litellm",
+            llm_model=model,
             llm_api_key=api_key,
             llm_base_url=base_url,
             bank_id=bank_id,
@@ -544,10 +543,9 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
         _cerebral_built = True
         return None
 
-    llm_config = settings.get_llm_config("cerebral")
     logger.info(
-        "Cerebral initialized (bank=%s, model=%s, provider=%s, schema=semantic)",
-        bank_id, llm_config.model, provider,
+        "Cerebral initialized (bank=%s, provider=litellm, model=%s, schema=semantic)",
+        bank_id, model,
     )
     _cerebral_built = True
     return _cerebral
