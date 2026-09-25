@@ -142,14 +142,15 @@ class TestCerebralInit:
         embeddings = mock_memory_engine_class.call_args.kwargs["embeddings"]
         assert isinstance(embeddings, MeteredLiteLLMSDKEmbeddings)
 
-    def test_init_calls_initialize(self, mock_memory_engine_class, mock_engine, mock_litellm):
-        """Test that initialize() is called on engine during construction."""
+    def test_init_calls_initialize_and_routine_repair(self, mock_memory_engine_class, mock_engine, mock_litellm):
+        """Test that initialize() and routine repair are called during construction."""
         with patch.object(Cerebral, "_run_async") as mock_run_async:
             Cerebral(
                 database_url="postgresql://localhost:5432/test",
                 llm_provider="litellm",
             )
-            mock_run_async.assert_called_once()
+            # Now called twice: once for initialize(), once for ensure_maintenance_routines()
+            assert mock_run_async.call_count == 2
 
     def test_init_handles_none_base_url(self, mock_memory_engine_class, mock_litellm):
         """Test that None base_url is handled correctly."""

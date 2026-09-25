@@ -12,6 +12,9 @@ import os
 import threading
 from typing import TYPE_CHECKING
 
+# Module constants (must be defined before the Hindsight import)
+HINDSIGHT_SCHEMA_DEFAULT = "semantic"
+
 # Hindsight defaults embeddings_provider / reranker_provider to "local", which
 # needs sentence-transformers and emits a misleading startup warning
 # (hindsight_api/config.py _validate). That config is built and cached at IMPORT
@@ -25,6 +28,15 @@ from typing import TYPE_CHECKING
 os.environ.setdefault("HINDSIGHT_API_EMBEDDINGS_PROVIDER", "litellm-sdk")
 os.environ.setdefault("HINDSIGHT_API_RERANKER_PROVIDER", "none")
 
+# Upstream #2638: The maintenance routines (mental_models_with_cron, etc.) are
+# installed by migrations into `database_schema` and called by name from that
+# schema via fq_routine(). Cerebral sets its schema only via the tenant
+# extension, so without this env var, `database_schema` defaults to "public".
+# With database_schema="public" and migrations running with target_schema="semantic",
+# the routines are never created. Setting this makes the routines install into
+# "semantic" and be called from "semantic", matching the tenant schema.
+os.environ.setdefault("HINDSIGHT_API_DATABASE_SCHEMA", HINDSIGHT_SCHEMA_DEFAULT)
+
 from hindsight_api import MemoryEngine
 from hindsight_api.engine.cross_encoder import RRFPassthroughCrossEncoder
 from hindsight_api.engine.embeddings import LiteLLMSDKEmbeddings
@@ -36,13 +48,25 @@ from codespy.agents.memory.cerebral.cost import (
     MeteredLiteLLMSDKEmbeddings,
     register_cerebral_cost_recorder,
 )
+from codespy.agents.memory.cerebral.routines import ensure_maintenance_routines
 
 if TYPE_CHECKING:
     from codespy.agents.memory.hippocampus.episode import Episode
 
 logger = logging.getLogger(__name__)
 
-HINDSIGHT_SCHEMA = "semantic"
+HINDSIGHT_SCHEMA = HINDSIGHT_SCHEMA_DEFAULT
+
+# Warn if the operator has overridden HINDSIGHT_API_DATABASE_SCHEMA to a different
+# value than our schema — the routines would then be missing again (upstream #2638).
+if os.environ.get("HINDSIGHT_API_DATABASE_SCHEMA") != HINDSIGHT_SCHEMA:
+    logger.warning(
+        "HINDSIGHT_API_DATABASE_SCHEMA is set to %r, which differs from the "
+        "expected schema %r. Maintenance routines may not be found. "
+        "See upstream #2638 for details.",
+        os.environ.get("HINDSIGHT_API_DATABASE_SCHEMA"),
+        HINDSIGHT_SCHEMA,
+    )
 
 
 class Cerebral:
@@ -110,6 +134,11 @@ class Cerebral:
             skip_llm_verification=True,
         )
         self._run_async(self._engine.initialize())
+
+        # One-time repair: install maintenance routines if missing.
+        # This is idempotent and only needed for databases that were migrated
+        # before HINDSIGHT_API_DATABASE_SCHEMA was set to "semantic" (upstream #2638).
+        self._run_async(ensure_maintenance_routines(self._engine, HINDSIGHT_SCHEMA))
 
         self._bank_id = bank_id
         self._bank_ensured = False
