@@ -12,6 +12,19 @@ import os
 import threading
 from typing import TYPE_CHECKING
 
+# Hindsight defaults embeddings_provider / reranker_provider to "local", which
+# needs sentence-transformers and emits a misleading startup warning
+# (hindsight_api/config.py _validate). That config is built and cached at IMPORT
+# time — the `from hindsight_api import MemoryEngine` below pulls in
+# engine.llm_wrapper, whose module-level _get_raw_config() calls
+# HindsightConfig.from_env(). So these env vars MUST be set before that import
+# line, not in Cerebral.__init__ (too late). We inject our own LiteLLM-SDK
+# embeddings and an RRF-passthrough cross-encoder in Cerebral.__init__, so the
+# env-driven providers are never used; align them to non-local values so the
+# warning does not fire. setdefault keeps operator overrides intact.
+os.environ.setdefault("HINDSIGHT_API_EMBEDDINGS_PROVIDER", "litellm-sdk")
+os.environ.setdefault("HINDSIGHT_API_RERANKER_PROVIDER", "none")
+
 from hindsight_api import MemoryEngine
 from hindsight_api.engine.cross_encoder import RRFPassthroughCrossEncoder
 from hindsight_api.engine.embeddings import LiteLLMSDKEmbeddings
