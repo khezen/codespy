@@ -141,11 +141,16 @@ class Cerebral:
                     self._bank_id,
                     updates={
                         "retain_extraction_mode": "concise",
-                        # Chunk size must accommodate the merged observations blob.
-                        # Observations are bounded by max_context_memory_tokens (~65K chars),
-                        # so 65536 chars ensures each episode's observations stay a single chunk.
-                        # If max_context_memory_tokens is raised above ~65K, bump this too.
-                        "retain_chunk_size": 65536,
+                        # retain_chunk_size (chars) MUST be strictly less than
+                        # retain_max_completion_tokens (default 64000): Hindsight's
+                        # validate_retain_completion_token_budget compares the two values
+                        # directly (chars vs tokens is NOT reconciled), and a bank-config
+                        # update that violates it is rejected wholesale — silently reverting
+                        # the bank to defaults (retain_chunk_size=3000). Do not raise this at
+                        # or above 64000. The merged observations blob is bounded by
+                        # max_context_memory_tokens (16384 tokens ≈ ~65K chars worst case), so
+                        # at 12288 a large blob splits into several chunks (graceful, no error).
+                        "retain_chunk_size": 12288,
                         "retain_mission": (
                             "Retain code review observations, analysis results, and artifacts. "
                             "Focus on patterns, architectural decisions, dependency relationships, "
