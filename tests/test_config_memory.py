@@ -206,7 +206,7 @@ class TestGetEpisodeStore:
         settings = MagicMock()
         settings.memory.postgres = MagicMock()
         settings.memory.postgres.build_uri.return_value = None
-        settings.memory.postgres.schema = "episodic"
+        settings.memory.postgres.schema_name = "episodic"
         settings.memory.pg0 = MagicMock()
         settings.memory.pg0.name = "codespy"
         settings.memory.pg0.port = None
@@ -229,7 +229,7 @@ class TestGetEpisodeStore:
         settings = MagicMock()
         settings.memory.postgres = MagicMock()
         settings.memory.postgres.build_uri.return_value = "postgresql://u:p@host:5432/codespy"
-        settings.memory.postgres.schema = "episodic"
+        settings.memory.postgres.schema_name = "episodic"
         settings.memory.bank_id = "test-bank"
 
         mock_store = MagicMock()

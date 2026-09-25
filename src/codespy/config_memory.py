@@ -80,7 +80,9 @@ class PostgresConfig(BaseModel):
     user: str | None = None      # MEMORY_POSTGRES_USER
     password: str | None = None  # MEMORY_POSTGRES_PASSWORD
     database: str = "codespy"    # MEMORY_POSTGRES_DATABASE
-    schema: str | None = "episodic"  # MEMORY_POSTGRES_SCHEMA (search_path per memory type; None = public)
+    schema_name: str | None = Field(
+        default="episodic", alias="schema"
+    )  # MEMORY_POSTGRES_SCHEMA (search_path per memory type; None = public)
 
     def build_uri(self) -> str | None:
         """Build a psycopg connection URI. Returns None when host is unset.
@@ -338,7 +340,7 @@ def get_episode_store(settings: Settings) -> EpisodeStore | None:
 
     mem = settings.memory
     bank_id = mem.bank_id or _generate_bank_id()
-    schema = mem.postgres.schema  # "episodic" by default
+    schema = mem.postgres.schema_name  # "episodic" by default
 
     # Try external PostgreSQL first
     uri = mem.postgres.build_uri()
