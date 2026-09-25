@@ -21,7 +21,7 @@ from codespy.agents.review import (
 )
 from codespy.agents.memory.hippocampus.episode import join_episode_saves
 from codespy.agents.review.helpers import build_patches
-from codespy.agents.review.scope import MANIFEST_FILES, MANIFEST_GLOBS
+from codespy.agents.review.scope import MANIFEST_FILES, MANIFEST_GLOBS, build_sparse_patterns
 from codespy.config import Settings, get_settings
 from codespy.config_memory import verify_memory_access
 from codespy.tools.git import ChangedFile, GitClient, PullRequest, get_client
@@ -210,9 +210,9 @@ class ReviewPipeline(dspy.Module):
                 if manifest.dependencies_changed:
                     logger.info("    Dependencies changed: Yes")
         # Expand sparse checkout to cover full scope subtrees
-        if not is_local:
-            self._expand_sparse_for_scopes(scopes, repo_path)
         changed_file_paths = [f.filename for f in pr.changed_files]
+        if not is_local:
+            self._expand_sparse_for_scopes(scopes, repo_path, changed_file_paths)
         patches = build_patches(pr.changed_files)
         if self.settings.compact_patches:
             logger.info("Compacting patches to function boundaries...")
@@ -297,11 +297,20 @@ class ReviewPipeline(dspy.Module):
 
         return stats_list
 
-    def _expand_sparse_for_scopes(self, scopes: list, repo_path: Path) -> None:
+    def _expand_sparse_for_scopes(self, scopes: list, repo_path: Path, changed_files: list[str] | None = None) -> None:
         """Expand sparse checkout to cover full subtree of each identified scope.
 
         Called after scope identification, before compact_patches and review modules,
         to ensure read_file and patch compaction have full scope context available.
+
+        Uses the same sparse pattern builder as derive_sparse_paths to ensure
+        manifests and AI instruction files are consistently anchored to ancestor
+        dirs of changed files, avoiding repo-wide pattern matching.
+
+        Args:
+            scopes: List of identified scope results
+            repo_path: Path to the repository root
+            changed_files: Optional list of changed file paths (if None, extracts from scopes)
         """
         from git import Repo
         from git.exc import GitCommandError
@@ -310,26 +319,41 @@ class ReviewPipeline(dspy.Module):
         if not git_dir.exists():
             return
 
-        # Build scope-aware sparse paths
-        sparse_paths: set[str] = set()
-        for scope in scopes:
-            if scope.subroot == ".":
-                # Root scope — need everything; disable sparse checkout effectively
-                sparse_paths.add("/*")
-                sparse_paths.add("*/")
-                break
-            else:
-                sparse_paths.add(scope.subroot.rstrip("/") + "/")
+        # Check for root scope — disable sparse checkout entirely
+        has_root_scope = any(s.subroot == "." for s in scopes)
+        if has_root_scope:
+            try:
+                repo = Repo(repo_path)
+                repo.git.update_environment(GIT_TERMINAL_PROMPT="0")
+                # Disable sparse checkout to get full repo
+                repo.git.config("core.sparseCheckout", "false")
+                # Re-checkout to materialize everything
+                if repo.head.is_valid():
+                    repo.git.checkout()
+                    logger.info("Root scope: disabled sparse checkout, full repo checked out")
+                return
+            except (GitCommandError, ValueError, TypeError) as e:
+                logger.warning("Failed to disable sparse checkout for root scope: %s", e)
+                return
 
-        # Always include root-level files and manifests
-        sparse_paths.add("/*")
-        for manifest in MANIFEST_FILES:
-            sparse_paths.add(manifest)
-        for pattern in MANIFEST_GLOBS:
-            sparse_paths.add(pattern)
+        # Build sparse patterns using the canonical builder
+        if changed_files is None:
+            changed_files = []
+            for scope in scopes:
+                changed_files.extend(f.filename for f in scope.changed_files)
+
+        sparse_paths = build_sparse_patterns(changed_files)
+
+        # Add scope subtrees (full directories) for expanded scope context
+        for scope in scopes:
+            if scope.subroot != ".":
+                sparse_paths.append(f"/{scope.subroot.rstrip('/')}/")
+
+        # Deduplicate and sort
+        sparse_paths = sorted(set(sparse_paths))
 
         sparse_file = git_dir / "info" / "sparse-checkout"
-        sparse_file.write_text("\n".join(sorted(sparse_paths)) + "\n")
+        sparse_file.write_text("\n".join(sparse_paths) + "\n")
 
         # Re-checkout to materialize newly included paths
         try:
@@ -342,5 +366,6 @@ class ReviewPipeline(dspy.Module):
                 )
                 return
             repo.git.checkout()
+            logger.debug("Sparse checkout expanded for %d scope(s)", len(scopes))
         except (GitCommandError, ValueError, TypeError) as e:
             logger.warning("Sparse checkout expansion failed (non-fatal): %s", e)

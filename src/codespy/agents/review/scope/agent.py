@@ -373,27 +373,55 @@ class ScopeRefinementSignature(dspy.Signature):
     )
 
 
-def derive_sparse_paths(changed_files: list[str]) -> list[str]:
-    """Derive minimal sparse checkout paths from changed files.
+# AI instruction directories and files (used for sparse patterns)
+AI_DIRS: list[str] = [".claude/", ".kilo/", ".agent/", ".ai/", ".cursor/", ".codex/"]
+AI_FILES: list[str] = ["AGENTS.md", "CLAUDE.md", "SKILL.md"]
+
+
+def build_sparse_patterns(
+    changed_files: list[str],
+    include_scope_roots: bool = True,
+    include_manifests: bool = True,
+    include_ai_files: bool = True,
+) -> list[str]:
+    """Build anchored sparse checkout patterns from changed files.
+
+    In non-cone sparse-checkout mode (gitignore-style semantics):
+    - Patterns with a leading/middle slash are anchored to repo root
+    - Patterns without a slash match at any depth (expensive in treeless clones)
+    - Patterns ending with slash match directories at any depth
+
+    This function emits anchored patterns only: /<ancestor>/<pattern>
+    to limit materialization to ancestor dirs of changed files.
 
     Args:
-        changed_files: List of changed file paths
+        changed_files: List of changed file paths (relative to repo root)
+        include_scope_roots: Include scope subtree roots (e.g., /packages/auth/)
+        include_manifests: Include anchored manifest patterns
+        include_ai_files: Include anchored AI instruction dir/file patterns
 
     Returns:
-        List of sparse paths for git sparse-checkout
+        List of anchored sparse patterns for git sparse-checkout
     """
-    scope_roots: set[str] = set()
+    patterns: set[str] = set()
+    ancestor_dirs: set[str] = set()
 
+    # Build scope roots from changed files (for subtree checkout)
+    scope_roots: set[str] = set()
     for filepath in changed_files:
         parts = filepath.split("/")
         if len(parts) <= 1:
-            continue  # Root-level file, handled by "/*" below
+            continue  # Root-level file
+
+        # Collect all ancestor directories of this file
+        for depth in range(1, len(parts)):
+            ancestor_dirs.add("/".join(parts[:depth]))
 
         # Strategy A: Find scope indicator and take the next directory
         found_indicator = False
         for i, part in enumerate(parts[:-1]):  # Skip filename
             if part.lower() in SCOPE_INDICATOR_DIRS and i + 1 < len(parts) - 1:
-                scope_root = "/".join(parts[: i + 2]) + "/"
+                scope_root = "/".join(parts[: i + 2])
                 scope_roots.add(scope_root)
                 found_indicator = True
                 break
@@ -401,36 +429,65 @@ def derive_sparse_paths(changed_files: list[str]) -> list[str]:
         # Strategy B: No indicator found -- use depth-2 prefix
         if not found_indicator:
             depth = min(2, len(parts) - 1)
-            scope_roots.add("/".join(parts[:depth]) + "/")
+            scope_roots.add("/".join(parts[:depth]))
 
-    # Always include root-level files for root manifests
-    paths = sorted(scope_roots)
-    paths.append("/*")
+    # Always include root in ancestor dirs
+    ancestor_dirs.add(".")
 
-    # Explicitly add root manifest files to ensure they are checked out
-    # in sparse/treeless clones (/* pattern doesn't always work reliably)
-    for manifest in MANIFEST_FILES:
-        paths.append(manifest)
-    for manifest_pattern in MANIFEST_GLOBS:
-        # For glob patterns like *.csproj, we need to add the pattern itself
-        paths.append(manifest_pattern)
+    # Scope roots (for subtree checkout) - anchored as /<scope>/
+    if include_scope_roots:
+        for scope_root in scope_roots:
+            patterns.add(f"/{scope_root}/")
 
-    # Agent config directories — project instructions for ReAct agents
-    paths.extend(
-        [
-            ".claude/",
-            ".kilo/",
-            ".agent/",
-            ".ai/",
-            ".cursor/",
-            ".codex/",
-            "AGENTS.md",
-            "CLAUDE.md",
-            "SKILL.md",
-        ]
-    )
+    # Root-level files
+    patterns.add("/*")
 
-    return paths
+    # Manifest files - anchored to each ancestor dir to avoid repo-wide matching
+    if include_manifests:
+        for ancestor in ancestor_dirs:
+            for manifest in MANIFEST_FILES:
+                if ancestor == ".":
+                    patterns.add(f"/{manifest}")
+                else:
+                    patterns.add(f"/{ancestor}/{manifest}")
+        for ancestor in ancestor_dirs:
+            for manifest_pattern in MANIFEST_GLOBS:
+                if ancestor == ".":
+                    patterns.add(f"/{manifest_pattern}")
+                else:
+                    patterns.add(f"/{ancestor}/{manifest_pattern}")
+
+    # AI instruction directories and files - anchored to each ancestor dir
+    if include_ai_files:
+        for ancestor in ancestor_dirs:
+            for ai_dir in AI_DIRS:
+                if ancestor == ".":
+                    patterns.add(f"/{ai_dir}")
+                else:
+                    patterns.add(f"/{ancestor}/{ai_dir}")
+        for ancestor in ancestor_dirs:
+            for ai_file in AI_FILES:
+                if ancestor == ".":
+                    patterns.add(f"/{ai_file}")
+                else:
+                    patterns.add(f"/{ancestor}/{ai_file}")
+
+    return sorted(patterns)
+
+
+def derive_sparse_paths(changed_files: list[str]) -> list[str]:
+    """Derive minimal sparse checkout paths from changed files.
+
+    Deprecated: Use build_sparse_patterns() for new code.
+    This function is kept for backward compatibility.
+
+    Args:
+        changed_files: List of changed file paths
+
+    Returns:
+        List of sparse paths for git sparse-checkout
+    """
+    return build_sparse_patterns(changed_files)
 
 
 class ScopeResolver(dspy.Module):
@@ -502,8 +559,6 @@ class ScopeResolver(dspy.Module):
             repo.git.update_environment(GIT_TERMINAL_PROMPT="0")
             repo.git.fetch("origin", pr.head_sha, "--depth", "1")
             repo.git.checkout(pr.head_sha)
-            # Ensure manifests at root + parent dirs
-            await self._ensure_manifests(repo_path, changed_file_paths)
             return
 
         changed_file_paths = [f.filename for f in pr.changed_files]
@@ -529,60 +584,6 @@ class ScopeResolver(dspy.Module):
             sparse_paths=sparse_paths,
         )
         logger.info("Clone complete: %s", repo_path)
-
-        # Ensure manifest files at root and parent directories are checked out
-        await self._ensure_manifests(repo_path, changed_file_paths)
-
-    async def _ensure_manifests(self, repo_path: Path, changed_files: list[str]) -> None:
-        """Ensure manifest files at root and parent directories are checked out.
-
-        Sparse/treeless clones may not materialize manifests at ancestor directories.
-        This explicitly checks out known manifest files at:
-        - Repository root
-        - Every ancestor directory of every changed file path
-
-        Args:
-            repo_path: Path to the repository root
-            changed_files: List of changed file paths
-        """
-        from git import Repo
-
-        # Collect all ancestor directories of changed files
-        parent_dirs: set[str] = set()
-        for filepath in changed_files:
-            parts = filepath.split("/")
-            for depth in range(1, len(parts)):  # skip filename, collect dirs
-                parent_dirs.add("/".join(parts[:depth]))
-
-        # Build list of manifest paths to check
-        manifest_paths: list[str] = []
-
-        # Root manifests
-        for manifest in MANIFEST_FILES:
-            manifest_paths.append(manifest)
-
-        # Parent manifests
-        for parent in parent_dirs:
-            for manifest in MANIFEST_FILES:
-                manifest_paths.append(f"{parent}/{manifest}")
-
-        # Checkout missing manifests
-        try:
-            from git import Repo
-            from git.exc import GitCommandError
-
-            repo = Repo(repo_path)
-            for path in manifest_paths:
-                if not (repo_path / path).exists():
-                    try:
-                        repo.git.checkout("HEAD", "--", path)
-                        logger.debug("Checked out manifest: %s", path)
-                    except GitCommandError:
-                        pass  # File doesn't exist in repo — expected
-                    except Exception as e:
-                        logger.warning("Unexpected error checking out manifest %s: %s", path, e)
-        except Exception as e:
-            logger.warning("Failed to ensure manifests: %s", e)
 
     def _resolve(
         self, repo_path: Path, changed_files: list[ChangedFile], repo: str
