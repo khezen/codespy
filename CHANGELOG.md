@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+- **Dependencies**: MCP Python SDK upgraded from v1.x to v2.x
+  - `mcp` dependency: `>=1.29.0,<2.0.0` → `>=2.2,<3`
+  - All 8 MCP servers migrated from `FastMCP` to `MCPServer` (v2 API)
+  - `mcp_utils.py` updated to use new `Client` class with `StdioServerParameters`
+  - Removed dead log suppression code for "Processing request of type" messages (no longer present in v2)
+
 ## [1.2.4] - 2026-09-18
 
 ### Changed

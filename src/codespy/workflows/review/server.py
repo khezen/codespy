@@ -7,13 +7,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from codespy.config import Settings
 
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("codespy-reviewer")
+mcp = MCPServer("codespy-reviewer")
 _settings: Settings | None = None
 _pipeline: Any = None
 
@@ -183,10 +183,6 @@ async def review_pr(
 def run_server(settings: Settings | None = None) -> None:
     """Start the MCP server (called from CLI or __main__)."""
     global _settings
-
-    # Suppress noisy MCP server logs — keep the transport clean
-    logging.getLogger("mcp.server").setLevel(logging.WARNING)
-    logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
 
     # Send application logs to stderr (stdout is the MCP transport)
     logging.basicConfig(

@@ -5,14 +5,14 @@ import os
 from functools import lru_cache
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from codespy.tools.cyber.osv.client import OSVClient
 
 logger = logging.getLogger(__name__)
 _caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 
-mcp = FastMCP("osv")
+mcp = MCPServer("osv")
 _client: OSVClient | None = None
 
 
@@ -225,9 +225,5 @@ def scan_cargo_package(name: str, version: str) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    # Suppress noisy MCP server "Processing request" logs
-    logging.getLogger("mcp.server").setLevel(logging.WARNING)
-    logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
-
     _client = OSVClient()
     mcp.run()

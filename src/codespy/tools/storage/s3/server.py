@@ -6,7 +6,7 @@ import sys
 from collections import OrderedDict
 from functools import lru_cache
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from codespy.tools.storage.s3.client import S3Client
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Get caller module from environment (set by mcp_utils.py)
 _caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 
-mcp = FastMCP("s3")
+mcp = MCPServer("s3")
 _client: S3Client | None = None
 
 # Manual cache for read_file to skip caching error results
@@ -221,10 +221,6 @@ def delete_file(path: str) -> dict:
 
 
 if __name__ == "__main__":
-    # Suppress noisy MCP server "Processing request" logs
-    logging.getLogger("mcp.server").setLevel(logging.WARNING)
-    logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
-
     if len(sys.argv) < 2:
         print("Usage: python server.py <bucket> [region] [endpoint_url]", file=sys.stderr)
         sys.exit(1)

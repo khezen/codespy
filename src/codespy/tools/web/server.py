@@ -3,14 +3,14 @@
 import logging
 import os
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from codespy.tools.web.client import WebBrowser
 
 logger = logging.getLogger(__name__)
 _caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 
-mcp = FastMCP("web")
+mcp = MCPServer("web")
 _browser: WebBrowser | None = None
 
 
@@ -69,9 +69,5 @@ def search_and_fetch(query: str, num_results: int = 3) -> list[dict]:
 
 
 if __name__ == "__main__":
-    # Suppress noisy MCP server "Processing request" logs
-    logging.getLogger("mcp.server").setLevel(logging.WARNING)
-    logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
-
     _browser = WebBrowser()
     mcp.run()

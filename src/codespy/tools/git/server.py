@@ -3,7 +3,7 @@
 import logging
 import os
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from codespy.config import Settings
 from codespy.tools.git.base import GitClient
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Get caller module from environment (set by mcp_utils.py)
 _caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 
-mcp = FastMCP("git")
+mcp = MCPServer("git")
 _settings: Settings | None = None
 
 
@@ -155,10 +155,6 @@ def detect_git_platform(url: str) -> dict:
 
 
 if __name__ == "__main__":
-    # Suppress noisy MCP server "Processing request" logs
-    logging.getLogger("mcp.server").setLevel(logging.WARNING)
-    logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
-
     # Initialize with settings from environment
     _settings = Settings()
     mcp.run()

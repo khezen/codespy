@@ -7,8 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import dspy  # type: ignore[import-untyped]
-from mcp import ClientSession, StdioServerParameters  # type: ignore[import-not-found]
-from mcp.client.stdio import stdio_client  # type: ignore[import-not-found]
+from mcp import Client, StdioServerParameters
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,7 @@ async def connect_mcp_server(
     Args:
         mcp_path: Path to the MCP server Python module
         args: Additional command-line arguments for the server
-        contexts: List to append context managers for cleanup (transport, session)
+        contexts: List to append context managers for cleanup (client)
         caller_module: Name of the calling module for logging (e.g., 'supply_chain_auditor')
 
     Returns:
@@ -39,23 +38,18 @@ async def connect_mcp_server(
     env = os.environ.copy()
     env["MCP_CALLER_MODULE"] = caller_module
 
-    params = StdioServerParameters(
-        command=sys.executable,
-        args=[str(mcp_path)] + args,
-        env=env,
+    client = Client(
+        StdioServerParameters(
+            command=sys.executable,
+            args=[str(mcp_path)] + args,
+            env=env,
+        )
     )
+    await client.__aenter__()
+    contexts.append(client)
 
-    transport = stdio_client(params)
-    streams = await transport.__aenter__()
-    contexts.append(transport)
-
-    session = ClientSession(*streams)
-    await session.__aenter__()
-    contexts.append(session)
-    await session.initialize()
-
-    tools_response = await session.list_tools()
-    return [dspy.Tool.from_mcp_tool(session, tool) for tool in tools_response.tools]
+    tools_response = await client.list_tools()
+    return [dspy.Tool.from_mcp_tool(client, tool) for tool in tools_response.tools]
 
 
 async def cleanup_mcp_contexts(contexts: list[Any]) -> None:

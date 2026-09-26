@@ -1668,36 +1668,37 @@ zstandard = ["backports.zstd"]
 
 [[package]]
 name = "fastmcp"
-version = "3.4.7"
+version = "4.0.10"
 description = "The fast, Pythonic way to build MCP servers and clients."
 optional = false
 python-versions = ">=3.10"
 files = [
-    {file = "fastmcp-3.4.7-py3-none-any.whl", hash = "sha256:e4e7698cb4af5bc667b1901685261fa2f3526dc73d243a461fca42500c8dbe56"},
-    {file = "fastmcp-3.4.7.tar.gz", hash = "sha256:43117aca886f5ee2f6a569bba91cef02b59c339aad04ba29950ff18d251c822a"},
+    {file = "fastmcp-4.0.10-py3-none-any.whl", hash = "sha256:1f8462e3d97394a637e1b0f1eaea0002da661c8d98000ad43f0aa3fa1ff523e8"},
+    {file = "fastmcp-4.0.10.tar.gz", hash = "sha256:64539631a7dc5873a1c7a44089b2f7b3395dea3ca857e9f81bfe9665a59038d5"},
 ]
 
 [package.dependencies]
-fastmcp-slim = {version = "3.4.7", extras = ["client", "server"]}
+fastmcp-slim = {version = "4.0.10", extras = ["client", "server"]}
 
 [package.extras]
-anthropic = ["fastmcp-slim[anthropic] (==3.4.7)"]
-apps = ["fastmcp-slim[apps] (==3.4.7)"]
-azure = ["fastmcp-slim[azure] (==3.4.7)"]
-code-mode = ["fastmcp-slim[code-mode] (==3.4.7)"]
-gemini = ["fastmcp-slim[gemini] (==3.4.7)"]
-openai = ["fastmcp-slim[openai] (==3.4.7)"]
-tasks = ["fastmcp-slim[tasks] (==3.4.7)"]
+anthropic = ["fastmcp-slim[anthropic] (==4.0.10)"]
+apps = ["fastmcp-slim[apps] (==4.0.10)"]
+azure = ["fastmcp-slim[azure] (==4.0.10)"]
+code-mode = ["fastmcp-slim[code-mode] (==4.0.10)"]
+gemini = ["fastmcp-slim[gemini] (==4.0.10)"]
+jev = ["fastmcp-slim[jev] (==4.0.10)"]
+openai = ["fastmcp-slim[openai] (==4.0.10)"]
+tasks = ["fastmcp-tasks (==4.0.10)"]
 
 [[package]]
 name = "fastmcp-slim"
-version = "3.4.7"
+version = "4.0.10"
 description = "The dependency-slim FastMCP package."
 optional = false
 python-versions = ">=3.10"
 files = [
-    {file = "fastmcp_slim-3.4.7-py3-none-any.whl", hash = "sha256:6c931a0089705f3f2935428ef9b2bc74ad94140adc64aab84d116d103e694b3a"},
-    {file = "fastmcp_slim-3.4.7.tar.gz", hash = "sha256:06b32a358320a7dc2b2ee040ba89ea55ddc20763dff2949f384f7974b13b5d8f"},
+    {file = "fastmcp_slim-4.0.10-py3-none-any.whl", hash = "sha256:c2abd40302b8f06b0291413cf537d57bc0f171b5fd98af5cfef3b2b6b506122f"},
+    {file = "fastmcp_slim-4.0.10.tar.gz", hash = "sha256:d22b423f93ad945bf65d446a1689ff84be7b91dfd9b6f23c5013f4b2fe9776a7"},
 ]
 
 [package.dependencies]
@@ -1705,17 +1706,18 @@ authlib = {version = ">=1.6.11", optional = true, markers = "extra == \"client\"
 cyclopts = {version = ">=4.0.0", optional = true, markers = "extra == \"server\""}
 exceptiongroup = {version = ">=1.2.2", optional = true, markers = "extra == \"client\" or extra == \"server\""}
 griffelib = {version = ">=2.0.0", optional = true, markers = "extra == \"server\""}
-httpx = {version = ">=0.28.1,<1.0", optional = true, markers = "extra == \"client\" or extra == \"server\""}
-joserfc = {version = ">=1.1.0", optional = true, markers = "extra == \"server\""}
+httpx2 = {version = ">=2.5.0", optional = true, markers = "extra == \"client\" or extra == \"server\""}
+joserfc = {version = ">=1.5.0", optional = true, markers = "extra == \"server\""}
 jsonref = {version = ">=1.1.0", optional = true, markers = "extra == \"server\""}
 jsonschema-path = {version = ">=0.3.4", optional = true, markers = "extra == \"server\""}
-mcp = {version = ">=1.24.0,<2.0", optional = true, markers = "extra == \"client\" or extra == \"server\""}
+mcp = {version = ">=2.0.0,<3.0.0", optional = true, markers = "extra == \"client\" or extra == \"server\""}
+mcp-types = ">=2.0.0,<3.0.0"
 openapi-pydantic = {version = ">=0.5.1", optional = true, markers = "extra == \"server\""}
-opentelemetry-api = {version = ">=1.20.0", optional = true, markers = "extra == \"client\" or extra == \"server\""}
+opentelemetry-api = {version = ">=1.28.0", optional = true, markers = "extra == \"client\" or extra == \"server\""}
 packaging = {version = ">=24.0", optional = true, markers = "extra == \"server\""}
 platformdirs = ">=4.0.0"
 py-key-value-aio = {version = ">=0.4.4,<0.5.0", extras = ["filetree", "keyring", "memory"], optional = true, markers = "extra == \"client\" or extra == \"server\""}
-pydantic = {version = ">=2.11.7", extras = ["email"]}
+pydantic = {version = ">=2.12.0", extras = ["email"]}
 pydantic-settings = ">=2.0.0"
 pyperclip = {version = ">=1.9.0", optional = true, markers = "extra == \"server\""}
 python-dotenv = ">=1.1.0"
@@ -1724,22 +1726,22 @@ pyyaml = {version = ">=6.0,<7.0", optional = true, markers = "extra == \"server\
 rich = ">=13.9.4"
 starlette = {version = ">=1.0.1", optional = true, markers = "extra == \"client\" or extra == \"server\""}
 typing-extensions = ">=4.0.0"
-uncalled-for = {version = ">=0.2.0", optional = true, markers = "extra == \"server\""}
+uncalled-for = {version = ">=0.4.0", optional = true, markers = "extra == \"server\""}
 uvicorn = {version = ">=0.35", optional = true, markers = "extra == \"server\""}
 watchfiles = {version = ">=1.0.0", optional = true, markers = "extra == \"server\""}
 websockets = {version = ">=15.0.1", optional = true, markers = "extra == \"server\""}
 
 [package.extras]
-anthropic = ["anthropic (>=0.48.0)"]
+anthropic = ["anthropic (>=0.48.0,<2)"]
 apps = ["prefab-ui (>=0.18.0)"]
 azure = ["azure-identity (>=1.16.0)", "pyjwt (>=2.12.0)"]
-client = ["authlib (>=1.6.11)", "exceptiongroup (>=1.2.2)", "httpx (>=0.28.1,<1.0)", "mcp (>=1.24.0,<2.0)", "opentelemetry-api (>=1.20.0)", "py-key-value-aio[filetree,keyring,memory] (>=0.4.4,<0.5.0)", "starlette (>=1.0.1)"]
-code-mode = ["pydantic-monty (==0.0.17)"]
+client = ["authlib (>=1.6.11)", "exceptiongroup (>=1.2.2)", "httpx2 (>=2.5.0)", "mcp (>=2.0.0,<3.0.0)", "opentelemetry-api (>=1.28.0)", "py-key-value-aio[filetree,keyring,memory] (>=0.4.4,<0.5.0)", "starlette (>=1.0.1)"]
+code-mode = ["pydantic-monty (==0.0.21)"]
 gemini = ["google-genai (>=1.18.0)", "jsonref (>=1.1.0)"]
-mcp = ["exceptiongroup (>=1.2.2)", "httpx (>=0.28.1,<1.0)", "mcp (>=1.24.0,<2.0)", "opentelemetry-api (>=1.20.0)", "starlette (>=1.0.1)"]
+jev = ["typesafe-sdk (>=0.5.7)"]
+mcp = ["exceptiongroup (>=1.2.2)", "httpx2 (>=2.5.0)", "mcp (>=2.0.0,<3.0.0)", "opentelemetry-api (>=1.28.0)", "starlette (>=1.0.1)"]
 openai = ["openai (>=1.102.0)"]
-server = ["authlib (>=1.6.11)", "cyclopts (>=4.0.0)", "exceptiongroup (>=1.2.2)", "griffelib (>=2.0.0)", "httpx (>=0.28.1,<1.0)", "joserfc (>=1.1.0)", "jsonref (>=1.1.0)", "jsonschema-path (>=0.3.4)", "mcp (>=1.24.0,<2.0)", "openapi-pydantic (>=0.5.1)", "opentelemetry-api (>=1.20.0)", "packaging (>=24.0)", "py-key-value-aio[filetree,keyring,memory] (>=0.4.4,<0.5.0)", "pyperclip (>=1.9.0)", "python-multipart (>=0.0.26)", "pyyaml (>=6.0,<7.0)", "starlette (>=1.0.1)", "uncalled-for (>=0.2.0)", "uvicorn (>=0.35)", "watchfiles (>=1.0.0)", "websockets (>=15.0.1)"]
-tasks = ["pydocket (>=0.20.0)"]
+server = ["authlib (>=1.6.11)", "cyclopts (>=4.0.0)", "exceptiongroup (>=1.2.2)", "griffelib (>=2.0.0)", "httpx2 (>=2.5.0)", "joserfc (>=1.5.0)", "jsonref (>=1.1.0)", "jsonschema-path (>=0.3.4)", "mcp (>=2.0.0,<3.0.0)", "openapi-pydantic (>=0.5.1)", "opentelemetry-api (>=1.28.0)", "packaging (>=24.0)", "py-key-value-aio[filetree,keyring,memory] (>=0.4.4,<0.5.0)", "pyperclip (>=1.9.0)", "python-multipart (>=0.0.26)", "pyyaml (>=6.0,<7.0)", "starlette (>=1.0.1)", "uncalled-for (>=0.4.0)", "uvicorn (>=0.35)", "watchfiles (>=1.0.0)", "websockets (>=15.0.1)"]
 
 [[package]]
 name = "fastuuid"
@@ -2493,17 +2495,6 @@ cli = ["click (==8.*)", "pygments (==2.*)", "rich (>=10,<14)"]
 http2 = ["h2 (>=3,<5)"]
 socks = ["socksio (==1.*)"]
 zstd = ["zstandard (>=0.18.0)"]
-
-[[package]]
-name = "httpx-sse"
-version = "0.4.3"
-description = "Consume Server-Sent Event (SSE) messages with HTTPX."
-optional = false
-python-versions = ">=3.9"
-files = [
-    {file = "httpx_sse-0.4.3-py3-none-any.whl", hash = "sha256:0ac1c9fe3c0afad2e0ebb25a934a59f4c7823b60792691f779fad2c5568830fc"},
-    {file = "httpx_sse-0.4.3.tar.gz", hash = "sha256:9b1ed0127459a66014aec3c56bebd93da3c1bc8bb6618c8082039a44889a755d"},
-]
 
 [[package]]
 name = "httpx2"
@@ -3661,35 +3652,49 @@ files = [
 
 [[package]]
 name = "mcp"
-version = "1.30.0"
+version = "2.2.0"
 description = "Model Context Protocol SDK"
 optional = false
 python-versions = ">=3.10"
 files = [
-    {file = "mcp-1.30.0-py3-none-any.whl", hash = "sha256:666edb5009503e1047c9d60346a756f94b261f05cc2625f23d41c728ffc484d0"},
-    {file = "mcp-1.30.0.tar.gz", hash = "sha256:445414625fce5c295faa505bb11bacece661ab6f4028d57c935db57820b7a3e4"},
+    {file = "mcp-2.2.0-py3-none-any.whl", hash = "sha256:bde982589473a060ae145e3406e9a5333fe538c97229ba841f5a7f92be004f81"},
+    {file = "mcp-2.2.0.tar.gz", hash = "sha256:2dc37ecb1974becdcebdbf7561e7c15a07dbbf20ba21ba16c3593b3038b3afbd"},
 ]
 
 [package.dependencies]
-anyio = ">=4.5"
-httpx = ">=0.27.1,<1.0.0"
-httpx-sse = ">=0.4"
+anyio = {version = ">=4.9", markers = "python_version < \"3.14\""}
+httpx2 = ">=2.5.0"
 jsonschema = ">=4.20.0"
-pydantic = {version = ">=2.11.0,<3.0.0", markers = "python_version < \"3.14\""}
-pydantic-settings = ">=2.5.2"
+mcp-types = "2.2.0"
+opentelemetry-api = ">=1.28.0"
+pydantic = ">=2.12.0"
 pyjwt = {version = ">=2.10.1", extras = ["crypto"]}
 python-multipart = ">=0.0.9"
-pywin32 = {version = ">=310", markers = "sys_platform == \"win32\" and python_version < \"3.14\""}
-sse-starlette = ">=1.6.1"
+pywin32 = {version = ">=311", markers = "sys_platform == \"win32\""}
+sse-starlette = ">=3.0.0"
 starlette = {version = ">=0.27", markers = "python_version < \"3.14\""}
-typing-extensions = ">=4.9.0"
+typing-extensions = ">=4.13.0"
 typing-inspection = ">=0.4.1"
 uvicorn = {version = ">=0.31.1", markers = "sys_platform != \"emscripten\""}
 
 [package.extras]
 cli = ["python-dotenv (>=1.0.0)", "typer (>=0.16.0)"]
 rich = ["rich (>=13.9.4)"]
-ws = ["websockets (>=15.0.1)"]
+
+[[package]]
+name = "mcp-types"
+version = "2.2.0"
+description = "Model Context Protocol wire types"
+optional = false
+python-versions = ">=3.10"
+files = [
+    {file = "mcp_types-2.2.0-py3-none-any.whl", hash = "sha256:ea476b73ee86709ab5abc9452385ed36cc05907e582355622e294595c9a04f13"},
+    {file = "mcp_types-2.2.0.tar.gz", hash = "sha256:d3ed53703ddd10d9c6399f29d322bb66f3f67ab41348ac8556ba23e07fedefad"},
+]
+
+[package.dependencies]
+pydantic = ">=2.12.0"
+typing-extensions = ">=4.13.0"
 
 [[package]]
 name = "mdurl"
@@ -8039,4 +8044,4 @@ type = ["pytest-mypy (>=1.0.1)"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<3.14"
-content-hash = "842ece45c1b8291c55302a8505f8e02b8cecd9ec3c94ecdae4795c789a6e67f0"
+content-hash = "3361922bf6a698b1b3c447b0e207645a37b9ef6cff0983b7f324b9c421e8357c"
