@@ -474,7 +474,7 @@ class Hippocampus:
             trajectory=trajectory,
             context_memory=self.cmem,
             question=question,
-            max_context_item_tokens=self.budget.max_context_item_tokens,
+            max_hippocampus_item_tokens=self.budget.max_hippocampus_item_tokens,
         )
 
         known = self.cmem.ids()
@@ -489,9 +489,9 @@ class Hippocampus:
             question=question,
             # The Cartographer's input field keeps the generic name: it is prompt
             # text, already scoped by its description, and pairs with current_tokens.
-            token_budget=self.budget.max_context_memory_tokens,
+            token_budget=self.budget.max_hippocampus_tokens,
             current_tokens=count_tokens(self.cmem.model_dump_json()),
-            max_context_item_tokens=self.budget.max_context_item_tokens,
+            max_hippocampus_item_tokens=self.budget.max_hippocampus_item_tokens,
         )
         ops = list(edits.operations or [])
 
@@ -504,7 +504,7 @@ class Hippocampus:
                 self.scores[nid] = self.scores.get(nid, 0) + 1
 
         self._distill_step += 1
-        self.cmem = evict(self.cmem, self.scores, self.budget.max_context_memory_tokens)
+        self.cmem = evict(self.cmem, self.scores, self.budget.max_hippocampus_tokens)
 
         live = self.cmem.ids()
         self.scores = {k: v for k, v in self.scores.items() if k in live}

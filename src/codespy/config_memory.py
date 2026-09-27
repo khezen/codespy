@@ -54,8 +54,8 @@ class HippocampusConfig(BaseModel):
     compact_trajectory: bool = True
 
     # Token budgets
-    max_context_memory_tokens: int = Field(default=16384)
-    max_context_item_tokens: int = Field(default=512)
+    max_hippocampus_tokens: int = Field(default=16384)
+    max_hippocampus_item_tokens: int = Field(default=512)
     max_trajectory_tokens: int | None = Field(default=16384)
     max_question_tokens: int | None = Field(default=8192)
 

@@ -108,7 +108,7 @@ class DistillerSig(dspy.Signature):
 
     Each candidate is an object with exactly these fields:
     - section: one of the six section names above
-    - value: the compact cached content (stay within max_context_item_tokens)
+    - value: the compact cached content (stay within max_hippocampus_item_tokens)
     - transferability: what kinds of future questions this would help
     - rationale: why this is shared understanding, not a one-off fact
 
@@ -124,7 +124,7 @@ class DistillerSig(dspy.Signature):
         desc="Current context memory."
     )
     question: str = dspy.InputField(desc="The question the agent was answering.")
-    max_context_item_tokens: int = dspy.InputField(
+    max_hippocampus_item_tokens: int = dspy.InputField(
         desc="Token budget for a SINGLE context memory observation. Keep every candidate within "
         "it; if one exceeds it, rewrite it more compactly or split it."
     )
@@ -139,7 +139,7 @@ class DistillerSig(dspy.Signature):
         "Keys must match existing observation ids exactly."
     )
     cache_candidates: list[CacheCandidate] = dspy.OutputField(
-        desc="Candidate observations to add. Each within the max_context_item_tokens budget; "
+        desc="Candidate observations to add. Each within the max_hippocampus_item_tokens budget; "
         "structural/transferable only. "
         "Each candidate's `section` must be one of the six section names above."
     )
@@ -175,7 +175,7 @@ class Distiller(dspy.Module):
         trajectory: str,
         context_memory: ContextMemory,
         question: str,
-        max_context_item_tokens: int,
+        max_hippocampus_item_tokens: int,
     ):
         # SignatureContext applies memory.hippocampus.distiller's model/temperature/reasoning
         # effort and attributes the cost to this module rather than to whichever
@@ -189,5 +189,5 @@ class Distiller(dspy.Module):
                 trajectory=trajectory,
                 context_memory=context_memory,
                 question=question,
-                max_context_item_tokens=max_context_item_tokens,
+                max_hippocampus_item_tokens=max_hippocampus_item_tokens,
             )

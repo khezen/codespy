@@ -103,8 +103,8 @@ memory:
   # Hippocampus (episodic memory)
   hippocampus:
     compact_trajectory: true              # MEMORY_COMPACT_TRAJECTORY
-    max_context_memory_tokens: 16384      # MEMORY_MAX_CONTEXT_MEMORY_TOKENS
-    max_context_item_tokens: 512          # MEMORY_MAX_CONTEXT_ITEM_TOKENS
+    max_hippocampus_tokens: 16384         # MEMORY_MAX_HIPPOCAMPUS_TOKENS
+    max_hippocampus_item_tokens: 512      # MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS
     max_trajectory_tokens: 16384          # MEMORY_MAX_TRAJECTORY_TOKENS
     max_question_tokens: 8192             # MEMORY_MAX_QUESTION_TOKENS
 

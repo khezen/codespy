@@ -114,7 +114,7 @@ class CacheCandidate(BaseModel):
         ),
     )
     value: str = Field(
-        description="Compact candidate cache observation, within the max_context_item_tokens budget."
+        description="Compact candidate cache observation, within the max_hippocampus_item_tokens budget."
     )
     transferability: str = Field(
         default="",

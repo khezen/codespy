@@ -174,7 +174,7 @@ After each agent run (at `end_episode()`):
    - `ADD` — Insert new observation
    - `REPLACE` — Update existing observation with new knowledge
    - `DELETE` — Remove outdated/irrelevant observation
-3. **Eviction** — If memory exceeds `max_context_memory_tokens`, oldest general observations are evicted first
+3. **Eviction** — If memory exceeds `max_hippocampus_tokens`, oldest general observations are evicted first
 
 The Distiller also tags each existing context memory observation with an `ObservationTag`:
 
@@ -189,13 +189,13 @@ These tags inform the Cartographer's edit decisions.
 
 | Budget | Env Var | Default | Purpose |
 |--------|---------|---------|---------|
-| Context memory | `MEMORY_MAX_CONTEXT_MEMORY_TOKENS` | 16384 | Ceiling on persisted ContextMemory (re-sent every iteration) |
-| Observation | `MEMORY_MAX_CONTEXT_ITEM_TOKENS` | 512 | Soft per-observation token limit (expressed to LLM, not truncated) |
+| Context memory | `MEMORY_MAX_HIPPOCAMPUS_TOKENS` | 16384 | Ceiling on persisted ContextMemory (re-sent every iteration) |
+| Observation | `MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS` | 512 | Soft per-observation token limit (expressed to LLM, not truncated) |
 | Trajectory | `MEMORY_MAX_TRAJECTORY_TOKENS` | 16384 | Head+tail cap on trajectory fed to Distiller |
 | Question | `MEMORY_MAX_QUESTION_TOKENS` | 8192 | Cap on serialized inputs as reflection question |
 | Compact trajectory | `MEMORY_COMPACT_TRAJECTORY` | `true` | Apply head+tail trajectory bounding before distillation |
 
-Observation capacity ≈ context_memory_tokens / observation_tokens (16384/512 = 32 observations)
+Observation capacity ≈ max_hippocampus_tokens / max_hippocampus_item_tokens (16384/512 = 32 observations)
 
 ## Configuration
 

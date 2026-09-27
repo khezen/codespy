@@ -190,7 +190,7 @@ class Cerebral:
                         # update that violates it is rejected wholesale — silently reverting
                         # the bank to defaults (retain_chunk_size=3000). Do not raise this at
                         # or above 64000. The merged observations blob is bounded by
-                        # max_context_memory_tokens (16384 tokens ≈ ~65K chars worst case), so
+                        # max_hippocampus_tokens (16384 tokens ≈ ~65K chars worst case), so
                         # at 12288 a large blob splits into several chunks (graceful, no error).
                         "retain_chunk_size": 12288,
                         "retain_mission": (

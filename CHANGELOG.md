@@ -19,6 +19,10 @@
   - Migration note: **upgrade the action ref and `codespy-version` together**. An older action with the `latest` image, or the reverse, silently drops review settings.
 
 ### Changed
+- **BREAKING — Memory Token Budgets**: Renamed token budget fields for clarity
+  - `memory.hippocampus.max_context_memory_tokens` → `max_hippocampus_tokens` (env: `MEMORY_MAX_HIPPOCAMPUS_TOKENS`)
+  - `memory.hippocampus.max_context_item_tokens` → `max_hippocampus_item_tokens` (env: `MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS`)
+  - Old keys and env vars are silently ignored; defaults apply. See codespy.yaml for current names.
 - **Internal naming**: Cost table rows and internal unit names were renamed to match the `MEMORY_*` config/env names:
   - `distiller` → `memory_distiller`
   - `cartographer` → `memory_cartographer`

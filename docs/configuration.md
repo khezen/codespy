@@ -182,8 +182,8 @@ Brief overview:
 | pg0 port | `MEMORY_PG0_PORT` | auto | pg0-embedded port (local dev) |
 | pg0 data dir | `MEMORY_PG0_DATA_DIR` | — | pg0-embedded data directory (local dev) |
 | Enabled | `MEMORY_ENABLED` | `false` | Enable memory globally (episodic + semantic) |
-| Context memory tokens | `MEMORY_MAX_CONTEXT_MEMORY_TOKENS` | `16384` | Ceiling on persisted context memory |
-| Observation tokens | `MEMORY_MAX_CONTEXT_ITEM_TOKENS` | `512` | Soft per-observation token limit |
+| Context memory tokens | `MEMORY_MAX_HIPPOCAMPUS_TOKENS` | `16384` | Ceiling on persisted context memory |
+| Observation tokens | `MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS` | `512` | Soft per-observation token limit |
 | Trajectory tokens | `MEMORY_MAX_TRAJECTORY_TOKENS` | `16384` | Cap on trajectory fed to Distiller |
 | Question tokens | `MEMORY_MAX_QUESTION_TOKENS` | `8192` | Cap on serialized reflection inputs |
 

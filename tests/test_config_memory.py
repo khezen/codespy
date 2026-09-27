@@ -58,6 +58,28 @@ class TestApplyMemoryEnvOverrides:
         result = apply_env_overrides(config, _ENV_MAP)
         assert result["memory"]["cerebral"]["embeddings"]["model"] == "openai/text-embedding-3-large"
 
+    def test_override_memory_max_hippocampus_tokens(self, monkeypatch):
+        """MEMORY_MAX_HIPPOCAMPUS_TOKENS should set hippocampus token budget (collapsed path)."""
+        monkeypatch.setenv("MEMORY_MAX_HIPPOCAMPUS_TOKENS", "1234")
+        from codespy.config import _ENV_MAP
+        from codespy.config_utils import apply_env_overrides
+
+        config = {}
+        result = apply_env_overrides(config, _ENV_MAP)
+        # convert_env_value returns numbers as raw strings
+        assert result["memory"]["hippocampus"]["max_hippocampus_tokens"] == "1234"
+
+    def test_override_memory_max_hippocampus_item_tokens(self, monkeypatch):
+        """MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS should set hippocampus item token budget (collapsed path)."""
+        monkeypatch.setenv("MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS", "256")
+        from codespy.config import _ENV_MAP
+        from codespy.config_utils import apply_env_overrides
+
+        config = {}
+        result = apply_env_overrides(config, _ENV_MAP)
+        # convert_env_value returns numbers as raw strings
+        assert result["memory"]["hippocampus"]["max_hippocampus_item_tokens"] == "256"
+
 
 class TestPostgresConfigBuildUri:
     """Tests for PostgresConfig.build_uri() method."""

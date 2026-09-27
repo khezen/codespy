@@ -235,8 +235,8 @@ class Settings(BaseSettings):
         from codespy.agents.memory.hippocampus.budget import MemoryBudget
 
         return MemoryBudget(
-            max_context_memory_tokens=self.memory.hippocampus.max_context_memory_tokens,
-            max_context_item_tokens=self.memory.hippocampus.max_context_item_tokens,
+            max_hippocampus_tokens=self.memory.hippocampus.max_hippocampus_tokens,
+            max_hippocampus_item_tokens=self.memory.hippocampus.max_hippocampus_item_tokens,
             max_trajectory_tokens=self.memory.hippocampus.max_trajectory_tokens,
             max_question_tokens=self.memory.hippocampus.max_question_tokens,
             compact_trajectory=self.memory.hippocampus.compact_trajectory,

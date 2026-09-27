@@ -34,7 +34,7 @@ class CartographerSig(dspy.Signature):
       Prefer REPLACE over ADD when possible.
     - Add new observations only when they represent transferable understanding.
     - Each observation must be short and budget-efficient — stay within the
-      `max_context_item_tokens` budget given as an input. If a candidate exceeds
+      `max_hippocampus_item_tokens` budget given as an input. If a candidate exceeds
       it, rewrite it more compactly or split it.
     - If nothing new is worth keeping, return an empty operations list.
 
@@ -123,7 +123,7 @@ class CartographerSig(dspy.Signature):
     question: str = dspy.InputField(desc="Question the agent was answering.")
     token_budget: int = dspy.InputField(desc="Hard token budget for the context memory.")
     current_tokens: int = dspy.InputField(desc="Current token count of the context memory.")
-    max_context_item_tokens: int = dspy.InputField(
+    max_hippocampus_item_tokens: int = dspy.InputField(
         desc="Token budget for a SINGLE context memory observation. Every ADD/REPLACE content "
         "must stay within it."
     )
@@ -172,7 +172,7 @@ class Cartographer(dspy.Module):
         question,
         token_budget,
         current_tokens,
-        max_context_item_tokens,
+        max_hippocampus_item_tokens,
     ):
         # See Distiller.forward: SignatureContext applies memory.hippocampus.cartographer's
         # LLM settings and gives this module its own cost line. Entered here
@@ -188,5 +188,5 @@ class Cartographer(dspy.Module):
                 question=question,
                 token_budget=token_budget,
                 current_tokens=current_tokens,
-                max_context_item_tokens=max_context_item_tokens,
+                max_hippocampus_item_tokens=max_hippocampus_item_tokens,
             )
