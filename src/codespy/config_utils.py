@@ -61,38 +61,50 @@ def convert_env_value(value: str) -> Any:
 
 def build_env_map(
     sections: dict[str, type[BaseModel]],
-    bare_fields: dict[str, set[str]] | None = None,
+    *,
+    collapsed_paths: set[tuple[str, ...]] | None = None,
+    full_name_paths: set[tuple[str, ...]] | None = None,
 ) -> dict[str, tuple[str, ...]]:
     """Build a mapping of env var name -> config path tuple.
 
     Args:
         sections: Dict of section name -> BaseModel subclass (e.g., {"llm": LLMConfig})
-        bare_fields: Optional dict of section name -> set of field names that
-            should use bare (non-prefixed) env var names (e.g., {"llm": {"openai_api_key"}})
+        collapsed_paths: Set of path prefixes to collapse (drop the prefix segments).
+            For example, {("llm",)} drops "LLM_" from all descendants of llm.
+        full_name_paths: Set of full paths that keep their full name (not collapsed).
+            These take precedence over collapsed_paths. For example,
+            {("llm", "retries")} keeps "LLM_RETRIES" instead of "RETRIES".
 
     Returns:
-        Dict mapping env var name to tuple path (e.g., {"LLM_DEFAULT_MODEL": ("llm", "default_model")})
+        Dict mapping env var name to tuple path (e.g., {"DEFAULT_MODEL": ("llm", "default_model")})
+
+    Examples:
+        >>> build_env_map(
+        ...     sections={"llm": LLMConfig, "review": ReviewConfig},
+        ...     collapsed_paths={("llm",), ("memory", "hippocampus"), ("memory", "cerebral")},
+        ...     full_name_paths={("llm", "retries"), ("llm", "timeout")},
+        ... )
+        # Produces:
+        # {
+        #     "DEFAULT_MODEL": ("llm", "default_model"),  # llm prefix dropped
+        #     "LLM_RETRIES": ("llm", "retries"),          # full_name_paths keeps LLM_
+        #     "OPENAI_API_KEY": ("llm", "openai_api_key"),  # credentials are bare
+        #     "REVIEW_SCOPE_ENABLED": ("review", "scope", "enabled"),  # review prefix kept
+        #     "MEMORY_DISTILLER_MODEL": ("memory", "hippocampus", "distiller", "model"),
+        # }
     """
     env_map: dict[str, tuple[str, ...]] = {}
-    bare_fields = bare_fields or {}
+    collapsed_paths = collapsed_paths or set()
+    full_name_paths = full_name_paths or set()
 
     for section_name, model_cls in sections.items():
-        section_bare = bare_fields.get(section_name, set())
         _build_env_map_for_model(
             model_cls,
             prefix=(section_name,),
-            bare_fields=section_bare,
+            collapsed_paths=collapsed_paths,
+            full_name_paths=full_name_paths,
             env_map=env_map,
         )
-
-    # Validate uniqueness
-    seen: dict[str, str] = {}
-    for env_name, path in env_map.items():
-        if env_name in seen:
-            raise ValueError(
-                f"Duplicate env var name '{env_name}' from paths {seen[env_name]} and {path}"
-            )
-        seen[env_name] = str(path)
 
     return env_map
 
@@ -100,22 +112,29 @@ def build_env_map(
 def _build_env_map_for_model(
     model_cls: type[BaseModel],
     prefix: tuple[str, ...],
-    bare_fields: set[str],
+    collapsed_paths: set[tuple[str, ...]],
+    full_name_paths: set[tuple[str, ...]],
     env_map: dict[str, tuple[str, ...]],
 ) -> None:
     """Recursively build env map for a model and its nested models."""
     for field_name, field_info in model_cls.model_fields.items():
         annotation = field_info.annotation
 
-        # Check if this field is a nested BaseModel (recurse) or a leaf
-        is_bare = field_name in bare_fields and len(prefix) == 1  # Only direct children
+        # Use alias if available, otherwise field name
+        seg = field_info.alias or field_name
+        p = prefix + (seg,)
 
-        if is_bare:
-            # Use bare field name (e.g., OPENAI_API_KEY instead of LLM_OPENAI_API_KEY)
-            env_name = field_name.upper()
+        # Determine the env var name
+        if p in full_name_paths:
+            # Use full path (keep all segments)
+            env_name = "_".join(p).upper()
         else:
-            # Use full path (e.g., LLM_DEFAULT_MODEL)
-            env_name = "_".join(prefix + (field_name,)).upper()
+            # Apply collapsing: drop each segment for which the path up to that segment is in collapsed_paths
+            segments = []
+            for i, segment in enumerate(p):
+                if p[: i + 1] not in collapsed_paths:
+                    segments.append(segment)
+            env_name = "_".join(segments).upper()
 
         # Check if this is a nested BaseModel
         origin = getattr(annotation, "__origin__", None)
@@ -131,16 +150,23 @@ def _build_env_map_for_model(
                 # Recurse into nested model, but don't add to env_map directly
                 _build_env_map_for_model(
                     annotation,
-                    prefix=prefix + (field_name,),
-                    bare_fields=set(),  # Nested models don't use bare names
+                    prefix=p,
+                    collapsed_paths=collapsed_paths,
+                    full_name_paths=full_name_paths,
                     env_map=env_map,
                 )
                 continue
         except TypeError:
             pass
 
-        # This is a leaf field - add to map
-        env_map[env_name] = prefix + (field_name,)
+        # This is a leaf field - add to map with duplicate check
+        if env_name in env_map:
+            old_path = env_map[env_name]
+            if old_path != p:
+                raise ValueError(f"Duplicate env var {env_name}: {old_path} vs {p}")
+            # Same path, already added - skip
+        else:
+            env_map[env_name] = p
 
 
 def apply_env_overrides(config: dict[str, Any], env_map: dict[str, tuple[str, ...]]) -> dict[str, Any]:

@@ -83,12 +83,26 @@ class TestSettingsStructure:
         for field in old_fields:
             assert not hasattr(settings, field), f"Old field '{field}' should not exist"
 
-    def test_env_override_mapping(self):
+    def test_env_override_mapping(self, monkeypatch, tmp_path):
         """Test that env vars are mapped correctly to new paths."""
-        # Check that LLM_DEFAULT_MODEL works
-        os.environ["LLM_DEFAULT_MODEL"] = "test-model"
-        try:
-            settings = Settings()
-            assert settings.llm.default_model == "test-model"
-        finally:
-            del os.environ["LLM_DEFAULT_MODEL"]
+        # Apply isolation: change to temp dir and use monkeypatch for env
+        monkeypatch.chdir(tmp_path)
+
+        # DEFAULT_MODEL works (new name, no LLM_ prefix)
+        monkeypatch.setenv("DEFAULT_MODEL", "test-model")
+        settings = Settings()
+        assert settings.llm.default_model == "test-model"
+        monkeypatch.delenv("DEFAULT_MODEL")
+
+        # LLM_DEFAULT_MODEL is ignored (old name no longer works)
+        monkeypatch.setenv("LLM_DEFAULT_MODEL", "ignored-model")
+        settings = Settings()
+        # Should use default, not the ignored env var
+        assert settings.llm.default_model != "ignored-model"
+        monkeypatch.delenv("LLM_DEFAULT_MODEL")
+
+        # LLM_RETRIES still works (exception that keeps LLM_ prefix)
+        monkeypatch.setenv("LLM_RETRIES", "7")
+        settings = Settings()
+        assert settings.llm.retries == 7
+        monkeypatch.delenv("LLM_RETRIES")

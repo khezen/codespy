@@ -2,10 +2,14 @@
 #
 # ENVIRONMENT VARIABLE OVERRIDES:
 # All settings can be overridden via environment variables using the YAML path,
-# uppercased and joined with underscores. Examples:
-#   - llm.default_model → LLM_DEFAULT_MODEL
+# uppercased and joined with underscores. The llm., memory.hippocampus. and
+# memory.cerebral. segments are dropped; llm.retries and llm.timeout keep LLM_.
+# Examples:
+#   - llm.default_model → DEFAULT_MODEL
+#   - llm.retries → LLM_RETRIES
 #   - review.code_review.max_iters → REVIEW_CODE_REVIEW_MAX_ITERS
-#   - memory.hippocampus.distiller.model → MEMORY_HIPPOCAMPUS_DISTILLER_MODEL
+#   - memory.hippocampus.distiller.model → MEMORY_DISTILLER_MODEL
+#   - memory.cerebral.retain.model → MEMORY_RETAIN_MODEL
 #
 # Provider credentials keep their standard names:
 #   OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, AWS_*, AZURE_*
@@ -19,22 +23,22 @@ llm:
   # OpenAI
   openai_api_key: null                   # OPENAI_API_KEY
   openai_api_base: null                  # OPENAI_API_BASE
-  auto_discover_openai: true             # LLM_AUTO_DISCOVER_OPENAI
+  auto_discover_openai: true             # AUTO_DISCOVER_OPENAI
 
   # Anthropic
   anthropic_api_key: null                # ANTHROPIC_API_KEY
-  auto_discover_anthropic: true          # LLM_AUTO_DISCOVER_ANTHROPIC
+  auto_discover_anthropic: true          # AUTO_DISCOVER_ANTHROPIC
 
   # Google Gemini
   gemini_api_key: null                   # GEMINI_API_KEY
-  auto_discover_gemini: true             # LLM_AUTO_DISCOVER_GEMINI
+  auto_discover_gemini: true             # AUTO_DISCOVER_GEMINI
 
   # AWS Bedrock
   aws_region: us-east-1                  # AWS_REGION
   aws_access_key_id: null                # AWS_ACCESS_KEY_ID
   aws_secret_access_key: null            # AWS_SECRET_ACCESS_KEY
   aws_profile: null                      # AWS_PROFILE
-  auto_discover_aws: true                # LLM_AUTO_DISCOVER_AWS
+  auto_discover_aws: true                # AUTO_DISCOVER_AWS
 
   # Azure OpenAI
   azure_api_key: null                    # AZURE_API_KEY
@@ -42,13 +46,13 @@ llm:
   azure_api_version: null                # AZURE_API_VERSION
 
   # Default model settings
-  default_model: anthropic/claude-opus-4-6      # LLM_DEFAULT_MODEL
-  extraction_model: null                          # LLM_EXTRACTION_MODEL (falls back to default_model)
-  default_max_iters: 5                           # LLM_DEFAULT_MAX_ITERS
-  default_max_llm_calls: 8                      # LLM_DEFAULT_MAX_LLM_CALLS
-  default_reasoning_effort: medium                # LLM_DEFAULT_REASONING_EFFORT
-  default_temperature: 0.2                        # LLM_DEFAULT_TEMPERATURE
-  default_max_tokens: 32000                       # LLM_DEFAULT_MAX_TOKENS
+  default_model: anthropic/claude-opus-4-6      # DEFAULT_MODEL
+  extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model)
+  default_max_iters: 5                           # DEFAULT_MAX_ITERS
+  default_max_llm_calls: 8                      # DEFAULT_MAX_LLM_CALLS
+  default_reasoning_effort: medium                # DEFAULT_REASONING_EFFORT
+  default_temperature: 0.2                        # DEFAULT_TEMPERATURE
+  default_max_tokens: 32000                       # DEFAULT_MAX_TOKENS
 
   # Global LLM reliability settings
   retries: 2                              # LLM_RETRIES
@@ -56,10 +60,10 @@ llm:
 
   # RLM Fallback (context rot prevention)
   rlm_fallback:
-    enabled: true                         # LLM_RLM_FALLBACK_ENABLED
-    react_threshold: 0.30                 # LLM_RLM_FALLBACK_REACT_THRESHOLD
-    chain_of_thought_threshold: 0.40      # LLM_RLM_FALLBACK_CHAIN_OF_THOUGHT_THRESHOLD
-    predict_threshold: 0.50               # LLM_RLM_FALLBACK_PREDICT_THRESHOLD
+    enabled: true                         # RLM_FALLBACK_ENABLED
+    react_threshold: 0.30                 # RLM_FALLBACK_REACT_THRESHOLD
+    chain_of_thought_threshold: 0.40      # RLM_FALLBACK_CHAIN_OF_THOUGHT_THRESHOLD
+    predict_threshold: 0.50               # RLM_FALLBACK_PREDICT_THRESHOLD
 
 # ============================================================================
 # GIT PLATFORMS
@@ -98,34 +102,34 @@ memory:
 
   # Hippocampus (episodic memory)
   hippocampus:
-    compact_trajectory: true              # MEMORY_HIPPOCAMPUS_COMPACT_TRAJECTORY
-    max_context_memory_tokens: 16384      # MEMORY_HIPPOCAMPUS_MAX_CONTEXT_MEMORY_TOKENS
-    max_context_item_tokens: 512          # MEMORY_HIPPOCAMPUS_MAX_CONTEXT_ITEM_TOKENS
-    max_trajectory_tokens: 16384          # MEMORY_HIPPOCAMPUS_MAX_TRAJECTORY_TOKENS
-    max_question_tokens: 8192             # MEMORY_HIPPOCAMPUS_MAX_QUESTION_TOKENS
+    compact_trajectory: true              # MEMORY_COMPACT_TRAJECTORY
+    max_context_memory_tokens: 16384      # MEMORY_MAX_CONTEXT_MEMORY_TOKENS
+    max_context_item_tokens: 512          # MEMORY_MAX_CONTEXT_ITEM_TOKENS
+    max_trajectory_tokens: 16384          # MEMORY_MAX_TRAJECTORY_TOKENS
+    max_question_tokens: 8192             # MEMORY_MAX_QUESTION_TOKENS
 
     distiller:
-      model: null                         # MEMORY_HIPPOCAMPUS_DISTILLER_MODEL
-      reasoning_effort: null              # MEMORY_HIPPOCAMPUS_DISTILLER_REASONING_EFFORT
-      temperature: null                   # MEMORY_HIPPOCAMPUS_DISTILLER_TEMPERATURE
-      max_tokens: null                    # MEMORY_HIPPOCAMPUS_DISTILLER_MAX_TOKENS
-      max_iters: 1                      # MEMORY_HIPPOCAMPUS_DISTILLER_MAX_ITERS
-      max_llm_calls: 2                  # MEMORY_HIPPOCAMPUS_DISTILLER_MAX_LLM_CALLS
+      model: null                         # MEMORY_DISTILLER_MODEL
+      reasoning_effort: null              # MEMORY_DISTILLER_REASONING_EFFORT
+      temperature: null                   # MEMORY_DISTILLER_TEMPERATURE
+      max_tokens: null                    # MEMORY_DISTILLER_MAX_TOKENS
+      max_iters: 1                      # MEMORY_DISTILLER_MAX_ITERS
+      max_llm_calls: 2                  # MEMORY_DISTILLER_MAX_LLM_CALLS
 
     cartographer:
-      model: null                         # MEMORY_HIPPOCAMPUS_CARTOGRAPHER_MODEL
-      reasoning_effort: null              # MEMORY_HIPPOCAMPUS_CARTOGRAPHER_REASONING_EFFORT
-      temperature: null                   # MEMORY_HIPPOCAMPUS_CARTOGRAPHER_TEMPERATURE
-      max_tokens: null                    # MEMORY_HIPPOCAMPUS_CARTOGRAPHER_MAX_TOKENS
-      max_iters: 1                      # MEMORY_HIPPOCAMPUS_CARTOGRAPHER_MAX_ITERS
-      max_llm_calls: 2                  # MEMORY_HIPPOCAMPUS_CARTOGRAPHER_MAX_LLM_CALLS
+      model: null                         # MEMORY_CARTOGRAPHER_MODEL
+      reasoning_effort: null              # MEMORY_CARTOGRAPHER_REASONING_EFFORT
+      temperature: null                   # MEMORY_CARTOGRAPHER_TEMPERATURE
+      max_tokens: null                    # MEMORY_CARTOGRAPHER_MAX_TOKENS
+      max_iters: 1                      # MEMORY_CARTOGRAPHER_MAX_ITERS
+      max_llm_calls: 2                  # MEMORY_CARTOGRAPHER_MAX_LLM_CALLS
 
   # Cerebral (semantic memory)
   cerebral:
     retain:
-      model: null                         # MEMORY_CEREBRAL_RETAIN_MODEL (falls back to llm.default_model)
+      model: null                         # MEMORY_RETAIN_MODEL (falls back to llm.default_model)
     embeddings:
-      model: null                         # MEMORY_CEREBRAL_EMBEDDINGS_MODEL (auto-derived from provider)
+      model: null                         # MEMORY_EMBEDDINGS_MODEL (auto-derived from provider)
 
 # ============================================================================
 # REVIEW

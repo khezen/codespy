@@ -111,8 +111,6 @@ AUTO_DISCOVER_GEMINI=false
 | Max tokens | `DEFAULT_MAX_TOKENS` | `32000` | Output token budget per completion (reasoning tokens included) |
 | Temperature | `DEFAULT_TEMPERATURE` | `0.2` | Default temperature for LLM calls |
 | Max iterations | `DEFAULT_MAX_ITERS` | `5` | Maximum ReAct iterations for tool-using agents |
-| Prompt caching | `ENABLE_PROMPT_CACHING` | `true` | Provider-side prompt caching (Anthropic, OpenAI, Bedrock) |
-| Compact patches | `COMPACT_PATCHES` | `false` | Expand diff hunks to full function bodies using Tree-sitter |
 | RLM fallback | `RLM_FALLBACK_ENABLED` | `true` | Proactive RLM fallback for context rot prevention |
 | RLM react threshold | `RLM_FALLBACK_REACT_THRESHOLD` | `0.30` | Context ratio triggering RLM for ReAct modules |
 | RLM CoT threshold | `RLM_FALLBACK_CHAIN_OF_THOUGHT_THRESHOLD` | `0.40` | Context ratio triggering RLM for ChainOfThought modules |
@@ -124,13 +122,13 @@ AUTO_DISCOVER_GEMINI=false
 |------|------|---------|---------|-------------|
 | Smart | Core analysis & reasoning | `DEFAULT_MODEL` | `anthropic/claude-opus-4-6` | Claude Opus / GPT-5 |
 | Mid-tier | Field extraction | `EXTRACTION_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
-| Cheap | PR summary | `SUMMARY_MODEL` | Falls back to DEFAULT_MODEL | Claude Haiku |
+| Cheap | PR summary | `REVIEW_SUMMARY_MODEL` | Falls back to DEFAULT_MODEL | Claude Haiku |
 | Mid-tier | Memory reflection | `MEMORY_DISTILLER_MODEL` / `MEMORY_CARTOGRAPHER_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
-| Mid-tier | Semantic memory (fact extraction) | `MEMORY_CEREBRAL_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
+| Mid-tier | Semantic memory (fact extraction) | `MEMORY_RETAIN_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
 
 ## Per-Signature Configuration
 
-Each signature supports env var overrides: `<SIGNATURE>_<SETTING>`
+Each signature supports env var overrides: `REVIEW_<SIGNATURE>_<SETTING>`
 
 | Signature | Config Key | Available Settings |
 |-----------|------------|-------------------|
@@ -141,7 +139,7 @@ Each signature supports env var overrides: `<SIGNATURE>_<SETTING>`
 | Supply Chain | `supply_chain` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS, SCAN_UNCHANGED |
 | Auditor | `audit` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
 
-Example: `CODE_REVIEW_MODEL=anthropic/claude-sonnet-4-5-20250929`
+Example: `REVIEW_CODE_REVIEW_MODEL=anthropic/claude-sonnet-4-5-20250929`
 
 ## Advanced Configuration (YAML)
 
@@ -160,11 +158,11 @@ export DEFAULT_MODEL=anthropic/claude-opus-4-6
 export DEFAULT_MAX_ITERS=20
 
 # Per-signature settings (use signature name, not module name)
-export CODE_REVIEW_MODEL=anthropic/claude-sonnet-4-5-20250929
+export REVIEW_CODE_REVIEW_MODEL=anthropic/claude_sonnet-4-5-20250929
 
 # Output settings
-export OUTPUT_STDOUT=false
-export OUTPUT_GIT=true
+export REVIEW_OUTPUT_STDOUT=false
+export REVIEW_OUTPUT_GIT=true
 ```
 
 ## Memory Configuration
@@ -199,9 +197,8 @@ LLM provider and credentials are auto-derived from the model string and existing
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| Cerebral Model | `MEMORY_CEREBRAL_MODEL` | `DEFAULT_MODEL` | Model for fact extraction (ReflectionModuleConfig) |
-| Cerebral Temperature | `MEMORY_CEREBRAL_TEMPERATURE` | `DEFAULT_TEMPERATURE` | Temperature for fact extraction |
-| Cerebral Max Tokens | `MEMORY_CEREBRAL_MAX_TOKENS` | `DEFAULT_MAX_TOKENS` | Output token budget |
+| Cerebral Model | `MEMORY_RETAIN_MODEL` | `DEFAULT_MODEL` | Model for fact extraction |
+| Embeddings Model | `MEMORY_EMBEDDINGS_MODEL` | Auto-derived | Model for semantic memory embeddings |
 
 Hindsight MemoryEngine uses the same PostgreSQL instance under the `semantic` schema (created automatically alongside `episodic`).
 
@@ -209,14 +206,14 @@ Hindsight MemoryEngine uses the same PostgreSQL instance under the `semantic` sc
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| Format | `OUTPUT_FORMAT` | `markdown` | `markdown` or `json` |
-| Stdout | `OUTPUT_STDOUT` | `true` | Enable stdout output |
-| Git | `OUTPUT_GIT` | `true` | Post review to GitHub/GitLab |
-| Cache dir | `CACHE_DIR` | `~/.cache/codespy` | Cache directory path |
+| Format | `REVIEW_OUTPUT_FORMAT` | `markdown` | `markdown` or `json` |
+| Stdout | `REVIEW_OUTPUT_STDOUT` | `true` | Enable stdout output |
+| Git | `REVIEW_OUTPUT_GIT` | `true` | Post review to GitHub/GitLab |
+| Cache dir | `REVIEW_CACHE_DIR` | `~/.cache/codespy` | Cache directory path |
 
 ## File Exclusions
 
-`EXCLUDED_DIRECTORIES` (JSON array in env) — Directories to skip during code review. Binary files, lock files, and minified files are always excluded automatically.
+`REVIEW_EXCLUDED_DIRECTORIES` (JSON array in env) — Directories to skip during code review. Binary files, lock files, and minified files are always excluded automatically.
 
 Default excluded directories:
 - Vendor/dependency: `vendor`, `node_modules`, `third_party`, `external`, `deps`, `_vendor`, `vendored`

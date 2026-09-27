@@ -3,6 +3,29 @@
 ## [Unreleased]
 
 ### Changed
+- **BREAKING — Environment Variables**: Renamed env vars for consistency with YAML paths
+  - `llm.*` settings drop the `LLM_` prefix (e.g., `LLM_DEFAULT_MODEL` → `DEFAULT_MODEL`)
+    - Exceptions: `LLM_RETRIES` and `LLM_TIMEOUT` keep their prefixes
+  - `memory.hippocampus.*` and `memory.cerebral.*` settings drop `HIPPOCAMPUS_`/`CEREBRAL_` prefixes
+    - Examples: `MEMORY_HIPPOCAMPUS_DISTILLER_MODEL` → `MEMORY_DISTILLER_MODEL`, `MEMORY_CEREBRAL_RETAIN_MODEL` → `MEMORY_RETAIN_MODEL`
+  - `review.*` settings keep the `REVIEW_` prefix (e.g., `CODE_REVIEW_MODEL` → `REVIEW_CODE_REVIEW_MODEL`, `MIN_CONFIDENCE` → `REVIEW_MIN_CONFIDENCE`)
+  - Removed: `ENABLE_PROMPT_CACHING`, `COMPACT_PATCHES`, `MEMORY_CEREBRAL_*` (except `MEMORY_RETAIN_MODEL` and `MEMORY_EMBEDDINGS_MODEL`)
+  - Migration: Update your `.env` file and GitHub Action inputs. The `llm.*`, `memory.postgres.*`, and `memory.pg0.*` names are unchanged from 1.2.4.
+- **GitHub Action**:
+  - The `enable-prompt-caching` and `compact-patches` inputs are removed (the underlying settings no longer exist)
+  - All signature env vars now use `REVIEW_*` prefix (e.g., `SCOPE_ENABLED` → `REVIEW_SCOPE_ENABLED`, `CODE_REVIEW_MODEL` → `REVIEW_CODE_REVIEW_MODEL`)
+  - Memory master switch: `MEMORY_DEFAULT_ENABLED` → `MEMORY_ENABLED`
+  - Added missing passthrough for `DOC_MAX_ITERS` and `DOC_MAX_LLM_CALLS`
+  - Migration note: **upgrade the action ref and `codespy-version` together**. An older action with the `latest` image, or the reverse, silently drops review settings.
+
+### Fixed
+- `get_llm_config("cerebral")` no longer raises `AttributeError` — the cerebral branch now uses empty `ReflectionModuleConfig` and falls back to `llm.default_*` values
+- `MEMORY_POSTGRES_SCHEMA` env var now works correctly (previously emitted `MEMORY_POSTGRES_SCHEMA_NAME` which was ignored)
+- GitHub Action `memory-enabled` input now maps to `MEMORY_ENABLED` (was `MEMORY_DEFAULT_ENABLED`, which didn't match the code)
+
+### Removed
+- **Config**: Removed dead settings `enable_prompt_caching` and `compact_patches` (fields deleted in the config refactor)
+
 - **Dependencies**: MCP Python SDK upgraded from v1.x to v2.x
   - `mcp` dependency: `>=1.29.0,<2.0.0` → `>=2.2,<3`
   - All 8 MCP servers migrated from `FastMCP` to `MCPServer` (v2 API)

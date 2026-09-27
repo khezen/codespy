@@ -190,9 +190,10 @@ These tags inform the Cartographer's edit decisions.
 | Budget | Env Var | Default | Purpose |
 |--------|---------|---------|---------|
 | Context memory | `MEMORY_MAX_CONTEXT_MEMORY_TOKENS` | 16384 | Ceiling on persisted ContextMemory (re-sent every iteration) |
-| Observation | `MEMORY_MAX_CONTEXT_ITEM_TOKENS` | 512 | Soft per-observation limit (expressed to LLM, not truncated) |
+| Observation | `MEMORY_MAX_CONTEXT_ITEM_TOKENS` | 512 | Soft per-observation token limit (expressed to LLM, not truncated) |
 | Trajectory | `MEMORY_MAX_TRAJECTORY_TOKENS` | 16384 | Head+tail cap on trajectory fed to Distiller |
 | Question | `MEMORY_MAX_QUESTION_TOKENS` | 8192 | Cap on serialized inputs as reflection question |
+| Compact trajectory | `MEMORY_COMPACT_TRAJECTORY` | `true` | Apply head+tail trajectory bounding before distillation |
 
 Observation capacity ≈ context_memory_tokens / observation_tokens (16384/512 = 32 observations)
 
@@ -213,24 +214,24 @@ Observation capacity ≈ context_memory_tokens / observation_tokens (16384/512 =
 | `MEMORY_PG0_DATA_DIR` | `memory.pg0.data_dir` | — | Custom data directory for pg0-embedded |
 | `MEMORY_BANK_ID` | `memory.bank_id` | `codespy` | Scopes all memory data |
 | `MEMORY_ENABLED` | `memory.enabled` | `false` | Enable memory globally (episodic + semantic) |
-| `MEMORY_COMPACT_TRAJECTORY` | `memory.compact_trajectory` | `true` | Apply head+tail trajectory bounding before distillation |
+| `MEMORY_COMPACT_TRAJECTORY` | `memory.hippocampus.compact_trajectory` | `true` | Apply head+tail trajectory bounding before distillation |
 
 ### Reflection Module LLM Overrides
 
 | Module | Env Var Pattern | YAML Path |
 |--------|----------------|-----------|
-| Distiller | `MEMORY_DISTILLER_{MODEL,REASONING_EFFORT,TEMPERATURE,MAX_TOKENS,MAX_ITERS,MAX_LLM_CALLS}` | `memory.distiller.*` |
-| Cartographer | `MEMORY_CARTOGRAPHER_{MODEL,REASONING_EFFORT,TEMPERATURE,MAX_TOKENS,MAX_ITERS,MAX_LLM_CALLS}` | `memory.cartographer.*` |
+| Distiller | `MEMORY_DISTILLER_{MODEL,REASONING_EFFORT,TEMPERATURE,MAX_TOKENS,MAX_ITERS,MAX_LLM_CALLS}` | `memory.hippocampus.distiller.*` |
+| Cartographer | `MEMORY_CARTOGRAPHER_{MODEL,REASONING_EFFORT,TEMPERATURE,MAX_TOKENS,MAX_ITERS,MAX_LLM_CALLS}` | `memory.hippocampus.cartographer.*` |
 
 ### Per-Signature Memory Overrides
 
-Each signature's `memory:` block in YAML (or `<SIGNATURE>_MEMORY_*` env vars):
+Each signature's `memory:` block in YAML (or `REVIEW_<SIGNATURE>_MEMORY_*` env vars):
 
 | Setting | Env Var Suffix | Description |
 |---------|---------------|-------------|
 | enabled | `_MEMORY_ENABLED` | Enable/disable memory for this signature |
 
-Example: `CODE_REVIEW_MEMORY_ENABLED=true`
+Example: `REVIEW_CODE_REVIEW_MEMORY_ENABLED=true`
 
 See [Configuration](configuration.md#recommended-model-strategy) for recommended reflection models.
 
@@ -240,8 +241,8 @@ Enable memory for code review:
 ```bash
 MEMORY_ENABLED=true
 # Or per-signature:
-CODE_REVIEW_MEMORY_ENABLED=true
-SUMMARY_MEMORY_ENABLED=true
+REVIEW_CODE_REVIEW_MEMORY_ENABLED=true
+REVIEW_SUMMARY_MEMORY_ENABLED=true
 ```
 
 Recommended mid-tier reflection model:

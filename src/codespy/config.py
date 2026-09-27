@@ -61,28 +61,16 @@ __all__ = [
 
 
 # Build the env map once at module level
-# Define bare fields (credential fields that don't use LLM_ prefix)
-_BARE_LLM_FIELDS = {
-    "openai_api_key",
-    "openai_api_base",
-    "anthropic_api_key",
-    "gemini_api_key",
-    "aws_region",
-    "aws_access_key_id",
-    "aws_secret_access_key",
-    "aws_profile",
-    "azure_api_key",
-    "azure_api_base",
-    "azure_api_version",
-}
-
+# collapsed_paths drops the prefix from descendant env var names.
+# full_name_paths keeps the full name for specific leaves (exceptions).
 _ENV_MAP = build_env_map(
     sections={
         "llm": LLMConfig,
         "review": ReviewConfig,
         "memory": MemoryConfig,
     },
-    bare_fields={"llm": _BARE_LLM_FIELDS},
+    collapsed_paths={("llm",), ("memory", "hippocampus"), ("memory", "cerebral")},
+    full_name_paths={("llm", "retries"), ("llm", "timeout")},
 )
 
 
@@ -190,9 +178,9 @@ class Settings(BaseSettings):
             The fully resolved settings for ``name``.
         """
         if name == "cerebral":
-            config = self.memory.cerebral.retain
-            model = config.model or self.llm.default_model
-            # For cerebral, every other field falls back to llm.default_* values
+            # Cerebral uses only a model from retain config; all other fields use llm defaults
+            model = self.memory.cerebral.retain.model or self.llm.default_model
+            config = ReflectionModuleConfig()  # Empty config - all fields fall back to defaults
             defaults = self.llm
         elif name in REFLECTION_MODULES:
             config = getattr(self.memory.hippocampus, name)

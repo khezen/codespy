@@ -44,7 +44,7 @@ def review(
         typer.Option(
             "--model",
             "-m",
-            help="LLM model to use (overrides LLM_DEFAULT_MODEL env var)",
+            help="LLM model to use (overrides DEFAULT_MODEL env var)",
         ),
     ] = None,
     stdout: Annotated[

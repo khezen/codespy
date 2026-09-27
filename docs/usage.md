@@ -257,10 +257,11 @@ codespy review https://github.com/owner/repo/pull/123 --no-stdout --git-comment
 **Enable via configuration:**
 ```bash
 # Environment variable
-export OUTPUT_GIT=true
+export REVIEW_OUTPUT_GIT=true
 
 # Or in codespy.yaml
-output_git: true
+review:
+  output_git: true
 ```
 
 **Features:**

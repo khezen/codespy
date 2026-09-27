@@ -26,60 +26,36 @@ class TestGenerateBankId:
 
 
 class TestApplyMemoryEnvOverrides:
-    """Tests for memory env var overrides with new paths."""
+    """Tests for memory env var overrides with new collapsed paths."""
 
     def test_override_postgres_host(self, monkeypatch):
         """MEMORY_POSTGRES_HOST should set memory.postgres.host."""
         monkeypatch.setenv("MEMORY_POSTGRES_HOST", "myhost.example.com")
-        from codespy.config_utils import apply_env_overrides, build_env_map
-        from codespy.config_llm import LLMConfig
-        from codespy.config_dspy import ReviewConfig
-        from codespy.config_memory import MemoryConfig
+        from codespy.config import _ENV_MAP
+        from codespy.config_utils import apply_env_overrides
 
-        env_map = build_env_map(
-            sections={"llm": LLMConfig, "review": ReviewConfig, "memory": MemoryConfig},
-            bare_fields={"llm": {"openai_api_key", "anthropic_api_key", "gemini_api_key",
-                               "aws_region", "aws_access_key_id", "aws_secret_access_key",
-                               "azure_api_key", "azure_api_base", "azure_api_version"}},
-        )
         config = {}
-        result = apply_env_overrides(config, env_map)
+        result = apply_env_overrides(config, _ENV_MAP)
         assert result["memory"]["postgres"]["host"] == "myhost.example.com"
 
-    def test_override_memory_hippocampus_distiller_model(self, monkeypatch):
-        """MEMORY_HIPPOCAMPUS_DISTILLER_MODEL should set the distiller model."""
-        monkeypatch.setenv("MEMORY_HIPPOCAMPUS_DISTILLER_MODEL", "claude-3-sonnet")
-        from codespy.config_utils import apply_env_overrides, build_env_map
-        from codespy.config_llm import LLMConfig
-        from codespy.config_dspy import ReviewConfig
-        from codespy.config_memory import MemoryConfig
+    def test_override_memory_distiller_model(self, monkeypatch):
+        """MEMORY_DISTILLER_MODEL should set the distiller model (collapsed path)."""
+        monkeypatch.setenv("MEMORY_DISTILLER_MODEL", "claude-3-sonnet")
+        from codespy.config import _ENV_MAP
+        from codespy.config_utils import apply_env_overrides
 
-        env_map = build_env_map(
-            sections={"llm": LLMConfig, "review": ReviewConfig, "memory": MemoryConfig},
-            bare_fields={"llm": {"openai_api_key", "anthropic_api_key", "gemini_api_key",
-                               "aws_region", "aws_access_key_id", "aws_secret_access_key",
-                               "azure_api_key", "azure_api_base", "azure_api_version"}},
-        )
         config = {}
-        result = apply_env_overrides(config, env_map)
+        result = apply_env_overrides(config, _ENV_MAP)
         assert result["memory"]["hippocampus"]["distiller"]["model"] == "claude-3-sonnet"
 
-    def test_override_memory_cerebral_embeddings_model(self, monkeypatch):
-        """MEMORY_CEREBRAL_EMBEDDINGS_MODEL should set embeddings model."""
-        monkeypatch.setenv("MEMORY_CEREBRAL_EMBEDDINGS_MODEL", "openai/text-embedding-3-large")
-        from codespy.config_utils import apply_env_overrides, build_env_map
-        from codespy.config_llm import LLMConfig
-        from codespy.config_dspy import ReviewConfig
-        from codespy.config_memory import MemoryConfig
+    def test_override_memory_embeddings_model(self, monkeypatch):
+        """MEMORY_EMBEDDINGS_MODEL should set embeddings model (collapsed path)."""
+        monkeypatch.setenv("MEMORY_EMBEDDINGS_MODEL", "openai/text-embedding-3-large")
+        from codespy.config import _ENV_MAP
+        from codespy.config_utils import apply_env_overrides
 
-        env_map = build_env_map(
-            sections={"llm": LLMConfig, "review": ReviewConfig, "memory": MemoryConfig},
-            bare_fields={"llm": {"openai_api_key", "anthropic_api_key", "gemini_api_key",
-                               "aws_region", "aws_access_key_id", "aws_secret_access_key",
-                               "azure_api_key", "azure_api_base", "azure_api_version"}},
-        )
         config = {}
-        result = apply_env_overrides(config, env_map)
+        result = apply_env_overrides(config, _ENV_MAP)
         assert result["memory"]["cerebral"]["embeddings"]["model"] == "openai/text-embedding-3-large"
 
 
