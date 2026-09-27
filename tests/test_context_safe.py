@@ -7,10 +7,8 @@ import pytest
 from pydantic import ValidationError
 
 from codespy.agents.context_safe import ContextSafe
-from codespy.config_dspy import (
-    RLMFallbackConfig,
-    apply_rlm_fallback_env_overrides,
-)
+from codespy.config_dspy import RLMFallbackConfig
+from codespy.config_utils import apply_env_overrides, build_env_map
 
 
 class TestRLMFallbackConfig:
@@ -40,50 +38,104 @@ class TestRLMFallbackConfig:
 
 
 class TestApplyRLMFallbackEnvOverrides:
-    """Tests for apply_rlm_fallback_env_overrides function."""
+    """Tests for RLM env var overrides using new unified mechanism."""
 
     def test_react_threshold_override(self):
-        """Test RLM_FALLBACK_REACT_THRESHOLD env var."""
+        """Test LLM_RLM_FALLBACK_REACT_THRESHOLD env var."""
+        from codespy.config_llm import LLMConfig
+        from codespy.config_dspy import ReviewConfig
+        from codespy.config_memory import MemoryConfig
+
+        env_map = build_env_map(
+            sections={"llm": LLMConfig, "review": ReviewConfig, "memory": MemoryConfig},
+            bare_fields={"llm": {"openai_api_key", "anthropic_api_key", "gemini_api_key",
+                               "aws_region", "aws_access_key_id", "aws_secret_access_key",
+                               "azure_api_key", "azure_api_base", "azure_api_version"}},
+        )
         config = {}
-        with patch.dict(os.environ, {"RLM_FALLBACK_REACT_THRESHOLD": "0.25"}):
-            result = apply_rlm_fallback_env_overrides(config)
-        assert result["rlm_fallback"]["react_threshold"] == "0.25"
+        with patch.dict(os.environ, {"LLM_RLM_FALLBACK_REACT_THRESHOLD": "0.25"}):
+            result = apply_env_overrides(config, env_map)
+        assert result["llm"]["rlm_fallback"]["react_threshold"] == "0.25"
 
     def test_enabled_override(self):
-        """Test RLM_FALLBACK_ENABLED env var."""
+        """Test LLM_RLM_FALLBACK_ENABLED env var."""
+        from codespy.config_llm import LLMConfig
+        from codespy.config_dspy import ReviewConfig
+        from codespy.config_memory import MemoryConfig
+
+        env_map = build_env_map(
+            sections={"llm": LLMConfig, "review": ReviewConfig, "memory": MemoryConfig},
+            bare_fields={"llm": {"openai_api_key", "anthropic_api_key", "gemini_api_key",
+                               "aws_region", "aws_access_key_id", "aws_secret_access_key",
+                               "azure_api_key", "azure_api_base", "azure_api_version"}},
+        )
         config = {}
-        with patch.dict(os.environ, {"RLM_FALLBACK_ENABLED": "false"}):
-            result = apply_rlm_fallback_env_overrides(config)
-        assert result["rlm_fallback"]["enabled"] is False
+        with patch.dict(os.environ, {"LLM_RLM_FALLBACK_ENABLED": "false"}):
+            result = apply_env_overrides(config, env_map)
+        assert result["llm"]["rlm_fallback"]["enabled"] is False
 
     def test_all_thresholds(self):
         """Test all threshold env vars."""
+        from codespy.config_llm import LLMConfig
+        from codespy.config_dspy import ReviewConfig
+        from codespy.config_memory import MemoryConfig
+
+        env_map = build_env_map(
+            sections={"llm": LLMConfig, "review": ReviewConfig, "memory": MemoryConfig},
+            bare_fields={"llm": {"openai_api_key", "anthropic_api_key", "gemini_api_key",
+                               "aws_region", "aws_access_key_id", "aws_secret_access_key",
+                               "azure_api_key", "azure_api_base", "azure_api_version"}},
+        )
         config = {}
         env_vars = {
-            "RLM_FALLBACK_REACT_THRESHOLD": "0.35",
-            "RLM_FALLBACK_CHAIN_OF_THOUGHT_THRESHOLD": "0.45",
-            "RLM_FALLBACK_PREDICT_THRESHOLD": "0.55",
+            "LLM_RLM_FALLBACK_REACT_THRESHOLD": "0.35",
+            "LLM_RLM_FALLBACK_CHAIN_OF_THOUGHT_THRESHOLD": "0.45",
+            "LLM_RLM_FALLBACK_PREDICT_THRESHOLD": "0.55",
         }
         with patch.dict(os.environ, env_vars):
-            result = apply_rlm_fallback_env_overrides(config)
-        assert result["rlm_fallback"]["react_threshold"] == "0.35"
-        assert result["rlm_fallback"]["chain_of_thought_threshold"] == "0.45"
-        assert result["rlm_fallback"]["predict_threshold"] == "0.55"
+            result = apply_env_overrides(config, env_map)
+        # Values are strings until pydantic coerces them
+        assert result["llm"]["rlm_fallback"]["react_threshold"] == "0.35"
+        assert result["llm"]["rlm_fallback"]["chain_of_thought_threshold"] == "0.45"
+        assert result["llm"]["rlm_fallback"]["predict_threshold"] == "0.55"
 
     def test_unrelated_env_vars_ignored(self):
         """Test that unrelated env vars are ignored."""
+        from codespy.config_llm import LLMConfig
+        from codespy.config_dspy import ReviewConfig
+        from codespy.config_memory import MemoryConfig
+
+        env_map = build_env_map(
+            sections={"llm": LLMConfig, "review": ReviewConfig, "memory": MemoryConfig},
+            bare_fields={"llm": {"openai_api_key", "anthropic_api_key", "gemini_api_key",
+                               "aws_region", "aws_access_key_id", "aws_secret_access_key",
+                               "azure_api_key", "azure_api_base", "azure_api_version"}},
+        )
         config = {}
         with patch.dict(os.environ, {"OTHER_VAR": "value"}):
-            result = apply_rlm_fallback_env_overrides(config)
-        assert "rlm_fallback" not in result
+            result = apply_env_overrides(config, env_map)
+        # rlm_fallback may not exist in result if no env vars matched
+        if "llm" in result:
+            assert "rlm_fallback" not in result.get("llm", {})
 
     def test_existing_config_preserved(self):
         """Test that existing config is preserved."""
-        config = {"rlm_fallback": {"enabled": False, "react_threshold": 0.20}}
-        with patch.dict(os.environ, {"RLM_FALLBACK_REACT_THRESHOLD": "0.35"}):
-            result = apply_rlm_fallback_env_overrides(config)
-        assert result["rlm_fallback"]["enabled"] is False
-        assert result["rlm_fallback"]["react_threshold"] == "0.35"
+        from codespy.config_llm import LLMConfig
+        from codespy.config_dspy import ReviewConfig
+        from codespy.config_memory import MemoryConfig
+
+        env_map = build_env_map(
+            sections={"llm": LLMConfig, "review": ReviewConfig, "memory": MemoryConfig},
+            bare_fields={"llm": {"openai_api_key", "anthropic_api_key", "gemini_api_key",
+                               "aws_region", "aws_access_key_id", "aws_secret_access_key",
+                               "azure_api_key", "azure_api_base", "azure_api_version"}},
+        )
+        config = {"llm": {"rlm_fallback": {"enabled": False, "react_threshold": 0.20}}}
+        with patch.dict(os.environ, {"LLM_RLM_FALLBACK_REACT_THRESHOLD": "0.35"}):
+            result = apply_env_overrides(config, env_map)
+        assert result["llm"]["rlm_fallback"]["enabled"] is False
+        # Value is a string until pydantic coerces it
+        assert result["llm"]["rlm_fallback"]["react_threshold"] == "0.35"
 
 
 class MockSignature:
@@ -100,10 +152,10 @@ class TestGetRLMThreshold:
         from codespy.config import Settings
 
         settings = Settings()
-        settings.rlm_fallback.enabled = True
-        settings.rlm_fallback.react_threshold = 0.30
-        settings.rlm_fallback.chain_of_thought_threshold = 0.40
-        settings.rlm_fallback.predict_threshold = 0.50
+        settings.llm.rlm_fallback.enabled = True
+        settings.llm.rlm_fallback.react_threshold = 0.30
+        settings.llm.rlm_fallback.chain_of_thought_threshold = 0.40
+        settings.llm.rlm_fallback.predict_threshold = 0.50
 
         assert settings.get_rlm_threshold("react") == 0.30
         assert settings.get_rlm_threshold("chain_of_thought") == 0.40
@@ -114,7 +166,7 @@ class TestGetRLMThreshold:
         from codespy.config import Settings
 
         settings = Settings()
-        settings.rlm_fallback.enabled = False
+        settings.llm.rlm_fallback.enabled = False
 
         assert settings.get_rlm_threshold("react") == 1.0
         assert settings.get_rlm_threshold("chain_of_thought") == 1.0
@@ -125,7 +177,7 @@ class TestGetRLMThreshold:
         from codespy.config import Settings
 
         settings = Settings()
-        settings.rlm_fallback.enabled = True
+        settings.llm.rlm_fallback.enabled = True
 
         assert settings.get_rlm_threshold("unknown_type") == 1.0
 

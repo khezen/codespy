@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
-
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
@@ -19,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 # Default embedding model per LLM provider prefix. Used by get_cerebral()
-# when hindsight.embeddings_model is None. litellm-sdk routes through litellm.
+# when embeddings.model is None. litellm-sdk routes through litellm.
 EMBEDDING_MODELS: dict[str, str] = {
     "bedrock": "bedrock/cohere.embed-multilingual-v3",
     "openai": "openai/text-embedding-3-small",
@@ -30,36 +28,67 @@ EMBEDDING_MODELS: dict[str, str] = {
 }
 
 
-class HindsightConfig(BaseModel):
-    """Hindsight MemoryEngine settings for Cerebral semantic memory."""
-    embeddings_model: str | None = None  # MEMORY_HINDSIGHT_EMBEDDINGS_MODEL
-
-
 class ReflectionModuleConfig(BaseModel):
     """LLM overrides for a single reflection module (Distiller / Cartographer).
 
     All fields are optional — ``None`` means "fall back to the corresponding
-    top-level ``default_*`` setting" (see ``codespy.config.Settings``).
+    top-level ``llm.default_*`` setting" (see ``codespy.config.Settings``).
 
     The reflection modules are compact summarize/curate tasks rather than deep
     analysis, so they are good candidates for a cheaper model tier than the
     one used for code review.
     """
 
-    model: str | None = None  # MEMORY_<MODULE>_MODEL
-    reasoning_effort: ReasoningEffort | None = None  # MEMORY_<MODULE>_REASONING_EFFORT
-    temperature: float | None = None  # MEMORY_<MODULE>_TEMPERATURE
-    max_tokens: int | None = None  # MEMORY_<MODULE>_MAX_TOKENS
-    max_iters: int | None = 1  # MEMORY_<MODULE>_MAX_ITERS
-    max_llm_calls: int | None = 2  # MEMORY_<MODULE>_MAX_LLM_CALLS
+    model: str | None = None
+    reasoning_effort: ReasoningEffort | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    max_iters: int | None = 1
+    max_llm_calls: int | None = 2
+
+
+class HippocampusConfig(BaseModel):
+    """Hippocampus (episodic memory) configuration."""
+
+    # Whether to apply head+tail trajectory bounding before distillation.
+    compact_trajectory: bool = True
+
+    # Token budgets
+    max_context_memory_tokens: int = Field(default=16384)
+    max_context_item_tokens: int = Field(default=512)
+    max_trajectory_tokens: int | None = Field(default=16384)
+    max_question_tokens: int | None = Field(default=8192)
+
+    # Reflection modules
+    distiller: ReflectionModuleConfig = Field(default_factory=ReflectionModuleConfig)
+    cartographer: ReflectionModuleConfig = Field(default_factory=ReflectionModuleConfig)
+
+
+class CerebralRetainConfig(BaseModel):
+    """Cerebral (semantic memory) LLM configuration for fact extraction."""
+
+    model: str | None = None  # Falls back to llm.default_model
+
+
+class CerebralEmbeddingsConfig(BaseModel):
+    """Cerebral (semantic memory) embeddings configuration."""
+
+    model: str | None = None  # Auto-derived from provider if unset
+
+
+class CerebralConfig(BaseModel):
+    """Cerebral (semantic memory) configuration."""
+
+    retain: CerebralRetainConfig = Field(default_factory=CerebralRetainConfig)
+    embeddings: CerebralEmbeddingsConfig = Field(default_factory=CerebralEmbeddingsConfig)
 
 
 class LLMSettings(BaseModel):
     """Fully resolved LLM settings for one named unit of work.
 
     Produced by ``Settings.get_llm_config()`` for either a signature
-    (``signatures.<name>``) or a reflection module (``memory.<name>``): every
-    field is either the name-specific override or the corresponding top-level
+    (``review.<name>``) or a reflection module (``memory.hippocampus.<name>``):
+    every field is either the name-specific override or the corresponding top-level
     default, so consumers never re-apply fallback logic.
     """
 
@@ -75,14 +104,15 @@ class LLMSettings(BaseModel):
 
 class PostgresConfig(BaseModel):
     """External PostgreSQL connection settings (production)."""
-    host: str | None = None      # MEMORY_POSTGRES_HOST
-    port: int = 5432             # MEMORY_POSTGRES_PORT
-    user: str | None = None      # MEMORY_POSTGRES_USER
-    password: str | None = None  # MEMORY_POSTGRES_PASSWORD
-    database: str = "codespy"    # MEMORY_POSTGRES_DATABASE
+
+    host: str | None = None
+    port: int = 5432
+    user: str | None = None
+    password: str | None = None
+    database: str = "codespy"
     schema_name: str | None = Field(
         default="episodic", alias="schema"
-    )  # MEMORY_POSTGRES_SCHEMA (search_path per memory type; None = public)
+    )
 
     def build_uri(self) -> str | None:
         """Build a psycopg connection URI. Returns None when host is unset.
@@ -95,6 +125,7 @@ class PostgresConfig(BaseModel):
         if not self.host:
             return None
         from urllib.parse import quote_plus
+
         user = quote_plus(self.user) if self.user else "postgres"
         cred = f"{user}:{quote_plus(self.password)}" if self.password else user
         return f"postgresql://{cred}@{self.host}:{self.port}/{self.database}"
@@ -102,210 +133,42 @@ class PostgresConfig(BaseModel):
 
 class Pg0Config(BaseModel):
     """pg0-embedded settings (local dev only, ignored when postgres.host is set)."""
-    name: str = "codespy"        # MEMORY_PG0_NAME
-    port: int | None = None      # MEMORY_PG0_PORT
-    data_dir: str | None = None  # MEMORY_PG0_DATA_DIR
+
+    name: str = "codespy"
+    port: int | None = None
+    data_dir: str | None = None
 
 
 class MemoryConfig(BaseModel):
     """Global memory (Hippocampus + Cerebral) configuration.
 
     Controls where episodes are persisted and the memory knob applied to
-    every agent.  Per-signature ``memory:`` blocks override ``enabled``.
+    every agent. Per-signature ``memory:`` blocks override ``enabled``.
     """
 
     # PostgreSQL connection settings
     postgres: PostgresConfig = Field(default_factory=PostgresConfig)
     pg0: Pg0Config = Field(default_factory=Pg0Config)
-    bank_id: str | None = None  # MEMORY_BANK_ID (defaults to "codespy")
+    bank_id: str | None = None
 
-    # Master switch — overridable per-signature via signatures.<name>.memory.enabled
-    enabled: bool = False  # MEMORY_ENABLED
+    # Master switch — overridable per-signature via review.<name>.memory.enabled
+    enabled: bool = False
 
-    # Whether to apply head+tail trajectory bounding before distillation.
-    # When false, the full trajectory goes to the Distiller and ContextSafe
-    # RLM fallback handles overflow if it exceeds the model's context window.
-    compact_trajectory: bool = True  # MEMORY_COMPACT_TRAJECTORY
+    # Hippocampus (episodic memory) configuration
+    hippocampus: HippocampusConfig = Field(default_factory=HippocampusConfig)
 
-    # Ceiling on the rendered ContextMemory. This is the *persisted* artifact and it
-    # is prepended to every predictor of the wrapped agent, so it is re-sent on
-    # every ReAct iteration (~default_max_iters times per scope) plus once per
-    # reflection call. Easily the most cost-sensitive of the three budgets.
-    # Approximate item capacity is max_context_memory_tokens divided by
-    # max_context_item_tokens (16384 / 512 = 32 items).
-    # MEMORY_MAX_CONTEXT_MEMORY_TOKENS
-    max_context_memory_tokens: int = Field(default=16384)
-
-    # Per-item ceiling handed to the Distiller/Cartographer as a prompt input, so
-    # they keep each context-memory item compact instead of spending the whole memory
-    # budget on one verbose entry. Soft limit: it is expressed to the LLM rather
-    # than enforced in code (truncating an item could corrupt an exact constant).
-    # The hard, memory-wide limit is max_context_memory_tokens, enforced by the
-    # Evictor. MEMORY_MAX_CONTEXT_ITEM_TOKENS
-    max_context_item_tokens: int = Field(default=512)
-
-    # Head+tail cap on the agent trajectory fed to the Distiller. Without it a
-    # single tool-heavy scope can produce a 100k+ token trajectory; TwoStepAdapter
-    # then sends it twice. 16384 is ~12% of a 128k window and preserves both the
-    # orientation steps (60% head) and the conclusions (40% tail).
-    max_trajectory_tokens: int | None = 16384  # MEMORY_MAX_TRAJECTORY_TOKENS
-
-    # Head+tail cap on the serialized agent inputs used as the Distiller/Cartographer
-    # "question". Only applies when the caller passes no 'question': otherwise
-    # every input field is serialized, which for code review means the full patch
-    # of every changed file. See Hippocampus.max_question_tokens.
-    max_question_tokens: int | None = 8192  # MEMORY_MAX_QUESTION_TOKENS
-
-    # Per-module LLM overrides for the reflection pipeline.
-    distiller: ReflectionModuleConfig = Field(default_factory=ReflectionModuleConfig)
-    cartographer: ReflectionModuleConfig = Field(default_factory=ReflectionModuleConfig)
-    cerebral: ReflectionModuleConfig = Field(default_factory=ReflectionModuleConfig)  # MEMORY_CEREBRAL_*
-    hindsight: HindsightConfig = Field(default_factory=HindsightConfig)
+    # Cerebral (semantic memory) configuration
+    cerebral: CerebralConfig = Field(default_factory=CerebralConfig)
 
 
-# Env var suffix (after MEMORY_POSTGRES_) -> PostgresConfig field name.
-POSTGRES_ENV_SETTINGS = {
-    "HOST": "host",
-    "PORT": "port",
-    "USER": "user",
-    "PASSWORD": "password",
-    "DATABASE": "database",
-    "SCHEMA": "schema",
-}
-
-# Env var suffix (after MEMORY_PG0_) -> Pg0Config field name.
-PG0_ENV_SETTINGS = {
-    "NAME": "name",
-    "PORT": "port",
-    "DATA_DIR": "data_dir",
-}
-
-HINDSIGHT_ENV_SETTINGS = {
-    "EMBEDDINGS_MODEL": "embeddings_model",
-}
-
-# Env var name (without the MEMORY_ prefix) -> MemoryConfig field name.
-# ``memory`` is a nested model and ``Settings`` does not set
-# ``env_nested_delimiter``, so pydantic-settings cannot populate these fields
-# from the environment on its own. apply_memory_env_overrides() bridges the gap.
-MEMORY_ENV_SETTINGS = {
-    "BANK_ID": "bank_id",
-    "ENABLED": "enabled",
-    "COMPACT_TRAJECTORY": "compact_trajectory",
-    "MAX_CONTEXT_MEMORY_TOKENS": "max_context_memory_tokens",
-    "MAX_CONTEXT_ITEM_TOKENS": "max_context_item_tokens",
-    "MAX_TRAJECTORY_TOKENS": "max_trajectory_tokens",
-    "MAX_QUESTION_TOKENS": "max_question_tokens",
-}
-
-# The reflection modules, derived from the MemoryConfig fields that hold a
+# The reflection modules, derived from the HippocampusConfig fields that hold a
 # ReflectionModuleConfig. Iterate this instead of hardcoding module names so
 # adding a new reflection module only requires declaring its field above.
 REFLECTION_MODULES: tuple[str, ...] = tuple(
     name
-    for name, field in MemoryConfig.model_fields.items()
+    for name, field in HippocampusConfig.model_fields.items()
     if field.annotation is ReflectionModuleConfig
 )
-
-# Env var suffix -> ReflectionModuleConfig field name, routed via
-# MEMORY_<MODULE>_<SETTING> (e.g. MEMORY_DISTILLER_MODEL).
-REFLECTION_MODULE_ENV_SETTINGS = {
-    name.upper(): name for name in ReflectionModuleConfig.model_fields
-}
-
-# Maps env prefix (after MEMORY_) -> (config field name, suffix->field map)
-NESTED_ENV_PREFIXES: dict[str, tuple[str, dict[str, str]]] = {
-    "POSTGRES_": ("postgres", POSTGRES_ENV_SETTINGS),
-    "PG0_": ("pg0", PG0_ENV_SETTINGS),
-    "HINDSIGHT_": ("hindsight", HINDSIGHT_ENV_SETTINGS),
-}
-# Add reflection modules dynamically (same pattern, shared settings map)
-for _mod in REFLECTION_MODULES:
-    NESTED_ENV_PREFIXES[f"{_mod.upper()}_"] = (_mod, REFLECTION_MODULE_ENV_SETTINGS)
-
-
-def _generate_bank_id() -> str:
-    """Generate a default bank_id."""
-    return "codespy"
-
-
-def apply_memory_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
-    """Apply ``MEMORY_*`` environment variable overrides to the ``memory`` block.
-
-    Maps flat env vars onto the nested ``memory`` config, e.g.::
-
-        MEMORY_POSTGRES_HOST=myhost                    -> memory.postgres.host
-        MEMORY_ENABLED=true                            -> memory.enabled
-        MEMORY_MAX_CONTEXT_MEMORY_TOKENS=512           -> memory.max_context_memory_tokens
-
-    Nested sub-model overrides use a second level of nesting::
-
-        MEMORY_DISTILLER_MODEL=...        -> memory.distiller.model
-        MEMORY_CARTOGRAPHER_TEMPERATURE=0 -> memory.cartographer.temperature
-
-        MEMORY_PG0_NAME=mydb              -> memory.pg0.name
-        MEMORY_PG0_PORT=5433              -> memory.pg0.port
-
-    Env vars take precedence over YAML, matching the documented priority
-    (Environment Variables > YAML Config > Defaults).
-
-
-    Note: ``<SIGNATURE>_MEMORY_*`` vars are handled separately by
-    ``apply_signature_env_overrides`` and are ignored here, since they never
-    match a bare ``MEMORY_`` prefix.
-
-    Args:
-        config: The YAML-derived config dict to mutate.
-
-    Returns:
-        The same dict, with ``memory`` overrides applied.
-    """
-    from dotenv import dotenv_values
-
-    from codespy.config_dspy import convert_env_value
-
-    env_vars = {**dotenv_values(".env"), **os.environ}
-
-    for key, value in env_vars.items():
-        if value is None:
-            continue
-        key_upper = key.upper()
-        if not key_upper.startswith("MEMORY_"):
-            continue
-        remainder = key_upper[len("MEMORY_") :]
-
-        memory_config = config.setdefault("memory", {})
-        if not isinstance(memory_config, dict):
-            continue
-
-        # Nested sub-model: MEMORY_<PREFIX><SETTING>
-        # Checked before the flat lookup, since e.g. MEMORY_PG0_NAME has no entry in
-        # MEMORY_ENV_SETTINGS and would otherwise be silently dropped.
-        nested = next(
-            (
-                (field, settings_map, remainder[len(prefix):])
-                for prefix, (field, settings_map) in NESTED_ENV_PREFIXES.items()
-                if remainder.startswith(prefix)
-            ),
-            None,
-        )
-        if nested is not None:
-            field, settings_map, setting = nested
-            setting_field = settings_map.get(setting)
-            if setting_field is None:
-                continue
-            sub_config = memory_config.setdefault(field, {})
-            if not isinstance(sub_config, dict):
-                continue
-            sub_config[setting_field] = convert_env_value(value)
-            continue
-
-        field = MEMORY_ENV_SETTINGS.get(remainder)
-        if field is None:
-            continue
-        memory_config[field] = convert_env_value(value)
-
-    return config
 
 
 # Cached singleton store. Avoids reconstructing the EpisodeStore's connection pool
@@ -339,7 +202,7 @@ def get_episode_store(settings: Settings) -> EpisodeStore | None:
         return _store
 
     mem = settings.memory
-    bank_id = mem.bank_id or _generate_bank_id()
+    bank_id = mem.bank_id or "codespy"
     schema = mem.postgres.schema_name  # "episodic" by default
 
     # Try external PostgreSQL first
@@ -418,7 +281,7 @@ def verify_memory_access(settings: Settings) -> tuple[bool, str]:
     except Exception as e:
         return False, f"Memory storage not accessible: {e}"
 
-    return True, f"Memory storage verified (PostgreSQL, bank={settings.memory.bank_id or _generate_bank_id()})"
+    return True, f"Memory storage verified (PostgreSQL, bank={settings.memory.bank_id or 'codespy'})"
 
 
 # Cached singleton Cerebral instance.
@@ -470,8 +333,8 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
 
     Cerebral activates unconditionally (like ``get_episode_store``).
     Agent-level ``get_memory_enabled(sig)`` handles per-signature gating.
-    LLM parameters are auto-derived from the ``cerebral``
-    ReflectionModuleConfig model string and ``settings.llm`` credentials.
+    LLM parameters are auto-derived from the ``cerebral.retain``
+    config model string and ``settings.llm`` credentials.
 
     The store is built once and cached (module-level singleton).
 
@@ -521,7 +384,7 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
     # Choose embedding default based on the provider prefix
     provider_prefix = model.split("/", 1)[0] if "/" in model else "openai"
     embeddings_model = (
-        settings.memory.hindsight.embeddings_model
+        settings.memory.cerebral.embeddings.model
         or EMBEDDING_MODELS.get(provider_prefix, "openai/text-embedding-3-small")
     )
 
@@ -539,7 +402,8 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
         logger.error(
             "Cerebral initialization FAILED (bank=%s, schema=semantic). "
             "Semantic memory is disabled for this run.",
-            bank_id, exc_info=True,
+            bank_id,
+            exc_info=True,
         )
         _cerebral = None
         _cerebral_built = True
@@ -547,7 +411,8 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
 
     logger.info(
         "Cerebral initialized (bank=%s, provider=litellm, model=%s, schema=semantic)",
-        bank_id, model,
+        bank_id,
+        model,
     )
     _cerebral_built = True
     return _cerebral

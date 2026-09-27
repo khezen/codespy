@@ -26,7 +26,7 @@ from codespy.config import Settings, get_settings
 from codespy.config_memory import verify_memory_access
 from codespy.tools.git import ChangedFile, GitClient, PullRequest, get_client
 from codespy.tools.git.local_diff import build_pr_from_diff
-from codespy.tools.git.patch_utils import compact_patches
+
 from codespy.workflows.review.models import (
     LocalReviewConfig,
     RemoteReviewConfig,
@@ -89,7 +89,7 @@ class ReviewPipeline(dspy.Module):
 
     def _get_repo_path(self, pr: PullRequest) -> Path:
         """Get the local repository path for a MR, creating directories if needed."""
-        cache_dir = self.settings.cache_dir
+        cache_dir = self.settings.review.cache_dir
         cache_dir.mkdir(parents=True, exist_ok=True)
         # Handle nested namespaces for GitLab
         owner_path = pr.repo_owner.replace("/", "_")
@@ -214,11 +214,6 @@ class ReviewPipeline(dspy.Module):
         if not is_local:
             self._expand_sparse_for_scopes(scopes, repo_path, changed_file_paths)
         patches = build_patches(pr.changed_files)
-        if self.settings.compact_patches:
-            logger.info("Compacting patches to function boundaries...")
-            compact_patches(scopes, repo_path)
-        else:
-            logger.debug("Compact patches disabled, using original PR patches")
         # Step 2: Run Summarizer (now receives scopes for per-scope episode persistence)
         # Build all scope topics (scope topics + PR topic)
         all_scope_topics = [s.topic(pr.repo_full_name) for s in scopes]
@@ -260,7 +255,7 @@ class ReviewPipeline(dspy.Module):
             pr_url=pr.url,
             repo=pr.repo_full_name,
             run_id=run_id,
-            model_used=self.settings.default_model,
+            model_used=self.settings.llm.default_model,
             issues=all_issues,
             overall_summary=pr_summary,
             quality_assessment=quality_assessment,
@@ -300,7 +295,7 @@ class ReviewPipeline(dspy.Module):
     def _expand_sparse_for_scopes(self, scopes: list, repo_path: Path, changed_files: list[str] | None = None) -> None:
         """Expand sparse checkout to cover full subtree of each identified scope.
 
-        Called after scope identification, before compact_patches and review modules,
+        Called after scope identification and before review modules,
         to ensure read_file and patch compaction have full scope context available.
 
         Uses the same sparse pattern builder as derive_sparse_paths to ensure

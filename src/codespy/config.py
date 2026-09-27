@@ -8,14 +8,7 @@ import yaml
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from codespy.config_utils import secret_value
-from codespy.config_dspy import (
-    ReasoningEffort,
-    RLMFallbackConfig,
-    SignatureConfig,
-    apply_rlm_fallback_env_overrides,
-    apply_signature_env_overrides,
-)
+from codespy.config_dspy import ReviewConfig, RLMFallbackConfig, SignatureConfig
 from codespy.config_git import (
     GitHubConfig,
     GitLabConfig,
@@ -26,20 +19,18 @@ from codespy.config_git import (
     set_github_token_source,
     set_gitlab_token_source,
 )
-from codespy.config_io import DEFAULT_EXCLUDED_DIRECTORIES, OutputFormat
-from codespy.config_llm import (
-    LLMConfig,
-    discover_anthropic_api_key,
-    discover_aws_credentials,
-    discover_gemini_api_key,
-    discover_openai_api_key,
-)
+from codespy.config_llm import LLMConfig
 from codespy.config_memory import (
     REFLECTION_MODULES,
     LLMSettings,
     MemoryConfig,
-    apply_memory_env_overrides,
+    ReflectionModuleConfig,
     reset_episode_store,
+)
+from codespy.config_utils import (
+    apply_env_overrides,
+    build_env_map,
+    secret_value,
 )
 
 if TYPE_CHECKING:
@@ -66,8 +57,33 @@ __all__ = [
     "GitLabConfig",
     "SignatureConfig",
     "MemoryConfig",
-    "OutputFormat",
 ]
+
+
+# Build the env map once at module level
+# Define bare fields (credential fields that don't use LLM_ prefix)
+_BARE_LLM_FIELDS = {
+    "openai_api_key",
+    "openai_api_base",
+    "anthropic_api_key",
+    "gemini_api_key",
+    "aws_region",
+    "aws_access_key_id",
+    "aws_secret_access_key",
+    "aws_profile",
+    "azure_api_key",
+    "azure_api_base",
+    "azure_api_version",
+}
+
+_ENV_MAP = build_env_map(
+    sections={
+        "llm": LLMConfig,
+        "review": ReviewConfig,
+        "memory": MemoryConfig,
+    },
+    bare_fields={"llm": _BARE_LLM_FIELDS},
+)
 
 
 def _load_yaml_config() -> dict[str, Any]:
@@ -115,52 +131,7 @@ class Settings(BaseSettings):
     github: GitHubConfig = Field(default_factory=GitHubConfig)
     gitlab: GitLabConfig = Field(default_factory=GitLabConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
-    rlm_fallback: RLMFallbackConfig = Field(default_factory=RLMFallbackConfig)
-
-    # Flat signature configs (signature_name -> SignatureConfig)
-    signatures: dict[str, SignatureConfig] = Field(default_factory=dict)
-
-    # Top-level defaults (also available via env vars DEFAULT_MODEL, etc.)
-    default_model: str = "anthropic/claude-opus-4-6"
-    extraction_model: str | None = None  # TwoStepAdapter extraction (falls back to default_model)
-    default_max_iters: int = 5
-    default_max_llm_calls: int = 8
-    # Provider reasoning budget; LiteLLM maps this to each provider's native parameter.
-    default_reasoning_effort: ReasoningEffort = "medium"
-    default_temperature: float = 0.2
-    # Output token budget per completion. Must be set explicitly: when it is
-    # omitted LiteLLM silently falls back to its own 4096 default, which
-    # truncates reasoning models (thinking tokens are charged against this
-    # budget) and long structured outputs. 32000 matches the output ceiling of
-    # the Claude 4.x tier and satisfies dspy.LM's >=16000 guard for OpenAI
-    # reasoning models; new_lm() clamps it down to each model's real ceiling.
-    default_max_tokens: int = 32000
-
-    # Global LLM reliability settings
-    llm_retries: int = 2  # Number of retries for LLM API calls
-    llm_timeout: int = 240  # Timeout in seconds for LLM calls
-
-    # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
-    enable_prompt_caching: bool = True
-
-    # Expand diff hunks to full function bodies (Tree-sitter) before review.
-    # When False (default), reviewers see original PR patches.
-    compact_patches: bool = False
-
-    # Minimum confidence threshold for reported issues.
-    # Issues below this threshold are silently discarded by reviewer modules.
-    min_confidence: float = Field(default=0.81, ge=0.0, le=1.0)
-
-    # Top-level settings
-    output_format: OutputFormat = "markdown"
-    cache_dir: Path = Path.home() / ".cache" / "codespy"
-
-    # Output destinations
-    output_stdout: bool = True  # Enable stdout output (markdown or json)
-    output_git: bool = True  # Enable Git platform review comments (GitHub PR or GitLab MR)
-
-    # File exclusion settings
-    excluded_directories: list[str] = Field(default=DEFAULT_EXCLUDED_DIRECTORIES)
+    review: ReviewConfig = Field(default_factory=ReviewConfig)
 
     # GitHub token (can also use GITHUB_TOKEN or GH_TOKEN env var)
     github_token: SecretStr | None = None
@@ -172,25 +143,12 @@ class Settings(BaseSettings):
     gitlab_url: str = "https://gitlab.com"  # GITLAB_URL for self-hosted instances
     gitlab_auto_discover_token: bool = True  # GITLAB_AUTO_DISCOVER_TOKEN
 
-    # LLM provider settings (flat for simple env var access)
-    aws_region: str = "us-east-1"
-    aws_access_key_id: SecretStr | None = None
-    aws_secret_access_key: SecretStr | None = None
-    aws_profile: str | None = None
-    openai_api_key: SecretStr | None = None
-    anthropic_api_key: SecretStr | None = None
-    gemini_api_key: SecretStr | None = None
-
-    # Auto-discovery toggles (flat for env var access)
-    auto_discover_aws: bool = True  # AUTO_DISCOVER_AWS
-    auto_discover_openai: bool = True  # AUTO_DISCOVER_OPENAI
-    auto_discover_anthropic: bool = True  # AUTO_DISCOVER_ANTHROPIC
-    auto_discover_gemini: bool = True  # AUTO_DISCOVER_GEMINI
-
-    # Helper methods for signature config
     def get_signature_config(self, signature_name: str) -> SignatureConfig:
-        """Get config for a signature."""
-        return self.signatures.get(signature_name, SignatureConfig())
+        """Get config for a signature.
+
+        Only returns actual signature configs, not other review fields.
+        """
+        return getattr(self.review, signature_name, SignatureConfig())
 
     def is_signature_enabled(self, signature_name: str) -> bool:
         """Check if a signature is enabled."""
@@ -199,52 +157,65 @@ class Settings(BaseSettings):
     def get_max_iters(self, name: str) -> int:
         """Get max_iters for a signature or reflection module (name-specific or default)."""
         if name in REFLECTION_MODULES:
-            config = getattr(self.memory, name)
-            return config.max_iters or self.default_max_iters
+            config = getattr(self.memory.hippocampus, name)
+            return config.max_iters or self.llm.default_max_iters
         config = self.get_signature_config(name)
-        return config.max_iters or self.default_max_iters
+        return config.max_iters or self.llm.default_max_iters
 
     def get_max_llm_calls(self, name: str) -> int:
         """Get max_llm_calls for a signature or reflection module (name-specific or default)."""
         if name in REFLECTION_MODULES:
-            config = getattr(self.memory, name)
-            return config.max_llm_calls or self.default_max_llm_calls
+            config = getattr(self.memory.hippocampus, name)
+            return config.max_llm_calls or self.llm.default_max_llm_calls
         config = self.get_signature_config(name)
-        return config.max_llm_calls or self.default_max_llm_calls
+        return config.max_llm_calls or self.llm.default_max_llm_calls
 
     def get_llm_config(self, name: str) -> LLMSettings:
         """Resolve the LLM settings for one named unit of LLM work.
 
         ``name`` addresses either a signature or a memory reflection module::
 
-            "code_review"  -> signatures.code_review
-            "distiller"    -> memory.distiller
+            "code_review"  -> review.code_review
+            "distiller"    -> memory.hippocampus.distiller
+            "cerebral"     -> memory.cerebral.retain
 
-        Every field falls back to its top-level ``default_*`` counterpart, so
+        Every field falls back to its ``llm.default_*`` counterpart, so
         the result has no ``None`` fields and callers never re-apply fallbacks.
 
         Args:
             name: A signature name, or a reflection module name
-                (see ``REFLECTION_MODULES``).
+                (see ``REFLECTION_MODULES``), or "cerebral".
 
         Returns:
             The fully resolved settings for ``name``.
         """
-        if name in REFLECTION_MODULES:
-            config = getattr(self.memory, name)
+        if name == "cerebral":
+            config = self.memory.cerebral.retain
+            model = config.model or self.llm.default_model
+            # For cerebral, every other field falls back to llm.default_* values
+            defaults = self.llm
+        elif name in REFLECTION_MODULES:
+            config = getattr(self.memory.hippocampus, name)
+            model = config.model or self.llm.default_model
+            defaults = self.llm
+        elif name == "default":
+            # Pure defaults for configure_dspy
+            model = self.llm.default_model
+            config = ReflectionModuleConfig()  # Empty config
+            defaults = self.llm
         else:
             config = self.get_signature_config(name)
+            model = config.model or self.llm.default_model
+            defaults = self.llm
 
-        model = config.model or self.default_model
-        module_extraction = getattr(config, "extraction_model", None)
         return LLMSettings(
             model=model,
-            extraction_model=module_extraction or self.extraction_model or model,
-            reasoning_effort=config.reasoning_effort or self.default_reasoning_effort,
+            extraction_model=self.llm.extraction_model or model,
+            reasoning_effort=config.reasoning_effort or defaults.default_reasoning_effort,
             temperature=(
-                config.temperature if config.temperature is not None else self.default_temperature
+                config.temperature if config.temperature is not None else defaults.default_temperature
             ),
-            max_tokens=config.max_tokens or self.default_max_tokens,
+            max_tokens=config.max_tokens or defaults.default_max_tokens,
         )
 
     def get_scan_unchanged(self, signature_name: str) -> bool:
@@ -268,17 +239,17 @@ class Settings(BaseSettings):
     def get_memory_budget(self, signature_name: str) -> "MemoryBudget":
         """Resolve the ``MemoryBudget`` for a signature.
 
-        Token budgets are global (``memory.default_*``); only ``enabled``
+        Token budgets are global (``memory.hippocampus.*``); only ``enabled``
         supports per-signature overrides.
         """
         from codespy.agents.memory.hippocampus.budget import MemoryBudget
 
         return MemoryBudget(
-            max_context_memory_tokens=self.memory.max_context_memory_tokens,
-            max_context_item_tokens=self.memory.max_context_item_tokens,
-            max_trajectory_tokens=self.memory.max_trajectory_tokens,
-            max_question_tokens=self.memory.max_question_tokens,
-            compact_trajectory=self.memory.compact_trajectory,
+            max_context_memory_tokens=self.memory.hippocampus.max_context_memory_tokens,
+            max_context_item_tokens=self.memory.hippocampus.max_context_item_tokens,
+            max_trajectory_tokens=self.memory.hippocampus.max_trajectory_tokens,
+            max_question_tokens=self.memory.hippocampus.max_question_tokens,
+            compact_trajectory=self.memory.hippocampus.compact_trajectory,
         )
 
     def get_scope_skip_refinement(self) -> bool:
@@ -302,21 +273,21 @@ class Settings(BaseSettings):
         Returns:
             Threshold ratio (0.0-1.0), or 1.0 if disabled.
         """
-        if not self.rlm_fallback.enabled:
+        if not self.llm.rlm_fallback.enabled:
             return 1.0
-        return getattr(self.rlm_fallback, f"{module_type}_threshold", 1.0)
+        return getattr(self.llm.rlm_fallback, f"{module_type}_threshold", 1.0)
 
     def log_signature_configs(self) -> None:
         """Log all signature and reflection module LLM configurations."""
         logger.info("RLM fallback configuration:")
         logger.info(
-            f"  enabled={self.rlm_fallback.enabled}, "
-            f"react_threshold={self.rlm_fallback.react_threshold}, "
-            f"chain_of_thought_threshold={self.rlm_fallback.chain_of_thought_threshold}, "
-            f"predict_threshold={self.rlm_fallback.predict_threshold}"
+            f"  enabled={self.llm.rlm_fallback.enabled}, "
+            f"react_threshold={self.llm.rlm_fallback.react_threshold}, "
+            f"chain_of_thought_threshold={self.llm.rlm_fallback.chain_of_thought_threshold}, "
+            f"predict_threshold={self.llm.rlm_fallback.predict_threshold}"
         )
         logger.info("Signature configurations:")
-        for sig_name, sig_config in self.signatures.items():
+        for sig_name, sig_config in self.review.signatures().items():
             status = "enabled" if sig_config.enabled else "disabled"
             llm = self.get_llm_config(sig_name)
             logger.info(
@@ -344,12 +315,8 @@ class Settings(BaseSettings):
         Priority: Environment Variables > YAML Config > Defaults
         """
         yaml_config = _load_yaml_config()
-        yaml_config = apply_signature_env_overrides(yaml_config)
-        # MEMORY_* env vars target the nested `memory` model, which
-        # pydantic-settings cannot populate on its own (no env_nested_delimiter).
-        yaml_config = apply_memory_env_overrides(yaml_config)
-        # RLM_FALLBACK_* env vars target the nested `rlm_fallback` model.
-        yaml_config = apply_rlm_fallback_env_overrides(yaml_config)
+        # Apply unified env overrides before merging
+        yaml_config = apply_env_overrides(yaml_config, _ENV_MAP)
 
         # Merge YAML config into values only if not already set (env vars take precedence)
         for key, val in yaml_config.items():
@@ -469,7 +436,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def expand_paths(self) -> "Settings":
         """Expand ~ in paths to the user's home directory."""
-        self.cache_dir = Path(self.cache_dir).expanduser().resolve()
+        self.review.cache_dir = Path(self.review.cache_dir).expanduser().resolve()
         return self
 
     @model_validator(mode="after")
@@ -480,92 +447,17 @@ class Settings(BaseSettings):
         env vars (flat fields from pydantic-settings) > YAML/nested > defaults.
         """
         merged = self.llm.sync_from_flat(
-            openai_api_key=self.openai_api_key,
-            anthropic_api_key=self.anthropic_api_key,
-            gemini_api_key=self.gemini_api_key,
-            aws_region=self.aws_region,
-            aws_access_key_id=self.aws_access_key_id,
-            aws_secret_access_key=self.aws_secret_access_key,
+            openai_api_key=self.llm.openai_api_key,
+            anthropic_api_key=self.llm.anthropic_api_key,
+            gemini_api_key=self.llm.gemini_api_key,
+            aws_region=self.llm.aws_region,
+            aws_access_key_id=self.llm.aws_access_key_id,
+            aws_secret_access_key=self.llm.aws_secret_access_key,
         )
-        # Propagate merged values back to flat fields
+        # Propagate merged values back to llm
         for field, value in merged.items():
             if value is not None:
-                setattr(self, field, value)
-        return self
-
-    @model_validator(mode="after")
-    def resolve_llm_credentials(self) -> "Settings":
-        """Auto-discover LLM provider credentials if not explicitly set."""
-
-        def is_placeholder(value: str | None) -> bool:
-            """Check if value looks like a placeholder."""
-            if not value:
-                return True
-            placeholders = ["xxx", "your", "key", "example", "placeholder", "null"]
-            value_lower = value.lower()
-            return any(p in value_lower for p in placeholders)
-
-        # AWS credentials auto-discovery
-        if not secret_value(self.aws_access_key_id) or not secret_value(self.aws_secret_access_key):
-            auto_discover = self.llm.auto_discover_aws and self.auto_discover_aws
-            if auto_discover:
-                access_key, secret_key, region, profile, source = discover_aws_credentials()
-                if access_key and secret_key:
-                    self.aws_access_key_id = SecretStr(access_key)
-                    self.aws_secret_access_key = SecretStr(secret_key)
-                    self.llm.aws_access_key_id = SecretStr(access_key)
-                    self.llm.aws_secret_access_key = SecretStr(secret_key)
-                    if region:
-                        self.aws_region = region
-                        self.llm.aws_region = region
-                    if profile:
-                        self.aws_profile = profile
-                        self.llm.aws_profile = profile
-                    logger.debug(f"AWS credentials discovered from: {source}")
-            else:
-                logger.debug("AWS credentials auto-discovery is disabled")
-
-        # OpenAI API key auto-discovery
-        openai_val = secret_value(self.openai_api_key)
-        if not openai_val or is_placeholder(openai_val):
-            auto_discover = self.llm.auto_discover_openai and self.auto_discover_openai
-            if auto_discover:
-                key, source = discover_openai_api_key()
-                if key and not is_placeholder(key):       # key is raw str from discovery
-                    self.openai_api_key = SecretStr(key)
-                    self.llm.openai_api_key = SecretStr(key)
-                    logger.debug(f"OpenAI API key discovered from: {source}")
-            else:
-                logger.debug("OpenAI API key auto-discovery is disabled")
-
-        # Anthropic API key auto-discovery
-        anthropic_val = secret_value(self.anthropic_api_key)
-        if not anthropic_val or is_placeholder(anthropic_val):
-            auto_discover = self.llm.auto_discover_anthropic and self.auto_discover_anthropic
-            if auto_discover:
-                key, source = discover_anthropic_api_key()
-                if key and not is_placeholder(key):       # key is raw str from discovery
-                    self.anthropic_api_key = SecretStr(key)
-                    self.llm.anthropic_api_key = SecretStr(key)
-                    logger.debug(f"Anthropic API key discovered from: {source}")
-            else:
-                logger.debug("Anthropic API key auto-discovery is disabled")
-
-        # Gemini API key auto-discovery
-        gemini_val = secret_value(self.gemini_api_key)
-        if not gemini_val or is_placeholder(gemini_val):
-            auto_discover = self.llm.auto_discover_gemini and self.auto_discover_gemini
-            if auto_discover:
-                key, source = discover_gemini_api_key()
-                if key and not is_placeholder(key):       # key is raw str from discovery
-                    self.gemini_api_key = SecretStr(key)
-                    self.llm.gemini_api_key = SecretStr(key)
-                    logger.debug(f"Gemini API key discovered from: {source}")
-                elif source != "not found":
-                    logger.debug(f"Gemini: {source}")
-            else:
-                logger.debug("Gemini API key auto-discovery is disabled")
-
+                setattr(self.llm, field, value)
         return self
 
 

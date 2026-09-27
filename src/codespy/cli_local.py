@@ -51,7 +51,7 @@ def review_local(
         typer.Option(
             "--model",
             "-m",
-            help="LLM model to use (overrides DEFAULT_MODEL env var)",
+            help="LLM model to use (overrides LLM_DEFAULT_MODEL env var)",
         ),
     ] = None,
 ) -> None:
@@ -81,9 +81,9 @@ def review_local(
         raise typer.Exit(1) from None
 
     if model:
-        settings.default_model = model
+        settings.llm.default_model = model
     if output:
-        settings.output_format = output  # type: ignore
+        settings.review.output_format = output  # type: ignore
 
     repo = Path(repo_path if repo_path else os.getcwd()).resolve()
 
@@ -100,8 +100,8 @@ def review_local(
             f"[bold blue]Reviewing local changes[/bold blue]\n"
             f"[bold]Repository:[/bold] {repo}\n"
             f"[bold]Base ref:[/bold] {base_ref}\n"
-            f"[bold]Model:[/bold] {settings.default_model}\n"
-            f"[bold]Output:[/bold] {settings.output_format}",
+            f"[bold]Model:[/bold] {settings.llm.default_model}\n"
+            f"[bold]Output:[/bold] {settings.review.output_format}",
             title="codespy review-local",
         )
     )
@@ -137,7 +137,7 @@ def review_local(
 
         from codespy.workflows.review.reporters import StdoutReporter
 
-        stdout_reporter = StdoutReporter(format=settings.output_format, console=console)
+        stdout_reporter = StdoutReporter(format=settings.review.output_format, console=console)
         stdout_reporter.report(result)
 
     except Exception as e:
@@ -174,7 +174,7 @@ def review_uncommitted(
         typer.Option(
             "--model",
             "-m",
-            help="LLM model to use (overrides DEFAULT_MODEL env var)",
+            help="LLM model to use (overrides LLM_DEFAULT_MODEL env var)",
         ),
     ] = None,
 ) -> None:
@@ -201,9 +201,9 @@ def review_uncommitted(
         raise typer.Exit(1) from None
 
     if model:
-        settings.default_model = model
+        settings.llm.default_model = model
     if output:
-        settings.output_format = output  # type: ignore
+        settings.review.output_format = output  # type: ignore
 
     repo = Path(repo_path if repo_path else os.getcwd()).resolve()
 
@@ -219,8 +219,8 @@ def review_uncommitted(
         Panel(
             f"[bold blue]Reviewing uncommitted changes[/bold blue]\n"
             f"[bold]Repository:[/bold] {repo}\n"
-            f"[bold]Model:[/bold] {settings.default_model}\n"
-            f"[bold]Output:[/bold] {settings.output_format}",
+            f"[bold]Model:[/bold] {settings.llm.default_model}\n"
+            f"[bold]Output:[/bold] {settings.review.output_format}",
             title="codespy review-uncommitted",
         )
     )
@@ -256,7 +256,7 @@ def review_uncommitted(
 
         from codespy.workflows.review.reporters import StdoutReporter
 
-        stdout_reporter = StdoutReporter(format=settings.output_format, console=console)
+        stdout_reporter = StdoutReporter(format=settings.review.output_format, console=console)
         stdout_reporter.report(result)
 
     except Exception as e:

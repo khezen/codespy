@@ -1,10 +1,11 @@
 """DSPy signatures configuration and environment variable handling."""
 
 import logging
-import os
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+from codespy.config_io import DEFAULT_EXCLUDED_DIRECTORIES, OutputFormat
 
 logger = logging.getLogger(__name__)
 
@@ -56,14 +57,54 @@ class SignatureConfig(BaseModel):
     memory: MemorySignatureConfig = Field(default_factory=MemorySignatureConfig)
 
 
-# Known signature names for env var routing
-SIGNATURE_NAMES = {
-    "code_review",
-    "doc",
-    "scope",
-    "supply_chain",
-    "summary",
-    "audit",
+class ReviewConfig(BaseModel):
+    """Configuration for the review subsystem.
+
+    Contains per-signature configs and top-level review settings.
+    """
+
+    # Minimum confidence threshold for reported issues
+    min_confidence: float = Field(default=0.81, ge=0.0, le=1.0)
+
+    # Output settings
+    output_format: OutputFormat = "markdown"
+    output_stdout: bool = True  # Enable stdout output
+    output_git: bool = True  # Enable Git platform review comments
+
+    # Cache directory
+    cache_dir: str = "~/.cache/codespy"
+
+    # File exclusion settings
+    excluded_directories: list[str] = Field(default=DEFAULT_EXCLUDED_DIRECTORIES)
+
+    # Per-signature configs
+    supply_chain: SignatureConfig = Field(default_factory=SignatureConfig)
+    code_review: SignatureConfig = Field(default_factory=SignatureConfig)
+    doc: SignatureConfig = Field(default_factory=lambda: SignatureConfig(max_iters=1, max_llm_calls=2))
+    scope: SignatureConfig = Field(default_factory=lambda: SignatureConfig(max_iters=3, max_llm_calls=5))
+    summary: SignatureConfig = Field(default_factory=lambda: SignatureConfig(max_iters=1, max_llm_calls=2))
+    audit: SignatureConfig = Field(default_factory=lambda: SignatureConfig(max_iters=1, max_llm_calls=2))
+
+    def signatures(self) -> dict[str, SignatureConfig]:
+        """Return a dict of signature name -> SignatureConfig."""
+        return {
+            "supply_chain": self.supply_chain,
+            "code_review": self.code_review,
+            "doc": self.doc,
+            "scope": self.scope,
+            "summary": self.summary,
+            "audit": self.audit,
+        }
+
+
+# Known signature names derived from ReviewConfig
+SIGNATURE_NAMES = set(ReviewConfig.model_fields.keys()) - {
+    "min_confidence",
+    "output_format",
+    "output_stdout",
+    "output_git",
+    "cache_dir",
+    "excluded_directories",
 }
 
 # Create uppercase prefixes for matching (e.g., "CODE_REVIEW_", "SUPPLY_CHAIN_")
@@ -85,109 +126,3 @@ RLM_FALLBACK_ENV_SETTINGS = {
     "CHAIN_OF_THOUGHT_THRESHOLD": "chain_of_thought_threshold",
     "PREDICT_THRESHOLD": "predict_threshold",
 }
-
-
-def apply_rlm_fallback_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
-    """Apply RLM_FALLBACK_* environment variable overrides.
-
-    Maps: RLM_FALLBACK_REACT_THRESHOLD=0.30 -> rlm_fallback.react_threshold
-    """
-    from dotenv import dotenv_values
-
-    env_vars = {**dotenv_values(".env"), **os.environ}
-
-    for key, value in env_vars.items():
-        if value is None:
-            continue
-        key_upper = key.upper()
-        if not key_upper.startswith("RLM_FALLBACK_"):
-            continue
-        remainder = key_upper[len("RLM_FALLBACK_") :]
-        field = RLM_FALLBACK_ENV_SETTINGS.get(remainder)
-        if field is None:
-            continue
-        rlm_config = config.setdefault("rlm_fallback", {})
-        if not isinstance(rlm_config, dict):
-            continue
-        rlm_config[field] = convert_env_value(value)
-
-    return config
-
-
-def convert_env_value(value: str) -> Any:
-    """Convert environment variable string to appropriate Python type."""
-    import json
-
-    if value.lower() in ("true", "false"):
-        return value.lower() == "true"
-    elif value.isdigit():
-        return int(value)
-    elif value.startswith("[") or value.startswith("{"):
-        try:
-            return json.loads(value)
-        except json.JSONDecodeError:
-            return value
-    elif value.lower() == "null" or value == "":
-        return None
-    return value
-
-
-def apply_signature_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
-    """Apply environment variable overrides to config for signature settings.
-
-    Handles three patterns:
-    - ``CODE_REVIEW_MAX_ITERS``      -> signatures.code_review.max_iters
-    - ``SUPPLY_CHAIN_ENABLED``       -> signatures.supply_chain.enabled
-    - ``CODE_REVIEW_MEMORY_ENABLED`` -> signatures.code_review.memory.enabled
-
-    Top-level settings (DEFAULT_MODEL, AWS_REGION, MEMORY_ENABLED, etc.)
-    are handled directly by pydantic-settings and should NOT be processed here.
-    """
-    # Load .env file first to ensure env vars are available
-    from dotenv import dotenv_values
-
-    env_vars = {**dotenv_values(".env"), **os.environ}  # .env + actual env vars
-
-    for key, value in env_vars.items():
-        if value is None:
-            continue
-        key_upper = key.upper()
-
-        # Match signature prefix
-        signature_name = None
-        remainder = None
-        for prefix, sig_name in SIGNATURE_PREFIXES.items():
-            if key_upper.startswith(prefix):
-                signature_name = sig_name
-                remainder = key_upper[len(prefix) :]
-                break
-
-        if not signature_name or remainder is None:
-            continue
-
-        # Nested memory setting: <SIG>_MEMORY_<SETTING>
-        if remainder.startswith("MEMORY_"):
-            memory_setting = remainder[len("MEMORY_") :].lower()
-            if memory_setting not in MEMORY_SIGNATURE_SETTINGS:
-                continue
-            if "signatures" not in config:
-                config["signatures"] = {}
-            if signature_name not in config["signatures"]:
-                config["signatures"][signature_name] = {}
-            if "memory" not in config["signatures"][signature_name]:
-                config["signatures"][signature_name]["memory"] = {}
-            sig_memory = config["signatures"][signature_name]["memory"]
-            sig_memory[memory_setting] = convert_env_value(value)
-            continue
-
-        # Flat signature setting
-        setting = remainder.lower()
-        if setting not in SIGNATURE_SETTINGS:
-            continue
-        if "signatures" not in config:
-            config["signatures"] = {}
-        if signature_name not in config["signatures"]:
-            config["signatures"][signature_name] = {}
-        config["signatures"][signature_name][setting] = convert_env_value(value)
-
-    return config

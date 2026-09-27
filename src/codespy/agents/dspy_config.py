@@ -95,20 +95,20 @@ def new_lm(settings: Settings, config: LLMSettings) -> dspy.LM:
         "model": config.model,
         "temperature": config.temperature,
         "max_tokens": _resolve_max_tokens(config.model, config.max_tokens),
-        "timeout": settings.llm_timeout,
-        "num_retries": settings.llm_retries,
+        "timeout": settings.llm.timeout,
+        "num_retries": settings.llm.retries,
         "drop_params": True,
         "reasoning_effort": config.reasoning_effort,
     }
     # Cache system prompts via explicit Anthropic-style cache_control markers.
     # Only injected for providers that use explicit markers (Anthropic, Bedrock
     # Anthropic); OpenAI/Gemini have automatic caching that needs no markers.
-    if settings.enable_prompt_caching and _supports_cache_control(config.model):
+    if _supports_cache_control(config.model):
         lm_kwargs["cache_control_injection_points"] = [{"location": "message", "role": "system"}]
-    elif settings.enable_prompt_caching:
+    else:
         logger.debug(
-            f"Prompt caching enabled but model {config.model} does not use "
-            f"explicit cache_control markers — skipping injection"
+            f"Model {config.model} does not use explicit cache_control markers — "
+            f"using provider-automatic caching"
         )
     return dspy.LM(**lm_kwargs)
 
@@ -150,24 +150,24 @@ def configure_dspy(settings: Settings) -> None:
     Args:
         settings: Application settings containing model and API key configuration.
     """
-    model = settings.default_model
+    model = settings.llm.default_model
 
     # Configure LiteLLM environment if needed
-    openai_key = secret_value(settings.openai_api_key)
+    openai_key = secret_value(settings.llm.openai_api_key)
     if openai_key:
         litellm.openai_key = openai_key
-    anthropic_key = secret_value(settings.anthropic_api_key)
+    anthropic_key = secret_value(settings.llm.anthropic_api_key)
     if anthropic_key:
         litellm.anthropic_key = anthropic_key
     # Set up AWS credentials for Bedrock if using Bedrock model
     if model.startswith("bedrock/"):
         import os
 
-        os.environ["AWS_REGION_NAME"] = settings.aws_region
-        aws_access = secret_value(settings.aws_access_key_id)
+        os.environ["AWS_REGION_NAME"] = settings.llm.aws_region
+        aws_access = secret_value(settings.llm.aws_access_key_id)
         if aws_access:
             os.environ["AWS_ACCESS_KEY_ID"] = aws_access
-        aws_secret = secret_value(settings.aws_secret_access_key)
+        aws_secret = secret_value(settings.llm.aws_secret_access_key)
         if aws_secret:
             os.environ["AWS_SECRET_ACCESS_KEY"] = aws_secret
 
@@ -201,9 +201,7 @@ def configure_dspy(settings: Settings) -> None:
         enable_memory_cache=True, enable_disk_cache=False, memory_max_entries=10000
     )
 
-    if not settings.enable_prompt_caching:
-        prompt_cache_status = "disabled"
-    elif _supports_cache_control(model):
+    if _supports_cache_control(model):
         prompt_cache_status = "enabled (cache_control markers)"
     else:
         prompt_cache_status = "enabled (provider-automatic, no markers)"
@@ -211,7 +209,7 @@ def configure_dspy(settings: Settings) -> None:
         f"Configured DSPy with model: {model} "
         f"(TwoStepAdapter with extraction_model={extraction_model}, "
         f"max_tokens={_resolve_max_tokens(defaults.model, defaults.max_tokens)}, "
-        f"timeout={settings.llm_timeout}s, retries={settings.llm_retries}, "
+        f"timeout={settings.llm.timeout}s, retries={settings.llm.retries}, "
         f"provider prompt caching {prompt_cache_status})"
     )
 
@@ -220,7 +218,7 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
     """Verify that all configured models are accessible.
 
     Checks the default model, all per-signature model overrides, and the
-    memory reflection models, so a typo in any of them fails fast at startup
+    memory reflection modules, so a typo in any of them fails fast at startup
     rather than mid-review.
 
     Args:
@@ -230,20 +228,25 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
         Tuple of (success, message)
     """
     # Collect all unique models from config
-    models_to_check: set[str] = {settings.default_model}
+    models_to_check: set[str] = {settings.llm.default_model}
 
     # Check all signature-specific models
-    for _sig_name, sig_config in settings.signatures.items():
+    for _sig_name, sig_config in settings.review.signatures().items():
         if sig_config.model:
             models_to_check.add(sig_config.model)
 
     # Global extraction model (if different from default_model)
-    if settings.extraction_model:
-        models_to_check.add(settings.extraction_model)
+    if settings.llm.extraction_model:
+        models_to_check.add(settings.llm.extraction_model)
 
+    # Memory reflection modules
     for module in REFLECTION_MODULES:
         reflection = settings.get_llm_config(module)
         models_to_check.add(reflection.model)
+
+    # Cerebral retain model
+    cerebral = settings.get_llm_config("cerebral")
+    models_to_check.add(cerebral.model)
 
     # Check each model
     verified: list[str] = []

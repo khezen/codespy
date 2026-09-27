@@ -76,12 +76,12 @@ def config(
     console.print(Panel("[bold]Current Configuration[/bold]", title="codespy"))
 
     # Show non-sensitive settings
-    console.print(f"[bold]Model:[/bold] {settings.default_model}")
-    console.print(f"[bold]AWS Region:[/bold] {settings.aws_region}")
-    console.print(f"[bold]Reasoning Effort:[/bold] {settings.default_reasoning_effort}")
+    console.print(f"[bold]Model:[/bold] {settings.llm.default_model}")
+    console.print(f"[bold]AWS Region:[/bold] {settings.llm.aws_region}")
+    console.print(f"[bold]Reasoning Effort:[/bold] {settings.llm.default_reasoning_effort}")
 
-    console.print(f"[bold]Output Format:[/bold] {settings.output_format}")
-    console.print(f"[bold]Cache Directory:[/bold] {settings.cache_dir}")
+    console.print(f"[bold]Output Format:[/bold] {settings.review.output_format}")
+    console.print(f"[bold]Cache Directory:[/bold] {settings.review.cache_dir}")
 
     # Show GitHub token status
     github_token_source = get_github_token_source()
@@ -105,9 +105,9 @@ def config(
 
     console.print(f"[bold]GitLab URL:[/bold] {settings.gitlab_url}")
 
-    openai_status = "[green]configured[/green]" if secret_value(settings.openai_api_key) else "[dim]not set[/dim]"
+    openai_status = "[green]configured[/green]" if secret_value(settings.llm.openai_api_key) else "[dim]not set[/dim]"
     anthropic_status = (
-        "[green]configured[/green]" if secret_value(settings.anthropic_api_key) else "[dim]not set[/dim]"
+        "[green]configured[/green]" if secret_value(settings.llm.anthropic_api_key) else "[dim]not set[/dim]"
     )
     console.print(f"[bold]OpenAI API Key:[/bold] {openai_status}")
     console.print(f"[bold]Anthropic API Key:[/bold] {anthropic_status}")

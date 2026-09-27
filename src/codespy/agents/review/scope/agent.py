@@ -598,7 +598,7 @@ class ScopeResolver(dspy.Module):
         Returns:
             Tuple of (active scopes, orphan files)
         """
-        excluded_dirs = self._settings.excluded_directories
+        excluded_dirs = self._settings.review.excluded_directories
         manifests = self._discover_manifests(repo_path, changed_files, excluded_dirs)
         logger.info(
             "Manifest discovery at %s found %d manifest(s): %s",
@@ -1207,7 +1207,7 @@ class ScopeResolver(dspy.Module):
         is_local = review_context.metadata.is_local
         run_id = review_context.metadata.run_id
 
-        excluded_dirs = self._settings.excluded_directories
+        excluded_dirs = self._settings.review.excluded_directories
         reviewable_files = [f for f in pr.changed_files if should_review_file(f, excluded_dirs)]
         if not reviewable_files:
             return []

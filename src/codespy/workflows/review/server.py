@@ -192,7 +192,7 @@ def run_server(settings: Settings | None = None) -> None:
     )
 
     _settings = settings if settings is not None else Settings()
-    logger.info(f"codespy-reviewer MCP server starting (model: {_settings.default_model})")
+    logger.info(f"codespy-reviewer MCP server starting (model: {_settings.llm.default_model})")
     mcp.run()
 
 

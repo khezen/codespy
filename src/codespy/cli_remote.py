@@ -44,7 +44,7 @@ def review(
         typer.Option(
             "--model",
             "-m",
-            help="LLM model to use (overrides DEFAULT_MODEL env var)",
+            help="LLM model to use (overrides LLM_DEFAULT_MODEL env var)",
         ),
     ] = None,
     stdout: Annotated[
@@ -95,13 +95,13 @@ def review(
 
     # Override settings if provided via CLI (CLI > env > yaml > defaults)
     if model:
-        settings.default_model = model
+        settings.llm.default_model = model
     if output:
-        settings.output_format = output  # type: ignore
+        settings.review.output_format = output  # type: ignore
     if stdout is not None:
-        settings.output_stdout = stdout
+        settings.review.output_stdout = stdout
     if git_comment is not None:
-        settings.output_git = git_comment
+        settings.review.output_git = git_comment
 
     # Validate URL format
     if not is_supported_url(pr_url):
@@ -140,9 +140,9 @@ def review(
 
     # Build output destinations display
     output_destinations = []
-    if settings.output_stdout:
-        output_destinations.append(f"stdout ({settings.output_format})")
-    if settings.output_git:
+    if settings.review.output_stdout:
+        output_destinations.append(f"stdout ({settings.review.output_format})")
+    if settings.review.output_git:
         output_destinations.append(f"{platform.title()} comment")
     output_display = ", ".join(output_destinations) if output_destinations else "[red]none[/red]"
 
@@ -150,7 +150,7 @@ def review(
         Panel(
             f"[bold blue]Reviewing PR:[/bold blue] {pr_url}\n"
             f"[bold]Platform:[/bold] {platform.title()}\n"
-            f"[bold]Model:[/bold] {settings.default_model}\n"
+            f"[bold]Model:[/bold] {settings.llm.default_model}\n"
             f"[bold]Output:[/bold] {output_display}\n"
             f"[bold]{platform.title()} Token:[/bold] [green]found[/green] "
             f"[dim]({token_source})[/dim]",
@@ -191,11 +191,11 @@ def review(
         # Output results using reporters
         from codespy.workflows.review.reporters import GitReporter, StdoutReporter
 
-        if settings.output_stdout:
-            stdout_reporter = StdoutReporter(format=settings.output_format, console=console)
+        if settings.review.output_stdout:
+            stdout_reporter = StdoutReporter(format=settings.review.output_format, console=console)
             stdout_reporter.report(result)
 
-        if settings.output_git:
+        if settings.review.output_git:
             console.print(f"[dim]Posting review to {platform.title()}...[/dim]")
             git_reporter = GitReporter(url=pr_url, settings=settings)
             git_reporter.report(result)

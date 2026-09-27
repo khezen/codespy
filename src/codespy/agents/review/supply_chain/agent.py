@@ -435,7 +435,7 @@ class SupplyChainAuditor(dspy.Module):
                     issues = [
                         issue
                         for issue in result.issues
-                        if issue.confidence >= self._settings.min_confidence
+                        if issue.confidence >= self._settings.review.min_confidence
                     ]
                     # Fire-and-forget background episode save
                     _artifacts = {"review": issues_to_markdown(issues)}
@@ -461,7 +461,7 @@ class SupplyChainAuditor(dspy.Module):
                     issues = [
                         issue
                         for issue in result.issues
-                        if issue.confidence >= self._settings.min_confidence
+                        if issue.confidence >= self._settings.review.min_confidence
                     ]
             # Restore repo-root-relative paths in reported issues
             restore_repo_paths(issues, scope.subroot)

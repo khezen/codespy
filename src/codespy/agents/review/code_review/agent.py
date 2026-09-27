@@ -333,7 +333,7 @@ class CodeReviewer(dspy.Module):
                     issues = [
                         issue
                         for issue in (result.issues or [])
-                        if issue.confidence >= self._settings.min_confidence
+                        if issue.confidence >= self._settings.review.min_confidence
                     ]
                     # Fire-and-forget background episode save
                     _artifacts = {"review": issues_to_markdown(issues)}
@@ -357,7 +357,7 @@ class CodeReviewer(dspy.Module):
                     issues = [
                         issue
                         for issue in (result.issues or [])
-                        if issue.confidence >= self._settings.min_confidence
+                        if issue.confidence >= self._settings.review.min_confidence
                     ]
             restore_repo_paths(issues, scope.subroot)
             logger.debug(f"  Scope {scope.subroot}: {len(issues)} code review issues")

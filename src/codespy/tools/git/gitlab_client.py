@@ -223,7 +223,7 @@ class GitLabClient(GitClient):
         """
         # Determine target directory
         if target_path is None:
-            cache_dir = self.settings.cache_dir
+            cache_dir = self.settings.review.cache_dir
             cache_dir.mkdir(parents=True, exist_ok=True)
             # Handle nested namespaces
             repo_dir = cache_dir / owner.replace("/", "_") / repo_name

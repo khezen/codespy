@@ -7,6 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, SecretStr
 
+from codespy.config_dspy import ReasoningEffort, RLMFallbackConfig
 from codespy.config_utils import secret_value
 
 logger = logging.getLogger(__name__)
@@ -275,8 +276,21 @@ class LLMConfig(BaseModel):
     azure_api_base: str | None = None
     azure_api_version: str | None = None
 
-    # Enable provider-side prompt caching (Anthropic, OpenAI, Bedrock, etc.)
-    enable_prompt_caching: bool = True
+    # Default model settings
+    default_model: str = "anthropic/claude-opus-4-6"
+    extraction_model: str | None = None  # TwoStepAdapter extraction (falls back to default_model)
+    default_max_iters: int = 5
+    default_max_llm_calls: int = 8
+    default_reasoning_effort: ReasoningEffort = "medium"
+    default_temperature: float = 0.2
+    default_max_tokens: int = 32000
+
+    # Global LLM reliability settings
+    retries: int = 2  # LLM_RETRIES
+    timeout: int = 240  # LLM_TIMEOUT
+
+    # RLM fallback configuration
+    rlm_fallback: RLMFallbackConfig = Field(default_factory=RLMFallbackConfig)
 
     def sync_from_flat(
         self,
@@ -314,5 +328,4 @@ class LLMConfig(BaseModel):
             "gemini_api_key": gemini_api_key if secret_value(gemini_api_key) else self.gemini_api_key,
             "aws_access_key_id": aws_access_key_id if secret_value(aws_access_key_id) else self.aws_access_key_id,
             "aws_secret_access_key": aws_secret_access_key if secret_value(aws_secret_access_key) else self.aws_secret_access_key,
-            "enable_prompt_caching": self.enable_prompt_caching,
         }
