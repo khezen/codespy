@@ -18,8 +18,16 @@
   - Added missing passthrough for `DOC_MAX_ITERS` and `DOC_MAX_LLM_CALLS`
   - Migration note: **upgrade the action ref and `codespy-version` together**. An older action with the `latest` image, or the reverse, silently drops review settings.
 
+### Changed
+- **Internal naming**: Cost table rows and internal unit names were renamed to match the `MEMORY_*` config/env names:
+  - `distiller` → `memory_distiller`
+  - `cartographer` → `memory_cartographer`
+  - `cerebral_retain` → `memory_retain`
+  - `cerebral_embeddings` → `memory_embeddings`
+  - `cerebral_other` → `memory_other`
+
 ### Fixed
-- `get_llm_config("cerebral")` no longer raises `AttributeError` — the cerebral branch now uses empty `ReflectionModuleConfig` and falls back to `llm.default_*` values
+- `get_llm_config("memory_retain")` no longer raises `AttributeError` — the cerebral branch now uses empty `ReflectionModuleConfig` and falls back to `llm.default_*` values
 - `MEMORY_POSTGRES_SCHEMA` env var now works correctly (previously emitted `MEMORY_POSTGRES_SCHEMA_NAME` which was ignored)
 - GitHub Action `memory-enabled` input now maps to `MEMORY_ENABLED` (was `MEMORY_DEFAULT_ENABLED`, which didn't match the code)
 

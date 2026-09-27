@@ -12,6 +12,12 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any
 
+from codespy.config_memory import (
+    MEMORY_EMBEDDINGS,
+    MEMORY_OTHER,
+    MEMORY_RETAIN,
+)
+
 if TYPE_CHECKING:
     from hindsight_api.engine.embeddings import LiteLLMSDKEmbeddings
 
@@ -21,10 +27,10 @@ logger = logging.getLogger(__name__)
 _recorder_lock = threading.Lock()
 _recorder_registered = False
 
-# Buckets for cost attribution
-BUCKET_CEREBRAL_RETAIN = "cerebral_retain"
-BUCKET_CEREBRAL_OTHER = "cerebral_other"
-BUCKET_CEREBRAL_EMBEDDINGS = "cerebral_embeddings"
+# Buckets for cost attribution (using memory_* naming to match config/env names)
+BUCKET_MEMORY_RETAIN = MEMORY_RETAIN
+BUCKET_MEMORY_OTHER = MEMORY_OTHER
+BUCKET_MEMORY_EMBEDDINGS = MEMORY_EMBEDDINGS
 
 # Track models we've warned about missing prices (one warning per model)
 _warned_unpriced_models: set[str] = set()
@@ -71,9 +77,9 @@ class CerebralCostRecorder:
 
             # Determine bucket from scope
             if scope and scope.startswith("retain"):
-                bucket = BUCKET_CEREBRAL_RETAIN
+                bucket = BUCKET_MEMORY_RETAIN
             else:
-                bucket = BUCKET_CEREBRAL_OTHER
+                bucket = BUCKET_MEMORY_OTHER
 
             # Price the call using litellm
             prompt_cost, completion_cost = self._price_call_split(model, input_tokens, output_tokens)
@@ -204,7 +210,7 @@ class _LiteLLMProxy:
             tracker = get_cost_tracker()
             # Embeddings have no output tokens - all tokens are input
             tracker.add_external_call(
-                BUCKET_CEREBRAL_EMBEDDINGS,
+                BUCKET_MEMORY_EMBEDDINGS,
                 cost=cost or 0.0,
                 tokens=tokens,
                 calls=1,

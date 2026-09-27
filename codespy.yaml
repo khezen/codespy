@@ -46,17 +46,17 @@ llm:
   azure_api_version: null                # AZURE_API_VERSION
 
   # Default model settings
-  default_model: anthropic/claude-opus-4-6      # DEFAULT_MODEL
+  default_model: anthropic/claude-opus-4-6        # DEFAULT_MODEL
   extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model)
-  default_max_iters: 5                           # DEFAULT_MAX_ITERS
-  default_max_llm_calls: 8                      # DEFAULT_MAX_LLM_CALLS
+  default_max_iters: 5                            # DEFAULT_MAX_ITERS
+  default_max_llm_calls: 8                        # DEFAULT_MAX_LLM_CALLS
   default_reasoning_effort: medium                # DEFAULT_REASONING_EFFORT
   default_temperature: 0.2                        # DEFAULT_TEMPERATURE
   default_max_tokens: 32000                       # DEFAULT_MAX_TOKENS
 
   # Global LLM reliability settings
   retries: 2                              # LLM_RETRIES
-  timeout: 240                          # LLM_TIMEOUT
+  timeout: 240                            # LLM_TIMEOUT
 
   # RLM Fallback (context rot prevention)
   rlm_fallback:
@@ -113,16 +113,16 @@ memory:
       reasoning_effort: null              # MEMORY_DISTILLER_REASONING_EFFORT
       temperature: null                   # MEMORY_DISTILLER_TEMPERATURE
       max_tokens: null                    # MEMORY_DISTILLER_MAX_TOKENS
-      max_iters: 1                      # MEMORY_DISTILLER_MAX_ITERS
-      max_llm_calls: 2                  # MEMORY_DISTILLER_MAX_LLM_CALLS
+      max_iters: 1                        # MEMORY_DISTILLER_MAX_ITERS
+      max_llm_calls: 2                    # MEMORY_DISTILLER_MAX_LLM_CALLS
 
     cartographer:
       model: null                         # MEMORY_CARTOGRAPHER_MODEL
       reasoning_effort: null              # MEMORY_CARTOGRAPHER_REASONING_EFFORT
       temperature: null                   # MEMORY_CARTOGRAPHER_TEMPERATURE
       max_tokens: null                    # MEMORY_CARTOGRAPHER_MAX_TOKENS
-      max_iters: 1                      # MEMORY_CARTOGRAPHER_MAX_ITERS
-      max_llm_calls: 2                  # MEMORY_CARTOGRAPHER_MAX_LLM_CALLS
+      max_iters: 1                        # MEMORY_CARTOGRAPHER_MAX_ITERS
+      max_llm_calls: 2                    # MEMORY_CARTOGRAPHER_MAX_LLM_CALLS
 
   # Cerebral (semantic memory)
   cerebral:
@@ -135,13 +135,13 @@ memory:
 # REVIEW
 # ============================================================================
 review:
-  min_confidence: 0.81                  # REVIEW_MIN_CONFIDENCE
-  output_format: markdown               # REVIEW_OUTPUT_FORMAT
+  min_confidence: 0.81                    # REVIEW_MIN_CONFIDENCE
+  output_format: markdown                 # REVIEW_OUTPUT_FORMAT
   output_stdout: true                     # REVIEW_OUTPUT_STDOUT
-  output_git: true                      # REVIEW_OUTPUT_GIT
-  cache_dir: ~/.cache/codespy           # REVIEW_CACHE_DIR
+  output_git: true                        # REVIEW_OUTPUT_GIT
+  cache_dir: ~/.cache/codespy             # REVIEW_CACHE_DIR
 
-  excluded_directories:                 # REVIEW_EXCLUDED_DIRECTORIES (JSON array in env)
+  excluded_directories:                   # REVIEW_EXCLUDED_DIRECTORIES (JSON array in env)
     - vendor
     - node_modules
     - third_party
@@ -171,14 +171,14 @@ review:
   supply_chain:
     enabled: true                         # REVIEW_SUPPLY_CHAIN_ENABLED
     max_iters: null                       # REVIEW_SUPPLY_CHAIN_MAX_ITERS
-    max_llm_calls: null                 # REVIEW_SUPPLY_CHAIN_MAX_LLM_CALLS
+    max_llm_calls: null                   # REVIEW_SUPPLY_CHAIN_MAX_LLM_CALLS
     model: null                           # REVIEW_SUPPLY_CHAIN_MODEL
-    reasoning_effort: null              # REVIEW_SUPPLY_CHAIN_REASONING_EFFORT
-    temperature: null                   # REVIEW_SUPPLY_CHAIN_TEMPERATURE
+    reasoning_effort: null                # REVIEW_SUPPLY_CHAIN_REASONING_EFFORT
+    temperature: null                     # REVIEW_SUPPLY_CHAIN_TEMPERATURE
     max_tokens: null                      # REVIEW_SUPPLY_CHAIN_MAX_TOKENS
-    scan_unchanged: false               # REVIEW_SUPPLY_CHAIN_SCAN_UNCHANGED
+    scan_unchanged: false                 # REVIEW_SUPPLY_CHAIN_SCAN_UNCHANGED
     memory:
-      enabled: null                     # REVIEW_SUPPLY_CHAIN_MEMORY_ENABLED
+      enabled: null                       # REVIEW_SUPPLY_CHAIN_MEMORY_ENABLED
 
   # Code Review
   code_review:
@@ -186,11 +186,11 @@ review:
     max_iters: 5                          # REVIEW_CODE_REVIEW_MAX_ITERS
     max_llm_calls: 8                      # REVIEW_CODE_REVIEW_MAX_LLM_CALLS
     model: null                           # REVIEW_CODE_REVIEW_MODEL
-    reasoning_effort: null              # REVIEW_CODE_REVIEW_REASONING_EFFORT
-    temperature: null                   # REVIEW_CODE_REVIEW_TEMPERATURE
+    reasoning_effort: null                # REVIEW_CODE_REVIEW_REASONING_EFFORT
+    temperature: null                     # REVIEW_CODE_REVIEW_TEMPERATURE
     max_tokens: null                      # REVIEW_CODE_REVIEW_MAX_TOKENS
     memory:
-      enabled: null                     # REVIEW_CODE_REVIEW_MEMORY_ENABLED
+      enabled: null                       # REVIEW_CODE_REVIEW_MEMORY_ENABLED
 
   # Documentation Review
   doc:
@@ -198,11 +198,11 @@ review:
     max_iters: 1                          # REVIEW_DOC_MAX_ITERS
     max_llm_calls: 2                      # REVIEW_DOC_MAX_LLM_CALLS
     model: null                           # REVIEW_DOC_MODEL
-    reasoning_effort: null              # REVIEW_DOC_REASONING_EFFORT
-    temperature: null                   # REVIEW_DOC_TEMPERATURE
+    reasoning_effort: null                # REVIEW_DOC_REASONING_EFFORT
+    temperature: null                     # REVIEW_DOC_TEMPERATURE
     max_tokens: null                      # REVIEW_DOC_MAX_TOKENS
     memory:
-      enabled: null                     # REVIEW_DOC_MEMORY_ENABLED
+      enabled: null                       # REVIEW_DOC_MEMORY_ENABLED
 
   # Scope Identification
   scope:
@@ -210,12 +210,12 @@ review:
     max_iters: 3                          # REVIEW_SCOPE_MAX_ITERS
     max_llm_calls: 5                      # REVIEW_SCOPE_MAX_LLM_CALLS
     model: null                           # REVIEW_SCOPE_MODEL
-    reasoning_effort: null              # REVIEW_SCOPE_REASONING_EFFORT
-    temperature: null                   # REVIEW_SCOPE_TEMPERATURE
+    reasoning_effort: null                # REVIEW_SCOPE_REASONING_EFFORT
+    temperature: null                     # REVIEW_SCOPE_TEMPERATURE
     max_tokens: null                      # REVIEW_SCOPE_MAX_TOKENS
-    skip_refinement_when_clean: null   # REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN
+    skip_refinement_when_clean: null      # REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN
     memory:
-      enabled: null                     # REVIEW_SCOPE_MEMORY_ENABLED
+      enabled: null                       # REVIEW_SCOPE_MEMORY_ENABLED
 
   # Summary
   summary:
@@ -223,11 +223,11 @@ review:
     max_iters: 1                          # REVIEW_SUMMARY_MAX_ITERS
     max_llm_calls: 2                      # REVIEW_SUMMARY_MAX_LLM_CALLS
     model: null                           # REVIEW_SUMMARY_MODEL
-    reasoning_effort: null              # REVIEW_SUMMARY_REASONING_EFFORT
-    temperature: null                   # REVIEW_SUMMARY_TEMPERATURE
+    reasoning_effort: null                # REVIEW_SUMMARY_REASONING_EFFORT
+    temperature: null                     # REVIEW_SUMMARY_TEMPERATURE
     max_tokens: null                      # REVIEW_SUMMARY_MAX_TOKENS
     memory:
-      enabled: null                     # REVIEW_SUMMARY_MEMORY_ENABLED
+      enabled: null                       # REVIEW_SUMMARY_MEMORY_ENABLED
 
   # Audit
   audit:
@@ -235,8 +235,8 @@ review:
     max_iters: 1                          # REVIEW_AUDIT_MAX_ITERS
     max_llm_calls: 2                      # REVIEW_AUDIT_MAX_LLM_CALLS
     model: null                           # REVIEW_AUDIT_MODEL
-    reasoning_effort: null              # REVIEW_AUDIT_REASONING_EFFORT
-    temperature: null                   # REVIEW_AUDIT_TEMPERATURE
+    reasoning_effort: null                # REVIEW_AUDIT_REASONING_EFFORT
+    temperature: null                     # REVIEW_AUDIT_TEMPERATURE
     max_tokens: null                      # REVIEW_AUDIT_MAX_TOKENS
     memory:
-      enabled: null                     # REVIEW_AUDIT_MEMORY_ENABLED
+      enabled: null                       # REVIEW_AUDIT_MEMORY_ENABLED

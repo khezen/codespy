@@ -154,8 +154,8 @@ class Distiller(dspy.Module):
     specific work, tags every existing observation, and proposes new candidates.
     """
 
-    # Name this module's settings live under: memory.distiller.
-    SIGNATURE = "distiller"
+    # Name this module's settings live under: memory.hippocampus.distiller.
+    SIGNATURE = "memory_distiller"
 
     def __init__(self):
         super().__init__()
@@ -164,9 +164,9 @@ class Distiller(dspy.Module):
         self.predict = ContextSafe(
             dspy.ChainOfThought(DistillerSig),
             DistillerSig,
-            name="distiller",
-            max_iters=settings.get_max_iters("distiller"),
-            max_llm_calls=settings.get_max_llm_calls("distiller"),
+            name=self.SIGNATURE,
+            max_iters=settings.get_max_iters(self.SIGNATURE),
+            max_llm_calls=settings.get_max_llm_calls(self.SIGNATURE),
             rlm_threshold=settings.get_rlm_threshold("chain_of_thought"),
         )
 
@@ -177,7 +177,7 @@ class Distiller(dspy.Module):
         question: str,
         max_context_item_tokens: int,
     ):
-        # SignatureContext applies memory.distiller's model/temperature/reasoning
+        # SignatureContext applies memory.hippocampus.distiller's model/temperature/reasoning
         # effort and attributes the cost to this module rather than to whichever
         # agent triggered the reflection. It must be entered here, not by the
         # caller: Hippocampus reflects inside an asyncio.to_thread worker and

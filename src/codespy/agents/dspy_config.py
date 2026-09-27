@@ -7,7 +7,7 @@ import litellm  # type: ignore[import-untyped]
 from dspy.adapters.two_step_adapter import TwoStepAdapter  # type: ignore[import-untyped]
 
 from codespy.config import Settings, get_settings
-from codespy.config_memory import REFLECTION_MODULES, LLMSettings
+from codespy.config_memory import MEMORY_RETAIN, REFLECTION_MODULES, LLMSettings
 from codespy.config_utils import secret_value
 
 logger = logging.getLogger(__name__)
@@ -245,7 +245,7 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
         models_to_check.add(reflection.model)
 
     # Cerebral retain model
-    cerebral = settings.get_llm_config("cerebral")
+    cerebral = settings.get_llm_config(MEMORY_RETAIN)
     models_to_check.add(cerebral.model)
 
     # Check each model

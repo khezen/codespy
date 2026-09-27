@@ -21,10 +21,12 @@ from codespy.config_git import (
 )
 from codespy.config_llm import LLMConfig
 from codespy.config_memory import (
+    MEMORY_RETAIN,
     REFLECTION_MODULES,
     LLMSettings,
     MemoryConfig,
     ReflectionModuleConfig,
+    reflection_module_config,
     reset_episode_store,
 )
 from codespy.config_utils import (
@@ -145,7 +147,7 @@ class Settings(BaseSettings):
     def get_max_iters(self, name: str) -> int:
         """Get max_iters for a signature or reflection module (name-specific or default)."""
         if name in REFLECTION_MODULES:
-            config = getattr(self.memory.hippocampus, name)
+            config = reflection_module_config(self.memory.hippocampus, name)
             return config.max_iters or self.llm.default_max_iters
         config = self.get_signature_config(name)
         return config.max_iters or self.llm.default_max_iters
@@ -153,7 +155,7 @@ class Settings(BaseSettings):
     def get_max_llm_calls(self, name: str) -> int:
         """Get max_llm_calls for a signature or reflection module (name-specific or default)."""
         if name in REFLECTION_MODULES:
-            config = getattr(self.memory.hippocampus, name)
+            config = reflection_module_config(self.memory.hippocampus, name)
             return config.max_llm_calls or self.llm.default_max_llm_calls
         config = self.get_signature_config(name)
         return config.max_llm_calls or self.llm.default_max_llm_calls
@@ -163,27 +165,27 @@ class Settings(BaseSettings):
 
         ``name`` addresses either a signature or a memory reflection module::
 
-            "code_review"  -> review.code_review
-            "distiller"    -> memory.hippocampus.distiller
-            "cerebral"     -> memory.cerebral.retain
+            "code_review"       -> review.code_review
+            "memory_distiller"  -> memory.hippocampus.distiller
+            "memory_retain"     -> memory.cerebral.retain
 
         Every field falls back to its ``llm.default_*`` counterpart, so
         the result has no ``None`` fields and callers never re-apply fallbacks.
 
         Args:
             name: A signature name, or a reflection module name
-                (see ``REFLECTION_MODULES``), or "cerebral".
+                (see ``REFLECTION_MODULES``), or "memory_retain".
 
         Returns:
             The fully resolved settings for ``name``.
         """
-        if name == "cerebral":
+        if name == MEMORY_RETAIN:
             # Cerebral uses only a model from retain config; all other fields use llm defaults
             model = self.memory.cerebral.retain.model or self.llm.default_model
             config = ReflectionModuleConfig()  # Empty config - all fields fall back to defaults
             defaults = self.llm
         elif name in REFLECTION_MODULES:
-            config = getattr(self.memory.hippocampus, name)
+            config = reflection_module_config(self.memory.hippocampus, name)
             model = config.model or self.llm.default_model
             defaults = self.llm
         elif name == "default":

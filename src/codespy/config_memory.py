@@ -87,9 +87,9 @@ class LLMSettings(BaseModel):
     """Fully resolved LLM settings for one named unit of work.
 
     Produced by ``Settings.get_llm_config()`` for either a signature
-    (``review.<name>``) or a reflection module (``memory.hippocampus.<name>``):
-    every field is either the name-specific override or the corresponding top-level
-    default, so consumers never re-apply fallback logic.
+    (``review.<name>``) or a reflection module (``memory.hippocampus.<field>`` for
+    ``memory_<field>``): every field is either the name-specific override or the
+    corresponding top-level default, so consumers never re-apply fallback logic.
     """
 
     model: str
@@ -161,14 +161,48 @@ class MemoryConfig(BaseModel):
     cerebral: CerebralConfig = Field(default_factory=CerebralConfig)
 
 
+# Memory unit name prefix for LLM work units
+MEMORY_UNIT_PREFIX = "memory_"
+
+# Memory unit names (used for cost buckets, config lookup, and logging)
+MEMORY_DISTILLER = "memory_distiller"
+MEMORY_CARTOGRAPHER = "memory_cartographer"
+MEMORY_RETAIN = "memory_retain"
+MEMORY_EMBEDDINGS = "memory_embeddings"
+MEMORY_OTHER = "memory_other"
+
 # The reflection modules, derived from the HippocampusConfig fields that hold a
 # ReflectionModuleConfig. Iterate this instead of hardcoding module names so
 # adding a new reflection module only requires declaring its field above.
+# Names are prefixed with MEMORY_UNIT_PREFIX to match the config/env naming.
 REFLECTION_MODULES: tuple[str, ...] = tuple(
-    name
+    f"{MEMORY_UNIT_PREFIX}{name}"
     for name, field in HippocampusConfig.model_fields.items()
     if field.annotation is ReflectionModuleConfig
 )
+
+
+def reflection_module_config(hippocampus: HippocampusConfig, name: str) -> ReflectionModuleConfig:
+    """Get the ReflectionModuleConfig for a prefixed module name.
+
+    Removes the MEMORY_UNIT_PREFIX and returns the corresponding config
+    from the HippocampusConfig.
+
+    Args:
+        hippocampus: The HippocampusConfig instance.
+        name: The prefixed module name (e.g., "memory_distiller").
+
+    Returns:
+        The ReflectionModuleConfig for that module.
+
+    Raises:
+        ValueError: If the name doesn't start with the expected prefix.
+        AttributeError: If the module doesn't exist on HippocampusConfig.
+    """
+    if not name.startswith(MEMORY_UNIT_PREFIX):
+        raise ValueError(f"Expected name to start with '{MEMORY_UNIT_PREFIX}', got: {name}")
+    field_name = name[len(MEMORY_UNIT_PREFIX):]
+    return getattr(hippocampus, field_name)
 
 
 # Cached singleton store. Avoids reconstructing the EpisodeStore's connection pool
@@ -298,7 +332,7 @@ def _cerebral_litellm_params(settings: "Settings") -> tuple[str, str | None, str
     Returns:
         ``(model, api_key, base_url)`` - model is the full litellm string unchanged
     """
-    llm_config = settings.get_llm_config("cerebral")
+    llm_config = settings.get_llm_config(MEMORY_RETAIN)
     model = llm_config.model  # e.g. "bedrock/converse/moonshotai.kimi-k2.5"
 
     # Parse litellm model string: "provider/model_path"

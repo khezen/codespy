@@ -149,7 +149,7 @@ class CostTracker:
         bucket (not wall-clock), consistent with how cost/tokens are summed.
 
         Args:
-            name: Bucket name for the external call (e.g., "cerebral_retain")
+            name: Bucket name for the external call (e.g., "memory_retain")
             cost: Cost in USD for the call(s)
             tokens: Total tokens used
             calls: Number of calls (default 1)
@@ -393,8 +393,8 @@ class SignatureContext:
     Two responsibilities, both keyed off the same name:
 
     1. **LM selection** — applies the model, temperature, and reasoning effort
-       configured for this name (``signatures.<name>`` or ``memory.<name>``),
-       falling back to the top-level defaults.
+       configured for this name (``review.<name>`` or ``memory.hippocampus.<field>``
+       for ``memory_<field>``), falling back to the top-level defaults.
     2. **Cost attribution** — uses DSPy's LM history to attribute costs
        reliably, even during parallel execution with dspy.Parallel, by
        recording history UUIDs on entry and summing only the new entries.

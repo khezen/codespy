@@ -288,11 +288,11 @@ class TestCostTrackerAddExternalCall:
 
     def test_add_external_call_creates_new_entry(self):
         tracker = CostTracker()
-        tracker.add_external_call("cerebral_retain", 0.5, 100, 1, input_tokens=100, output_tokens=0, input_cost=0.5, output_cost=0.0)
+        tracker.add_external_call("memory_retain", 0.5, 100, 1, input_tokens=100, output_tokens=0, input_cost=0.5, output_cost=0.0)
 
-        stats = tracker.get_signature_stats("cerebral_retain")
+        stats = tracker.get_signature_stats("memory_retain")
         assert stats is not None
-        assert stats.name == "cerebral_retain"
+        assert stats.name == "memory_retain"
         assert stats.cost == 0.5
         assert stats.tokens == 100
         assert stats.call_count == 1
@@ -303,10 +303,10 @@ class TestCostTrackerAddExternalCall:
 
     def test_add_external_call_accumulates_existing_entry(self):
         tracker = CostTracker()
-        tracker.add_external_call("cerebral_retain", 0.5, 100, 1, input_tokens=100, output_tokens=0, input_cost=0.5, output_cost=0.0)
-        tracker.add_external_call("cerebral_retain", 0.3, 50, 2, input_tokens=30, output_tokens=20, input_cost=0.2, output_cost=0.1)
+        tracker.add_external_call("memory_retain", 0.5, 100, 1, input_tokens=100, output_tokens=0, input_cost=0.5, output_cost=0.0)
+        tracker.add_external_call("memory_retain", 0.3, 50, 2, input_tokens=30, output_tokens=20, input_cost=0.2, output_cost=0.1)
 
-        stats = tracker.get_signature_stats("cerebral_retain")
+        stats = tracker.get_signature_stats("memory_retain")
         assert stats.cost == 0.8
         assert stats.tokens == 150
         assert stats.call_count == 3
@@ -317,17 +317,17 @@ class TestCostTrackerAddExternalCall:
 
     def test_add_external_call_does_not_touch_start_end_time(self):
         tracker = CostTracker()
-        tracker.add_external_call("cerebral_retain", 0.5, 100)
+        tracker.add_external_call("memory_retain", 0.5, 100)
 
-        stats = tracker.get_signature_stats("cerebral_retain")
+        stats = tracker.get_signature_stats("memory_retain")
         assert stats.start_time is None
         assert stats.end_time is None
 
     def test_add_external_call_default_calls_is_one(self):
         tracker = CostTracker()
-        tracker.add_external_call("cerebral_retain", 0.5, 100)  # Uses defaults for new fields
+        tracker.add_external_call("memory_retain", 0.5, 100)  # Uses defaults for new fields
 
-        stats = tracker.get_signature_stats("cerebral_retain")
+        stats = tracker.get_signature_stats("memory_retain")
         assert stats.call_count == 1
         # Default values for new fields
         assert stats.input_tokens == 0
@@ -342,7 +342,7 @@ class TestCostTrackerAddExternalCall:
 
         def add_call(n):
             try:
-                tracker.add_external_call("cerebral_retain", 0.1, 10, 1, input_tokens=8, output_tokens=2, input_cost=0.08, output_cost=0.02)
+                tracker.add_external_call("memory_retain", 0.1, 10, 1, input_tokens=8, output_tokens=2, input_cost=0.08, output_cost=0.02)
             except Exception as e:
                 errors.append(e)
 
@@ -353,7 +353,7 @@ class TestCostTrackerAddExternalCall:
             t.join()
 
         assert not errors
-        stats = tracker.get_signature_stats("cerebral_retain")
+        stats = tracker.get_signature_stats("memory_retain")
         assert stats.cost == pytest.approx(10.0, rel=0.01)
         assert stats.tokens == 1000
         assert stats.call_count == 100
@@ -365,10 +365,10 @@ class TestCostTrackerAddExternalCall:
     def test_add_external_call_accumulates_duration(self):
         """add_external_call with duration accumulates external_duration_seconds."""
         tracker = CostTracker()
-        tracker.add_external_call("cerebral_retain", 0.5, 100, duration=1.5)
-        tracker.add_external_call("cerebral_retain", 0.3, 50, duration=2.5)
+        tracker.add_external_call("memory_retain", 0.5, 100, duration=1.5)
+        tracker.add_external_call("memory_retain", 0.3, 50, duration=2.5)
 
-        stats = tracker.get_signature_stats("cerebral_retain")
+        stats = tracker.get_signature_stats("memory_retain")
         assert stats.external_duration_seconds == 4.0  # 1.5 + 2.5
         assert stats.duration_seconds == 4.0  # No start_time, so just external
         assert stats.start_time is None  # Should not touch start_time
@@ -377,20 +377,20 @@ class TestCostTrackerAddExternalCall:
     def test_add_external_call_duration_default_is_zero(self):
         """add_external_call without duration defaults to 0.0."""
         tracker = CostTracker()
-        tracker.add_external_call("cerebral_retain", 0.5, 100)
+        tracker.add_external_call("memory_retain", 0.5, 100)
 
-        stats = tracker.get_signature_stats("cerebral_retain")
+        stats = tracker.get_signature_stats("memory_retain")
         assert stats.external_duration_seconds == 0.0
         assert stats.duration_seconds == 0.0
 
     def test_get_all_signature_stats_preserves_external_duration(self):
         """get_all_signature_stats copy preserves external_duration_seconds."""
         tracker = CostTracker()
-        tracker.add_external_call("cerebral_retain", 0.5, 100, duration=2.0)
+        tracker.add_external_call("memory_retain", 0.5, 100, duration=2.0)
 
         all_stats = tracker.get_all_signature_stats()
-        assert all_stats["cerebral_retain"].external_duration_seconds == 2.0
-        assert all_stats["cerebral_retain"].duration_seconds == 2.0
+        assert all_stats["memory_retain"].external_duration_seconds == 2.0
+        assert all_stats["memory_retain"].duration_seconds == 2.0
 
 
 class TestSignatureContext:

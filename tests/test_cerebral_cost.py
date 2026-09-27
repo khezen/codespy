@@ -7,9 +7,9 @@ import pytest
 
 from codespy.agents.cost_tracker import CostTracker, get_cost_tracker
 from codespy.agents.memory.cerebral.cost import (
-    BUCKET_CEREBRAL_EMBEDDINGS,
-    BUCKET_CEREBRAL_OTHER,
-    BUCKET_CEREBRAL_RETAIN,
+    BUCKET_MEMORY_EMBEDDINGS,
+    BUCKET_MEMORY_OTHER,
+    BUCKET_MEMORY_RETAIN,
     CerebralCostRecorder,
     MeteredLiteLLMSDKEmbeddings,
     _LiteLLMProxy,
@@ -57,7 +57,7 @@ class TestCerebralCostRecorder:
     """Tests for CerebralCostRecorder class."""
 
     def test_record_llm_call_with_retain_scope(self, mock_tracker, fresh_recorder):
-        """scope='retain_extract_facts' → cerebral_retain bucket."""
+        """scope='retain_extract_facts' → memory_retain bucket."""
         with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
             with patch.object(
                 CerebralCostRecorder, "_price_call_split", return_value=(0.03, 0.02)
@@ -70,7 +70,7 @@ class TestCerebralCostRecorder:
                     output_tokens=50,
                 )
 
-        stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_RETAIN)
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_RETAIN)
         assert stats is not None
         assert stats.cost == 0.05  # 0.03 + 0.02
         assert stats.tokens == 150
@@ -80,7 +80,7 @@ class TestCerebralCostRecorder:
         assert stats.output_cost == 0.02
 
     def test_record_llm_call_with_consolidation_scope(self, mock_tracker, fresh_recorder):
-        """scope='consolidation' → cerebral_other bucket."""
+        """scope='consolidation' → memory_other bucket."""
         with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
             with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.02, 0.01)):
                 recorder = CerebralCostRecorder()
@@ -91,13 +91,13 @@ class TestCerebralCostRecorder:
                     output_tokens=50,
                 )
 
-        stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_OTHER)
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_OTHER)
         assert stats is not None
         assert stats.input_tokens == 100
         assert stats.output_tokens == 50
 
     def test_record_llm_call_with_other_scope(self, mock_tracker, fresh_recorder):
-        """Any other scope → cerebral_other bucket."""
+        """Any other scope → memory_other bucket."""
         with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
             with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.005, 0.005)):
                 recorder = CerebralCostRecorder()
@@ -108,7 +108,7 @@ class TestCerebralCostRecorder:
                     output_tokens=50,
                 )
 
-        stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_OTHER)
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_OTHER)
         assert stats is not None
 
     def test_record_llm_call_skips_error_calls(self, mock_tracker, fresh_recorder):
@@ -123,7 +123,7 @@ class TestCerebralCostRecorder:
                 error=Exception("API error"),
             )
 
-        stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_RETAIN)
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_RETAIN)
         assert stats is None
 
     def test_record_llm_call_skips_zero_tokens(self, mock_tracker, fresh_recorder):
@@ -137,7 +137,7 @@ class TestCerebralCostRecorder:
                 output_tokens=0,
             )
 
-        stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_RETAIN)
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_RETAIN)
         assert stats is None
 
     def test_record_llm_call_prices_using_litellm(self, mock_tracker, fresh_recorder):
@@ -158,7 +158,7 @@ class TestCerebralCostRecorder:
                     completion_tokens=50,
                 )
 
-        stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_RETAIN)
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_RETAIN)
         assert stats.cost == 0.03  # 0.01 + 0.02
 
     def test_record_llm_call_forwards_duration(self, mock_tracker, fresh_recorder):
@@ -174,7 +174,7 @@ class TestCerebralCostRecorder:
                     duration=1.25,
                 )
 
-        stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_RETAIN)
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_RETAIN)
         assert stats is not None
         assert stats.external_duration_seconds == 1.25
         assert stats.duration_seconds == 1.25
@@ -206,7 +206,7 @@ class TestCerebralCostRecorder:
                         output_tokens=50,
                     )
 
-        stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_RETAIN)
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_RETAIN)
         assert stats.cost == 0.0
         assert stats.tokens == 300  # 150 * 2
         # Should only have one warning in the log
@@ -232,7 +232,7 @@ class TestLiteLLMProxy:
 
     @pytest.mark.asyncio
     async def test_aembedding_meters_usage(self, mock_litellm, mock_response, mock_tracker):
-        """Embedding call meters usage to cerebral_embeddings bucket."""
+        """Embedding call meters usage to memory_embeddings bucket."""
         mock_litellm.aembedding.return_value = asyncio.Future()
         mock_litellm.aembedding.return_value.set_result(mock_response)
 
@@ -241,14 +241,14 @@ class TestLiteLLMProxy:
             proxy = _LiteLLMProxy(mock_litellm, cost_recorder)
             await proxy.aembedding(model="openai/text-embedding-3-small", input=["test"])
 
-        stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_EMBEDDINGS)
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_EMBEDDINGS)
         assert stats is not None
         assert stats.tokens == 100
         assert stats.cost == 0.01
 
     @pytest.mark.asyncio
     async def test_aembedding_records_duration(self, mock_litellm, mock_response, mock_tracker):
-        """Embedding call records nonzero duration to cerebral_embeddings bucket."""
+        """Embedding call records nonzero duration to memory_embeddings bucket."""
         mock_litellm.aembedding.return_value = asyncio.Future()
         mock_litellm.aembedding.return_value.set_result(mock_response)
 
@@ -257,7 +257,7 @@ class TestLiteLLMProxy:
             proxy = _LiteLLMProxy(mock_litellm, cost_recorder)
             await proxy.aembedding(model="openai/text-embedding-3-small", input=["test"])
 
-        stats = mock_tracker.get_signature_stats(BUCKET_CEREBRAL_EMBEDDINGS)
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_EMBEDDINGS)
         assert stats is not None
         assert stats.external_duration_seconds >= 0.0  # Should have some duration (could be very small)
         assert stats.duration_seconds == stats.external_duration_seconds

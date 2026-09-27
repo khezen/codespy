@@ -106,3 +106,162 @@ class TestSettingsStructure:
         settings = Settings()
         assert settings.llm.retries == 7
         monkeypatch.delenv("LLM_RETRIES")
+
+
+class TestReflectionModules:
+    """Tests for memory reflection modules and unit names."""
+
+    def test_reflection_modules_has_prefixed_names(self):
+        """REFLECTION_MODULES should use memory_* prefixed names."""
+        from codespy.config_memory import REFLECTION_MODULES
+
+        assert REFLECTION_MODULES == ("memory_distiller", "memory_cartographer")
+
+    def test_reflection_module_config_helper(self):
+        """reflection_module_config removes prefix and returns config."""
+        from codespy.config_memory import (
+            HippocampusConfig,
+            reflection_module_config,
+        )
+
+        hippocampus = HippocampusConfig()
+        config = reflection_module_config(hippocampus, "memory_distiller")
+        assert config is hippocampus.distiller
+
+        config = reflection_module_config(hippocampus, "memory_cartographer")
+        assert config is hippocampus.cartographer
+
+    def test_get_llm_config_for_memory_distiller(self, monkeypatch, tmp_path):
+        """get_llm_config('memory_distiller') reads memory.hippocampus.distiller."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create a config file with custom distiller model
+        config_file = tmp_path / "codespy.yaml"
+        config_file.write_text("""
+llm:
+  default_model: openai/gpt-4o
+memory:
+  hippocampus:
+    distiller:
+      model: anthropic/claude-3-haiku
+""")
+        monkeypatch.setenv("CODESPY_CONFIG", str(config_file))
+
+        settings = Settings()
+        llm_config = settings.get_llm_config("memory_distiller")
+        assert llm_config.model == "anthropic/claude-3-haiku"
+
+        monkeypatch.delenv("CODESPY_CONFIG", raising=False)
+
+    def test_get_llm_config_for_memory_cartographer(self, monkeypatch, tmp_path):
+        """get_llm_config('memory_cartographer') reads memory.hippocampus.cartographer."""
+        monkeypatch.chdir(tmp_path)
+
+        config_file = tmp_path / "codespy.yaml"
+        config_file.write_text("""
+llm:
+  default_model: openai/gpt-4o
+memory:
+  hippocampus:
+    cartographer:
+      model: anthropic/claude-3-sonnet
+""")
+        monkeypatch.setenv("CODESPY_CONFIG", str(config_file))
+
+        settings = Settings()
+        llm_config = settings.get_llm_config("memory_cartographer")
+        assert llm_config.model == "anthropic/claude-3-sonnet"
+
+        monkeypatch.delenv("CODESPY_CONFIG", raising=False)
+
+    def test_get_llm_config_for_memory_retain(self, monkeypatch, tmp_path):
+        """get_llm_config('memory_retain') reads memory.cerebral.retain with fallback."""
+        monkeypatch.chdir(tmp_path)
+
+        # Test with explicit retain model
+        config_file = tmp_path / "codespy.yaml"
+        config_file.write_text("""
+llm:
+  default_model: openai/gpt-4o
+memory:
+  cerebral:
+    retain:
+      model: anthropic/claude-3-opus
+""")
+        monkeypatch.setenv("CODESPY_CONFIG", str(config_file))
+
+        settings = Settings()
+        llm_config = settings.get_llm_config("memory_retain")
+        assert llm_config.model == "anthropic/claude-3-opus"
+
+        monkeypatch.delenv("CODESPY_CONFIG", raising=False)
+
+    def test_get_llm_config_for_memory_retain_fallback(self, monkeypatch, tmp_path):
+        """get_llm_config('memory_retain') falls back to default_model."""
+        monkeypatch.chdir(tmp_path)
+
+        # Test fallback to default_model when retain model is not set
+        config_file = tmp_path / "codespy.yaml"
+        config_file.write_text("""
+llm:
+  default_model: openai/gpt-4o-mini
+memory:
+  cerebral:
+    retain:
+      model: null
+""")
+        monkeypatch.setenv("CODESPY_CONFIG", str(config_file))
+
+        settings = Settings()
+        llm_config = settings.get_llm_config("memory_retain")
+        assert llm_config.model == "openai/gpt-4o-mini"
+
+        monkeypatch.delenv("CODESPY_CONFIG", raising=False)
+
+    def test_get_max_iters_for_memory_modules(self, monkeypatch, tmp_path):
+        """get_max_iters uses memory.hippocampus.* config for memory_* names."""
+        monkeypatch.chdir(tmp_path)
+
+        config_file = tmp_path / "codespy.yaml"
+        config_file.write_text("""
+llm:
+  default_max_iters: 3
+memory:
+  hippocampus:
+    distiller:
+      max_iters: 5
+    cartographer:
+      max_iters: 7
+""")
+        monkeypatch.setenv("CODESPY_CONFIG", str(config_file))
+
+        settings = Settings()
+        assert settings.get_max_iters("memory_distiller") == 5
+        assert settings.get_max_iters("memory_cartographer") == 7
+        # Unknown names fall back to signature lookup
+        assert settings.get_max_iters("code_review") == 3  # default
+
+        monkeypatch.delenv("CODESPY_CONFIG", raising=False)
+
+    def test_get_max_llm_calls_for_memory_modules(self, monkeypatch, tmp_path):
+        """get_max_llm_calls uses memory.hippocampus.* config for memory_* names."""
+        monkeypatch.chdir(tmp_path)
+
+        config_file = tmp_path / "codespy.yaml"
+        config_file.write_text("""
+llm:
+  default_max_llm_calls: 5
+memory:
+  hippocampus:
+    distiller:
+      max_llm_calls: 10
+    cartographer:
+      max_llm_calls: 15
+""")
+        monkeypatch.setenv("CODESPY_CONFIG", str(config_file))
+
+        settings = Settings()
+        assert settings.get_max_llm_calls("memory_distiller") == 10
+        assert settings.get_max_llm_calls("memory_cartographer") == 15
+
+        monkeypatch.delenv("CODESPY_CONFIG", raising=False)
