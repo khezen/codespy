@@ -38,8 +38,7 @@ class DistillerSig(dspy.Signature):
 
     ## Produce three outputs
 
-    1. DIAGNOSIS — Brief (3-5 sentences; it feeds the next module's prompt,
-       so keep it terse) analysis of:
+    1. DIAGNOSIS — Analysis of:
        - How many iterations the agent spent on orientation vs.
          question-specific work
        - Whether the agent re-discovered structural information that was
@@ -130,7 +129,7 @@ class DistillerSig(dspy.Signature):
     )
 
     diagnosis: str = dspy.OutputField(
-        desc="Brief (3-5 sentence) analysis of orientation vs. question-specific work, "
+        desc="Analysis of orientation vs. question-specific work, "
         "whether structural info was re-discovered that should have been cached, and "
         "what transferable understanding the agent built. Feeds the Cartographer prompt."
     )
