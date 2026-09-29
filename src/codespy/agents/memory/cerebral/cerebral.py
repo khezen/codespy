@@ -86,6 +86,7 @@ class Cerebral:
         llm_base_url: str | None = None,
         bank_id: str = "codespy",
         embeddings_model: str = "openai/text-embedding-3-small",
+        retain_chunk_size: int = 12288,
     ):
         # Fail fast: test the embedding model before building MemoryEngine.
         # A bad model name, missing creds, or unavailable region surfaces here
@@ -143,10 +144,11 @@ class Cerebral:
 
         self._bank_id = bank_id
         self._bank_ensured = False
+        self._retain_chunk_size = retain_chunk_size
 
         logger.info(
-            "Cerebral MemoryEngine initialized (schema=%s, bank=%s, embeddings=%s, provider=%s)",
-            HINDSIGHT_SCHEMA, bank_id, embeddings_model, llm_provider,
+            "Cerebral MemoryEngine initialized (schema=%s, bank=%s, embeddings=%s, provider=%s, chunk_size=%s)",
+            HINDSIGHT_SCHEMA, bank_id, embeddings_model, llm_provider, retain_chunk_size,
         )
 
     def _run_async(self, coro):
@@ -184,20 +186,17 @@ class Cerebral:
                     self._bank_id,
                     updates={
                         "retain_extraction_mode": "concise",
-                        # retain_chunk_size (chars) MUST be strictly less than
-                        # retain_max_completion_tokens (default 64000): Hindsight's
-                        # validate_retain_completion_token_budget compares the two values
-                        # directly (chars vs tokens is NOT reconciled), and a bank-config
-                        # update that violates it is rejected wholesale — silently reverting
-                        # the bank to defaults (retain_chunk_size=3000). Do not raise this at
-                        # or above 64000. The merged observations blob is bounded by
-                        # max_hippocampus_tokens (16384 tokens ≈ ~65K chars worst case), so
-                        # at 12288 a large blob splits into several chunks (graceful, no error).
-                        "retain_chunk_size": 12288,
+                        # See CerebralRetainConfig.chunk_size for constraint details.
+                        "retain_chunk_size": self._retain_chunk_size,
                         "retain_mission": (
-                            "Retain code review observations, analysis results, and artifacts. "
-                            "Focus on patterns, architectural decisions, dependency relationships, "
-                            "security findings, and technical insights across repositories. "
+                            "Retain durable knowledge learned while working on a task, whatever the domain. "
+                            "Focus on how the subject is structured, the entities involved and how they relate, "
+                            "domain rules, constraints and constants, procedures that proved effective, "
+                            "data formats, and findings or results worth reusing later. "
+                            "Each line starts with a [section] label naming the kind of knowledge, "
+                            "or [artifact:name] for a produced output. "
+                            "State each fact about the subject itself, keep names, identifiers, quantities "
+                            "and references exact, and skip transient process notes that will not hold beyond this run.\n"
                             "Observation lines use these markers:\n"
                             "- A plain line is a newly learned fact.\n"
                             "- '(supersedes: X)': the line is the current wording of a fact previously worded X. "

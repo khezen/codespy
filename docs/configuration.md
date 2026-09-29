@@ -199,6 +199,7 @@ LLM provider and credentials are auto-derived from the model string and existing
 |---------|---------|---------|-------------|
 | Cerebral Model | `MEMORY_RETAIN_MODEL` | `DEFAULT_MODEL` | Model for fact extraction |
 | Embeddings Model | `MEMORY_EMBEDDINGS_MODEL` | Auto-derived | Model for semantic memory embeddings |
+| Retain Chunk Size | `MEMORY_RETAIN_CHUNK_SIZE` | `12288` | Chars per extraction chunk (< 64000) |
 
 Hindsight MemoryEngine uses the same PostgreSQL instance under the `semantic` schema (created automatically alongside `episodic`).
 

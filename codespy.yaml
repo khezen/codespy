@@ -128,6 +128,7 @@ memory:
   cerebral:
     retain:
       model: null                         # MEMORY_RETAIN_MODEL (falls back to llm.default_model)
+      chunk_size: 12288                   # MEMORY_RETAIN_CHUNK_SIZE (chars, must be < 64000)
     embeddings:
       model: null                         # MEMORY_EMBEDDINGS_MODEL (auto-derived from provider)
 

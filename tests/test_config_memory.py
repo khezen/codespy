@@ -9,10 +9,12 @@ from codespy.config_memory import (
     PostgresConfig,
     Pg0Config,
     _cerebral_litellm_params,
+    CerebralRetainConfig,
     get_episode_store,
     reset_episode_store,
     verify_memory_access,
 )
+from pydantic import ValidationError
 
 
 class TestGenerateBankId:
@@ -197,3 +199,57 @@ class TestEmbeddingModels:
     def test_embedding_models_mapping_azure(self):
         """EMBEDDING_MODELS should have entry for azure."""
         assert "azure" in EMBEDDING_MODELS
+
+
+class TestCerebralRetainConfig:
+    """Tests for CerebralRetainConfig chunk_size validation."""
+
+    def test_default_chunk_size(self):
+        """Default chunk_size should be 12288."""
+        config = CerebralRetainConfig()
+        assert config.chunk_size == 12288
+
+    def test_chunk_size_accepted_values(self):
+        """Valid chunk sizes should be accepted."""
+        config = CerebralRetainConfig(chunk_size=5000)
+        assert config.chunk_size == 5000
+
+        config = CerebralRetainConfig(chunk_size=63999)
+        assert config.chunk_size == 63999
+
+        config = CerebralRetainConfig(chunk_size=1)
+        assert config.chunk_size == 1
+
+    def test_chunk_size_rejects_zero(self):
+        """chunk_size=0 should raise ValidationError."""
+        with pytest.raises(ValidationError):
+            CerebralRetainConfig(chunk_size=0)
+
+    def test_chunk_size_rejects_negative(self):
+        """Negative chunk_size should raise ValidationError."""
+        with pytest.raises(ValidationError):
+            CerebralRetainConfig(chunk_size=-1)
+
+    def test_chunk_size_rejects_64000(self):
+        """chunk_size=64000 should raise ValidationError (must be < 64000)."""
+        with pytest.raises(ValidationError):
+            CerebralRetainConfig(chunk_size=64000)
+
+    def test_chunk_size_rejects_too_large(self):
+        """chunk_size > 64000 should raise ValidationError."""
+        with pytest.raises(ValidationError):
+            CerebralRetainConfig(chunk_size=100000)
+
+
+class TestCerebralRetainChunkSizeEnvOverride:
+    """Tests for MEMORY_RETAIN_CHUNK_SIZE env var override."""
+
+    def test_override_memory_retain_chunk_size(self, monkeypatch):
+        """MEMORY_RETAIN_CHUNK_SIZE should set memory.cerebral.retain.chunk_size."""
+        monkeypatch.setenv("MEMORY_RETAIN_CHUNK_SIZE", "5000")
+        from codespy.config import _ENV_MAP
+        from codespy.config_utils import apply_env_overrides
+
+        config = {}
+        result = apply_env_overrides(config, _ENV_MAP)
+        assert result["memory"]["cerebral"]["retain"]["chunk_size"] == "5000"

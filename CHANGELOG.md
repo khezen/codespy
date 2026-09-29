@@ -2,7 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- **Cerebral (Semantic Memory)**:
+  - New `memory.cerebral.retain.chunk_size` configuration (default: 12288, env var: `MEMORY_RETAIN_CHUNK_SIZE`). Chars per fact-extraction chunk; must be < 64000. See `CerebralRetainConfig` in `config_memory.py`.
+  - New GitHub Action inputs: `memory-retain-model`, `memory-embeddings-model`, `memory-retain-chunk-size`.
+
 ### Changed
+- **Cerebral `retain_mission` is now domain-agnostic**: Replaced code-review-specific wording with general guidance for "observations, decisions, relationships, findings, insights" across any domain. The marker block (plain / `supersedes` / `RETRACTED`) semantics remain unchanged.
 - **Agents no longer receive memory input**: `inject_context_memory` and the `context_memory=` argument have been removed from all six review agents (summary, scope, code_review, doc, supply_chain, audit). Memory is learned but not used until the semantic Prefrontal is planned separately.
 - **Hippocampus eviction writes tombstones**: When a prior observation is evicted from `context_memory` to stay within `max_hippocampus_tokens`, Hippocampus records a new `EVICT` mutation (`MutationType.EVICT`, separate from the Cartographer's `OpType`, so the LLM cannot emit it). `save_episode` writes an `op_type='EVICT'` tombstone version (`content=NULL`) for persisted observations, and `load_context` excludes both `DELETE` and `EVICT` tombstones.
 - **Cerebral DELETE vs EVICT handling**: DELETE produces a `RETRACTED` line marking facts as wrong; EVICT of unchanged prior facts sends nothing; content new this run (ADD→EVICT or REPLACE→EVICT) is retained to avoid losing newly learned facts. The retain mission explicitly states that only `RETRACTED` invalidates a fact and missing facts are unchanged.

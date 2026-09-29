@@ -370,6 +370,21 @@ inputs:
     description: 'Max RLM LLM calls for Cartographer (default: 2)'
     required: false
 
+  # ==========================================
+  # MEMORY (Cerebral — semantic memory)
+  # ==========================================
+  memory-retain-model:
+    description: 'Model for Cerebral fact extraction (falls back to model / DEFAULT_MODEL)'
+    required: false
+
+  memory-embeddings-model:
+    description: 'litellm embedding model for Cerebral (auto-derived from the provider when unset)'
+    required: false
+
+  memory-retain-chunk-size:
+    description: 'Chars per Cerebral fact-extraction chunk (default: 12288, must be < 64000)'
+    required: false
+
   # Per-signature memory overrides
   scope-memory-enabled:
     description: 'Enable memory for scope identification (overrides global memory-enabled)'
@@ -553,6 +568,9 @@ runs:
         MEMORY_CARTOGRAPHER_TEMPERATURE: ${{ inputs.memory-cartographer-temperature }}
         MEMORY_CARTOGRAPHER_MAX_ITERS: ${{ inputs.memory-cartographer-max-iters }}
         MEMORY_CARTOGRAPHER_MAX_LLM_CALLS: ${{ inputs.memory-cartographer-max-llm-calls }}
+        MEMORY_RETAIN_MODEL: ${{ inputs.memory-retain-model }}
+        MEMORY_EMBEDDINGS_MODEL: ${{ inputs.memory-embeddings-model }}
+        MEMORY_RETAIN_CHUNK_SIZE: ${{ inputs.memory-retain-chunk-size }}
         SCOPE_MEMORY_ENABLED: ${{ inputs.scope-memory-enabled }}
         CODE_REVIEW_MEMORY_ENABLED: ${{ inputs.code-review-memory-enabled }}
         DOC_MEMORY_ENABLED: ${{ inputs.doc-memory-enabled }}
@@ -669,6 +687,9 @@ runs:
         [ -n "$MEMORY_CARTOGRAPHER_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_TEMPERATURE"
         [ -n "$MEMORY_CARTOGRAPHER_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MAX_ITERS"
         [ -n "$MEMORY_CARTOGRAPHER_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MAX_LLM_CALLS"
+        [ -n "$MEMORY_RETAIN_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RETAIN_MODEL"
+        [ -n "$MEMORY_EMBEDDINGS_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_EMBEDDINGS_MODEL"
+        [ -n "$MEMORY_RETAIN_CHUNK_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RETAIN_CHUNK_SIZE"
         [ -n "$SCOPE_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MEMORY_ENABLED"
         [ -n "$CODE_REVIEW_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MEMORY_ENABLED"
         [ -n "$DOC_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MEMORY_ENABLED"

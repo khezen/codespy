@@ -9,6 +9,12 @@ from pydantic import BaseModel, Field
 
 from codespy.config_dspy import ReasoningEffort
 
+# Hindsight constraint: validate_retain_completion_token_budget requires
+# retain_max_completion_tokens (default 64000) > retain_chunk_size.
+# If chunk_size >= 64000, update_bank_config rejects the update and the bank
+# silently falls back to defaults (chunk 3000, no mission).
+_HINDSIGHT_RETAIN_MAX_COMPLETION_TOKENS = 64000
+
 if TYPE_CHECKING:
     from codespy.agents.memory.postgres import EpisodeStore
     from codespy.config import Settings
@@ -68,6 +74,10 @@ class CerebralRetainConfig(BaseModel):
     """Cerebral (semantic memory) LLM configuration for fact extraction."""
 
     model: str | None = None  # Falls back to llm.default_model
+    # Value is in chars. The merged observations blob is bounded by
+    # max_hippocampus_tokens (~65K chars worst case), so large blobs split
+    # into several chunks. Must be < _HINDSIGHT_RETAIN_MAX_COMPLETION_TOKENS.
+    chunk_size: int = Field(default=12288, gt=0, lt=_HINDSIGHT_RETAIN_MAX_COMPLETION_TOKENS)
 
 
 class CerebralEmbeddingsConfig(BaseModel):
@@ -431,6 +441,7 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
             llm_base_url=base_url,
             bank_id=bank_id,
             embeddings_model=embeddings_model,
+            retain_chunk_size=settings.memory.cerebral.retain.chunk_size,
         )
     except Exception:
         logger.error(
