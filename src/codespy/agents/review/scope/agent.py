@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.review.models import ReviewContext
 from codespy.agents.review.scope.manifest_parser import extract_package_name
@@ -1090,7 +1090,6 @@ class ScopeResolver(dspy.Module):
                             logger.info("Loaded prior scope episode for %s", repo_topic_id)
                         else:
                             logger.info("No prior scope episode for %s", repo_topic_id)
-                    inject_context_memory(agent)
                     hippo = Hippocampus(
                         task_name="scope",
                         budget=self._settings.get_memory_budget("scope"),
@@ -1099,7 +1098,6 @@ class ScopeResolver(dspy.Module):
                         initial_memory=scope_initial_memory,
                     )
                     result = await agent.acall(
-                        context_memory=hippo.context_memory,
                         candidates=candidates_str,
                         orphan_files=[f.filename for f in orphans],
                         pr_title=pr.title or "No title",

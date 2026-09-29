@@ -7,7 +7,7 @@ import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.review.models import Issue, ReviewContext
@@ -101,7 +101,6 @@ class Auditor(dspy.Module):
                 if scope_topic:
                     scope_topics.append(scope_topic)
 
-            inject_context_memory(auditor)
             hippo = Hippocampus(
                 task_name="audit",
                 budget=self._settings.get_memory_budget("audit"),
@@ -111,7 +110,6 @@ class Auditor(dspy.Module):
                 topics=scope_topics if scope_topics else None,
             )
             result = auditor(
-                context_memory=hippo.context_memory,
                 pr_title=review_context.pr_context.pr_title,
                 summary=review_context.pr_context.summary,
                 all_issues=all_issues,

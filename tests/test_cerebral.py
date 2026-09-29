@@ -13,7 +13,9 @@ from codespy.agents.memory.cerebral import Cerebral
 from codespy.agents.memory.cerebral.cost import MeteredLiteLLMSDKEmbeddings
 from codespy.agents.memory.hippocampus.context_memory import (
     ContextMemory,
+    Mutation,
     Observation,
+    OpType,
     Topic,
 )
 from codespy.agents.memory.hippocampus.episode import Episode
@@ -100,6 +102,26 @@ def episode():
         question="Review PR #1",
         artifacts={"review": "# Review Results\n\nFound 2 issues."},
         context_memory=context_memory,
+        mutations=[
+            Mutation(
+                step=0,
+                type=OpType.ADD,
+                observation_id="cu-test-1",
+                section="context_understanding",
+                content="This is a test observation",
+                previous_content=None,
+                topic_ids=["test/repo/package"],
+            ),
+            Mutation(
+                step=0,
+                type=OpType.ADD,
+                observation_id="ac-test-1",
+                section="actions",
+                content="Performed tool call",
+                previous_content=None,
+                topic_ids=["test/repo/package"],
+            ),
+        ],
     )
 
 
@@ -177,6 +199,37 @@ class TestCerebralInit:
 
 class TestCerebralBank:
     """Tests for Cerebral bank management."""
+
+    def test_ensure_bank_mission_contains_retracted_invalidates(self, mock_memory_engine_class, mock_engine, mock_litellm):
+        """Test that retain_mission contains 'Only RETRACTED invalidates a fact'."""
+        captured_mission = None
+
+        async def mock_update_bank_config(bank_id, updates, request_context):
+            nonlocal captured_mission
+            captured_mission = updates.get("retain_mission")
+            return None
+
+        async def mock_coro(*args, **kwargs):
+            return None
+
+        def mock_memory_engine(*args, **kwargs):
+            engine = MagicMock()
+            engine.initialize = mock_coro
+            engine.ensure_bank_profile = mock_coro
+            engine.update_bank_config = mock_update_bank_config
+            engine.close = mock_coro
+            return engine
+
+        with patch("codespy.agents.memory.cerebral.cerebral.MemoryEngine", mock_memory_engine):
+            cerebral = Cerebral(
+                database_url="postgresql://localhost:5432/test",
+                llm_provider="litellm",
+            )
+            cerebral._bank_ensured = False
+            cerebral._ensure_bank()
+
+        assert captured_mission is not None
+        assert "Only RETRACTED invalidates a fact" in captured_mission
 
     def test_ensure_bank_called_once(self, mock_memory_engine_class, mock_engine, mock_litellm):
         """Test that _ensure_bank is only called once."""
@@ -365,7 +418,7 @@ class TestCerebralRetainEpisode:
             obs_item = None
             art_item = None
             for item in captured_contents:
-                if "observations" in item.get("context", ""):
+                if "observation changes" in item.get("context", ""):
                     obs_item = item
                 elif "artifacts" in item.get("context", ""):
                     art_item = item
@@ -535,3 +588,112 @@ class TestCerebralBuildTags:
         assert f"episode:{episode.id}" in tags
         assert "task:code_review" in tags
         assert "run_id:run-456" in tags
+
+
+def _mut(type_, obs_id, *, content=None, previous=None, section="context_understanding"):
+    from codespy.agents.memory.hippocampus.context_memory import MutationType
+
+    return Mutation(
+        step=0,
+        type=MutationType(type_),
+        observation_id=obs_id,
+        section=section,
+        content=content,
+        previous_content=previous,
+    )
+
+
+def _episode_with(mutations, observations=()):
+    return Episode(
+        id=uuid.uuid4(),
+        run_id="r",
+        timestamp=datetime.now(UTC),
+        task="code_review",
+        module="m",
+        question="q",
+        artifacts={},
+        context_memory=ContextMemory(
+            context_understanding=[Observation(id=i, content=c) for i, c in observations]
+        ),
+        mutations=list(mutations),
+    )
+
+
+class TestMutationLines:
+    """Cerebral retains the mutation log only."""
+
+    def test_add(self):
+        ep = _episode_with([_mut("ADD", "cu-a", content="new")], [("cu-a", "new")])
+        assert Cerebral._mutation_lines(ep) == ["[context_understanding] new"]
+
+    def test_add_then_replace_uses_final_content(self):
+        ep = _episode_with(
+            [_mut("ADD", "cu-a", content="v1"), _mut("REPLACE", "cu-a", content="v2", previous="v1")],
+            [("cu-a", "v2")],
+        )
+        assert Cerebral._mutation_lines(ep) == ["[context_understanding] v2"]
+
+    def test_add_then_delete_emits_nothing(self):
+        ep = _episode_with(
+            [_mut("ADD", "cu-a", content="v1"), _mut("DELETE", "cu-a", previous="v1")]
+        )
+        assert Cerebral._mutation_lines(ep) == []
+
+    def test_prior_replace_supersedes(self):
+        ep = _episode_with(
+            [_mut("REPLACE", "cu-p", content="new", previous="old")], [("cu-p", "new")]
+        )
+        assert Cerebral._mutation_lines(ep) == ["[context_understanding] new (supersedes: old)"]
+
+    def test_replace_then_replace_uses_first_previous(self):
+        ep = _episode_with(
+            [
+                _mut("REPLACE", "cu-p", content="mid", previous="old"),
+                _mut("REPLACE", "cu-p", content="new", previous="mid"),
+            ],
+            [("cu-p", "new")],
+        )
+        assert Cerebral._mutation_lines(ep) == ["[context_understanding] new (supersedes: old)"]
+
+    def test_prior_delete_retracted(self):
+        ep = _episode_with([_mut("DELETE", "cu-p", previous="wrong fact")])
+        assert Cerebral._mutation_lines(ep) == [
+            "[context_understanding] RETRACTED — shown incorrect or misleading, do not rely on: wrong fact"
+        ]
+
+    def test_prior_evict_emits_nothing(self):
+        ep = _episode_with([_mut("EVICT", "cu-p", previous="still true")])
+        assert Cerebral._mutation_lines(ep) == []
+
+    def test_replace_then_evict_emits_supersedes(self):
+        ep = _episode_with(
+            [
+                _mut("REPLACE", "cu-p", content="new", previous="old"),
+                _mut("EVICT", "cu-p", previous="new"),
+            ]
+        )
+        assert Cerebral._mutation_lines(ep) == [
+            "[context_understanding] new (supersedes: old)"
+        ]
+
+    def test_inherited_unchanged_observation_not_retained(self):
+        ep = _episode_with([], [("cu-p", "unchanged prior")])
+        assert Cerebral._mutation_lines(ep) == []
+
+    def test_add_replace_evict_emits_last_content(self):
+        """ADD → REPLACE → EVICT gives a plain line with the last content."""
+        ep = _episode_with(
+            [
+                _mut("ADD", "cu-a", content="v1"),
+                _mut("REPLACE", "cu-a", content="v2", previous="v1"),
+                _mut("EVICT", "cu-a", previous="v2"),
+            ]
+        )
+        assert Cerebral._mutation_lines(ep) == ["[context_understanding] v2"]
+
+    def test_evicted_add_emits_content(self):
+        """ADD → EVICT gives a plain line with the evicted content."""
+        ep = _episode_with(
+            [_mut("ADD", "cu-a", content="gone"), _mut("EVICT", "cu-a", previous="gone")]
+        )
+        assert Cerebral._mutation_lines(ep) == ["[context_understanding] gone"]

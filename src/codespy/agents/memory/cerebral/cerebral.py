@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import threading
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
 # Module constants (must be defined before the Hindsight import)
@@ -196,7 +197,14 @@ class Cerebral:
                         "retain_mission": (
                             "Retain code review observations, analysis results, and artifacts. "
                             "Focus on patterns, architectural decisions, dependency relationships, "
-                            "security findings, and technical insights across repositories."
+                            "security findings, and technical insights across repositories. "
+                            "Observation lines use these markers:\n"
+                            "- A plain line is a newly learned fact.\n"
+                            "- '(supersedes: X)': the line is the current wording of a fact previously worded X. "
+                            "Update that fact; do not keep both.\n"
+                            "- 'RETRACTED — shown incorrect or misleading': the fact was proven wrong or misled "
+                            "the agent. Mark it invalid and do not rely on it.\n"
+                            "A fact missing from a batch is unchanged, not outdated. Only RETRACTED invalidates a fact."
                         ),
                     },
                     request_context=ctx,
@@ -206,33 +214,128 @@ class Cerebral:
             logger.warning("cerebral: failed to configure bank %s", self._bank_id, exc_info=True)
         self._bank_ensured = True
 
+    @staticmethod
+    def _mutation_lines(episode: Episode) -> list[str]:
+        """Build observation lines from episode mutations.
+
+        Groups mutations by observation_id, keeping their order. `first` and
+        `last` are the first and last mutation in the group, and `final` is the
+        observation's content at the end of the run.
+
+        Line format by mutation group (in order):
+
+        | Group (in order) | Line |
+        |---|---|
+        | has ADD, in `context_memory` | `[s] <final>` |
+        | has ADD, last is EVICT | `[s] <final>`, where final = `last.previous_content` |
+        | has ADD, last is DELETE | nothing |
+        | no ADD, last is REPLACE, in `context_memory` | `[s] <final> (supersedes: <first.previous_content>)` |
+        | no ADD, has a REPLACE, last is EVICT | `[s] <last.previous_content> (supersedes: <first.previous_content>)` |
+        | no ADD, EVICT only | nothing |
+        | no ADD, last is DELETE | `[s] RETRACTED — shown incorrect or misleading, do not rely on: <first.previous_content>` |
+
+        Section `s`: for a group whose last mutation is EVICT or DELETE, use
+        `last.section`. Otherwise use the section `find_observation` returns.
+
+        Returns list of formatted lines for the observations blob.
+        """
+        from codespy.agents.memory.hippocampus.context_memory import MutationType
+
+        if not episode.mutations:
+            return []
+
+        # Group mutations by observation_id, preserving order
+        groups: dict[str, list] = defaultdict(list)
+        for mut in episode.mutations:
+            groups[mut.observation_id].append(mut)
+
+        lines: list[str] = []
+        context_memory = episode.context_memory
+
+        for obs_id, mutations in groups.items():
+            first_mut = mutations[0]
+            last_mut = mutations[-1]
+
+            # Check if this observation has an ADD
+            has_add = any(mut.type == MutationType.ADD for mut in mutations)
+
+            if has_add:
+                # ADD in the mutation group
+                if last_mut.type == MutationType.DELETE:
+                    # ADD → DELETE: emit nothing
+                    continue
+                elif last_mut.type == MutationType.EVICT:
+                    # ADD → EVICT: emit line with evicted content (previous_content)
+                    lines.append(f"[{last_mut.section}] {last_mut.previous_content}")
+                else:
+                    # ADD (possibly with REPLACEs), still in context_memory
+                    found = context_memory.find_observation(obs_id)
+                    if found:
+                        section, obs = found
+                        lines.append(f"[{section}] {obs.content}")
+            else:
+                # No ADD in the group: prior observation
+                if last_mut.type == MutationType.DELETE:
+                    # DELETE only: RETRACTED line
+                    lines.append(
+                        f"[{last_mut.section}] RETRACTED — shown incorrect or misleading, "
+                        f"do not rely on: {first_mut.previous_content}"
+                    )
+                elif any(mut.type == MutationType.REPLACE for mut in mutations):
+                    # Has at least one REPLACE (last could be REPLACE or EVICT)
+                    if last_mut.type == MutationType.EVICT:
+                        # REPLACE → EVICT: emit line with evicted content + supersedes
+                        # Find the EVICT to get its previous_content
+                        evict_mut = next(
+                            mut for mut in reversed(mutations) if mut.type == MutationType.EVICT
+                        )
+                        lines.append(
+                            f"[{last_mut.section}] {evict_mut.previous_content} "
+                            f"(supersedes: {first_mut.previous_content})"
+                        )
+                    else:
+                        # REPLACE only, still in context_memory
+                        found = context_memory.find_observation(obs_id)
+                        if found:
+                            section, obs = found
+                            lines.append(
+                                f"[{section}] {obs.content} (supersedes: {first_mut.previous_content})"
+                            )
+                elif last_mut.type == MutationType.EVICT:
+                    # EVICT only: emit nothing (unchanged prior fact)
+                    pass
+
+        return lines
+
     def retain_episode(self, episode: Episode) -> None:
-        """Retain all observations and artifacts from an episode."""
+        """Retain episode mutations and artifacts in Hindsight semantic memory.
+
+        The observations blob is built from episode.mutations instead of
+        context_memory, capturing ADD/REPLACE/DELETE operations as:
+        - Plain lines for ADDs still in context_memory
+        - "(supersedes:)" lines for REPLACEs
+        - "RETRACTED" lines for DELETEs
+        """
         self._ensure_bank()
 
         tags = self._build_tags(episode)
         episode_doc_id = f"episode-{episode.id}"
 
         # Build contents list: at most TWO items per episode
-        # One merged observations blob + one merged artifacts blob
-        # This reduces LLM call count by bundling items that share tags/document_id/event_date
         contents: list[dict] = []
 
-        # Merge all observations into a single content item
-        obs_lines: list[str] = []
-        for section_name in episode.context_memory.section_names():
-            for obs in getattr(episode.context_memory, section_name):
-                obs_lines.append(f"[{section_name}] {obs.content}")
+        # Build observations blob from mutations
+        obs_lines = self._mutation_lines(episode)
         if obs_lines:
             contents.append({
                 "content": "\n\n".join(obs_lines),
-                "context": f"{episode.task}: {episode.question}: observations",
+                "context": f"{episode.task}: {episode.question}: observation changes",
                 "tags": tags,
                 "document_id": episode_doc_id,
                 "event_date": episode.timestamp.isoformat(),
             })
 
-        # Merge all artifacts into a single content item
+        # Merge all artifacts into a single content item (unchanged)
         artifact_lines: list[str] = []
         for name, content in (episode.artifacts or {}).items():
             artifact_lines.append(f"[artifact:{name}] {content}")

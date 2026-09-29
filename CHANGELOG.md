@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Changed
+- **Agents no longer receive memory input**: `inject_context_memory` and the `context_memory=` argument have been removed from all six review agents (summary, scope, code_review, doc, supply_chain, audit). Memory is learned but not used until the semantic Prefrontal is planned separately.
+- **Hippocampus eviction writes tombstones**: When a prior observation is evicted from `context_memory` to stay within `max_hippocampus_tokens`, Hippocampus records a new `EVICT` mutation (`MutationType.EVICT`, separate from the Cartographer's `OpType`, so the LLM cannot emit it). `save_episode` writes an `op_type='EVICT'` tombstone version (`content=NULL`) for persisted observations, and `load_context` excludes both `DELETE` and `EVICT` tombstones.
+- **Cerebral DELETE vs EVICT handling**: DELETE produces a `RETRACTED` line marking facts as wrong; EVICT of unchanged prior facts sends nothing; content new this run (ADD→EVICT or REPLACE→EVICT) is retained to avoid losing newly learned facts. The retain mission explicitly states that only `RETRACTED` invalidates a fact and missing facts are unchanged.
+- **EpisodeStore.load_context() semantics changed**: Now loads the latest version of every observation from ALL prior episodes (not just the latest episode), excluding tombstones (`TOMBSTONE_TYPES`: `DELETE`, `EVICT`) and any version with no content. Observations are returned oldest-first, so eviction drops the oldest facts first. Topic prefix matching now uses proper LIKE escaping so `owner/repo` no longer matches `owner/repo-other`.
+- **Rollback note**: loaders older than this release only skip `op_type='DELETE'` and fail to load a topic that has an `EVICT` row. Before rolling back, run `UPDATE observations SET op_type = 'DELETE' WHERE op_type = 'EVICT';` (both are content-NULL tombstones, so no data is lost).
 - **BREAKING — Environment Variables**: Renamed env vars for consistency with YAML paths
   - `llm.*` settings drop the `LLM_` prefix (e.g., `LLM_DEFAULT_MODEL` → `DEFAULT_MODEL`)
     - Exceptions: `LLM_RETRIES` and `LLM_TIMEOUT` keep their prefixes
@@ -38,6 +43,12 @@
 ### Removed
 - **Config**: Removed dead settings `enable_prompt_caching` and `compact_patches` (fields deleted in the config refactor)
 
+- **Cerebral retains mutations, not observations**: Changed from full context_memory to mutation log
+  - `retain_episode()` now builds observations blob from `episode.mutations`
+  - ADD → plain line with final content
+  - REPLACE → `supersedes:` line with previous_content from first mutation
+  - DELETE → `RETRACTED` line with previous_content and optional reason
+  - `_mutation_lines()` helper for building lines from mutation groups
 - **Dependencies**: MCP Python SDK upgraded from v1.x to v2.x
   - `mcp` dependency: `>=1.29.0,<2.0.0` → `>=2.2,<3`
   - All 8 MCP servers migrated from `FastMCP` to `MCPServer` (v2 API)

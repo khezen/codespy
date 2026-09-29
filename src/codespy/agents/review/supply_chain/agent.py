@@ -11,7 +11,7 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
 from codespy.agents.review.scope.models import ScopeResult
@@ -415,7 +415,6 @@ class SupplyChainAuditor(dspy.Module):
                     )
                     pr_ctx = review_context.pr_context
                     topics = [scope.topic(pr.repo_full_name), pr_ctx.to_topic()] if pr else []
-                    inject_context_memory(supply_chain_agent)
                     hippo = Hippocampus(
                         task_name="supply_chain",
                         budget=self._settings.get_memory_budget("supply_chain"),
@@ -425,7 +424,6 @@ class SupplyChainAuditor(dspy.Module):
                         topics=topics,
                     )
                     result = await supply_chain_agent.acall(
-                        context_memory=hippo.context_memory,
                         manifest_path=manifest_path,
                         lock_file_path=lock_file_path,
                         package_manager=package_manager,

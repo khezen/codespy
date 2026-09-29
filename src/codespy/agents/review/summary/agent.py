@@ -7,7 +7,7 @@ import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.review.helpers import deepest_common_folder
@@ -117,7 +117,6 @@ class Summarizer(dspy.Module):
                     if scope_topic:
                         scope_topics.append(scope_topic)
 
-                inject_context_memory(summarizer)
                 hippo = Hippocampus(
                     task_name="summary",
                     budget=self._settings.get_memory_budget("summary"),
@@ -127,7 +126,6 @@ class Summarizer(dspy.Module):
                     topics=scope_topics if scope_topics else topics,
                 )
                 result = summarizer(
-                    context_memory=hippo.context_memory,
                     pr_title=pr_context.pr_title,
                     pr_description=pr_context.pr_description,
                     changed_file_paths=changed_file_paths,

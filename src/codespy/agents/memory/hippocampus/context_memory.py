@@ -52,6 +52,38 @@ class OpType(StrEnum):
         return None
 
 
+class MutationType(StrEnum):
+    """Recorded mutation types, persisted as ``observations.op_type``.
+
+    A superset of :class:`OpType`: ``EVICT`` is recorded by Hippocampus (never
+    by the Cartographer) when a prior observation is dropped to stay within
+    ``max_hippocampus_tokens``. Both DELETE and EVICT write a tombstone
+    version; EVICT is a capacity decision, not evidence the fact is wrong.
+    """
+
+    ADD = "ADD"
+    DELETE = "DELETE"
+    REPLACE = "REPLACE"
+    EVICT = "EVICT"
+
+    @classmethod
+    def _missing_(cls, value: object) -> MutationType | None:
+        if isinstance(value, str):
+            upper = value.upper()
+            for member in cls:
+                if member.value == upper:
+                    return member
+        return None
+
+
+# Mutation types that write a tombstone version (content NULL). Single source of
+# truth: EpisodeStore.save_episode writes tombstones for these types and
+# EpisodeStore.load_context excludes them. Add new tombstone types here only.
+TOMBSTONE_TYPES: frozenset[MutationType] = frozenset(
+    {MutationType.DELETE, MutationType.EVICT}
+)
+
+
 SectionName = Literal[
     "context_roadmap",
     "context_understanding",
@@ -139,21 +171,23 @@ class Operation(BaseModel):
 
 
 class Mutation(BaseModel):
-    """A recorded Cartographer mutation applied to the context memory.
+    """A recorded mutation applied to the context memory.
 
-    Tracks the sequence of ADD/DELETE/REPLACE operations with pre-mutation
-    state for debugging and audit purposes.
+    Tracks the sequence of ADD/DELETE/REPLACE operations (from the Cartographer)
+    and EVICT (from budget eviction) with pre-mutation state.
     """
 
     step: int = Field(description="Which _distill() pass produced this mutation (0-indexed)")
-    type: OpType = Field(description="Type of mutation: ADD, DELETE, or REPLACE")
-    observation_id: str = Field(description="Generated ID (ADD) or existing ID (DELETE/REPLACE)")
+    type: MutationType = Field(description="Type of mutation: ADD, DELETE, REPLACE, or EVICT")
+    observation_id: str = Field(
+        description="Generated ID (ADD) or existing ID (DELETE/REPLACE/EVICT)"
+    )
     section: SectionName = Field(description="Section the observation belongs to")
     content: str | None = Field(
-        default=None, description="New content (ADD/REPLACE); None for DELETE"
+        default=None, description="New content (ADD/REPLACE); None for DELETE/EVICT"
     )
     previous_content: str | None = Field(
-        default=None, description="Old content (DELETE/REPLACE); None for ADD"
+        default=None, description="Old content (DELETE/REPLACE/EVICT); None for ADD"
     )
     topic_ids: list[str] = Field(
         default_factory=list, description="Topic IDs associated with this mutation"

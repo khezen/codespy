@@ -3,6 +3,7 @@ from codespy.agents.memory.hippocampus.context_memory import (
     CacheCandidate,
     ContextMemory,
     Mutation,
+    MutationType,
     Observation,
     ObservationTag,
     Operation,
@@ -17,10 +18,7 @@ from codespy.agents.memory.hippocampus.episode import (
     join_episode_saves,
     submit_episode_save,
 )
-from codespy.agents.memory.hippocampus.hippocampus import (
-    Hippocampus,
-    inject_context_memory,
-)
+from codespy.agents.memory.hippocampus.hippocampus import Hippocampus
 from codespy.agents.memory.hippocampus.cartographer import Cartographer, CartographerSig
 from codespy.agents.memory.hippocampus.distiller import Distiller, DistillerSig
 
@@ -35,6 +33,7 @@ __all__ = [
     "Hippocampus",
     "MemoryBudget",
     "Mutation",
+    "MutationType",
     "Observation",
     "ObservationTag",
     "Operation",
@@ -42,7 +41,7 @@ __all__ = [
     "SectionName",
     "Topic",
     "compute_common_ancestor_topic_id",
-    "inject_context_memory",
+
     "join_episode_saves",
     "make_topic_id",
     "submit_episode_save",

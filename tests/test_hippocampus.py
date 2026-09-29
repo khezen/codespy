@@ -19,7 +19,6 @@ from codespy.agents.memory.hippocampus import (
     Operation,
     OpType,
     Topic,
-    inject_context_memory,
 )
 from codespy.agents.memory.hippocampus.episode import Episode
 from codespy.agents.memory.postgres import EpisodeStore
@@ -337,8 +336,8 @@ class TestEpisodeStoreWithHippocampus:
             topics=[Topic(id="test/topic", type="project_scope", description="Test topic")],
         )
         
-        # Make a call (MockAgent accepts any kwargs, so no inject needed for this test)
-        result = agent(context_memory=hippo.context_memory)
+        # Agents no longer receive context_memory as input
+        result = agent()
         hippo.observe(result)
         
         # End episode with the store
@@ -470,9 +469,8 @@ class TestEpisodeStoreDeleteTombstone:
             topic_ids=[topic_id],
         )
 
-        # Should have no observations (deleted)
-        assert loaded_ctx is not None
-        assert len(loaded_ctx.context_understanding) == 0
+        # When all observations are deleted, load_context returns None
+        assert loaded_ctx is None
 
 
 class TestRecordMutations:
@@ -596,3 +594,368 @@ class TestUpdateObservationScores:
         hip.scores = {"a": 5}
         hip._update_observation_scores({"a": ObservationTag.NEUTRAL})
         assert hip.scores == {"a": 5}
+
+
+def _stub_reflection(hippo, operations=None):
+    """Replace the Distiller/Cartographer with no-LLM stubs."""
+    import dspy
+
+    hippo.distill = lambda **kw: dspy.Prediction(
+        diagnosis="", observation_tags={}, cache_candidates=[]
+    )
+    hippo.cartograph = lambda **kw: dspy.Prediction(
+        justification="", operations=list(operations or [])
+    )
+
+
+class TestEviction:
+    """Eviction of prior observations records an EVICT mutation (not DELETE)."""
+
+    TOPIC = "owner/repo/evict-unit"
+
+    def _prior(self, n: int, size: int = 400) -> ContextMemory:
+        return ContextMemory(
+            topics=[Topic(id=self.TOPIC, type="project_scope", description="t")],
+            context_understanding=[
+                Observation(
+                    id=f"cu-prior{i}", content=f"{i} " + "x" * size, topic_ids=[self.TOPIC]
+                )
+                for i in range(n)
+            ],
+        )
+
+    def test_evicted_prior_records_evict_mutation(self):
+        from codespy.agents.memory.hippocampus import MemoryBudget, MutationType
+
+        prior = self._prior(4)
+        hippo = Hippocampus(
+            task_name="evict_test",
+            budget=MemoryBudget(max_hippocampus_tokens=300),
+            initial_memory=prior,
+        )
+        _stub_reflection(hippo)
+        hippo._distill("trajectory", "question")
+
+        survivors = hippo.cmem.ids()
+        evicted_ids = {o.id for o in prior.all_observations()} - survivors
+        assert evicted_ids, "budget should force eviction"
+
+        evicts = [m for m in hippo._mutations if m.type == MutationType.EVICT]
+        assert {m.observation_id for m in evicts} == evicted_ids
+        assert not any(m.type == MutationType.DELETE for m in hippo._mutations)
+        prior_by_id = {o.id: o for o in prior.all_observations()}
+        for m in evicts:
+            assert m.content is None
+            assert m.section == "context_understanding"
+            assert m.previous_content == prior_by_id[m.observation_id].content
+            assert m.topic_ids == [self.TOPIC]
+            assert m.step == 0
+
+    def test_no_eviction_records_nothing(self):
+        from codespy.agents.memory.hippocampus import MemoryBudget
+
+        hippo = Hippocampus(
+            task_name="evict_test",
+            budget=MemoryBudget(max_hippocampus_tokens=100_000),
+            initial_memory=self._prior(2),
+        )
+        _stub_reflection(hippo)
+        hippo._distill("trajectory", "question")
+        assert hippo._mutations == []
+
+    def test_evicted_own_add_records_evict(self):
+        from codespy.agents.memory.hippocampus import MemoryBudget, MutationType
+
+        hippo = Hippocampus(
+            task_name="evict_test",
+            budget=MemoryBudget(max_hippocampus_tokens=200),
+            topics=[Topic(id=self.TOPIC, type="project_scope", description="t")],
+        )
+        ops = [
+            Operation(type=OpType.ADD, section="context_understanding", content=f"{i} " + "y" * 400)
+            for i in range(3)
+        ]
+        _stub_reflection(hippo, ops)
+        hippo._distill("trajectory", "question")
+
+        assert len(hippo.cmem.all_observations()) < 3, "budget should force eviction"
+        # Now records EVICT for own ADDs too, with ADD's content as previous_content
+        evicts = [m for m in hippo._mutations if m.type == MutationType.EVICT]
+        assert len(evicts) > 0, "should record EVICT for evicted own ADDs"
+        for m in evicts:
+            assert m.content is None
+            assert m.previous_content is not None
+            assert m.previous_content.startswith("0 ") or m.previous_content.startswith("1 ") or m.previous_content.startswith("2 ")
+
+    def test_episode_keeps_mutations_after_end_episode(self):
+        from codespy.agents.memory.hippocampus import MemoryBudget, MutationType
+
+        hippo = Hippocampus(
+            task_name="evict_test",
+            budget=MemoryBudget(max_hippocampus_tokens=300),
+            initial_memory=self._prior(4),
+        )
+        _stub_reflection(hippo)
+        hippo.observe("trajectory")
+        hippo.end_episode()
+        assert hippo.episode is not None
+        assert any(m.type == MutationType.EVICT for m in hippo.episode.mutations)
+        assert hippo._mutations == []
+
+    def test_cartographer_cannot_emit_evict(self):
+        """EVICT is a MutationType only; Operation (Cartographer output) rejects it."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            Operation(type="EVICT", observation_id="cu-x")
+
+
+class TestEvictTombstone:
+    """Store round-trip: EVICT writes a tombstone version and hides the observation."""
+
+    def _row_versions(self, store, obs_id):
+        from psycopg.rows import dict_row
+
+        with store._pool.connection() as conn:
+            conn.row_factory = dict_row
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT version, op_type, content, previous_content FROM observations "
+                    "WHERE bank_id = %s AND id = %s ORDER BY version",
+                    (store.bank_id, obs_id),
+                )
+                return cur.fetchall()
+
+    def test_evict_tombstone_round_trip(self, episode_store):
+        import uuid
+
+        from codespy.agents.memory.hippocampus import MutationType
+
+        topic_id = f"owner/repo/evict-{uuid.uuid4().hex[:8]}"
+        topic = Topic(id=topic_id, type="project_scope", description="t")
+        keep_id, evict_id = f"cu-keep{uuid.uuid4().hex}", f"cu-evict{uuid.uuid4().hex}"
+
+        ctx1 = ContextMemory(
+            topics=[topic],
+            context_understanding=[
+                Observation(id=keep_id, content="keep me", topic_ids=[topic_id]),
+                Observation(id=evict_id, content="evict me", topic_ids=[topic_id]),
+            ],
+        )
+        episode_store.save_episode(Episode(
+            id=uuid.uuid4(), task="code_review", module="m", question="q1",
+            context_memory=ctx1, timestamp=datetime.now(UTC), run_id="r1",
+            mutations=[
+                Mutation(step=0, type=MutationType.ADD, observation_id=oid,
+                         section="context_understanding", content=c, topic_ids=[topic_id])
+                for oid, c in ((keep_id, "keep me"), (evict_id, "evict me"))
+            ],
+            artifacts={},
+        ))
+
+        # Episode 2: the prior observation was evicted (not in context_memory)
+        ctx2 = ContextMemory(
+            topics=[topic],
+            context_understanding=[Observation(id=keep_id, content="keep me", topic_ids=[topic_id])],
+        )
+        episode_store.save_episode(Episode(
+            id=uuid.uuid4(), task="code_review", module="m", question="q2",
+            context_memory=ctx2, timestamp=datetime.now(UTC), run_id="r2",
+            mutations=[
+                Mutation(step=0, type=MutationType.EVICT, observation_id=evict_id,
+                         section="context_understanding", content=None,
+                         previous_content="evict me", topic_ids=[topic_id])
+            ],
+            artifacts={},
+        ))
+
+        rows = self._row_versions(episode_store, evict_id)
+        assert [(r["version"], r["op_type"]) for r in rows] == [(1, "ADD"), (2, "EVICT")]
+        assert rows[1]["content"] is None
+        assert rows[1]["previous_content"] == "evict me"
+
+        loaded = episode_store.load_context(task="code_review", topic_ids=[topic_id])
+        assert loaded is not None
+        assert loaded.ids() == {keep_id}
+
+    def test_add_then_evict_same_run_no_orphan_row(self, episode_store):
+        """ADD then EVICT of a new id in same run → no row in observations."""
+        import uuid
+
+        from codespy.agents.memory.hippocampus import MutationType
+
+        topic_id = f"owner/repo/add-evict-{uuid.uuid4().hex[:8]}"
+        topic = Topic(id=topic_id, type="project_scope", description="t")
+        new_id = f"cu-new{uuid.uuid4().hex}"
+
+        # Single episode: ADD then EVICT the same observation
+        ctx = ContextMemory(
+            topics=[topic],
+            context_understanding=[],  # Evicted, so not in context
+        )
+        episode_store.save_episode(Episode(
+            id=uuid.uuid4(), task="code_review", module="m", question="q",
+            context_memory=ctx, timestamp=datetime.now(UTC), run_id="r",
+            mutations=[
+                Mutation(step=0, type=MutationType.ADD, observation_id=new_id,
+                         section="context_understanding", content="new content", topic_ids=[topic_id]),
+                Mutation(step=1, type=MutationType.EVICT, observation_id=new_id,
+                         section="context_understanding", content=None,
+                         previous_content="new content", topic_ids=[topic_id]),
+            ],
+            artifacts={},
+        ))
+
+        # No rows for this observation (ADD was never persisted, EVICT skipped tombstone)
+        rows = self._row_versions(episode_store, new_id)
+        assert rows == [], f"expected no rows for ADD→EVICT in same run, got {rows}"
+
+    def test_load_orders_oldest_first_so_eviction_drops_oldest(self, episode_store):
+        """Load order follows episode time, not id; evict() then drops the oldest."""
+        import uuid
+        from datetime import timedelta
+
+        from codespy.agents.memory.hippocampus import MemoryBudget, MutationType
+
+        suffix = uuid.uuid4().hex
+        topic_id = f"owner/repo/order-{suffix[:8]}"
+        topic = Topic(id=topic_id, type="project_scope", description="t")
+        # Id order is the reverse of time order: the oldest has the largest id.
+        ids_oldest_first = [f"cu-z{suffix}", f"cu-m{suffix}", f"cu-a{suffix}"]
+        now = datetime.now(UTC)
+        for age, oid in zip((3, 2, 1), ids_oldest_first, strict=True):
+            content = f"{oid} " + "x" * 400
+            episode_store.save_episode(Episode(
+                id=uuid.uuid4(), task="code_review", module="m", question="q",
+                context_memory=ContextMemory(
+                    topics=[topic],
+                    context_understanding=[
+                        Observation(id=oid, content=content, topic_ids=[topic_id])
+                    ],
+                ),
+                timestamp=now - timedelta(days=age), run_id=f"r-{age}",
+                mutations=[
+                    Mutation(step=0, type=MutationType.ADD, observation_id=oid,
+                             section="context_understanding", content=content,
+                             topic_ids=[topic_id])
+                ],
+                artifacts={},
+            ))
+
+        loaded = episode_store.load_context(task="code_review", topic_ids=[topic_id])
+        assert loaded is not None
+        assert [o.id for o in loaded.context_understanding] == ids_oldest_first
+
+        # Budget fits only the newest observation: the two oldest are evicted.
+        hippo = Hippocampus(
+            task_name="code_review",
+            budget=MemoryBudget(max_hippocampus_tokens=250),
+            initial_memory=loaded,
+        )
+        _stub_reflection(hippo)
+        hippo._distill("trajectory", "question")
+        assert hippo.cmem.ids() == {ids_oldest_first[-1]}
+        assert [m.observation_id for m in hippo._mutations] == ids_oldest_first[:2]
+
+
+class TestLoadContextTombstones:
+    """load_context never fails on tombstones and uses bindings of the loaded version."""
+
+    @staticmethod
+    def _save_add(store, topic, oid, content, topic_ids=None):
+        import uuid
+
+        from codespy.agents.memory.hippocampus import MutationType
+
+        ep_id = uuid.uuid4()
+        store.save_episode(Episode(
+            id=ep_id, task="code_review", module="m", question="q",
+            context_memory=ContextMemory(
+                topics=[topic],
+                context_understanding=[
+                    Observation(id=oid, content=content, topic_ids=topic_ids or [topic.id])
+                ],
+            ),
+            timestamp=datetime.now(UTC), run_id="r",
+            mutations=[
+                Mutation(step=0, type=MutationType.ADD, observation_id=oid,
+                         section="context_understanding", content=content,
+                         topic_ids=topic_ids or [topic.id])
+            ],
+            artifacts={},
+        ))
+        return ep_id
+
+    def test_unknown_tombstone_type_is_skipped_not_fatal(self, episode_store):
+        """A NULL-content latest version of an unknown op_type hides only that observation."""
+        import uuid
+
+        suffix = uuid.uuid4().hex
+        topic = Topic(id=f"owner/repo/tomb-{suffix[:8]}", type="project_scope", description="t")
+        live_id, dead_id = f"cu-live{suffix}", f"cu-dead{suffix}"
+        self._save_add(episode_store, topic, live_id, "live")
+        ep_id = self._save_add(episode_store, topic, dead_id, "dead")
+
+        with episode_store._pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO observations "
+                "(bank_id, id, version, type, content, episode_id, step, op_type, "
+                "previous_content, ordinal) "
+                "VALUES (%s, %s, 2, 'context_understanding', NULL, %s, 0, 'ARCHIVE', 'dead', 0)",
+                (episode_store.bank_id, dead_id, str(ep_id)),
+            )
+            conn.commit()
+
+        loaded = episode_store.load_context(task="code_review", topic_ids=[topic.id])
+        assert loaded is not None
+        assert loaded.ids() == {live_id}
+
+    def test_tombstone_types_come_from_tombstone_types(self, episode_store, monkeypatch):
+        """load_context reads the tombstone list from TOMBSTONE_TYPES."""
+        import uuid
+
+        from codespy.agents.memory.hippocampus import context_memory as cm
+
+        suffix = uuid.uuid4().hex
+        topic = Topic(id=f"owner/repo/types-{suffix[:8]}", type="project_scope", description="t")
+        oid = f"cu-add{suffix}"
+        self._save_add(episode_store, topic, oid, "content")
+
+        # Treat ADD as a tombstone type: the ADD-only observation must disappear.
+        monkeypatch.setattr(
+            cm, "TOMBSTONE_TYPES", frozenset(cm.TOMBSTONE_TYPES | {cm.MutationType.ADD})
+        )
+        assert episode_store.load_context(task="code_review", topic_ids=[topic.id]) is None
+
+    def test_bindings_come_from_loaded_version(self, episode_store):
+        """After a REPLACE rebinds topics, only the latest version's bindings load."""
+        import uuid
+
+        from codespy.agents.memory.hippocampus import MutationType
+
+        suffix = uuid.uuid4().hex
+        t1 = Topic(id=f"owner/repo/b1-{suffix[:8]}", type="project_scope", description="t1")
+        t2 = Topic(id=f"owner/repo/b2-{suffix[:8]}", type="project_scope", description="t2")
+        oid = f"cu-rebind{suffix}"
+        self._save_add(episode_store, t1, oid, "v1", topic_ids=[t1.id])
+
+        episode_store.save_episode(Episode(
+            id=uuid.uuid4(), task="code_review", module="m", question="q",
+            context_memory=ContextMemory(
+                topics=[t1, t2],
+                context_understanding=[Observation(id=oid, content="v2", topic_ids=[t2.id])],
+            ),
+            timestamp=datetime.now(UTC), run_id="r",
+            mutations=[
+                Mutation(step=0, type=MutationType.REPLACE, observation_id=oid,
+                         section="context_understanding", content="v2",
+                         previous_content="v1", topic_ids=[t2.id])
+            ],
+            artifacts={},
+        ))
+
+        loaded = episode_store.load_context(task="code_review", topic_ids=[t1.id])
+        assert loaded is not None
+        obs = loaded.find_observation(oid)[1]
+        assert obs.content == "v2"
+        assert obs.topic_ids == [t2.id]

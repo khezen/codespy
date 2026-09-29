@@ -98,7 +98,7 @@ def count_tokens(s: str) -> int:
 
 
 def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
-    """Serialize call inputs (excluding context_memory) for the Distiller question.
+    """Serialize call inputs for the Distiller question.
 
     All fields are included in full. If max_tokens is set, the joined result is
     head+tail bounded via _head_tail_text so both the instruction and any
@@ -107,8 +107,6 @@ def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
     """
     parts: list[str] = []
     for k, v in kwargs.items():
-        if k == "context_memory":
-            continue
         parts.append(f"{k}: {v}")
     text = "\n".join(parts)
     if max_tokens is None:
