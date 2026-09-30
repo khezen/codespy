@@ -11,11 +11,14 @@ import logging
 import re
 import threading
 import time
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
 from codespy.agents.memory.recall import current_recall_usage
 from codespy.config_memory import (
+    MEMORY_CONSOLIDATION,
     MEMORY_EMBEDDINGS,
+    MEMORY_MENTAL_MODELS,
     MEMORY_OTHER,
     MEMORY_PREFRONTAL,
     MEMORY_RETAIN,
@@ -33,6 +36,14 @@ _warned_truncation: bool = False
 _recorder_lock = threading.Lock()
 _recorder_registered = False
 
+# Task type constants for contextvar tagging
+TASK_CONSOLIDATION = "consolidation"
+TASK_REFRESH_MENTAL_MODEL = "refresh_mental_model"
+
+# ContextVar to tag the current memory task (consolidation, refresh_mental_model, etc.)
+# This is set by _SchemaSyncTaskBackend.submit_task around inline task execution.
+current_memory_task: ContextVar[str | None] = ContextVar("current_memory_task", default=None)
+
 # Buckets for cost attribution (using memory_* naming to match config/env names)
 BUCKET_MEMORY_RETAIN = MEMORY_RETAIN
 BUCKET_MEMORY_OTHER = MEMORY_OTHER
@@ -41,9 +52,54 @@ BUCKET_MEMORY_EMBEDDINGS = MEMORY_EMBEDDINGS
 BUCKET_MEMORY_PREFRONTAL = MEMORY_PREFRONTAL
 # Prefrontal embeddings (separate bucket for embeddings during Prefrontal recall)
 BUCKET_MEMORY_PREFRONTAL_EMBEDDINGS = f"{MEMORY_PREFRONTAL}_embeddings"
+# Consolidation task LLM calls
+BUCKET_MEMORY_CONSOLIDATION = MEMORY_CONSOLIDATION
+# Mental model refresh task LLM calls
+BUCKET_MEMORY_MENTAL_MODELS = MEMORY_MENTAL_MODELS
 
 # Track models we've warned about missing prices (one warning per model)
 _warned_unpriced_models: set[str] = set()
+
+
+def _llm_bucket(scope: str) -> str:
+    """Determine the cost bucket for an LLM call based on scope and context.
+
+    Precedence (first match wins):
+    1. current_recall_usage set → memory_prefrontal (handled in record_llm_call)
+    2. current_memory_task == "refresh_mental_model" → memory_mental_models
+    3. current_memory_task == "consolidation" → memory_consolidation
+    4. scope starts with "retain" → memory_retain
+    5. Scope fallback when no task tag is set:
+       - consolidation* → memory_consolidation
+       - mental_model_* → memory_mental_models
+    6. Otherwise → memory_other
+
+    Args:
+        scope: The Hindsight scope string (e.g., "retain_extract_facts", "consolidation")
+
+    Returns:
+        The cost bucket name (one of the BUCKET_MEMORY_* constants)
+    """
+    # Check current_memory_task first (set by _SchemaSyncTaskBackend for inline tasks)
+    task = current_memory_task.get()
+    if task == TASK_REFRESH_MENTAL_MODEL:
+        return BUCKET_MEMORY_MENTAL_MODELS
+    if task == TASK_CONSOLIDATION:
+        return BUCKET_MEMORY_CONSOLIDATION
+
+    # Scope-based routing
+    if scope and scope.startswith("retain"):
+        return BUCKET_MEMORY_RETAIN
+
+    # Scope fallback for known patterns when no task tag is set
+    # (e.g., if Hindsight runs refresh via create_task without context copy)
+    if scope:
+        if scope.startswith("consolidation"):
+            return BUCKET_MEMORY_CONSOLIDATION
+        if scope.startswith("mental_model_"):
+            return BUCKET_MEMORY_MENTAL_MODELS
+
+    return BUCKET_MEMORY_OTHER
 
 
 class CerebralCostRecorder:
@@ -90,17 +146,15 @@ class CerebralCostRecorder:
             cost = prompt_cost + completion_cost
             tokens = input_tokens + output_tokens
 
-            # Determine bucket: an active Prefrontal recall wins over the scope,
+            # Determine bucket: an active Prefrontal recall wins over the scope/task tag,
             # because Hindsight scopes cannot tell a Prefrontal reflect apart
             # from a mental-model refresh.
             usage = current_recall_usage.get()
             if usage is not None:
                 usage.add_llm(model, input_tokens, output_tokens, prompt_cost, completion_cost)
                 bucket = BUCKET_MEMORY_PREFRONTAL
-            elif scope and scope.startswith("retain"):
-                bucket = BUCKET_MEMORY_RETAIN
             else:
-                bucket = BUCKET_MEMORY_OTHER
+                bucket = _llm_bucket(scope)
 
             # Import here to avoid circular imports at module load
             from codespy.agents.cost_tracker import get_cost_tracker

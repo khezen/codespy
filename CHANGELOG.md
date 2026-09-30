@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+- **Cerebral cost bucket split**: Consolidation and mental-model refresh LLM calls are now billed to
+  `memory_consolidation` and `memory_mental_models` respectively, instead of `memory_other`.
+  The `memory_other` bucket now only holds uncategorized LLM calls (e.g., standalone reflect calls).
+  Embeddings remain in `memory_embeddings` / `memory_prefrontal_embeddings` (unchanged).
+
 ### Fixed
 - Cerebral consolidation no longer logs `relation "webhooks" does not exist`. Inline (`SyncTaskBackend`) tasks now carry the `semantic` schema, so consolidation completion no longer rolls back and falls back.
 - Cerebral consolidation no longer fails at exit with `cannot schedule new futures after shutdown`. Background episode saves now finish before Python shuts down its thread pools, and the pipeline waits for them without the old 120 s cap. Runs can end later, because posting the review now waits for the consolidation to finish.

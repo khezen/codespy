@@ -9,7 +9,9 @@ pytest.importorskip("hindsight_api")
 
 from codespy.agents.cost_tracker import CostTracker, get_cost_tracker
 from codespy.agents.memory.cerebral.cost import (
+    BUCKET_MEMORY_CONSOLIDATION,
     BUCKET_MEMORY_EMBEDDINGS,
+    BUCKET_MEMORY_MENTAL_MODELS,
     BUCKET_MEMORY_OTHER,
     BUCKET_MEMORY_PREFRONTAL,
     BUCKET_MEMORY_PREFRONTAL_EMBEDDINGS,
@@ -17,7 +19,9 @@ from codespy.agents.memory.cerebral.cost import (
     CerebralCostRecorder,
     MeteredLiteLLMSDKEmbeddings,
     _LiteLLMProxy,
+    _llm_bucket,
     _recorder_registered,
+    current_memory_task,
     register_cerebral_cost_recorder,
     unregister_cerebral_cost_recorder,
 )
@@ -85,7 +89,7 @@ class TestCerebralCostRecorder:
         assert stats.output_cost == 0.02
 
     def test_record_llm_call_with_consolidation_scope(self, mock_tracker, fresh_recorder):
-        """scope='consolidation' → memory_other bucket."""
+        """scope='consolidation' → memory_consolidation bucket (scope fallback, no tag)."""
         with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
             with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.02, 0.01)):
                 recorder = CerebralCostRecorder()
@@ -96,10 +100,118 @@ class TestCerebralCostRecorder:
                     output_tokens=50,
                 )
 
-        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_OTHER)
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_CONSOLIDATION)
         assert stats is not None
         assert stats.input_tokens == 100
         assert stats.output_tokens == 50
+
+    def test_record_llm_call_with_mental_model_scope(self, mock_tracker, fresh_recorder):
+        """scope='mental_model_delta_ops' → memory_mental_models bucket (scope fallback, no tag)."""
+        with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
+            with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.02, 0.01)):
+                recorder = CerebralCostRecorder()
+                recorder.record_llm_call(
+                    model="openai/gpt-4",
+                    scope="mental_model_delta_ops",
+                    input_tokens=100,
+                    output_tokens=50,
+                )
+
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_MENTAL_MODELS)
+        assert stats is not None
+        assert stats.input_tokens == 100
+        assert stats.output_tokens == 50
+
+    def test_record_llm_call_with_consolidation_task_tag(self, mock_tracker, fresh_recorder):
+        """current_memory_task='consolidation' with scope 'reflect' → memory_consolidation bucket."""
+        with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
+            with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.02, 0.01)):
+                token = current_memory_task.set("consolidation")
+                try:
+                    recorder = CerebralCostRecorder()
+                    recorder.record_llm_call(
+                        model="openai/gpt-4",
+                        scope="reflect",
+                        input_tokens=100,
+                        output_tokens=50,
+                    )
+                finally:
+                    current_memory_task.reset(token)
+
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_CONSOLIDATION)
+        assert stats is not None
+        assert stats.input_tokens == 100
+        assert stats.output_tokens == 50
+
+    def test_record_llm_call_with_refresh_mental_model_task_tag(self, mock_tracker, fresh_recorder):
+        """current_memory_task='refresh_mental_model' with scope 'reflect' → memory_mental_models bucket."""
+        with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
+            with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.02, 0.01)):
+                token = current_memory_task.set("refresh_mental_model")
+                try:
+                    recorder = CerebralCostRecorder()
+                    recorder.record_llm_call(
+                        model="openai/gpt-4",
+                        scope="reflect",
+                        input_tokens=100,
+                        output_tokens=50,
+                    )
+                finally:
+                    current_memory_task.reset(token)
+
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_MENTAL_MODELS)
+        assert stats is not None
+        assert stats.input_tokens == 100
+        assert stats.output_tokens == 50
+
+    def test_record_llm_call_recall_wins_over_task_tag(self, mock_tracker, fresh_recorder):
+        """current_recall_usage set AND current_memory_task set → memory_prefrontal (recall wins)."""
+        with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
+            with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.02, 0.01)):
+                with track_recall_usage() as usage:
+                    token = current_memory_task.set("consolidation")
+                    try:
+                        recorder = CerebralCostRecorder()
+                        recorder.record_llm_call(
+                            model="openai/gpt-4",
+                            scope="reflect",
+                            input_tokens=100,
+                            output_tokens=50,
+                        )
+                    finally:
+                        current_memory_task.reset(token)
+
+        # Should go to prefrontal, not consolidation
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_PREFRONTAL)
+        assert stats is not None
+        assert stats.input_tokens == 100
+        assert stats.output_tokens == 50
+        # Consolidation should be empty
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_CONSOLIDATION) is None
+
+    def test_record_llm_call_task_tag_wins_over_retain_scope(self, mock_tracker, fresh_recorder):
+        """current_memory_task='consolidation' with scope 'retain_extract_facts' → memory_consolidation (tag wins)."""
+        with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
+            with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.02, 0.01)):
+                token = current_memory_task.set("consolidation")
+                try:
+                    recorder = CerebralCostRecorder()
+                    recorder.record_llm_call(
+                        model="openai/gpt-4",
+                        scope="retain_extract_facts",
+                        input_tokens=100,
+                        output_tokens=50,
+                    )
+                finally:
+                    current_memory_task.reset(token)
+
+        # Task tag should win over scope
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_CONSOLIDATION)
+        assert stats is not None
+        assert stats.input_tokens == 100
+        assert stats.output_tokens == 50
+        # Retain should be empty
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_RETAIN) is None
 
     def test_record_llm_call_with_other_scope(self, mock_tracker, fresh_recorder):
         """Any other scope → memory_other bucket."""

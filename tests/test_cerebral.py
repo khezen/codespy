@@ -948,6 +948,120 @@ class TestCerebralTaskBackend:
 
         assert "MEMORY_EMBEDDINGS_MODEL" in str(exc_info.value)
 
+    def test_schema_sync_task_backend_sets_contextvar_for_consolidation(self):
+        """Test that _SchemaSyncTaskBackend sets current_memory_task for consolidation."""
+        from codespy.agents.memory.cerebral.cerebral import _SchemaSyncTaskBackend, HINDSIGHT_SCHEMA
+        from codespy.agents.memory.cerebral.cost import current_memory_task
+
+        backend = _SchemaSyncTaskBackend(HINDSIGHT_SCHEMA)
+        received_task_type = []
+
+        async def mock_executor(task_dict):
+            received_task_type.append(current_memory_task.get())
+
+        backend.set_executor(mock_executor)
+
+        import asyncio
+        asyncio.run(backend.submit_task({"type": "consolidation"}))
+
+        assert received_task_type == ["consolidation"]
+        # After the call, the contextvar should be reset
+        assert current_memory_task.get() is None
+
+    def test_schema_sync_task_backend_sets_contextvar_for_refresh_mental_model(self):
+        """Test that _SchemaSyncTaskBackend sets current_memory_task for refresh_mental_model."""
+        from codespy.agents.memory.cerebral.cerebral import _SchemaSyncTaskBackend, HINDSIGHT_SCHEMA
+        from codespy.agents.memory.cerebral.cost import current_memory_task
+
+        backend = _SchemaSyncTaskBackend(HINDSIGHT_SCHEMA)
+        received_task_type = []
+
+        async def mock_executor(task_dict):
+            received_task_type.append(current_memory_task.get())
+
+        backend.set_executor(mock_executor)
+
+        import asyncio
+        asyncio.run(backend.submit_task({"type": "refresh_mental_model"}))
+
+        assert received_task_type == ["refresh_mental_model"]
+        # After the call, the contextvar should be reset
+        assert current_memory_task.get() is None
+
+    def test_schema_sync_task_backend_no_contextvar_for_batch_retain(self):
+        """Test that _SchemaSyncTaskBackend does not set current_memory_task for batch_retain."""
+        from codespy.agents.memory.cerebral.cerebral import _SchemaSyncTaskBackend, HINDSIGHT_SCHEMA
+        from codespy.agents.memory.cerebral.cost import current_memory_task
+
+        backend = _SchemaSyncTaskBackend(HINDSIGHT_SCHEMA)
+        received_task_type = []
+
+        async def mock_executor(task_dict):
+            received_task_type.append(current_memory_task.get())
+
+        backend.set_executor(mock_executor)
+
+        import asyncio
+        asyncio.run(backend.submit_task({"type": "batch_retain"}))
+
+        assert received_task_type == [None]
+        # Contextvar should remain None
+        assert current_memory_task.get() is None
+
+    def test_schema_sync_task_backend_resets_contextvar_on_exception(self):
+        """Test that _SchemaSyncTaskBackend resets current_memory_task even when executor raises."""
+        from codespy.agents.memory.cerebral.cerebral import _SchemaSyncTaskBackend, HINDSIGHT_SCHEMA
+        from codespy.agents.memory.cerebral.cost import current_memory_task
+
+        backend = _SchemaSyncTaskBackend(HINDSIGHT_SCHEMA)
+
+        async def failing_executor(task_dict):
+            raise RuntimeError("task failed")
+
+        backend.set_executor(failing_executor)
+
+        import asyncio
+        # Pre-set a value to verify it's restored
+        token = current_memory_task.set("outer_task")
+        try:
+            with pytest.raises(RuntimeError, match="task failed"):
+                asyncio.run(backend.submit_task({"type": "consolidation"}))
+        finally:
+            current_memory_task.reset(token)
+
+        # After the call, the contextvar should be reset (back to None since we cleaned up)
+        assert current_memory_task.get() is None
+
+    def test_schema_sync_task_backend_nested_tasks_innermost_wins(self):
+        """Test nested tasks: innermost task type wins, outer restored after inner returns."""
+        from codespy.agents.memory.cerebral.cerebral import _SchemaSyncTaskBackend, HINDSIGHT_SCHEMA
+        from codespy.agents.memory.cerebral.cost import current_memory_task
+
+        backend_outer = _SchemaSyncTaskBackend(HINDSIGHT_SCHEMA)
+        backend_inner = _SchemaSyncTaskBackend(HINDSIGHT_SCHEMA)
+
+        inner_received = []
+
+        async def inner_executor(task_dict):
+            inner_received.append(current_memory_task.get())
+
+        async def outer_executor(task_dict):
+            # This simulates a consolidation task submitting a refresh_mental_model
+            if task_dict.get("type") == "consolidation":
+                backend_inner.set_executor(inner_executor)
+                await backend_inner.submit_task({"type": "refresh_mental_model"})
+            # After inner returns, outer's task should be restored
+
+        backend_outer.set_executor(outer_executor)
+
+        import asyncio
+        asyncio.run(backend_outer.submit_task({"type": "consolidation"}))
+
+        # Inner should see refresh_mental_model
+        assert inner_received == ["refresh_mental_model"]
+        # After everything, contextvar should be reset
+        assert current_memory_task.get() is None
+
 
 class TestCerebralReflectModel:
     def test_reflect_llm_forwarded_when_set(self, mock_memory_engine_class, mock_litellm):

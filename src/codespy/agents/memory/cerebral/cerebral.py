@@ -78,6 +78,10 @@ class _SchemaSyncTaskBackend(SyncTaskBackend):
     This backend also stands in for the worker poller's fail-marking: when a
     task fails, it marks the operation row as failed so that deduplication
     no longer blocks subsequent submissions.
+
+    Additionally, this backend sets a ContextVar (``current_memory_task``) around
+    task execution to enable cost attribution to ``memory_consolidation`` and
+    ``memory_mental_models`` buckets.
     """
 
     def __init__(self, schema: str):
@@ -95,12 +99,26 @@ class _SchemaSyncTaskBackend(SyncTaskBackend):
         if "_schema" not in task:
             task["_schema"] = self._schema
 
+        # Set contextvar for cost attribution when running consolidation or refresh
+        # Nested tasks: the innermost task wins; outer tag restored in finally
+        task_type = task.get("type")
+        token = None
+        if task_type in ("consolidation", "refresh_mental_model"):
+            from codespy.agents.memory.cerebral.cost import current_memory_task
+
+            token = current_memory_task.set(task_type)
+
         try:
             await super().submit_task(task)
         except Exception as exc:
             # Mark the operation as failed if it has an operation_id
             await self._mark_failed_if_pending(task, exc)
             raise
+        finally:
+            if token is not None:
+                from codespy.agents.memory.cerebral.cost import current_memory_task
+
+                current_memory_task.reset(token)
 
     async def _mark_failed_if_pending(self, task: dict, exc: Exception) -> None:
         """Mark the operation as failed if it's still pending."""
@@ -592,12 +610,21 @@ class Cerebral:
             episode.id, self._bank_id, episode.task,
         )
 
-        # Capture baseline memory_other stats for delta calculation
-        from codespy.agents.memory.cerebral.cost import BUCKET_MEMORY_OTHER
+        # Capture baseline stats for delta calculation (all three buckets)
         from codespy.agents.cost_tracker import get_cost_tracker
+        from codespy.agents.memory.cerebral.cost import (
+            BUCKET_MEMORY_CONSOLIDATION,
+            BUCKET_MEMORY_MENTAL_MODELS,
+            BUCKET_MEMORY_OTHER,
+        )
+
         tracker = get_cost_tracker()
-        baseline_stats = tracker.get_signature_stats(BUCKET_MEMORY_OTHER)
-        baseline_calls = baseline_stats.call_count if baseline_stats else 0
+        baseline_consolidation = tracker.get_signature_stats(BUCKET_MEMORY_CONSOLIDATION)
+        baseline_mental_models = tracker.get_signature_stats(BUCKET_MEMORY_MENTAL_MODELS)
+        baseline_other = tracker.get_signature_stats(BUCKET_MEMORY_OTHER)
+        baseline_calls_consolidation = baseline_consolidation.call_count if baseline_consolidation else 0
+        baseline_calls_mental_models = baseline_mental_models.call_count if baseline_mental_models else 0
+        baseline_calls_other = baseline_other.call_count if baseline_other else 0
 
         try:
             self._run_async(
@@ -620,17 +647,22 @@ class Cerebral:
             for scope_tags in mental_model_scopes:
                 self._submit_scoped_consolidation(scope_tags)
 
-        # Log consolidation completion with delta
-        end_stats = tracker.get_signature_stats(BUCKET_MEMORY_OTHER)
-        end_calls = end_stats.call_count if end_stats else baseline_calls
-        delta_calls = end_calls - baseline_calls
+        # Log consolidation completion with per-bucket deltas
+        end_consolidation = tracker.get_signature_stats(BUCKET_MEMORY_CONSOLIDATION)
+        end_mental_models = tracker.get_signature_stats(BUCKET_MEMORY_MENTAL_MODELS)
+        end_other = tracker.get_signature_stats(BUCKET_MEMORY_OTHER)
+        delta_calls_consolidation = (end_consolidation.call_count if end_consolidation else baseline_calls_consolidation) - baseline_calls_consolidation
+        delta_calls_mental_models = (end_mental_models.call_count if end_mental_models else baseline_calls_mental_models) - baseline_calls_mental_models
+        delta_calls_other = (end_other.call_count if end_other else baseline_calls_other) - baseline_calls_other
 
         logger.info(
             "cerebral: retained %d content blobs for episode %s (bank=%s, task=%s); "
-            "consolidation finished in %.1fs, memory_other +%d calls",
+            "consolidation finished in %.1fs, memory_consolidation +%d calls, memory_mental_models +%d calls, memory_other +%d calls",
             len(contents), episode.id, self._bank_id, episode.task,
             time.monotonic() - started,
-            delta_calls,
+            delta_calls_consolidation,
+            delta_calls_mental_models,
+            delta_calls_other,
         )
 
     @staticmethod

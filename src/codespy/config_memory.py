@@ -226,6 +226,8 @@ MEMORY_RETAIN = "memory_retain"
 MEMORY_EMBEDDINGS = "memory_embeddings"
 MEMORY_OTHER = "memory_other"
 MEMORY_PREFRONTAL = "memory_prefrontal"
+MEMORY_CONSOLIDATION = "memory_consolidation"
+MEMORY_MENTAL_MODELS = "memory_mental_models"
 
 # The reflection modules, derived from the HippocampusConfig fields that hold a
 # ReflectionModuleConfig. Iterate this instead of hardcoding module names so
