@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+pytest.importorskip("hindsight_api")
+
 from codespy.agents.cost_tracker import CostTracker, get_cost_tracker
 from codespy.agents.memory.cerebral.cost import (
     BUCKET_MEMORY_EMBEDDINGS,
@@ -508,3 +510,157 @@ class TestPinTests:
 
         sig = inspect.signature(LLMSpanRecorder.record_llm_call)
         assert "duration" in sig.parameters, "record_llm_call must accept 'duration' parameter"
+
+
+class TestResolveEmbeddingInputLimits:
+    """Tests for resolve_embedding_input_limits function."""
+
+    def test_bedrock_cohere_multilingual_v3_returns_2048_and_truncate(self):
+        """Bedrock Cohere multilingual v3 returns 2048 and truncate=END."""
+        from codespy.agents.memory.cerebral.cost import resolve_embedding_input_limits
+
+        max_chars, extra = resolve_embedding_input_limits("bedrock/cohere.embed-multilingual-v3")
+        assert max_chars == 2048
+        assert extra == {"truncate": "END"}
+
+    def test_bedrock_cohere_english_v3_returns_2048_and_truncate(self):
+        """Bedrock Cohere english v3 returns 2048 and truncate=END."""
+        from codespy.agents.memory.cerebral.cost import resolve_embedding_input_limits
+
+        max_chars, extra = resolve_embedding_input_limits("bedrock/cohere.embed-english-v3")
+        assert max_chars == 2048
+        assert extra == {"truncate": "END"}
+
+    def test_region_prefixed_bedrock_cohere_matches(self):
+        """Region-prefixed Bedrock Cohere models also match."""
+        from codespy.agents.memory.cerebral.cost import resolve_embedding_input_limits
+
+        max_chars, extra = resolve_embedding_input_limits("bedrock/eu.cohere.embed-multilingual-v3")
+        assert max_chars == 2048
+        assert extra == {"truncate": "END"}
+
+    def test_openai_returns_none_and_empty(self):
+        """OpenAI models return None and empty dict."""
+        from codespy.agents.memory.cerebral.cost import resolve_embedding_input_limits
+
+        max_chars, extra = resolve_embedding_input_limits("openai/text-embedding-3-small")
+        assert max_chars is None
+        assert extra == {}
+
+    def test_override_0_disables_cap(self):
+        """Override=0 disables character capping."""
+        from codespy.agents.memory.cerebral.cost import resolve_embedding_input_limits
+
+        max_chars, extra = resolve_embedding_input_limits("bedrock/cohere.embed-multilingual-v3", override=0)
+        assert max_chars is None
+        assert extra == {}
+
+    def test_override_n_uses_custom_cap(self):
+        """Override=N uses custom character cap."""
+        from codespy.agents.memory.cerebral.cost import resolve_embedding_input_limits
+
+        max_chars, extra = resolve_embedding_input_limits("bedrock/cohere.embed-multilingual-v3", override=3000)
+        assert max_chars == 3000
+        assert extra == {"truncate": "END"}
+
+    def test_custom_cap_for_non_cohere_returns_empty_extra(self):
+        """Custom cap for non-Cohere models returns empty extra."""
+        from codespy.agents.memory.cerebral.cost import resolve_embedding_input_limits
+
+        max_chars, extra = resolve_embedding_input_limits("openai/text-embedding-3-small", override=3000)
+        assert max_chars == 3000
+        assert extra == {}
+
+
+class TestLiteLLMProxyInputCapping:
+    """Tests for _LiteLLMProxy input capping."""
+
+    @pytest.fixture
+    def mock_litellm(self):
+        """Create a mock litellm module."""
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_response(self):
+        """Create a mock embedding response."""
+        response = MagicMock()
+        response.usage = MagicMock()
+        response.usage.prompt_tokens = 100
+        response._hidden_params = {"response_cost": 0.01}
+        return response
+
+    @pytest.mark.asyncio
+    async def test_no_truncation_when_under_cap(self, mock_litellm, mock_response):
+        """Input under cap is not truncated."""
+        mock_litellm.aembedding.return_value = asyncio.Future()
+        mock_litellm.aembedding.return_value.set_result(mock_response)
+
+        from codespy.agents.memory.cerebral.cost import _LiteLLMProxy, CerebralCostRecorder
+
+        proxy = _LiteLLMProxy(mock_litellm, CerebralCostRecorder(), max_input_chars=100)
+        await proxy.aembedding(model="test", input=["short"])
+
+        call_args = mock_litellm.aembedding.call_args
+        assert call_args.kwargs["input"] == ["short"]
+
+    @pytest.mark.asyncio
+    async def test_truncation_when_over_cap(self, mock_litellm, mock_response):
+        """Input over cap is truncated."""
+        mock_litellm.aembedding.return_value = asyncio.Future()
+        mock_litellm.aembedding.return_value.set_result(mock_response)
+
+        from codespy.agents.memory.cerebral.cost import _LiteLLMProxy, CerebralCostRecorder
+
+        proxy = _LiteLLMProxy(mock_litellm, CerebralCostRecorder(), max_input_chars=5)
+        await proxy.aembedding(model="test", input=["this is a long text"])
+
+        call_args = mock_litellm.aembedding.call_args
+        assert call_args.kwargs["input"] == ["this "]
+
+    @pytest.mark.asyncio
+    async def test_does_not_mutate_original_list(self, mock_litellm, mock_response):
+        """Original input list is not mutated."""
+        mock_litellm.aembedding.return_value = asyncio.Future()
+        mock_litellm.aembedding.return_value.set_result(mock_response)
+
+        from codespy.agents.memory.cerebral.cost import _LiteLLMProxy, CerebralCostRecorder
+
+        original = ["this is a long text"]
+        original_copy = list(original)
+
+        proxy = _LiteLLMProxy(mock_litellm, CerebralCostRecorder(), max_input_chars=5)
+        await proxy.aembedding(model="test", input=original)
+
+        assert original == original_copy
+
+    @pytest.mark.asyncio
+    async def test_extra_kwargs_forwarded(self, mock_litellm, mock_response):
+        """Extra kwargs are forwarded to the embedding call."""
+        mock_litellm.aembedding.return_value = asyncio.Future()
+        mock_litellm.aembedding.return_value.set_result(mock_response)
+
+        from codespy.agents.memory.cerebral.cost import _LiteLLMProxy, CerebralCostRecorder
+
+        proxy = _LiteLLMProxy(
+            mock_litellm, CerebralCostRecorder(), max_input_chars=100, extra_kwargs={"truncate": "END"}
+        )
+        await proxy.aembedding(model="test", input=["short"])
+
+        call_args = mock_litellm.aembedding.call_args
+        assert call_args.kwargs["truncate"] == "END"
+
+    @pytest.mark.asyncio
+    async def test_explicit_caller_kwargs_win_over_extra(self, mock_litellm, mock_response):
+        """Explicit caller kwargs win over extra_kwargs."""
+        mock_litellm.aembedding.return_value = asyncio.Future()
+        mock_litellm.aembedding.return_value.set_result(mock_response)
+
+        from codespy.agents.memory.cerebral.cost import _LiteLLMProxy, CerebralCostRecorder
+
+        proxy = _LiteLLMProxy(
+            mock_litellm, CerebralCostRecorder(), max_input_chars=100, extra_kwargs={"truncate": "END"}
+        )
+        await proxy.aembedding(model="test", input=["short"], truncate="START")
+
+        call_args = mock_litellm.aembedding.call_args
+        assert call_args.kwargs["truncate"] == "START"

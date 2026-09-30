@@ -5,6 +5,8 @@
 ### Fixed
 - Cerebral consolidation no longer logs `relation "webhooks" does not exist`. Inline (`SyncTaskBackend`) tasks now carry the `semantic` schema, so consolidation completion no longer rolls back and falls back.
 - Cerebral consolidation no longer fails at exit with `cannot schedule new futures after shutdown`. Background episode saves now finish before Python shuts down its thread pools, and the pipeline waits for them without the old 120 s cap. Runs can end later, because posting the review now waits for the consolidation to finish.
+- Briefings no longer stay stuck on "Generating content..." after a failed refresh. The `_SchemaSyncTaskBackend` now marks failed operations as failed, and startup repair marks orphaned pending operations older than 1 hour as failed so subsequent refreshes can proceed.
+- Embedding inputs are now capped for Bedrock Cohere v3 (2048 characters) to prevent `maxLength: 2048, actual: 2639` errors. Use `memory.cerebral.embeddings.max_input_chars` (env: `MEMORY_EMBEDDINGS_MAX_INPUT_CHARS`) to override: `null` = auto per model, `0` = disabled, `N` = custom cap.
 
 ### Added
 - **Prefrontal reflect hard caps**: programmatic reflect configuration with new caps:

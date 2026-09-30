@@ -136,6 +136,7 @@ memory:
       chunk_size: 12288                   # MEMORY_RETAIN_CHUNK_SIZE (chars, must be < 64000)
     embeddings:
       model: null                         # MEMORY_EMBEDDINGS_MODEL (auto-derived from provider)
+      max_input_chars: null               # MEMORY_EMBEDDINGS_MAX_INPUT_CHARS (null=auto per model, e.g. 2048 for Bedrock Cohere v3; 0=off)
 
   # Prefrontal (semantic recall from Cerebral into agent context: read-only)
   prefrontal:

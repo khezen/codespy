@@ -74,16 +74,73 @@ class _SchemaSyncTaskBackend(SyncTaskBackend):
     a bare table name instead of falling back to ``database_schema`` like
     ``fq_table`` and ``fq_routine`` do. This subclass can be removed once
     Hindsight falls back to ``database_schema`` there.
+
+    This backend also stands in for the worker poller's fail-marking: when a
+    task fails, it marks the operation row as failed so that deduplication
+    no longer blocks subsequent submissions.
     """
 
     def __init__(self, schema: str):
         super().__init__()
         self._schema = schema
+        self._engine: MemoryEngine | None = None
+
+    def attach(self, engine: MemoryEngine) -> None:
+        """Attach a MemoryEngine for DB operations on task failure."""
+        self._engine = engine
 
     async def submit_task(self, task_dict):
-        if "_schema" not in task_dict:
-            task_dict = {**task_dict, "_schema": self._schema}
-        await super().submit_task(task_dict)
+        # Work on a copy to avoid mutating the caller's dict
+        task = dict(task_dict)
+        if "_schema" not in task:
+            task["_schema"] = self._schema
+
+        try:
+            await super().submit_task(task)
+        except Exception as exc:
+            # Mark the operation as failed if it has an operation_id
+            await self._mark_failed_if_pending(task, exc)
+            raise
+
+    async def _mark_failed_if_pending(self, task: dict, exc: Exception) -> None:
+        """Mark the operation as failed if it's still pending."""
+        op_id = task.get("operation_id")
+        if not op_id or self._engine is None:
+            return
+
+        from hindsight_api.engine.db_utils import acquire_with_retry
+
+        try:
+            # Format error message (truncate to 5000 chars)
+            try:
+                from hindsight_api.worker.exceptions import format_task_error
+
+                error_msg = format_task_error(exc)
+            except Exception:
+                error_msg = f"{type(exc).__name__}: {exc}"
+            if len(error_msg) > 5000:
+                error_msg = error_msg[:5000]
+
+            async with acquire_with_retry(self._engine._backend, max_retries=1) as conn:
+                await conn.execute(
+                    f"""
+                    UPDATE "{self._schema}".async_operations
+                    SET status = 'failed',
+                        error_message = $2,
+                        updated_at = NOW()
+                    WHERE operation_id = $1
+                      AND status = 'pending'
+                    """,
+                    op_id,
+                    error_msg,
+                )
+        except Exception:
+            # Log but don't propagate - the original exception is more important
+            logger.warning(
+                "Failed to mark operation %s as failed",
+                op_id,
+                exc_info=True,
+            )
 
 from codespy.agents.memory.cerebral.cost import (
     CerebralCostRecorder,
@@ -181,6 +238,7 @@ class Cerebral:
         reflect_llm_model: str | None = None,
         reflect_llm_api_key: str | None = None,
         reflect_llm_base_url: str | None = None,
+        embeddings_max_input_chars: int | None = None,
     ):
         # Fail fast: test the embedding model before building MemoryEngine.
         # A bad model name, missing creds, or unavailable region surfaces here
@@ -191,7 +249,7 @@ class Cerebral:
         except Exception as exc:
             raise RuntimeError(
                 f"Cerebral: embedding model {embeddings_model!r} is not available. "
-                f"Set MEMORY_HINDSIGHT_EMBEDDINGS_MODEL to a valid litellm embedding model. "
+                f"Set MEMORY_EMBEDDINGS_MODEL to a valid litellm embedding model. "
                 f"Error: {exc}"
             ) from exc
 
@@ -208,6 +266,13 @@ class Cerebral:
         # all LLM calls (including the probe) are captured.
         cost_recorder = register_cerebral_cost_recorder()
 
+        # Resolve embedding input limits (auto-detect for Bedrock Cohere v3)
+        from codespy.agents.memory.cerebral.cost import resolve_embedding_input_limits
+
+        max_input_chars, extra_kwargs = resolve_embedding_input_limits(
+            embeddings_model, embeddings_max_input_chars
+        )
+
         # Use metered embeddings that capture usage costs
         base_embeddings = LiteLLMSDKEmbeddings(
             model=embeddings_model,
@@ -216,6 +281,8 @@ class Cerebral:
         metered_embeddings = MeteredLiteLLMSDKEmbeddings(
             base=base_embeddings,
             cost_recorder=cost_recorder,
+            max_input_chars=max_input_chars,
+            extra_kwargs=extra_kwargs,
         )
 
         # Separate reflect LLM (Prefrontal reflect + mental-model refresh), only
@@ -229,6 +296,10 @@ class Cerebral:
                 "reflect_llm_base_url": reflect_llm_base_url or None,
             }
 
+        # Run consolidation and mental-model refreshes inline. The default
+        # BrokerTaskBackend only queues rows for a WorkerPoller, which
+        # codespy never starts, so they would never run.
+        task_backend = _SchemaSyncTaskBackend(HINDSIGHT_SCHEMA)
         self._engine = MemoryEngine(
             db_url=database_url,
             memory_llm_provider=llm_provider,
@@ -240,17 +311,25 @@ class Cerebral:
             cross_encoder=RRFPassthroughCrossEncoder(),
             tenant_extension=DefaultTenantExtension(config={"schema": HINDSIGHT_SCHEMA}),
             skip_llm_verification=True,
-            # Run consolidation and mental-model refreshes inline. The default
-            # BrokerTaskBackend only queues rows for a WorkerPoller, which
-            # codespy never starts, so they would never run.
-            task_backend=_SchemaSyncTaskBackend(HINDSIGHT_SCHEMA),
+            task_backend=task_backend,
         )
+
+        # Attach engine to task backend so it can mark failed operations
+        task_backend.attach(self._engine)
+
         self._run_async(self._engine.initialize())
 
         # One-time repair: install maintenance routines if missing.
         # This is idempotent and only needed for databases that were migrated
         # before HINDSIGHT_API_DATABASE_SCHEMA was set to "semantic" (upstream #2638).
         self._run_async(ensure_maintenance_routines(self._engine, HINDSIGHT_SCHEMA))
+
+        # Repair orphaned pending operations left by inline SyncTaskBackend
+        from codespy.agents.memory.cerebral.orphans import repair_orphaned_operations
+
+        self._run_async(
+            repair_orphaned_operations(self._engine, HINDSIGHT_SCHEMA, bank_id)
+        )
 
         self._bank_id = bank_id
         self._bank_ensured = False
@@ -265,8 +344,9 @@ class Cerebral:
         self._consolidation_lock = threading.Lock()
 
         logger.info(
-            "Cerebral MemoryEngine initialized (schema=%s, bank=%s, embeddings=%s, provider=%s, chunk_size=%s)",
+            "Cerebral MemoryEngine initialized (schema=%s, bank=%s, embeddings=%s, provider=%s, chunk_size=%s, max_input_chars=%s)",
             HINDSIGHT_SCHEMA, bank_id, embeddings_model, llm_provider, retain_chunk_size,
+            max_input_chars,
         )
 
     def _run_async(self, coro):

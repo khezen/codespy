@@ -8,6 +8,7 @@ wrapping the LiteLLM SDK with a proxy that captures usage.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from typing import TYPE_CHECKING, Any
@@ -24,6 +25,9 @@ if TYPE_CHECKING:
     from hindsight_api.engine.embeddings import LiteLLMSDKEmbeddings
 
 logger = logging.getLogger(__name__)
+
+# Track if we've warned about truncating inputs (once per process)
+_warned_truncation: bool = False
 
 # Module-level lock for thread-safe registration
 _recorder_lock = threading.Lock()
@@ -168,17 +172,74 @@ class _LiteLLMProxy:
     returning the response. All other attributes forward to the real litellm.
     """
 
-    def __init__(self, real_litellm: Any, cost_recorder: "CerebralCostRecorder") -> None:
+    def __init__(
+        self,
+        real_litellm: Any,
+        cost_recorder: "CerebralCostRecorder",
+        max_input_chars: int | None = None,
+        extra_kwargs: dict[str, Any] | None = None,
+    ) -> None:
         self._real = real_litellm
         self._recorder = cost_recorder
+        self._max_input_chars = max_input_chars
+        self._extra_kwargs = extra_kwargs or {}
 
     async def aembedding(self, **kwargs: Any) -> Any:
         """Call litellm.aembedding and meter the usage."""
+        # Apply character cap to input if configured
+        if self._max_input_chars is not None:
+            kwargs = self._apply_input_cap(kwargs)
+
+        # Merge extra_kwargs (explicit caller values win)
+        for key, value in self._extra_kwargs.items():
+            kwargs.setdefault(key, value)
+
         start = time.perf_counter()
         response = await self._real.aembedding(**kwargs)
         elapsed = time.perf_counter() - start
         self._meter_embedding(response, kwargs.get("model", ""), elapsed)
         return response
+
+    def _apply_input_cap(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Apply character cap to input strings.
+
+        Creates a new input list with each string longer than the cap cut to
+        text[:cap]. Non-str items are left as-is. Logs a warning on first
+        truncation, then debug.
+        """
+        global _warned_truncation
+
+        input_data = kwargs.get("input")
+        if not isinstance(input_data, list):
+            return kwargs
+
+        new_input: list[Any] = []
+        max_seen = 0
+        truncated_count = 0
+
+        for item in input_data:
+            if isinstance(item, str) and len(item) > self._max_input_chars:
+                new_input.append(item[: self._max_input_chars])
+                max_seen = max(max_seen, len(item))
+                truncated_count += 1
+            else:
+                new_input.append(item)
+                if isinstance(item, str):
+                    max_seen = max(max_seen, len(item))
+
+        if truncated_count > 0:
+            level = logging.WARNING if not _warned_truncation else logging.DEBUG
+            _warned_truncation = True
+            logger.log(
+                level,
+                "Truncated %d embedding input(s) to %d chars (largest was %d)",
+                truncated_count,
+                self._max_input_chars,
+                max_seen,
+            )
+
+        # Return new kwargs with capped input (don't mutate caller's dict)
+        return {**kwargs, "input": new_input}
 
     def __getattr__(self, name: str) -> Any:
         """Forward all other attributes to the real litellm."""
@@ -252,10 +313,19 @@ to capture embedding usage. The dimension detection probe during
     ``initialize()`` is intentionally unmetered.
     """
 
-    def __init__(self, *, base: LiteLLMSDKEmbeddings, cost_recorder: CerebralCostRecorder) -> None:
+    def __init__(
+        self,
+        *,
+        base: LiteLLMSDKEmbeddings,
+        cost_recorder: CerebralCostRecorder,
+        max_input_chars: int | None = None,
+        extra_kwargs: dict[str, Any] | None = None,
+    ) -> None:
         self._base = base
         self._recorder = cost_recorder
         self._proxy_set = False
+        self._max_input_chars = max_input_chars
+        self._extra_kwargs = extra_kwargs or {}
 
     async def initialize(self) -> None:
         """Initialize the base embeddings, then wrap _litellm."""
@@ -266,7 +336,12 @@ to capture embedding usage. The dimension detection probe during
         # calls, not the probe. Must check if already wrapped because
         # initialize() may be called multiple times.
         if not self._proxy_set and hasattr(self._base, "_litellm") and self._base._litellm is not None:
-            self._base._litellm = _LiteLLMProxy(self._base._litellm, self._recorder)
+            self._base._litellm = _LiteLLMProxy(
+                self._base._litellm,
+                self._recorder,
+                max_input_chars=self._max_input_chars,
+                extra_kwargs=self._extra_kwargs,
+            )
             self._proxy_set = True
 
     def __getattr__(self, name: str) -> Any:
@@ -338,3 +413,43 @@ def unregister_cerebral_cost_recorder(recorder: CerebralCostRecorder | None = No
             logger.debug("CerebralCostRecorder unregistered")
         except Exception as e:
             logger.debug("Failed to unregister CerebralCostRecorder: %s", e)
+
+
+def resolve_embedding_input_limits(
+    model: str, override: int | None = None
+) -> tuple[int | None, dict[str, Any]]:
+    """Resolve the maximum input characters and extra kwargs for embeddings.
+
+    Bedrock Cohere embed v3 has a 2048 character limit that Hindsight does not
+    handle. This function returns the cap and any extra kwargs (e.g., truncate)
+    needed to stay within the limit.
+
+    Args:
+        model: The litellm model string (e.g., "bedrock/cohere.embed-multilingual-v3").
+        override: User override for the character cap:
+            - None (default): Auto-detect based on model (2048 for Bedrock Cohere v3).
+            - 0: Disable character capping (use Hindsight's token-based limit).
+            - N > 0: Use this specific character cap.
+
+    Returns:
+        Tuple of (max_input_chars, extra_kwargs):
+        - max_input_chars: The character cap (None means no cap), or the override value.
+        - extra_kwargs: Dict of extra kwargs to pass to the embedding call
+          (e.g., {"truncate": "END"} for Cohere models).
+    """
+    # Handle override
+    if override == 0:
+        return None, {}
+    if override is not None and override > 0:
+        # For Bedrock Cohere models, still add truncate even with custom cap
+        if re.search(r"bedrock/.*cohere\.embed-(english|multilingual)-v3", model):
+            return override, {"truncate": "END"}
+        return override, {}
+
+    # Auto-detect based on model
+    # Match Bedrock Cohere v3 models (including region-prefixed like eu.cohere...)
+    if re.search(r"bedrock/.*cohere\.embed-(english|multilingual)-v3", model):
+        return 2048, {"truncate": "END"}
+
+    # Default: no character cap (Hindsight's token-based limit applies)
+    return None, {}

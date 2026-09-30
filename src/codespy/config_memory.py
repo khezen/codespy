@@ -96,6 +96,11 @@ class CerebralEmbeddingsConfig(BaseModel):
     """Cerebral (semantic memory) embeddings configuration."""
 
     model: str | None = None  # Auto-derived from provider if unset
+    max_input_chars: int | None = Field(
+        default=None,
+        ge=0,
+        description="Maximum characters per embedding input. null=auto (2048 for Bedrock Cohere v3), 0=off, N=cap",
+    )
 
 
 class CerebralConfig(BaseModel):
@@ -514,6 +519,7 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
             retain_chunk_size=settings.memory.cerebral.retain.chunk_size,
             mental_models=settings.memory.prefrontal.reflects > 0,
             max_mental_model_tokens=settings.memory.prefrontal.max_mental_model_tokens,
+            embeddings_max_input_chars=settings.memory.cerebral.embeddings.max_input_chars,
             **reflect_kwargs,
         )
     except Exception:

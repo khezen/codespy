@@ -912,6 +912,42 @@ class TestCerebralTaskBackend:
         assert original == original_copy  # Original should be unchanged
         assert received_task.get("_schema") == "semantic"
 
+    def test_schema_sync_task_backend_has_attach_method(self):
+        """Test that _SchemaSyncTaskBackend has an attach method for engine binding."""
+        from codespy.agents.memory.cerebral.cerebral import _SchemaSyncTaskBackend, HINDSIGHT_SCHEMA
+
+        backend = _SchemaSyncTaskBackend(HINDSIGHT_SCHEMA)
+        mock_engine = MagicMock()
+
+        # attach should set _engine
+        backend.attach(mock_engine)
+        assert backend._engine is mock_engine
+
+    def test_schema_sync_task_backend_catches_exception_and_re_raises(self):
+        """Test that _SchemaSyncTaskBackend catches exceptions, tries to mark failed, and re-raises."""
+        from codespy.agents.memory.cerebral.cerebral import _SchemaSyncTaskBackend, HINDSIGHT_SCHEMA
+
+        backend = _SchemaSyncTaskBackend(HINDSIGHT_SCHEMA)
+
+        async def failing_executor(task_dict):
+            raise RuntimeError("task failed")
+
+        backend.set_executor(failing_executor)
+
+        import asyncio
+        with pytest.raises(RuntimeError, match="task failed"):
+            asyncio.run(backend.submit_task({"type": "consolidation", "operation_id": "op-123"}))
+
+    def test_error_message_uses_correct_env_var(self, mock_memory_engine_class, mock_litellm):
+        """Test that embedding probe error mentions MEMORY_EMBEDDINGS_MODEL."""
+        import litellm
+
+        with patch.object(litellm, "embedding", side_effect=Exception("API error")):
+            with pytest.raises(RuntimeError) as exc_info:
+                Cerebral(database_url="postgresql://localhost:5432/test", llm_provider="litellm")
+
+        assert "MEMORY_EMBEDDINGS_MODEL" in str(exc_info.value)
+
 
 class TestCerebralReflectModel:
     def test_reflect_llm_forwarded_when_set(self, mock_memory_engine_class, mock_litellm):
