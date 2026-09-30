@@ -125,6 +125,7 @@ AUTO_DISCOVER_GEMINI=false
 | Cheap | PR summary | `REVIEW_SUMMARY_MODEL` | Falls back to DEFAULT_MODEL | Claude Haiku |
 | Mid-tier | Memory reflection | `MEMORY_DISTILLER_MODEL` / `MEMORY_CARTOGRAPHER_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
 | Mid-tier | Semantic memory (fact extraction) | `MEMORY_RETAIN_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
+| Mid-tier | Semantic recall (reflect + briefings) | `MEMORY_PREFRONTAL_MODEL` | Falls back to MEMORY_RETAIN_MODEL → DEFAULT_MODEL | Claude Sonnet |
 
 ## Per-Signature Configuration
 
@@ -202,6 +203,29 @@ LLM provider and credentials are auto-derived from the model string and existing
 | Retain Chunk Size | `MEMORY_RETAIN_CHUNK_SIZE` | `12288` | Chars per extraction chunk (< 64000) |
 
 Hindsight MemoryEngine uses the same PostgreSQL instance under the `semantic` schema (created automatically alongside `episodic`).
+Consolidation and mental-model refreshes run inline in the background save thread.
+
+## Prefrontal Semantic Recall
+
+Prefrontal reads Cerebral before each agent call and injects a read-only `prefrontal_memory`
+input (briefings, recalled facts, facts from other repositories); the RLM agents also get a
+`recall_memory` tool. It is active per signature when memory is enabled and Cerebral is available.
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| Model | `MEMORY_PREFRONTAL_MODEL` | `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` | Model for the reflect loop and mental-model (briefing) refresh; unused when reflects = 0 |
+| Reach | `MEMORY_PREFRONTAL_REACH` | `org` | `local`, `org` or `bank` |
+| Reflects | `MEMORY_PREFRONTAL_REFLECTS` | `3` | Reflect iterations; `0` = raw facts, no LLM, no briefings |
+| Mental model tokens | `MEMORY_MAX_MENTAL_MODEL_TOKENS` | `2048` | Briefing size |
+| Pre-call tokens | `MEMORY_MAX_PREFRONTAL_TOKENS` | `8192` | Pre-call context budget |
+| Tool tokens | `MEMORY_MAX_PREFRONTAL_TOOL_TOKENS` | `2048` | Tool result budget |
+| Tool calls | `MEMORY_MAX_PREFRONTAL_TOOL_CALLS` | `0` | Per agent call (0 = tool off) |
+
+Every recall (pre-call load and each `recall_memory` call) is logged as one INFO line and
+stored with its full text, model, token usage and cost in the episodic `recalls` table. Its
+cost appears in the `memory_prefrontal` line of the cost report.
+
+See [Memory System](memory.md#semantic-memory-cerebral-and-prefrontal) for details.
 
 ## Output Settings
 

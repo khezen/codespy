@@ -10,10 +10,11 @@ from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
+from codespy.agents.memory.prefrontal import build_facets, with_prefrontal_memory
 from codespy.agents.review.models import Issue, ReviewContext
 from codespy.agents.review.helpers import deepest_common_folder
 from codespy.config import get_settings
-from codespy.config_memory import get_cerebral, get_episode_store
+from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 
 if TYPE_CHECKING:
     from codespy.agents.review.scope.models import ScopeResult
@@ -59,6 +60,7 @@ class Auditor(dspy.Module):
         run_id: str | None,
         scopes: list["ScopeResult"] | None,
         topics: list["ScopeResult"] | None = None,
+        prefrontal_memory: str | None = None,
     ) -> tuple[dspy.Prediction, Hippocampus | None, "EpisodeStore | None", dict[str, str] | None]:
         """Execute the auditor predictor (with or without Hippocampus memory).
 
@@ -66,6 +68,10 @@ class Auditor(dspy.Module):
             Tuple of (result, hippo, store, artifacts) where hippo/store/artifacts
             are None when memory is disabled.
         """
+        # Prefrontal context (None when inactive); never given to Hippocampus.
+        pf_kwargs: dict[str, str] = (
+            {"prefrontal_memory": prefrontal_memory} if prefrontal_memory is not None else {}
+        )
         question = (
             f"final audit of {review_context.pr_context.repo_slug}: "
             f"pull request {review_context.pr_context.pr_number} "
@@ -113,6 +119,7 @@ class Auditor(dspy.Module):
                 pr_title=review_context.pr_context.pr_title,
                 summary=review_context.pr_context.summary,
                 all_issues=all_issues,
+                **pf_kwargs,
             )
             hippo.observe(result)
             _artifacts = {
@@ -127,6 +134,7 @@ class Auditor(dspy.Module):
                 pr_title=review_context.pr_context.pr_title,
                 summary=review_context.pr_context.summary,
                 all_issues=all_issues,
+                **pf_kwargs,
             )
             return result, None, None, None
 
@@ -157,9 +165,19 @@ class Auditor(dspy.Module):
                 "NEEDS_DISCUSSION" if all_issues else "APPROVE",
             )
 
+        repo_full_name = review_context.pr_context.repo_full_name
+        scope_topic_ids = [scope.topic(repo_full_name).id for scope in scopes or []]
+        pf = get_prefrontal(
+            self._settings,
+            "audit",
+            repo_full_name,
+            scope_topic_ids=scope_topic_ids,
+            include_repo=True,
+        )
+        sig = with_prefrontal_memory(AuditSignature) if pf else AuditSignature
         auditor = ContextSafe(
-            dspy.ChainOfThought(AuditSignature),
-            AuditSignature,
+            dspy.ChainOfThought(sig),
+            sig,
             name="audit",
             max_iters=self._settings.get_max_iters("audit"),
             max_llm_calls=self._settings.get_max_llm_calls("audit"),
@@ -168,6 +186,18 @@ class Auditor(dspy.Module):
         logger.info("Running audit...")
 
         with SignatureContext("audit", self._cost_tracker):
+            prefrontal_memory = (
+                pf.load(
+                    build_facets(
+                        "audit",
+                        repo_full_name,
+                        pr_title=review_context.pr_context.pr_title,
+                        summary=review_context.pr_context.summary,
+                    )
+                )
+                if pf is not None
+                else None
+            )
             result, hippo, store, _artifacts = self._call_auditor(
                 auditor,
                 review_context,
@@ -175,6 +205,7 @@ class Auditor(dspy.Module):
                 run_id,
                 scopes,
                 topics,
+                prefrontal_memory=prefrontal_memory,
             )
 
         # Background episode save (after SignatureContext closes)
@@ -183,12 +214,16 @@ class Auditor(dspy.Module):
             _cerebral = cerebral
             def _persist():
                 try:
-                    hippo.end_episode(store, artifacts=_artifacts)
+                    hippo.end_episode(
+                        store,
+                        artifacts=_artifacts,
+                        recalls=pf.recalls if pf else None,
+                    )
                 except Exception:
                     logger.warning("Audit episode save failed", exc_info=True)
                 if _cerebral is not None and hippo.episode is not None:
                     try:
-                        _cerebral.retain_episode(hippo.episode)
+                        _cerebral.retain_episode(hippo.episode, repo_full_name=repo_full_name)
                     except Exception:
                         logger.warning("Background cerebral retain failed", exc_info=True)
             submit_episode_save(_persist, name="audit-episode-save")

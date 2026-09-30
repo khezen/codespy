@@ -12,9 +12,11 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any
 
+from codespy.agents.memory.recall import current_recall_usage
 from codespy.config_memory import (
     MEMORY_EMBEDDINGS,
     MEMORY_OTHER,
+    MEMORY_PREFRONTAL,
     MEMORY_RETAIN,
 )
 
@@ -31,6 +33,10 @@ _recorder_registered = False
 BUCKET_MEMORY_RETAIN = MEMORY_RETAIN
 BUCKET_MEMORY_OTHER = MEMORY_OTHER
 BUCKET_MEMORY_EMBEDDINGS = MEMORY_EMBEDDINGS
+# Prefrontal reads (recall/reflect inside a track_recall_usage() block)
+BUCKET_MEMORY_PREFRONTAL = MEMORY_PREFRONTAL
+# Prefrontal embeddings (separate bucket for embeddings during Prefrontal recall)
+BUCKET_MEMORY_PREFRONTAL_EMBEDDINGS = f"{MEMORY_PREFRONTAL}_embeddings"
 
 # Track models we've warned about missing prices (one warning per model)
 _warned_unpriced_models: set[str] = set()
@@ -65,26 +71,32 @@ class CerebralCostRecorder:
             error: Exception if the call failed
             duration: Duration of the call in seconds
             **_: Ignored extra kwargs for forward compatibility
+
+        Note:
+            Provider-internal retries are not counted — only successful calls
+            and errored calls that reached the provider (with billed usage).
         """
         try:
-            # Skip failed calls
-            if error is not None:
-                return
-
-            # Skip calls with no tokens
+            # Skip calls with no tokens (includes failed calls that never reached provider)
             if input_tokens == 0 and output_tokens == 0:
                 return
-
-            # Determine bucket from scope
-            if scope and scope.startswith("retain"):
-                bucket = BUCKET_MEMORY_RETAIN
-            else:
-                bucket = BUCKET_MEMORY_OTHER
 
             # Price the call using litellm
             prompt_cost, completion_cost = self._price_call_split(model, input_tokens, output_tokens)
             cost = prompt_cost + completion_cost
             tokens = input_tokens + output_tokens
+
+            # Determine bucket: an active Prefrontal recall wins over the scope,
+            # because Hindsight scopes cannot tell a Prefrontal reflect apart
+            # from a mental-model refresh.
+            usage = current_recall_usage.get()
+            if usage is not None:
+                usage.add_llm(model, input_tokens, output_tokens, prompt_cost, completion_cost)
+                bucket = BUCKET_MEMORY_PREFRONTAL
+            elif scope and scope.startswith("retain"):
+                bucket = BUCKET_MEMORY_RETAIN
+            else:
+                bucket = BUCKET_MEMORY_OTHER
 
             # Import here to avoid circular imports at module load
             from codespy.agents.cost_tracker import get_cost_tracker
@@ -207,10 +219,17 @@ class _LiteLLMProxy:
             # Import here to avoid circular imports
             from codespy.agents.cost_tracker import get_cost_tracker
 
+            usage = current_recall_usage.get()
+            if usage is not None:
+                usage.add_embedding(tokens, cost or 0.0)
+                bucket = BUCKET_MEMORY_PREFRONTAL_EMBEDDINGS
+            else:
+                bucket = BUCKET_MEMORY_EMBEDDINGS
+
             tracker = get_cost_tracker()
             # Embeddings have no output tokens - all tokens are input
             tracker.add_external_call(
-                BUCKET_MEMORY_EMBEDDINGS,
+                bucket,
                 cost=cost or 0.0,
                 tokens=tokens,
                 calls=1,

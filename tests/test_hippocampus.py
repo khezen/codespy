@@ -959,3 +959,124 @@ class TestLoadContextTombstones:
         obs = loaded.find_observation(oid)[1]
         assert obs.content == "v2"
         assert obs.topic_ids == [t2.id]
+
+
+def _recall_records():
+    from codespy.agents.memory.recall import RecallRecord
+
+    return [
+        RecallRecord(
+            ordinal=0,
+            kind="load",
+            query="context query",
+            reach="org",
+            reflects=5,
+            status="ok",
+            text="## Around this work\nRECALLED-SECRET-TEXT",
+            model="openai/gpt-4o-mini",
+            llm_calls=3,
+            input_tokens=1200,
+            output_tokens=300,
+            input_cost=0.012,
+            output_cost=0.006,
+            latency_ms=4200,
+            details={"briefings": 1, "remote": 2, "facets": {"context": {"count": 1}}},
+        ),
+        RecallRecord(
+            ordinal=1,
+            kind="tool",
+            query="where is login",
+            reach="local",
+            status="limit",
+            text="recall limit reached",
+            details={"requested_reach": "bank", "mode": "reflect"},
+        ),
+    ]
+
+
+class TestEpisodeStoreRecalls:
+    """Prefrontal recalls are persisted to the recalls table, never distilled."""
+
+    def _episode(self, recalls):
+        import uuid
+
+        return Episode(
+            id=uuid.uuid4(),
+            task="code_review",
+            module="m",
+            question="q",
+            context_memory=ContextMemory(
+                topics=[Topic(id="owner/repo/recalls", type="project_scope", description="t")]
+            ),
+            timestamp=datetime.now(UTC),
+            run_id="run-recalls",
+            recalls=recalls,
+        )
+
+    def _rows(self, store, episode_id):
+        from psycopg.rows import dict_row
+
+        with store._pool.connection() as conn:
+            conn.row_factory = dict_row
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM recalls WHERE bank_id = %s AND episode_id = %s ORDER BY ordinal",
+                    (store.bank_id, str(episode_id)),
+                )
+                return cur.fetchall()
+
+    def test_save_writes_recall_rows(self, episode_store):
+        episode = self._episode(_recall_records())
+        episode_store.save_episode(episode)
+
+        rows = self._rows(episode_store, episode.id)
+        assert [r["ordinal"] for r in rows] == [0, 1]
+        load, tool = rows
+        assert load["kind"] == "load" and load["status"] == "ok"
+        assert load["text"].endswith("RECALLED-SECRET-TEXT")
+        assert load["model"] == "openai/gpt-4o-mini"
+        assert load["llm_calls"] == 3
+        assert load["input_tokens"] == 1200 and load["output_tokens"] == 300
+        assert load["input_cost"] == pytest.approx(0.012)
+        assert load["output_cost"] == pytest.approx(0.006)
+        assert load["latency_ms"] == 4200
+        assert load["reflects"] == 5 and load["reach"] == "org"
+        assert load["details"]["facets"]["context"]["count"] == 1
+        assert tool["status"] == "limit"
+        assert tool["details"] == {"requested_reach": "bank", "mode": "reflect"}
+
+    def test_save_is_idempotent(self, episode_store):
+        episode = self._episode(_recall_records())
+        episode_store.save_episode(episode)
+        episode_store.save_episode(episode)
+        assert len(self._rows(episode_store, episode.id)) == 2
+
+    def test_episode_without_recalls(self, episode_store):
+        episode = self._episode([])
+        episode_store.save_episode(episode)
+        assert self._rows(episode_store, episode.id) == []
+
+
+class TestHippocampusRecalls:
+    def test_end_episode_attaches_recalls_without_distilling_them(self):
+        hippo = Hippocampus(task_name="code_review", run_id="r", question="question")
+        hippo.observe("trajectory text")
+        seen: list[tuple[str, str]] = []
+        hippo._distill = lambda trajectory, question: seen.append((trajectory, question))
+
+        recalls = _recall_records()
+        hippo.end_episode(recalls=recalls)
+
+        assert hippo.episode is not None
+        assert [r.ordinal for r in hippo.episode.recalls] == [0, 1]
+        assert len(seen) == 1
+        trajectory, question = seen[0]
+        assert "RECALLED-SECRET-TEXT" not in trajectory
+        assert "RECALLED-SECRET-TEXT" not in question
+
+    def test_end_episode_defaults_to_no_recalls(self):
+        hippo = Hippocampus(task_name="code_review", run_id="r")
+        hippo.observe("trajectory text")
+        hippo._distill = lambda trajectory, question: None
+        hippo.end_episode()
+        assert hippo.episode is not None and hippo.episode.recalls == []

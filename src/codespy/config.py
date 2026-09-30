@@ -21,6 +21,7 @@ from codespy.config_git import (
 )
 from codespy.config_llm import LLMConfig
 from codespy.config_memory import (
+    MEMORY_PREFRONTAL,
     MEMORY_RETAIN,
     REFLECTION_MODULES,
     LLMSettings,
@@ -71,8 +72,18 @@ _ENV_MAP = build_env_map(
         "review": ReviewConfig,
         "memory": MemoryConfig,
     },
-    collapsed_paths={("llm",), ("memory", "hippocampus"), ("memory", "cerebral")},
-    full_name_paths={("llm", "retries"), ("llm", "timeout")},
+    collapsed_paths={
+        ("llm",),
+        ("memory", "hippocampus"),
+        ("memory", "cerebral"),
+        ("memory", "prefrontal"),
+    },
+    full_name_paths={
+        ("llm", "retries"),
+        ("llm", "timeout"),
+        ("memory", "prefrontal", "reflects"),
+        ("memory", "prefrontal", "model"),
+    },
 )
 
 
@@ -182,6 +193,15 @@ class Settings(BaseSettings):
         if name == MEMORY_RETAIN:
             # Cerebral uses only a model from retain config; all other fields use llm defaults
             model = self.memory.cerebral.retain.model or self.llm.default_model
+            config = ReflectionModuleConfig()  # Empty config - all fields fall back to defaults
+            defaults = self.llm
+        elif name == MEMORY_PREFRONTAL:
+            # Prefrontal reflect model: falls back to retain model, then default
+            model = (
+                self.memory.prefrontal.model
+                or self.memory.cerebral.retain.model
+                or self.llm.default_model
+            )
             config = ReflectionModuleConfig()  # Empty config - all fields fall back to defaults
             defaults = self.llm
         elif name in REFLECTION_MODULES:
@@ -296,6 +316,12 @@ class Settings(BaseSettings):
                 f"reasoning_effort={llm.reasoning_effort}, temperature={llm.temperature}, "
                 f"max_tokens={llm.max_tokens}"
             )
+        # Prefrontal reflect model (also refreshes briefings)
+        pf_llm = self.get_llm_config(MEMORY_PREFRONTAL)
+        logger.info(
+            f"  {MEMORY_PREFRONTAL}: model={pf_llm.model}, "
+            f"reflects={self.memory.prefrontal.reflects}"
+        )
 
     @model_validator(mode="before")
     @classmethod

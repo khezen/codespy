@@ -377,6 +377,10 @@ inputs:
     description: 'Model for Cerebral fact extraction (falls back to model / DEFAULT_MODEL)'
     required: false
 
+  memory-prefrontal-model:
+    description: 'Model for Prefrontal reflect and briefing refresh (falls back to memory-retain-model / model)'
+    required: false
+
   memory-embeddings-model:
     description: 'litellm embedding model for Cerebral (auto-derived from the provider when unset)'
     required: false
@@ -569,6 +573,7 @@ runs:
         MEMORY_CARTOGRAPHER_MAX_ITERS: ${{ inputs.memory-cartographer-max-iters }}
         MEMORY_CARTOGRAPHER_MAX_LLM_CALLS: ${{ inputs.memory-cartographer-max-llm-calls }}
         MEMORY_RETAIN_MODEL: ${{ inputs.memory-retain-model }}
+        MEMORY_PREFRONTAL_MODEL: ${{ inputs.memory-prefrontal-model }}
         MEMORY_EMBEDDINGS_MODEL: ${{ inputs.memory-embeddings-model }}
         MEMORY_RETAIN_CHUNK_SIZE: ${{ inputs.memory-retain-chunk-size }}
         SCOPE_MEMORY_ENABLED: ${{ inputs.scope-memory-enabled }}
@@ -688,6 +693,7 @@ runs:
         [ -n "$MEMORY_CARTOGRAPHER_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MAX_ITERS"
         [ -n "$MEMORY_CARTOGRAPHER_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MAX_LLM_CALLS"
         [ -n "$MEMORY_RETAIN_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RETAIN_MODEL"
+        [ -n "$MEMORY_PREFRONTAL_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_PREFRONTAL_MODEL"
         [ -n "$MEMORY_EMBEDDINGS_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_EMBEDDINGS_MODEL"
         [ -n "$MEMORY_RETAIN_CHUNK_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RETAIN_CHUNK_SIZE"
         [ -n "$SCOPE_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MEMORY_ENABLED"

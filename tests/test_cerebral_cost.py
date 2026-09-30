@@ -9,6 +9,8 @@ from codespy.agents.cost_tracker import CostTracker, get_cost_tracker
 from codespy.agents.memory.cerebral.cost import (
     BUCKET_MEMORY_EMBEDDINGS,
     BUCKET_MEMORY_OTHER,
+    BUCKET_MEMORY_PREFRONTAL,
+    BUCKET_MEMORY_PREFRONTAL_EMBEDDINGS,
     BUCKET_MEMORY_RETAIN,
     CerebralCostRecorder,
     MeteredLiteLLMSDKEmbeddings,
@@ -17,6 +19,7 @@ from codespy.agents.memory.cerebral.cost import (
     register_cerebral_cost_recorder,
     unregister_cerebral_cost_recorder,
 )
+from codespy.agents.memory.recall import current_recall_usage, track_recall_usage
 
 
 @pytest.fixture
@@ -211,6 +214,81 @@ class TestCerebralCostRecorder:
         assert stats.tokens == 300  # 150 * 2
         # Should only have one warning in the log
         assert caplog.text.count("No litellm price for model") == 1
+
+
+class TestRecallUsageAttribution:
+    """LLM/embedding calls inside track_recall_usage() are billed to memory_prefrontal."""
+
+    def test_llm_call_inside_recall_goes_to_prefrontal(self, mock_tracker, fresh_recorder):
+        with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
+            with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.03, 0.02)):
+                with track_recall_usage() as usage:
+                    CerebralCostRecorder().record_llm_call(
+                        model="openai/gpt-4o",
+                        scope="reflect",
+                        input_tokens=100,
+                        output_tokens=40,
+                    )
+        assert usage.llm_calls == 1
+        assert usage.input_tokens == 100 and usage.output_tokens == 40
+        assert usage.input_cost == 0.03 and usage.output_cost == 0.02
+        assert usage.to_model_field() == "openai/gpt-4o"
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_PREFRONTAL).cost == 0.05
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_OTHER) is None
+
+    def test_llm_call_outside_recall_unchanged(self, mock_tracker, fresh_recorder):
+        with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
+            with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.01, 0.01)):
+                CerebralCostRecorder().record_llm_call(
+                    model="openai/gpt-4o", scope="reflect", input_tokens=10, output_tokens=5
+                )
+        assert current_recall_usage.get() is None
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_OTHER) is not None
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_PREFRONTAL) is None
+
+    @pytest.mark.asyncio
+    async def test_embedding_inside_recall_goes_to_prefrontal_embeddings(self, mock_tracker):
+        response = MagicMock()
+        response.usage = MagicMock()
+        response.usage.prompt_tokens = 12
+        response._hidden_params = {"response_cost": 0.001}
+        real = MagicMock()
+        real.aembedding.return_value = asyncio.Future()
+        real.aembedding.return_value.set_result(response)
+
+        with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
+            proxy = _LiteLLMProxy(real, CerebralCostRecorder())
+            with track_recall_usage() as usage:
+                await proxy.aembedding(model="openai/text-embedding-3-small", input=["q"])
+
+        assert usage.input_tokens == 12 and usage.output_tokens == 0
+        assert usage.input_cost == 0.001
+        assert usage.llm_calls == 0  # embeddings are not LLM calls
+        # Embeddings during active recall go to the new prefrontal_embeddings bucket
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_PREFRONTAL_EMBEDDINGS).tokens == 12
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_PREFRONTAL) is None
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_EMBEDDINGS) is None
+
+    def test_usage_propagates_to_cross_thread_loop(self):
+        """Cerebral._await submits to its own loop thread: the contextvar must follow."""
+        import threading
+
+        loop = asyncio.new_event_loop()
+        thread = threading.Thread(target=loop.run_forever, daemon=True)
+        thread.start()
+        try:
+
+            async def read_usage():
+                return current_recall_usage.get()
+
+            with track_recall_usage() as usage:
+                seen = asyncio.run_coroutine_threadsafe(read_usage(), loop).result(timeout=5)
+            assert seen is usage
+            after = asyncio.run_coroutine_threadsafe(read_usage(), loop).result(timeout=5)
+            assert after is None
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=5)
 
 
 class TestLiteLLMProxy:

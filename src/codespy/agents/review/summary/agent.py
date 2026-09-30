@@ -10,9 +10,10 @@ from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.hippocampus.context_memory import Topic
+from codespy.agents.memory.prefrontal import build_facets, with_prefrontal_memory
 from codespy.agents.review.helpers import deepest_common_folder
 from codespy.config import get_settings
-from codespy.config_memory import get_cerebral, get_episode_store
+from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 
 if TYPE_CHECKING:
     from codespy.agents.review.models import PRContext
@@ -95,9 +96,19 @@ class Summarizer(dspy.Module):
                 else:
                     logger.info("No prior summary episode found")
 
+        repo_full_name = pr_context.repo_full_name
+        scope_topic_ids = [scope.topic(repo_full_name).id for scope in scopes or []]
+        pf = get_prefrontal(
+            self._settings,
+            "summary",
+            repo_full_name,
+            scope_topic_ids=scope_topic_ids,
+            include_repo=True,
+        )
+        sig = with_prefrontal_memory(PRSummarySignature) if pf else PRSummarySignature
         summarizer = ContextSafe(
-            dspy.ChainOfThought(PRSummarySignature),
-            PRSummarySignature,
+            dspy.ChainOfThought(sig),
+            sig,
             name="summary",
             max_iters=self._settings.get_max_iters("summary"),
             max_llm_calls=self._settings.get_max_llm_calls("summary"),
@@ -109,6 +120,17 @@ class Summarizer(dspy.Module):
 
         hippo: Hippocampus | None = None
         with SignatureContext("summary", self._cost_tracker):
+            # Prefrontal: prior knowledge from Cerebral (never given to Hippocampus)
+            pf_kwargs: dict[str, str] = {}
+            if pf is not None:
+                pf_kwargs["prefrontal_memory"] = pf.load(
+                    build_facets(
+                        "summary",
+                        repo_full_name,
+                        pr_title=pr_context.pr_title,
+                        paths=changed_file_paths,
+                    )
+                )
             if self._settings.get_memory_enabled("summary") and store is not None:
                 # Build topics list for Hippocampus
                 scope_topics: list[Topic] = []
@@ -130,6 +152,7 @@ class Summarizer(dspy.Module):
                     pr_description=pr_context.pr_description,
                     changed_file_paths=changed_file_paths,
                     patches=patches,
+                    **pf_kwargs,
                 )
                 hippo.observe(result)
                 # Fire-and-forget episode save
@@ -138,12 +161,16 @@ class Summarizer(dspy.Module):
                 _cerebral = cerebral
                 def _persist():
                     try:
-                        hippo.end_episode(store, artifacts={"summary": _summary_text})
+                        hippo.end_episode(
+                            store,
+                            artifacts={"summary": _summary_text},
+                            recalls=pf.recalls if pf else None,
+                        )
                     except Exception:
                         logger.warning("Background summary episode save failed", exc_info=True)
                     if _cerebral is not None and hippo.episode is not None:
                         try:
-                            _cerebral.retain_episode(hippo.episode)
+                            _cerebral.retain_episode(hippo.episode, repo_full_name=repo_full_name)
                         except Exception:
                             logger.warning("Background summary cerebral retain failed", exc_info=True)
                 submit_episode_save(_persist, name="summary-episode-save")
@@ -153,6 +180,7 @@ class Summarizer(dspy.Module):
                     pr_description=pr_context.pr_description,
                     changed_file_paths=changed_file_paths,
                     patches=patches,
+                    **pf_kwargs,
                 )
 
         logger.info(f"PR summary: {result.summary[:80]}...")

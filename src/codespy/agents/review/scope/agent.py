@@ -21,11 +21,12 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
+from codespy.agents.memory.prefrontal import build_facets, with_prefrontal_memory
 from codespy.agents.review.models import ReviewContext
 from codespy.agents.review.scope.manifest_parser import extract_package_name
 from codespy.agents.review.scope.models import PackageManifest, ScopeResult, ScopeType
 from codespy.config import get_settings
-from codespy.config_memory import get_cerebral, get_episode_store
+from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 from codespy.tools.git.client import get_client
 from codespy.tools.git.models import ChangedFile, PullRequest, should_review_file
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -1051,15 +1052,21 @@ class ScopeResolver(dspy.Module):
         max_iters = self._settings.get_max_iters("scope")
         tools, contexts = await self._create_tools(repo_path)
         try:
+            pf = get_prefrontal(self._settings, "scope", pr.repo_full_name, include_repo=True)
+            sig = (
+                with_prefrontal_memory(ScopeRefinementSignature) if pf else ScopeRefinementSignature
+            )
+            recall_tool = pf.recall_tool() if pf else None
+            agent_tools = [*tools, recall_tool] if recall_tool else tools
             agent = ContextSafe(
                 dspy.RLM(
-                    ScopeRefinementSignature,
-                    tools=tools,
+                    sig,
+                    tools=agent_tools,
                     max_iters=max_iters,
                     max_llm_calls=self._settings.get_max_llm_calls("scope"),
                 ),
-                ScopeRefinementSignature,
-                tools=tools,
+                sig,
+                tools=agent_tools,
                 name="scope",
                 max_iters=max_iters,
                 max_llm_calls=self._settings.get_max_llm_calls("scope"),
@@ -1068,6 +1075,19 @@ class ScopeResolver(dspy.Module):
             hippo: Hippocampus | None = None
 
             async with SignatureContext("scope", self._cost_tracker):
+                # Prefrontal: prior knowledge from Cerebral (never given to Hippocampus)
+                pf_kwargs: dict[str, Any] = {}
+                if pf is not None:
+                    pf_kwargs["prefrontal_memory"] = await pf.aload(
+                        build_facets(
+                            "scope",
+                            pr.repo_full_name,
+                            pr_title=pr.title or "",
+                            paths=[f.filename for s in scopes for f in s.changed_files]
+                            + [f.filename for f in orphans],
+                            summary=pr.body or "",
+                        )
+                    )
                 if self._settings.get_memory_enabled("scope"):
                     question = (
                         f"refine scopes of {review_context.pr_context.repo_slug}: "
@@ -1103,6 +1123,7 @@ class ScopeResolver(dspy.Module):
                         pr_title=pr.title or "No title",
                         pr_description=pr.body or "No description",
                         project_instructions=project_instructions,
+                        **pf_kwargs,
                     )
                     await hippo.aobserve(result)
                 else:
@@ -1112,6 +1133,7 @@ class ScopeResolver(dspy.Module):
                         pr_title=pr.title or "No title",
                         pr_description=pr.body or "No description",
                         project_instructions=project_instructions,
+                        **pf_kwargs,
                     )
 
             # Collect all changed files (from scopes + orphans)
@@ -1170,14 +1192,19 @@ class ScopeResolver(dspy.Module):
                     for s in final_scopes
                 )
                 _cerebral = cerebral
+                _repo_full_name = pr.repo_full_name
                 def _persist():
                     try:
-                        hippo.end_episode(store, artifacts={"scopes": scope_desc})
+                        hippo.end_episode(
+                            store,
+                            artifacts={"scopes": scope_desc},
+                            recalls=pf.recalls if pf else None,
+                        )
                     except Exception:
                         logger.warning("Background scope episode save failed", exc_info=True)
                     if _cerebral is not None and hippo.episode is not None:
                         try:
-                            _cerebral.retain_episode(hippo.episode)
+                            _cerebral.retain_episode(hippo.episode, repo_full_name=_repo_full_name)
                         except Exception:
                             logger.warning("Background cerebral retain failed", exc_info=True)
                 submit_episode_save(_persist, name="scope-episode-save")

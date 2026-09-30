@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from psycopg import sql
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 if TYPE_CHECKING:
@@ -217,6 +218,38 @@ class EpisodeStore:
                         FOREIGN KEY (bank_id, episode_id)
                             REFERENCES episodes(bank_id, id) ON DELETE CASCADE
                     )
+                """)
+
+                # Recalls table: one row per Prefrontal recall (monitoring only;
+                # never read back into memory, never retained into Cerebral).
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS recalls (
+                        bank_id VARCHAR(64) NOT NULL,
+                        episode_id UUID NOT NULL,
+                        ordinal INT NOT NULL,
+                        kind VARCHAR(8) NOT NULL,
+                        timestamp TIMESTAMPTZ NOT NULL,
+                        query TEXT NOT NULL DEFAULT '',
+                        reach VARCHAR(8) NOT NULL,
+                        reflects INT NOT NULL DEFAULT 0,
+                        status VARCHAR(8) NOT NULL,
+                        text TEXT NOT NULL DEFAULT '',
+                        model TEXT NOT NULL DEFAULT '',
+                        llm_calls INT NOT NULL DEFAULT 0,
+                        input_tokens INT NOT NULL DEFAULT 0,
+                        output_tokens INT NOT NULL DEFAULT 0,
+                        input_cost DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        output_cost DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        latency_ms INT NOT NULL DEFAULT 0,
+                        details JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        PRIMARY KEY (bank_id, episode_id, ordinal),
+                        FOREIGN KEY (bank_id, episode_id)
+                            REFERENCES episodes(bank_id, id) ON DELETE CASCADE
+                    )
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_recalls_time
+                        ON recalls (bank_id, timestamp DESC)
                 """)
 
                 conn.commit()
@@ -517,13 +550,47 @@ class EpisodeStore:
                         (self.bank_id, str(episode.id), name, content),
                     )
 
+                # 8. Insert recalls (Prefrontal monitoring)
+                for rec in episode.recalls or []:
+                    cur.execute(
+                        """
+                        INSERT INTO recalls
+                            (bank_id, episode_id, ordinal, kind, timestamp, query, reach,
+                             reflects, status, text, model, llm_calls, input_tokens,
+                             output_tokens, input_cost, output_cost, latency_ms, details)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (bank_id, episode_id, ordinal) DO NOTHING
+                        """,
+                        (
+                            self.bank_id,
+                            str(episode.id),
+                            rec.ordinal,
+                            rec.kind,
+                            rec.timestamp,
+                            rec.query,
+                            rec.reach,
+                            rec.reflects,
+                            rec.status,
+                            rec.text,
+                            rec.model,
+                            rec.llm_calls,
+                            rec.input_tokens,
+                            rec.output_tokens,
+                            rec.input_cost,
+                            rec.output_cost,
+                            rec.latency_ms,
+                            Jsonb(rec.details),
+                        ),
+                    )
+
                 conn.commit()
 
         logger.info(
-            "save_episode: persisted episode %s (bank=%s, task=%s, topics=%d, observations=%d)",
+            "save_episode: persisted episode %s (bank=%s, task=%s, topics=%d, observations=%d, recalls=%d)",
             episode.id, self.bank_id, episode.task,
             len(episode.context_memory.topics),
             len(episode.context_memory.all_observations()),
+            len(episode.recalls or []),
         )
 
     def load_context(

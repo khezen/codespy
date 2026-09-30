@@ -2,14 +2,19 @@
 #
 # ENVIRONMENT VARIABLE OVERRIDES:
 # All settings can be overridden via environment variables using the YAML path,
-# uppercased and joined with underscores. The llm., memory.hippocampus. and
-# memory.cerebral. segments are dropped; llm.retries and llm.timeout keep LLM_.
+# uppercased and joined with underscores. The llm., memory.hippocampus.,
+# memory.cerebral. and memory.prefrontal. segments are dropped; llm.retries,
+# llm.timeout, memory.prefrontal.reflects and memory.prefrontal.model keep their
+# full names.
 # Examples:
 #   - llm.default_model → DEFAULT_MODEL
 #   - llm.retries → LLM_RETRIES
 #   - review.code_review.max_iters → REVIEW_CODE_REVIEW_MAX_ITERS
 #   - memory.hippocampus.distiller.model → MEMORY_DISTILLER_MODEL
 #   - memory.cerebral.retain.model → MEMORY_RETAIN_MODEL
+#   - memory.prefrontal.model → MEMORY_PREFRONTAL_MODEL
+#   - memory.prefrontal.prefrontal_reach → MEMORY_PREFRONTAL_REACH
+#   - memory.prefrontal.reflects → MEMORY_PREFRONTAL_REFLECTS
 #
 # Provider credentials keep their standard names:
 #   OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, AWS_*, AZURE_*
@@ -131,6 +136,16 @@ memory:
       chunk_size: 12288                   # MEMORY_RETAIN_CHUNK_SIZE (chars, must be < 64000)
     embeddings:
       model: null                         # MEMORY_EMBEDDINGS_MODEL (auto-derived from provider)
+
+  # Prefrontal (semantic recall from Cerebral into agent context: read-only)
+  prefrontal:
+    model: null                       # MEMORY_PREFRONTAL_MODEL (reflect + briefings; falls back to retain model → default)
+    prefrontal_reach: org             # MEMORY_PREFRONTAL_REACH (local | org | bank)
+    reflects: 3                       # MEMORY_PREFRONTAL_REFLECTS (reflect iterations for recall and briefings; 0 = raw-fact recall, no LLM, no briefings)
+    max_mental_model_tokens: 2048     # MEMORY_MAX_MENTAL_MODEL_TOKENS (briefing length)
+    max_prefrontal_tokens: 8192       # MEMORY_MAX_PREFRONTAL_TOKENS (pre-call context budget)
+    max_prefrontal_tool_tokens: 2048  # MEMORY_MAX_PREFRONTAL_TOOL_TOKENS
+    max_prefrontal_tool_calls: 0      # MEMORY_MAX_PREFRONTAL_TOOL_CALLS (0 = recall_memory tool off)
 
 # ============================================================================
 # REVIEW

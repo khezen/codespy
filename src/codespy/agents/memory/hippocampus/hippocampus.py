@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -33,6 +34,7 @@ from codespy.agents.memory.hippocampus.cartographer import Cartographer
 
 if TYPE_CHECKING:
     from codespy.agents.memory.postgres import EpisodeStore
+    from codespy.agents.memory.recall import RecallRecord
 
 logger = logging.getLogger(__name__)
 
@@ -238,13 +240,19 @@ class Hippocampus:
             )
         return combined
 
-    def _finalize_episode(self, artifacts: dict[str, str] | None = None) -> None:
+    def _finalize_episode(
+        self,
+        artifacts: dict[str, str] | None = None,
+        recalls: Sequence[RecallRecord] | None = None,
+    ) -> None:
         """Record the consolidated Episode snapshot and clear the buffer.
 
         Args:
             artifacts: Named output artifacts to attach to the recorded
                 episode (e.g. ``{"review": "<markdown>"}``). Defaults to an
                 empty dict when omitted.
+            recalls: Prefrontal recall records to attach (monitoring only;
+                never passed to the Distiller/Cartographer).
         """
         self.episode = Episode(
             id=uuid.uuid4(),
@@ -256,6 +264,7 @@ class Hippocampus:
             artifacts=artifacts or {},
             run_id=self._run_id,
             mutations=list(self._mutations),
+            recalls=list(recalls or []),
         )
         self._episode_trajectories.clear()
         self._episode_question = None
@@ -266,6 +275,7 @@ class Hippocampus:
         self,
         store: EpisodeStore | None = None,
         artifacts: dict[str, str] | None = None,
+        recalls: Sequence[RecallRecord] | None = None,
     ) -> None:
         """Consolidate the buffered trajectories into the memory and record an Episode snapshot.
 
@@ -287,6 +297,9 @@ class Hippocampus:
                 episode (e.g. ``{"review": "<markdown>"}``). Agent-agnostic —
                 any caller can attach whatever markdown/text output it
                 produced under a key of its choosing.
+            recalls: Prefrontal recall records of this agent call, stored on
+                the Episode and persisted to the ``recalls`` table. Never
+                given to the Distiller/Cartographer.
 
         Raises:
             OSError: If persistence is requested and the write fails.
@@ -294,7 +307,7 @@ class Hippocampus:
         combined = self._consolidate()
         if combined is None:
             return
-        self._finalize_episode(artifacts)
+        self._finalize_episode(artifacts, recalls)
         if store is not None:
             store.save_episode(self.episode)
 
@@ -302,6 +315,7 @@ class Hippocampus:
         self,
         store: EpisodeStore | None = None,
         artifacts: dict[str, str] | None = None,
+        recalls: Sequence[RecallRecord] | None = None,
     ) -> None:
         """Async counterpart of :meth:`end_episode`.
 
@@ -313,11 +327,12 @@ class Hippocampus:
             store: Optional ``EpisodeStore`` to persist the episode after consolidation.
             artifacts: Named output artifacts to attach to the recorded
                 episode (e.g. ``{"review": "<markdown>"}``).
+            recalls: Prefrontal recall records (see :meth:`end_episode`).
         """
         combined = await asyncio.to_thread(self._consolidate)
         if combined is None:
             return
-        await asyncio.to_thread(self._finalize_episode, artifacts)
+        await asyncio.to_thread(self._finalize_episode, artifacts, recalls)
         if store is not None:
             await asyncio.to_thread(store.save_episode, self.episode)
 

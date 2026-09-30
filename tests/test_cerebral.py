@@ -149,6 +149,7 @@ class TestCerebralInit:
             cross_encoder=mock_memory_engine_class.call_args.kwargs["cross_encoder"],
             tenant_extension=mock_memory_engine_class.call_args.kwargs["tenant_extension"],
             skip_llm_verification=mock_memory_engine_class.call_args.kwargs["skip_llm_verification"],
+            task_backend=mock_memory_engine_class.call_args.kwargs["task_backend"],
         )
 
     def test_init_uses_metered_embeddings(self, mock_memory_engine_class, mock_litellm):
@@ -194,6 +195,7 @@ class TestCerebralInit:
             cross_encoder=mock_memory_engine_class.call_args.kwargs["cross_encoder"],
             tenant_extension=mock_memory_engine_class.call_args.kwargs["tenant_extension"],
             skip_llm_verification=mock_memory_engine_class.call_args.kwargs["skip_llm_verification"],
+            task_backend=mock_memory_engine_class.call_args.kwargs["task_backend"],
         )
 
 
@@ -230,6 +232,101 @@ class TestCerebralBank:
 
         assert captured_mission is not None
         assert "Only RETRACTED invalidates a fact" in captured_mission
+
+    def test_ensure_bank_mission_is_domain_agnostic(self, mock_memory_engine_class, mock_engine, mock_litellm):
+        """Test that retain_mission does not contain code-review-specific wording."""
+        captured_mission = None
+
+        async def mock_update_bank_config(bank_id, updates, request_context):
+            nonlocal captured_mission
+            captured_mission = updates.get("retain_mission")
+            return None
+
+        async def mock_coro(*args, **kwargs):
+            return None
+
+        def mock_memory_engine(*args, **kwargs):
+            engine = MagicMock()
+            engine.initialize = mock_coro
+            engine.ensure_bank_profile = mock_coro
+            engine.update_bank_config = mock_update_bank_config
+            engine.close = mock_coro
+            return engine
+
+        with patch("codespy.agents.memory.cerebral.cerebral.MemoryEngine", mock_memory_engine):
+            cerebral = Cerebral(
+                database_url="postgresql://localhost:5432/test",
+                llm_provider="litellm",
+            )
+            cerebral._bank_ensured = False
+            cerebral._ensure_bank()
+
+        assert captured_mission is not None
+        assert "code review" not in captured_mission.lower()
+        assert "architectural decisions" not in captured_mission.lower()
+        assert "dependency relationships" not in captured_mission.lower()
+        assert "repositories" not in captured_mission.lower()
+
+    def test_ensure_bank_chunk_size_default(self, mock_memory_engine_class, mock_engine, mock_litellm):
+        """Test that _ensure_bank sends retain_chunk_size == 12288 by default."""
+        captured_chunk_size = None
+
+        async def mock_update_bank_config(bank_id, updates, request_context):
+            nonlocal captured_chunk_size
+            captured_chunk_size = updates.get("retain_chunk_size")
+            return None
+
+        async def mock_coro(*args, **kwargs):
+            return None
+
+        def mock_memory_engine(*args, **kwargs):
+            engine = MagicMock()
+            engine.initialize = mock_coro
+            engine.ensure_bank_profile = mock_coro
+            engine.update_bank_config = mock_update_bank_config
+            engine.close = mock_coro
+            return engine
+
+        with patch("codespy.agents.memory.cerebral.cerebral.MemoryEngine", mock_memory_engine):
+            cerebral = Cerebral(
+                database_url="postgresql://localhost:5432/test",
+                llm_provider="litellm",
+            )
+            cerebral._bank_ensured = False
+            cerebral._ensure_bank()
+
+        assert captured_chunk_size == 12288
+
+    def test_ensure_bank_chunk_size_custom(self, mock_memory_engine_class, mock_engine, mock_litellm):
+        """Test that _ensure_bank sends custom retain_chunk_size when provided."""
+        captured_chunk_size = None
+
+        async def mock_update_bank_config(bank_id, updates, request_context):
+            nonlocal captured_chunk_size
+            captured_chunk_size = updates.get("retain_chunk_size")
+            return None
+
+        async def mock_coro(*args, **kwargs):
+            return None
+
+        def mock_memory_engine(*args, **kwargs):
+            engine = MagicMock()
+            engine.initialize = mock_coro
+            engine.ensure_bank_profile = mock_coro
+            engine.update_bank_config = mock_update_bank_config
+            engine.close = mock_coro
+            return engine
+
+        with patch("codespy.agents.memory.cerebral.cerebral.MemoryEngine", mock_memory_engine):
+            cerebral = Cerebral(
+                database_url="postgresql://localhost:5432/test",
+                llm_provider="litellm",
+                retain_chunk_size=5000,
+            )
+            cerebral._bank_ensured = False
+            cerebral._ensure_bank()
+
+        assert captured_chunk_size == 5000
 
     def test_ensure_bank_called_once(self, mock_memory_engine_class, mock_engine, mock_litellm):
         """Test that _ensure_bank is only called once."""
@@ -697,3 +794,558 @@ class TestMutationLines:
             [_mut("ADD", "cu-a", content="gone"), _mut("EVICT", "cu-a", previous="gone")]
         )
         assert Cerebral._mutation_lines(ep) == ["[context_understanding] gone"]
+
+
+# ---------------------------------------------------------------------------
+# Prefrontal-related Cerebral behaviour
+# ---------------------------------------------------------------------------
+
+from unittest.mock import AsyncMock  # noqa: E402
+
+from hindsight_api.engine.memory_engine import Budget  # noqa: E402
+from hindsight_api.engine.task_backend import SyncTaskBackend  # noqa: E402
+from hindsight_api.extensions import OperationValidationError  # noqa: E402
+
+from codespy.agents.memory.cerebral.cerebral import (  # noqa: E402
+    MENTAL_MODEL_PLACEHOLDER,
+    MENTAL_MODEL_SOURCE_QUERY,
+    OBSERVATIONS_MISSION,
+)
+from codespy.agents.memory.prefrontal.reach import mental_model_id  # noqa: E402
+
+
+@pytest.fixture
+def async_engine():
+    """A MemoryEngine mock whose coroutine methods are AsyncMocks."""
+    engine = MagicMock()
+    for name in (
+        "initialize",
+        "ensure_bank_profile",
+        "update_bank_config",
+        "retain_batch_async",
+        "recall_async",
+        "reflect_async",
+        "get_mental_model",
+        "create_mental_model",
+        "submit_async_refresh_mental_model",
+        "get_observation_history",
+        "get_bank_profile",
+        "close",
+    ):
+        setattr(engine, name, AsyncMock(return_value=None))
+    # Default get_bank_profile to return a profile so existing tests pass
+    engine.get_bank_profile.return_value = {"bank_id": "codespy"}
+    return engine
+
+
+@pytest.fixture
+def cerebral_async(async_engine, mock_litellm):
+    with patch("codespy.agents.memory.cerebral.cerebral.MemoryEngine", return_value=async_engine) as cls, \
+            patch("codespy.agents.memory.cerebral.cerebral.ensure_maintenance_routines", AsyncMock()):
+        c = Cerebral(database_url="postgresql://localhost:5432/test", llm_provider="litellm")
+        c._bank_ensured = True
+        c._engine_cls = cls
+        yield c
+        c.close()
+
+
+class TestCerebralTaskBackend:
+    def test_sync_task_backend_passed_to_engine(self, mock_memory_engine_class, mock_litellm):
+        Cerebral(database_url="postgresql://localhost:5432/test", llm_provider="litellm")
+        assert isinstance(mock_memory_engine_class.call_args.kwargs["task_backend"], SyncTaskBackend)
+        # Check that the subclass has the schema set correctly
+        backend = mock_memory_engine_class.call_args.kwargs["task_backend"]
+        assert backend._schema == "semantic"
+
+    def test_schema_sync_task_backend_injects_schema(self):
+        """Test that _SchemaSyncTaskBackend injects _schema into task dicts."""
+        from codespy.agents.memory.cerebral.cerebral import _SchemaSyncTaskBackend, HINDSIGHT_SCHEMA
+
+        backend = _SchemaSyncTaskBackend(HINDSIGHT_SCHEMA)
+        received_task = {}
+
+        async def mock_executor(task_dict):
+            received_task.update(task_dict)
+
+        backend.set_executor(mock_executor)
+
+        import asyncio
+        asyncio.run(backend.submit_task({"type": "consolidation"}))
+
+        assert received_task.get("_schema") == "semantic"
+
+    def test_schema_sync_task_backend_preserves_existing_schema(self):
+        """Test that _SchemaSyncTaskBackend preserves existing _schema values."""
+        from codespy.agents.memory.cerebral.cerebral import _SchemaSyncTaskBackend, HINDSIGHT_SCHEMA
+
+        backend = _SchemaSyncTaskBackend(HINDSIGHT_SCHEMA)
+        received_task = {}
+
+        async def mock_executor(task_dict):
+            received_task.update(task_dict)
+
+        backend.set_executor(mock_executor)
+
+        import asyncio
+        asyncio.run(backend.submit_task({"type": "consolidation", "_schema": "other"}))
+
+        assert received_task.get("_schema") == "other"
+
+    def test_schema_sync_task_backend_does_not_mutate_original(self):
+        """Test that _SchemaSyncTaskBackend does not mutate the caller's task dict."""
+        from codespy.agents.memory.cerebral.cerebral import _SchemaSyncTaskBackend, HINDSIGHT_SCHEMA
+
+        backend = _SchemaSyncTaskBackend(HINDSIGHT_SCHEMA)
+        received_task = {}
+
+        async def mock_executor(task_dict):
+            received_task.update(task_dict)
+
+        backend.set_executor(mock_executor)
+
+        original = {"type": "consolidation"}
+        original_copy = dict(original)
+
+        import asyncio
+        asyncio.run(backend.submit_task(original))
+
+        assert original == original_copy  # Original should be unchanged
+        assert received_task.get("_schema") == "semantic"
+
+
+class TestCerebralReflectModel:
+    def test_reflect_llm_forwarded_when_set(self, mock_memory_engine_class, mock_litellm):
+        Cerebral(
+            database_url="postgresql://localhost:5432/test",
+            llm_provider="litellm",
+            llm_model="openai/gpt-4o",
+            reflect_llm_model="anthropic/claude-haiku",
+            reflect_llm_api_key="sk-ant",
+        )
+        kwargs = mock_memory_engine_class.call_args.kwargs
+        assert kwargs["memory_llm_model"] == "openai/gpt-4o"
+        assert kwargs["reflect_llm_provider"] == "litellm"
+        assert kwargs["reflect_llm_model"] == "anthropic/claude-haiku"
+        assert kwargs["reflect_llm_api_key"] == "sk-ant"
+        assert kwargs["reflect_llm_base_url"] is None
+
+    def test_reflect_llm_omitted_by_default(self, mock_memory_engine_class, mock_litellm):
+        Cerebral(database_url="postgresql://localhost:5432/test", llm_provider="litellm")
+        kwargs = mock_memory_engine_class.call_args.kwargs
+        assert not any(k.startswith("reflect_llm_") for k in kwargs)
+
+
+class TestCerebralObservationsMission:
+    def test_observations_mission_sent(self, mock_litellm):
+        captured = {}
+
+        async def update_bank_config(bank_id, updates, request_context):
+            captured.update(updates)
+
+        engine = MagicMock()
+        engine.initialize = AsyncMock()
+        engine.ensure_bank_profile = AsyncMock()
+        engine.update_bank_config = update_bank_config
+        engine.close = AsyncMock()
+        with patch("codespy.agents.memory.cerebral.cerebral.MemoryEngine", return_value=engine), \
+                patch("codespy.agents.memory.cerebral.cerebral.ensure_maintenance_routines", AsyncMock()):
+            c = Cerebral(database_url="postgresql://x/y", llm_provider="litellm")
+            c._ensure_bank()
+            c.close()
+        assert captured["observations_mission"] == OBSERVATIONS_MISSION
+        assert "RETRACTED" in OBSERVATIONS_MISSION and "supersedes:" in OBSERVATIONS_MISSION
+
+
+class TestCerebralRetainScopes:
+    def test_tags_with_repo(self, episode):
+        tags = Cerebral._build_tags(episode, "test/repo")
+        assert "repo:test/repo" in tags
+        assert "org:test" in tags
+        assert tags.index("repo:test/repo") < tags.index(f"episode:{episode.id}")
+
+    def test_tags_without_repo_unchanged(self, episode):
+        assert Cerebral._build_tags(episode) == Cerebral._build_tags(episode, None)
+        assert not any(t.startswith(("repo:", "org:")) for t in Cerebral._build_tags(episode))
+
+    def test_observation_scopes_per_project_scope(self, episode):
+        scopes = Cerebral._observation_scopes(episode, "test/repo")
+        assert scopes == [["org:test", "repo:test/repo", "project_scope:test/repo/package"]]
+
+    def test_observation_scopes_without_project_scope(self):
+        ep = Episode(
+            id=uuid.uuid4(), run_id="r", timestamp=datetime.now(UTC), task="summary",
+            module="m", question="q", artifacts={}, context_memory=ContextMemory(),
+        )
+        assert Cerebral._observation_scopes(ep, "o/r") == [["org:o", "repo:o/r"]]
+
+    def test_observation_scopes_none_without_repo(self, episode):
+        assert Cerebral._observation_scopes(episode, None) is None
+
+    def test_scope_excludes_run_tags(self, episode):
+        for scope in Cerebral._observation_scopes(episode, "test/repo"):
+            assert not any(t.startswith(("task:", "episode:", "run_id:", "pull_request:")) for t in scope)
+
+    def test_retain_sets_observation_scopes_on_both_items(self, cerebral_async, async_engine, episode):
+        cerebral_async._mental_models = False
+        cerebral_async.retain_episode(episode, repo_full_name="test/repo")
+        contents = async_engine.retain_batch_async.await_args.kwargs["contents"]
+        assert len(contents) == 2
+        for item in contents:
+            assert item["observation_scopes"] == [
+                ["org:test", "repo:test/repo", "project_scope:test/repo/package"]
+            ]
+            assert "repo:test/repo" in item["tags"] and "org:test" in item["tags"]
+
+    def test_retain_without_repo_has_no_scopes(self, cerebral_async, async_engine, episode):
+        cerebral_async.retain_episode(episode)
+        contents = async_engine.retain_batch_async.await_args.kwargs["contents"]
+        assert all("observation_scopes" not in item for item in contents)
+        async_engine.get_mental_model.assert_not_awaited()
+
+    def test_recalls_never_retained(self, cerebral_async, async_engine, episode):
+        """Episode.recalls is monitoring data: retain_episode must ignore it."""
+        from codespy.agents.memory.recall import RecallRecord
+
+        cerebral_async._mental_models = False
+        cerebral_async.retain_episode(episode, repo_full_name="test/repo")
+        without = async_engine.retain_batch_async.await_args.kwargs["contents"]
+
+        with_recalls = episode.model_copy(
+            update={
+                "recalls": [
+                    RecallRecord(ordinal=0, kind="load", text="RECALLED-TEXT", status="ok")
+                ]
+            }
+        )
+        cerebral_async.retain_episode(with_recalls, repo_full_name="test/repo")
+        with_ = async_engine.retain_batch_async.await_args.kwargs["contents"]
+
+        assert with_ == without
+        assert all("RECALLED-TEXT" not in item["content"] for item in with_)
+
+
+class TestEnsureMentalModels:
+    def test_ids_are_deterministic(self):
+        a = mental_model_id(["repo:o/r", "org:o"])
+        b = mental_model_id(["org:o", "repo:o/r"])
+        assert a == b
+        assert a.startswith("mm-") and len(a) == 3 + 32
+        assert a != mental_model_id(["org:o", "repo:o/other"])
+
+    def test_retain_ensures_scope_and_repo_models(self, cerebral_async, async_engine, episode):
+        cerebral_async.retain_episode(episode, repo_full_name="test/repo")
+        created = [c.kwargs["mental_model_id"] for c in async_engine.create_mental_model.await_args_list]
+        assert created == [
+            mental_model_id(["org:test", "repo:test/repo", "project_scope:test/repo/package"]),
+            mental_model_id(["org:test", "repo:test/repo"]),
+        ]
+        first = async_engine.create_mental_model.await_args_list[0]
+        assert first.args[1] == "Briefing: test/repo/package"
+        assert first.args[2] == MENTAL_MODEL_SOURCE_QUERY
+        assert first.args[3] == MENTAL_MODEL_PLACEHOLDER
+        assert first.kwargs["trigger"] == {"refresh_after_consolidation": True, "exclude_mental_models": True}
+        assert first.kwargs["max_tokens"] == 2048
+        second = async_engine.create_mental_model.await_args_list[1]
+        assert second.args[1] == "Briefing: test/repo"
+        # No longer calls submit_async_refresh_mental_model - consolidation handles refresh
+
+    def test_existing_model_not_created(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.return_value = {"id": "x", "content": "c"}
+        cerebral_async._sync_briefing_triggers([["org:o", "repo:o/r"]])
+        async_engine.create_mental_model.assert_not_awaited()
+
+    def test_409_tolerated(self, cerebral_async, async_engine):
+        async_engine.create_mental_model.side_effect = OperationValidationError("exists", status_code=409)
+        cerebral_async._sync_briefing_triggers([["org:o", "repo:o/r"]])
+        assert mental_model_id(["org:o", "repo:o/r"]) in cerebral_async._ensured_mental_models
+
+    def test_second_call_served_from_cache(self, cerebral_async, async_engine):
+        cerebral_async._sync_briefing_triggers([["org:o", "repo:o/r"]])
+        cerebral_async._sync_briefing_triggers([["org:o", "repo:o/r"]])
+        assert async_engine.get_mental_model.await_count == 1
+
+    def test_disabled(self, cerebral_async, async_engine, episode):
+        cerebral_async._mental_models = False
+        cerebral_async._sync_briefing_triggers([["org:test", "repo:test/repo"]])
+        # When mental_models is False, get_mental_model is still called to check
+        # for existing briefings that need their trigger updated
+        async_engine.get_mental_model.assert_awaited()
+        # But create is not called when mental_models is False
+        async_engine.create_mental_model.assert_not_awaited()
+
+    def test_failures_only_log(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.side_effect = RuntimeError("db down")
+        cerebral_async._sync_briefing_triggers([["org:o", "repo:o/r"]])  # no raise
+        assert not cerebral_async._ensured_mental_models
+
+    def test_non_409_validation_error_logged(self, cerebral_async, async_engine):
+        async_engine.create_mental_model.side_effect = OperationValidationError("forbidden", status_code=403)
+        cerebral_async._sync_briefing_triggers([["org:o", "repo:o/r"]])  # no raise
+        assert not cerebral_async._ensured_mental_models
+
+
+class TestCerebralReadApi:
+    def test_arecall_forwards_arguments(self, cerebral_async, async_engine):
+        import asyncio as _asyncio
+
+        fact = MagicMock()
+        async_engine.recall_async.return_value = MagicMock(results=[fact])
+        when = datetime(2026, 9, 29, tzinfo=UTC)
+        groups = [object()]
+        facts = _asyncio.run(
+            cerebral_async.arecall(
+                "q",
+                tag_groups=groups,
+                max_tokens=123,
+                fact_type=["world", "observation"],
+                prefer_observations=True,
+                budget="high",
+                question_date=when,
+            )
+        )
+        assert facts == [fact]
+        call = async_engine.recall_async.await_args
+        assert call.args == ("codespy", "q")
+        assert call.kwargs["tag_groups"] is groups
+        assert call.kwargs["max_tokens"] == 123
+        assert call.kwargs["fact_type"] == ["world", "observation"]
+        assert call.kwargs["prefer_observations"] is True
+        assert call.kwargs["budget"] == Budget.HIGH
+        assert call.kwargs["question_date"] == when
+
+    def test_recall_sync(self, cerebral_async, async_engine):
+        async_engine.recall_async.return_value = MagicMock(results=[])
+        assert cerebral_async.recall("q") == []
+
+    def test_areflect_uses_mid_budget(self, cerebral_async, async_engine):
+        import asyncio as _asyncio
+
+        async_engine.reflect_async.return_value = MagicMock(text=" answer ")
+        text, summary = _asyncio.run(
+            cerebral_async.areflect("q", tag_groups=None, max_tokens=50, context="code_review on o/r")
+        )
+        assert text == "answer"
+        assert summary.empty is False
+        call = async_engine.reflect_async.await_args
+        assert call.kwargs["budget"] == Budget.LOW
+        assert call.kwargs["max_tokens"] == 50
+        assert call.kwargs["context"] == "code_review on o/r"
+
+    def test_areflect_uses_low_budget(self, cerebral_async, async_engine):
+        """Test that areflect uses LOW budget (with 0.5x multiplier, cap is doubled)."""
+        import asyncio as _asyncio
+
+        async_engine.reflect_async.return_value = MagicMock(text="answer")
+        text, summary = _asyncio.run(
+            cerebral_async.areflect(
+                "q",
+                tag_groups=None,
+                max_tokens=50,
+                context="code_review",
+            )
+        )
+        call = async_engine.reflect_async.await_args
+        assert call.kwargs["budget"] == Budget.LOW
+
+    def test_areflect_basic(self, cerebral_async, async_engine):
+        """Test basic areflect call."""
+        import asyncio as _asyncio
+
+        async_engine.reflect_async.return_value = MagicMock(text="answer")
+        text, summary = _asyncio.run(
+            cerebral_async.areflect(
+                "q",
+                tag_groups=None,
+                max_tokens=50,
+                context="code_review",
+            )
+        )
+        assert text == "answer"
+        assert summary.empty is False
+
+    def test_areflect_returns_reflect_summary(self, cerebral_async, async_engine):
+        import asyncio as _asyncio
+
+        # Create a mock result with the real hindsight_api shape
+        # llm_trace is a list of objects with 'scope' attribute
+        # tool_trace is a list of objects with 'tool', 'input', 'output' attributes
+        from unittest.mock import Mock
+
+        mock_result = MagicMock()
+        mock_result.text = "reflected answer"
+
+        # Mock llm_trace as list of objects with 'scope' attribute
+        mock_result.llm_trace = [
+            Mock(scope="agent_1"),
+            Mock(scope="final_map_1"),
+            Mock(scope="final_map_2"),
+            Mock(scope="final"),
+            Mock(scope="final_rewrite"),
+        ]
+
+        # Mock tool_trace as list of objects with 'tool', 'output' attributes
+        mock_result.tool_trace = [
+            Mock(tool="search_observations", input="q", output={"results": ["a"] * 50}),
+            Mock(tool="recall", input="q", output={"text": "x" * 100}),
+        ]
+
+        # Mock usage as TokenUsage-like object
+        mock_result.usage = Mock(input_tokens=500, output_tokens=200, thoughts_tokens=50)
+
+        async_engine.reflect_async.return_value = mock_result
+        text, summary = _asyncio.run(cerebral_async.areflect("q"))
+
+        assert text == "reflected answer"
+        # iterations = agent_<n> scopes (1: agent_1) + 1 for final = 2
+        assert summary.iterations == 2
+        # llm_calls = 5 (all scopes)
+        assert summary.llm_calls == 5
+        # map_calls = scopes starting with final_map_ (2)
+        assert summary.map_calls == 2
+        # rewrite = True (has final_rewrite scope)
+        assert summary.rewrite is True
+        assert summary.empty is False
+        # tools = [(name, output_tokens)] from tool_trace
+        assert len(summary.tools) == 2
+        assert summary.tools[0][0] == "search_observations"
+        assert summary.tools[1][0] == "recall"
+        # usage contains token counts
+        assert summary.usage["input_tokens"] == 500
+        assert summary.usage["output_tokens"] == 200
+        assert summary.usage["thoughts_tokens"] == 50
+
+    def test_aget_mental_models_skips_missing(self, cerebral_async, async_engine):
+        import asyncio as _asyncio
+
+        async def get(bank_id, mm_id, request_context):
+            return None if mm_id == "b" else {"id": mm_id}
+
+        async_engine.get_mental_model.side_effect = get
+        models = _asyncio.run(cerebral_async.aget_mental_models(["a", "b", "c"]))
+        assert [m["id"] for m in models] == ["a", "c"]
+
+    def test_aget_observation_history(self, cerebral_async, async_engine):
+        import asyncio as _asyncio
+
+        async_engine.get_observation_history.return_value = [{"previous_text": "x"}]
+        assert _asyncio.run(cerebral_async.aget_observation_history("id-1")) == [{"previous_text": "x"}]
+        assert async_engine.get_observation_history.await_args.args == ("codespy", "id-1")
+        async_engine.get_observation_history.return_value = None
+        assert _asyncio.run(cerebral_async.aget_observation_history("id-2")) == []
+
+
+class TestCerebralMissingBank:
+    """Tests for Cerebral read behavior when bank does not exist yet."""
+
+    def test_arecall_returns_empty_when_bank_missing(self, cerebral_async, async_engine):
+        """arecall returns [] and does not call recall_async when bank is missing."""
+        import asyncio as _asyncio
+
+        async_engine.get_bank_profile.return_value = None
+        cerebral_async._bank_exists = False
+        cerebral_async._missing_bank_logged = False
+
+        facts = _asyncio.run(cerebral_async.arecall("q"))
+        assert facts == []
+        async_engine.recall_async.assert_not_awaited()
+
+    def test_areflect_returns_empty_when_bank_missing(self, cerebral_async, async_engine):
+        """areflect returns ("", summary) with empty=True when bank is missing."""
+        import asyncio as _asyncio
+
+        async_engine.get_bank_profile.return_value = None
+        cerebral_async._bank_exists = False
+        cerebral_async._missing_bank_logged = False
+
+        text, summary = _asyncio.run(cerebral_async.areflect("q"))
+        assert text == ""
+        assert summary.empty is True
+        assert summary.llm_calls == 0
+        async_engine.reflect_async.assert_not_awaited()
+
+    def test_aget_mental_models_returns_empty_when_bank_missing(self, cerebral_async, async_engine):
+        """aget_mental_models returns [] when bank is missing."""
+        import asyncio as _asyncio
+
+        async_engine.get_bank_profile.return_value = None
+        cerebral_async._bank_exists = False
+        cerebral_async._missing_bank_logged = False
+
+        models = _asyncio.run(cerebral_async.aget_mental_models(["a", "b"]))
+        assert models == []
+        async_engine.get_mental_model.assert_not_awaited()
+
+    def test_aget_observation_history_returns_empty_when_bank_missing(self, cerebral_async, async_engine):
+        """aget_observation_history returns [] when bank is missing."""
+        import asyncio as _asyncio
+
+        async_engine.get_bank_profile.return_value = None
+        cerebral_async._bank_exists = False
+        cerebral_async._missing_bank_logged = False
+
+        history = _asyncio.run(cerebral_async.aget_observation_history("id-1"))
+        assert history == []
+        async_engine.get_observation_history.assert_not_awaited()
+
+    def test_missing_not_cached_exists_becomes_true(self, cerebral_async, async_engine):
+        """Missing is not cached: when bank is created, subsequent reads work."""
+        import asyncio as _asyncio
+
+        # First call: bank missing
+        async_engine.get_bank_profile.return_value = None
+        cerebral_async._bank_exists = False
+        cerebral_async._missing_bank_logged = False
+
+        facts = _asyncio.run(cerebral_async.arecall("q"))
+        assert facts == []
+        assert async_engine.get_bank_profile.await_count == 1
+
+        # Second call: bank now exists (e.g., retain_episode was called)
+        async_engine.get_bank_profile.return_value = {"bank_id": "codespy"}
+        # _bank_exists is still False because we didn't call _ensure_bank
+        cerebral_async._bank_exists = False
+
+        # Reset recall_async mock to track new calls
+        async_engine.recall_async.return_value = MagicMock(results=[MagicMock()])
+
+        facts = _asyncio.run(cerebral_async.arecall("q"))
+        # Should have called get_bank_profile again and now recall_async
+        assert async_engine.get_bank_profile.await_count == 2
+        async_engine.recall_async.assert_awaited_once()
+
+    def test_exists_is_cached_no_duplicate_checks(self, cerebral_async, async_engine):
+        """Exists is cached: multiple arecalls only check once."""
+        import asyncio as _asyncio
+
+        async_engine.get_bank_profile.return_value = {"bank_id": "codespy"}
+        cerebral_async._bank_exists = False
+        cerebral_async._missing_bank_logged = False
+
+        async_engine.recall_async.return_value = MagicMock(results=[])
+
+        # Two arecalls
+        _asyncio.run(cerebral_async.arecall("q1"))
+        _asyncio.run(cerebral_async.arecall("q2"))
+
+        # get_bank_profile should only be awaited once
+        assert async_engine.get_bank_profile.await_count == 1
+        # recall_async should be awaited twice
+        assert async_engine.recall_async.await_count == 2
+
+    def test_ensure_bank_sets_bank_exists(self, cerebral_async, async_engine):
+        """_ensure_bank success sets _bank_exists so get_bank_profile is not called."""
+        cerebral_async._bank_exists = False
+        cerebral_async._bank_ensured = False
+
+        cerebral_async._ensure_bank()
+
+        assert cerebral_async._bank_exists is True
+        # After _ensure_bank, arecall should not call get_bank_profile
+        async_engine.get_bank_profile.reset_mock()
+        async_engine.recall_async.return_value = MagicMock(results=[])
+
+        import asyncio as _asyncio
+        _asyncio.run(cerebral_async.arecall("q"))
+
+        async_engine.get_bank_profile.assert_not_awaited()
+        async_engine.recall_async.assert_awaited_once()

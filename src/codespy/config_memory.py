@@ -1,9 +1,11 @@
-"""Memory (Hippocampus) configuration and storage factory."""
+"""Memory (Hippocampus, Cerebral, Prefrontal) configuration and storage factory."""
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+import os
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -15,8 +17,18 @@ from codespy.config_dspy import ReasoningEffort
 # silently falls back to defaults (chunk 3000, no mission).
 _HINDSIGHT_RETAIN_MAX_COMPLETION_TOKENS = 64000
 
+# Hindsight reads its reflect-loop iteration cap from this env var once, when
+# its config is first built (at import). See get_cerebral().
+HINDSIGHT_REFLECT_MAX_ITERATIONS_ENV = "HINDSIGHT_API_REFLECT_MAX_ITERATIONS"
+
+# Hindsight reads its reflect context token cap from this env var once, when
+# its config is first built. Also bounds briefing refreshes (LOW budget).
+HINDSIGHT_REFLECT_MAX_CONTEXT_TOKENS_ENV = "HINDSIGHT_API_REFLECT_MAX_CONTEXT_TOKENS"
+
 if TYPE_CHECKING:
+    from codespy.agents.memory.cerebral import Cerebral
     from codespy.agents.memory.postgres import EpisodeStore
+    from codespy.agents.memory.prefrontal import Prefrontal
     from codespy.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -91,6 +103,31 @@ class CerebralConfig(BaseModel):
 
     retain: CerebralRetainConfig = Field(default_factory=CerebralRetainConfig)
     embeddings: CerebralEmbeddingsConfig = Field(default_factory=CerebralEmbeddingsConfig)
+
+
+class PrefrontalConfig(BaseModel):
+    """Prefrontal (semantic recall into agent context) configuration."""
+
+    # Model for Hindsight reflect (pre-call context and recall_memory tool).
+    # Falls back to cerebral.retain.model → llm.default_model.
+    # Unused when reflects=0 (no LLM at read time).
+    model: str | None = None
+    # local: this scope/repo only. org: also other repos of the same owner.
+    # bank: every repo in the bank (crosses organisations — opt-in only).
+    prefrontal_reach: Literal["local", "org", "bank"] = "org"
+    # 0: raw facts only, no LLM at read time and no briefings (no mental models).
+    # N > 0: Hindsight reflect loop, capped at N iterations (both Prefrontal and
+    # briefing refreshes). Uses Hindsight's LOW budget (0.5× multiplier), so the
+    # global cap is set to 2× reflects to achieve exactly reflects iterations.
+    reflects: int = Field(default=3, ge=0)
+    # Briefing size. Only used when reflects > 0.
+    max_mental_model_tokens: int = Field(default=2048, gt=0)
+    # Token budget for the pre-call context (local facets + remote facts).
+    max_prefrontal_tokens: int = Field(default=8192, gt=0)
+    # Token budget for recall_memory tool results.
+    max_prefrontal_tool_tokens: int = Field(default=2048, gt=0)
+    # recall_memory tool call limit (0 = tool disabled).
+    max_prefrontal_tool_calls: int = Field(default=0, ge=0)
 
 
 class LLMSettings(BaseModel):
@@ -170,6 +207,9 @@ class MemoryConfig(BaseModel):
     # Cerebral (semantic memory) configuration
     cerebral: CerebralConfig = Field(default_factory=CerebralConfig)
 
+    # Prefrontal (semantic recall into agent context) configuration
+    prefrontal: PrefrontalConfig = Field(default_factory=PrefrontalConfig)
+
 
 # Memory unit name prefix for LLM work units
 MEMORY_UNIT_PREFIX = "memory_"
@@ -180,6 +220,7 @@ MEMORY_CARTOGRAPHER = "memory_cartographer"
 MEMORY_RETAIN = "memory_retain"
 MEMORY_EMBEDDINGS = "memory_embeddings"
 MEMORY_OTHER = "memory_other"
+MEMORY_PREFRONTAL = "memory_prefrontal"
 
 # The reflection modules, derived from the HippocampusConfig fields that hold a
 # ReflectionModuleConfig. Iterate this instead of hardcoding module names so
@@ -333,26 +374,26 @@ _cerebral: "Cerebral" | None = None
 _cerebral_built = False
 
 
-def _cerebral_litellm_params(settings: "Settings") -> tuple[str, str | None, str | None]:
-    """Derive MemoryEngine litellm params from the cerebral model config + LLM credentials.
+def _litellm_credentials(settings: "Settings", model: str) -> tuple[str | None, str | None]:
+    """Derive API key and base_url from a litellm model string.
 
     All Cerebral LLM calls go through litellm. This function parses the litellm
     model string and extracts credentials based on the provider prefix.
 
-    Returns:
-        ``(model, api_key, base_url)`` - model is the full litellm string unchanged
-    """
-    llm_config = settings.get_llm_config(MEMORY_RETAIN)
-    model = llm_config.model  # e.g. "bedrock/converse/moonshotai.kimi-k2.5"
+    Args:
+        settings: Application settings containing LLM credentials.
+        model: Full litellm model string (e.g., "bedrock/converse/moonshotai.kimi-k2.5").
 
+    Returns:
+        ``(api_key, base_url)`` - None values indicate no special handling.
+    """
     # Parse litellm model string: "provider/model_path"
     parts = model.split("/", 1)
     provider = parts[0] if len(parts) > 1 else "openai"
 
-    # Map credentials from Settings.llm
+    llm = settings.llm
     api_key: str | None = None
     base_url: str | None = None
-    llm = settings.llm
 
     if provider == "bedrock":
         pass  # Uses AWS env vars (AWS_ACCESS_KEY_ID, etc.) - litellm reads these
@@ -369,6 +410,20 @@ def _cerebral_litellm_params(settings: "Settings") -> tuple[str, str | None, str
         # Azure API version comes from env var AZURE_API_VERSION, same as DSPy
     # For any other provider, let litellm resolve from env/globals
 
+    return api_key, base_url
+
+
+def _cerebral_litellm_params(settings: "Settings") -> tuple[str, str | None, str | None]:
+    """Derive MemoryEngine litellm params from the cerebral model config + LLM credentials.
+
+    Convenience wrapper around _litellm_credentials for the retain model.
+
+    Returns:
+        ``(model, api_key, base_url)`` - model is the full litellm string unchanged.
+    """
+    llm_config = settings.get_llm_config(MEMORY_RETAIN)
+    model = llm_config.model
+    api_key, base_url = _litellm_credentials(settings, model)
     return model, api_key, base_url
 
 
@@ -432,6 +487,21 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
         or EMBEDDING_MODELS.get(provider_prefix, "openai/text-embedding-3-small")
     )
 
+    # Prefrontal reflect model (optional)
+    pf_model = settings.memory.prefrontal.model
+    reflect_kwargs: dict[str, str | None] = {}
+    if pf_model:
+        pf_api_key, pf_base_url = _litellm_credentials(settings, pf_model)
+        reflect_kwargs = {
+            "reflect_llm_model": pf_model,
+            "reflect_llm_api_key": pf_api_key,
+            "reflect_llm_base_url": pf_base_url,
+        }
+
+    # Apply reflect LLM defaults BEFORE Cerebral construction (these are read
+    # during MemoryEngine.__init__). reflect_config is applied after construction.
+    _apply_reflect_llm_call_defaults(settings)
+
     try:
         _cerebral = Cerebral(
             database_url=pg_uri,
@@ -442,6 +512,9 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
             bank_id=bank_id,
             embeddings_model=embeddings_model,
             retain_chunk_size=settings.memory.cerebral.retain.chunk_size,
+            mental_models=settings.memory.prefrontal.reflects > 0,
+            max_mental_model_tokens=settings.memory.prefrontal.max_mental_model_tokens,
+            **reflect_kwargs,
         )
     except Exception:
         logger.error(
@@ -454,13 +527,178 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
         _cerebral_built = True
         return None
 
+    reflect_model_str = f", reflect_model={pf_model}" if pf_model else ""
     logger.info(
-        "Cerebral initialized (bank=%s, provider=litellm, model=%s, schema=semantic)",
+        "Cerebral initialized (bank=%s, provider=litellm, model=%s%s, schema=semantic)",
         bank_id,
         model,
+        reflect_model_str,
     )
+    # Apply reflect caps programmatically (after Cerebral construction, before first use)
+    _apply_reflect_config(settings.memory.prefrontal)
     _cerebral_built = True
     return _cerebral
+
+
+# Inverse of Hindsight's LOW budget multiplier (0.5) to double the raw
+# iteration cap so both Prefrontal and briefing refresh get exactly
+# ``reflects`` iterations: max(1, int(2*reflects * 0.5)) = reflects.
+# See memory_engine.py:15134-15138 for the multiplier logic.
+_LOW_BUDGET_MULTIPLIER_INVERSE = 2
+
+
+def _apply_reflect_llm_call_defaults(settings: "Settings") -> None:
+    """Apply reflect LLM timeout and retry settings from codespy config.
+
+    Reflect LLM timeout and retries reuse codespy's llm.timeout / llm.retries.
+    Operator env (HINDSIGHT_API_REFLECT_LLM_TIMEOUT, HINDSIGHT_API_LLM_TIMEOUT,
+    HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES, HINDSIGHT_API_LLM_MAX_RETRIES) wins.
+
+    Called in get_cerebral() after Cerebral import but before Cerebral() construction.
+    This must run before Cerebral is built because the defaults are resolved in
+    MemoryEngine.__init__.
+
+    Args:
+        settings: Application settings.
+    """
+    try:
+        import hindsight_api.config as ha_cfg
+
+        raw = ha_cfg._get_raw_config()
+    except Exception as e:
+        logger.warning("Could not access Hindsight raw config for LLM defaults: %s", e)
+        return
+
+    # Determine effective timeout: env wins, then settings.llm.timeout
+    timeout: float | None = None
+    env_timeout = os.environ.get("HINDSIGHT_API_REFLECT_LLM_TIMEOUT") or os.environ.get("HINDSIGHT_API_LLM_TIMEOUT")
+    if env_timeout is not None:
+        try:
+            timeout = float(env_timeout)
+            logger.info("Using env HINDSIGHT_API_REFLECT_LLM_TIMEOUT=%s (operator override)", timeout)
+        except ValueError:
+            pass
+    if timeout is None and hasattr(raw, "reflect_llm_timeout"):
+        timeout = float(settings.llm.timeout)
+        if hasattr(raw, "reflect_llm_timeout"):
+            raw.reflect_llm_timeout = timeout
+
+    # Determine effective retries: env wins, then settings.llm.retries
+    retries: int | None = None
+    env_retries = os.environ.get("HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES") or os.environ.get("HINDSIGHT_API_LLM_MAX_RETRIES")
+    if env_retries is not None:
+        try:
+            retries = int(env_retries)
+            logger.info("Using env HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES=%s (operator override)", retries)
+        except ValueError:
+            pass
+    if retries is None and hasattr(raw, "reflect_llm_max_retries"):
+        retries = int(settings.llm.retries)
+        if hasattr(raw, "reflect_llm_max_retries"):
+            raw.reflect_llm_max_retries = retries
+
+    if timeout is not None or retries is not None:
+        logger.info(
+            "Hindsight reflect LLM defaults: timeout=%s, max_retries=%s",
+            timeout if timeout is not None else "-",
+            retries if retries is not None else "-",
+        )
+
+
+def _apply_reflect_config(cfg: PrefrontalConfig) -> dict[str, Any]:
+    """Apply reflect caps to Hindsight config programmatically.
+
+    Called in get_cerebral() after Cerebral import. Hindsight re-reads
+    reflect_max_iterations at call time (not in _CONFIGURABLE_FIELDS), so
+    setting it on _get_raw_config() after import takes effect.
+
+    The global cap is set to 2 × reflects (when reflects > 0) so that with
+    Hindsight's LOW budget multiplier (0.5×), both Prefrontal and briefing
+    refresh get exactly ``reflects`` iterations.
+
+    Args:
+        cfg: PrefrontalConfig with reflects.
+
+    Returns:
+        Dict of effective values applied (iterations). Empty dict when reflects == 0.
+    """
+    # Set a minimal cap of 2 even when reflects == 0 to bound any Hindsight reflect
+    raw_cap = max(2 * max(cfg.reflects, 1), 1)
+
+    try:
+        import hindsight_api.config as ha_cfg
+
+        raw = ha_cfg._get_raw_config()
+    except Exception as e:
+        logger.warning("Could not access Hindsight raw config: %s", e)
+        return {}
+
+    applied: dict[str, Any] = {}
+
+    # Apply iteration cap: env wins as-is (operator raw cap), else double reflects
+    env_iters = os.environ.get(HINDSIGHT_REFLECT_MAX_ITERATIONS_ENV)
+    if env_iters is not None:
+        try:
+            applied["iterations"] = int(env_iters)
+            applied["budget"] = "low"
+            logger.info("Using env %s=%s (operator override)", HINDSIGHT_REFLECT_MAX_ITERATIONS_ENV, env_iters)
+        except ValueError:
+            pass
+    elif cfg.reflects > 0:
+        if hasattr(raw, "reflect_max_iterations"):
+            raw.reflect_max_iterations = raw_cap
+            applied["iterations"] = raw_cap
+            applied["budget"] = "low"
+
+    # Hindsight's reflect_max_context_tokens default is 100000; we no longer
+    # override it. The default is used which allows full context without
+    # triggering split synthesis.
+
+    if applied:
+        effective_iters = applied.get("iterations", 0)
+        # With LOW budget (0.5×), iterations = max(1, int(cap * 0.5))
+        effective_reflects = max(1, int(effective_iters * 0.5))
+        logger.info(
+            "Prefrontal reflect caps: iterations=%d (hindsight cap=%d, budget=low) context_tokens=100000",
+            effective_reflects,
+            effective_iters,
+        )
+
+    return applied
+
+
+def get_prefrontal(
+    settings: Settings,
+    task_name: str,
+    repo_full_name: str | None,
+    scope_topic_ids: Sequence[str] | None = None,
+    include_repo: bool = False,
+) -> Prefrontal | None:
+    """Return a Prefrontal for one agent call, or None when inactive.
+
+    Active only when ``get_memory_enabled(task_name)`` is true, a repo is
+    known and ``get_cerebral`` returns a Cerebral. Otherwise the agent
+    behaves exactly as without Prefrontal. Never raises.
+    """
+    try:
+        if not settings.get_memory_enabled(task_name) or not repo_full_name:
+            return None
+        cerebral = get_cerebral(settings)
+        if cerebral is None:
+            return None
+        from codespy.agents.memory.prefrontal import Prefrontal
+
+        return Prefrontal(
+            settings.memory.prefrontal,
+            cerebral,
+            task_name,
+            repo_full_name,
+            scope_topic_ids=scope_topic_ids,
+            include_repo=include_repo,
+        )
+    except Exception:
+        logger.warning("Prefrontal unavailable for %s", task_name, exc_info=True)
+        return None
 
 
 def reset_cerebral() -> None:

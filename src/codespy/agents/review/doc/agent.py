@@ -13,6 +13,7 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
+from codespy.agents.memory.prefrontal import build_facets, with_prefrontal_memory
 from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
 from codespy.agents.review.scope.models import ScopeResult
 from codespy.agents.review.doc.doc_extractor import extract_documentation
@@ -22,9 +23,10 @@ from codespy.agents.review.helpers import (
     make_scope_relative,
     resolve_scope_root,
     restore_repo_paths,
+    scope_package_names,
 )
 from codespy.config import get_settings
-from codespy.config_memory import get_cerebral, get_episode_store
+from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 
 logger = logging.getLogger(__name__)
 
@@ -200,9 +202,15 @@ class DocReviewer(dspy.Module):
             logger.debug(f"  No patches in {scope.subroot}, skipping doc review")
             return []
         try:
+            repo_full_name = review_context.pr_context.repo_full_name
+            scope_topic_id = scope.topic(repo_full_name).id
+            pf = get_prefrontal(
+                self._settings, "doc", repo_full_name, scope_topic_ids=[scope_topic_id]
+            )
+            sig = with_prefrontal_memory(DocReviewSignature) if pf else DocReviewSignature
             reviewer = ContextSafe(
-                dspy.ChainOfThought(DocReviewSignature),
-                DocReviewSignature,
+                dspy.ChainOfThought(sig),
+                sig,
                 name="doc",
                 max_iters=max_iters,
                 max_llm_calls=self._settings.get_max_llm_calls("doc"),
@@ -213,6 +221,20 @@ class DocReviewer(dspy.Module):
             )
             hippo: Hippocampus | None = None
             async with SignatureContext("doc", self._cost_tracker):
+                # Prefrontal: prior knowledge from Cerebral (never given to Hippocampus)
+                pf_kwargs: dict[str, Any] = {}
+                if pf is not None:
+                    pf_kwargs["prefrontal_memory"] = await pf.aload(
+                        build_facets(
+                            "doc",
+                            scope_topic_id,
+                            description=scope.description,
+                            pr_title=review_context.pr_context.pr_title,
+                            paths=[f.filename for f in scope.changed_files],
+                            summary=review_context.pr_context.summary,
+                            packages=scope_package_names(scope),
+                        )
+                    )
                 # Load own prior "doc" episode for this scope
                 scope_initial_memory: ContextMemory | None = None
                 store = None
@@ -249,6 +271,7 @@ class DocReviewer(dspy.Module):
                         patches=patches,
                         documentation=documentation,
                         categories=[IssueCategory.DOCUMENTATION],
+                        **pf_kwargs,
                     )
                     await hippo.aobserve(result)
                     issues = [
@@ -259,14 +282,16 @@ class DocReviewer(dspy.Module):
                     # Fire-and-forget background episode save
                     _artifacts = {"review": issues_to_markdown(issues)}
                     cerebral = get_cerebral(self._settings)
-                    def _persist(h=hippo, s=store, a=_artifacts, c=cerebral):
+                    def _persist(
+                        h=hippo, s=store, a=_artifacts, c=cerebral, r=repo_full_name, p=pf
+                    ):
                         try:
-                            h.end_episode(s, artifacts=a)
+                            h.end_episode(s, artifacts=a, recalls=p.recalls if p else None)
                         except Exception:
                             logger.warning("Background doc episode save failed", exc_info=True)
                         if c is not None and h.episode is not None:
                             try:
-                                c.retain_episode(h.episode)
+                                c.retain_episode(h.episode, repo_full_name=r)
                             except Exception:
                                 logger.warning("Background cerebral retain failed", exc_info=True)
                     submit_episode_save(_persist, name="doc-episode-save")
@@ -276,6 +301,7 @@ class DocReviewer(dspy.Module):
                         patches=patches,
                         documentation=documentation,
                         categories=[IssueCategory.DOCUMENTATION],
+                        **pf_kwargs,
                     )
                     issues = [
                         issue
