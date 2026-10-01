@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import TYPE_CHECKING
 
 from psycopg import sql
@@ -13,6 +14,7 @@ from psycopg_pool import ConnectionPool
 if TYPE_CHECKING:
     from codespy.agents.memory.hippocampus.context_memory import ContextMemory
     from codespy.agents.memory.hippocampus.episode import Episode
+    from codespy.agents.memory.recall import RecallRecord
 
 logger = logging.getLogger(__name__)
 
@@ -220,13 +222,26 @@ class EpisodeStore:
                     )
                 """)
 
+                # Check for legacy recalls table (without 'id' column) and drop it
+                cur.execute("""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = 'recalls' AND table_schema = COALESCE(current_schema(), 'public')
+                """)
+                existing_columns = {row[0] for row in cur.fetchall()}
+                if existing_columns and 'id' not in existing_columns:
+                    logger.warning("Dropping legacy recalls table (missing 'id' column)")
+                    cur.execute("DROP TABLE IF EXISTS recalls")
+
                 # Recalls table: one row per Prefrontal recall (monitoring only;
                 # never read back into memory, never retained into Cerebral).
+                # Redesigned: run-scoped with optional episode_id (NULL for run-level load).
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS recalls (
-                        bank_id VARCHAR(64) NOT NULL,
-                        episode_id UUID NOT NULL,
-                        ordinal INT NOT NULL,
+                        bank_id VARCHAR(64) NOT NULL REFERENCES banks(id) ON DELETE CASCADE,
+                        id UUID NOT NULL,
+                        run_id VARCHAR(48) NOT NULL,
+                        episode_id UUID NULL,
+                        task VARCHAR(64) NOT NULL,
                         kind VARCHAR(8) NOT NULL,
                         timestamp TIMESTAMPTZ NOT NULL,
                         query TEXT NOT NULL DEFAULT '',
@@ -242,10 +257,12 @@ class EpisodeStore:
                         output_cost DOUBLE PRECISION NOT NULL DEFAULT 0,
                         latency_ms INT NOT NULL DEFAULT 0,
                         details JSONB NOT NULL DEFAULT '{}'::jsonb,
-                        PRIMARY KEY (bank_id, episode_id, ordinal),
-                        FOREIGN KEY (bank_id, episode_id)
-                            REFERENCES episodes(bank_id, id) ON DELETE CASCADE
+                        PRIMARY KEY (bank_id, id),
+                        FOREIGN KEY (bank_id, episode_id) REFERENCES episodes(bank_id, id) ON DELETE CASCADE
                     )
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_recalls_run ON recalls (bank_id, run_id)
                 """)
                 cur.execute("""
                     CREATE INDEX IF NOT EXISTS idx_recalls_time
@@ -550,38 +567,10 @@ class EpisodeStore:
                         (self.bank_id, str(episode.id), name, content),
                     )
 
-                # 8. Insert recalls (Prefrontal monitoring)
-                for rec in episode.recalls or []:
-                    cur.execute(
-                        """
-                        INSERT INTO recalls
-                            (bank_id, episode_id, ordinal, kind, timestamp, query, reach,
-                             reflects, status, text, model, llm_calls, input_tokens,
-                             output_tokens, input_cost, output_cost, latency_ms, details)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (bank_id, episode_id, ordinal) DO NOTHING
-                        """,
-                        (
-                            self.bank_id,
-                            str(episode.id),
-                            rec.ordinal,
-                            rec.kind,
-                            rec.timestamp,
-                            rec.query,
-                            rec.reach,
-                            rec.reflects,
-                            rec.status,
-                            rec.text,
-                            rec.model,
-                            rec.llm_calls,
-                            rec.input_tokens,
-                            rec.output_tokens,
-                            rec.input_cost,
-                            rec.output_cost,
-                            rec.latency_ms,
-                            Jsonb(rec.details),
-                        ),
-                    )
+                # 8. Insert recalls (Prefrontal monitoring) - now with episode_id set
+                self._insert_recalls(
+                    cur, episode.recalls or [], run_id=episode.run_id, episode_id=episode.id, task=episode.task
+                )
 
                 conn.commit()
 
@@ -774,3 +763,94 @@ class EpisodeStore:
                 self.bank_id, task, exc_info=True
             )
             return None
+
+    def _insert_recalls(
+        self,
+        cur,
+        records: list[RecallRecord],
+        *,
+        run_id: str,
+        episode_id: uuid.UUID | None,
+        task: str,
+    ) -> None:
+        """Insert recall records with run_id, episode_id, and task filled in.
+
+        Args:
+            cur: Database cursor
+            records: List of RecallRecord to insert
+            run_id: Run identifier
+            episode_id: Episode UUID (None for run-level recalls)
+            task: Task name (consumer task or "review" for run-level)
+        """
+        import uuid as uuid_module
+
+        for rec in records:
+            # Ensure the record has the correct run_id, episode_id, and task
+            rec.run_id = run_id
+            rec.task = task
+            cur.execute(
+                """
+                INSERT INTO recalls
+                    (bank_id, id, run_id, episode_id, task, kind, timestamp, query, reach,
+                     reflects, status, text, model, llm_calls, input_tokens,
+                     output_tokens, input_cost, output_cost, latency_ms, details)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (bank_id, id) DO NOTHING
+                """,
+                (
+                    self.bank_id,
+                    str(rec.id) if rec.id else str(uuid_module.uuid4()),
+                    rec.run_id,
+                    str(episode_id) if episode_id else None,
+                    rec.task,
+                    rec.kind,
+                    rec.timestamp,
+                    rec.query,
+                    rec.reach,
+                    rec.reflects,
+                    rec.status,
+                    rec.text,
+                    rec.model,
+                    rec.llm_calls,
+                    rec.input_tokens,
+                    rec.output_tokens,
+                    rec.input_cost,
+                    rec.output_cost,
+                    rec.latency_ms,
+                    Jsonb(rec.details),
+                ),
+            )
+
+    def save_recalls(
+        self,
+        records: list[RecallRecord],
+        *,
+        run_id: str,
+        episode_id: uuid.UUID | None = None,
+        task: str = "",
+    ) -> None:
+        """Persist recall records for a run or episode.
+
+        Args:
+            records: List of RecallRecord to persist
+            run_id: Run identifier
+            episode_id: Optional episode UUID (None for run-level recalls)
+            task: Task name (consumer task or "review" for run-level load)
+        """
+        if not records:
+            return
+
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                # Ensure bank exists
+                cur.execute(
+                    "INSERT INTO banks (id) VALUES (%s) ON CONFLICT (id) DO NOTHING",
+                    (self.bank_id,),
+                )
+                self._insert_recalls(cur, records, run_id=run_id, episode_id=episode_id, task=task)
+                conn.commit()
+
+        logger.info(
+            "save_recalls: persisted %d recalls (bank=%s, run_id=%s, task=%s)",
+            len(records), self.bank_id, run_id, task,
+        )

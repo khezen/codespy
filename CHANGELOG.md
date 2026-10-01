@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Changed
+- **Run-level Prefrontal recall**: One Prefrontal recall per run, shared by summary, code_review, doc, supply_chain, and audit agents. Previously each agent call ran its own `Prefrontal.aload()`, paying for the reflect loop separately. The scope agent still loads its own memory.
+- **One consolidation per run**: Consolidation and mental-model refresh run once per run, after all background episode saves complete. Previously every `retain_episode` consolidated each scope plus the repo scope, refreshing the repo briefing N times per run.
+- **Recalls table schema**: The `recalls` table is redesigned for run-level tracking:
+  - `ordinal` (INT) replaced by `id` (UUID)
+  - New columns: `run_id` (VARCHAR), `task` (VARCHAR)
+  - `episode_id` is now nullable (NULL for the shared run-level load)
+  - Primary key changed from `(bank_id, episode_id, ordinal)` to `(bank_id, id)`
+  - New index: `idx_recalls_run (bank_id, run_id)`
 - **Cerebral cost bucket split**: Consolidation and mental-model refresh LLM calls are now billed to
   `memory_consolidation` and `memory_mental_models` respectively, instead of `memory_other`.
   The `memory_other` bucket now only holds uncategorized LLM calls (e.g., standalone reflect calls).

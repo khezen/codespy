@@ -709,6 +709,62 @@ def get_prefrontal(
         return None
 
 
+# Consumer signatures that share the run-level Prefrontal load
+_RUN_PREFRONTAL_CONSUMERS = ("summary", "code_review", "doc", "supply_chain", "audit")
+
+
+def get_run_prefrontal(
+    settings: Settings,
+    repo_full_name: str,
+    scope_topic_ids: Sequence[str],
+) -> Prefrontal | None:
+    """Return a Prefrontal for the shared run-level recall, or None when inactive.
+
+    Active only when:
+    - A repo is known
+    - Cerebral is available
+    - At least one consumer (summary, code_review, doc, supply_chain, audit)
+      has both is_signature_enabled and get_memory_enabled True
+
+    When active, returns a Prefrontal with task_name="review", include_repo=True,
+    and all scope_topic_ids. The run-level recall is shared by all consumer agents.
+
+    Never raises (same soft-fail behavior as get_prefrontal).
+    """
+    try:
+        if not repo_full_name:
+            return None
+
+        # Check if any consumer has memory enabled
+        from codespy.config_dspy import SIGNATURE_NAMES
+
+        has_memory_consumer = any(
+            settings.is_signature_enabled(sig) and settings.get_memory_enabled(sig)
+            for sig in SIGNATURE_NAMES
+            if sig in _RUN_PREFRONTAL_CONSUMERS
+        )
+        if not has_memory_consumer:
+            return None
+
+        cerebral = get_cerebral(settings)
+        if cerebral is None:
+            return None
+
+        from codespy.agents.memory.prefrontal import Prefrontal
+
+        return Prefrontal(
+            settings.memory.prefrontal,
+            cerebral,
+            task_name="review",
+            repo_full_name=repo_full_name,
+            scope_topic_ids=scope_topic_ids,
+            include_repo=True,
+        )
+    except Exception:
+        logger.warning("Run Prefrontal unavailable for %s", repo_full_name, exc_info=True)
+        return None
+
+
 def reset_cerebral() -> None:
     """Clear the cached Cerebral instance so it is rebuilt on next access.
 

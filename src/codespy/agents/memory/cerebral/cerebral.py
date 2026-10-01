@@ -4,10 +4,9 @@ Uses MemoryEngine (direct Python API) sharing the same PostgreSQL
 instance as the episodic store, under the ``semantic`` schema.
 
 Write side: ``retain_episode`` retains Hippocampus episodes, tagged with
-``repo:``/``org:`` and consolidated per observation scope, then keeps one
-mental model ("briefing") per scope. With ``SyncTaskBackend`` consolidation
-and mental-model refreshes run inline, on the caller's (background save)
-thread.
+``repo:``/``org:``. Scopes are recorded per run_id for later consolidation.
+``consolidate_run`` submits one consolidation after all episode saves complete,
+which refreshes mental models ("briefings") once per touched scope.
 
 Read side (used by Prefrontal only): ``arecall``/``recall``,
 ``areflect``/``reflect``, ``aget_mental_models`` and
@@ -161,6 +160,9 @@ class _SchemaSyncTaskBackend(SyncTaskBackend):
             )
 
 from codespy.agents.memory.cerebral.cost import (
+    BUCKET_MEMORY_CONSOLIDATION,
+    BUCKET_MEMORY_MENTAL_MODELS,
+    BUCKET_MEMORY_OTHER,
     CerebralCostRecorder,
     MeteredLiteLLMSDKEmbeddings,
     register_cerebral_cost_recorder,
@@ -360,6 +362,10 @@ class Cerebral:
         self._ensured_mental_models: set[str] = set()
         # Lock for consolidation serialization
         self._consolidation_lock = threading.Lock()
+        # Pending scopes per run_id for one-consolidation-per-run (dict[str, list[list[str]]])
+        self._pending_scopes: dict[str, list[list[str]]] = {}
+        # Lock for _pending_scopes (written from background save threads, popped on pipeline thread)
+        self._pending_scopes_lock = threading.Lock()
 
         logger.info(
             "Cerebral MemoryEngine initialized (schema=%s, bank=%s, embeddings=%s, provider=%s, chunk_size=%s, max_input_chars=%s)",
@@ -605,27 +611,6 @@ class Cerebral:
         self._sync_briefing_triggers(mental_model_scopes)
 
         started = time.monotonic()
-        logger.info(
-            "cerebral: retain + consolidation started for episode %s (bank=%s, task=%s)",
-            episode.id, self._bank_id, episode.task,
-        )
-
-        # Capture baseline stats for delta calculation (all three buckets)
-        from codespy.agents.cost_tracker import get_cost_tracker
-        from codespy.agents.memory.cerebral.cost import (
-            BUCKET_MEMORY_CONSOLIDATION,
-            BUCKET_MEMORY_MENTAL_MODELS,
-            BUCKET_MEMORY_OTHER,
-        )
-
-        tracker = get_cost_tracker()
-        baseline_consolidation = tracker.get_signature_stats(BUCKET_MEMORY_CONSOLIDATION)
-        baseline_mental_models = tracker.get_signature_stats(BUCKET_MEMORY_MENTAL_MODELS)
-        baseline_other = tracker.get_signature_stats(BUCKET_MEMORY_OTHER)
-        baseline_calls_consolidation = baseline_consolidation.call_count if baseline_consolidation else 0
-        baseline_calls_mental_models = baseline_mental_models.call_count if baseline_mental_models else 0
-        baseline_calls_other = baseline_other.call_count if baseline_other else 0
-
         try:
             self._run_async(
                 self._engine.retain_batch_async(
@@ -641,28 +626,25 @@ class Cerebral:
             )
             return
 
-        # Scoped consolidation (serialized) - prevents unscoped pending rows
-        # from blocking subsequent submissions.
-        with self._consolidation_lock:
-            for scope_tags in mental_model_scopes:
-                self._submit_scoped_consolidation(scope_tags)
-
-        # Log consolidation completion with per-bucket deltas
-        end_consolidation = tracker.get_signature_stats(BUCKET_MEMORY_CONSOLIDATION)
-        end_mental_models = tracker.get_signature_stats(BUCKET_MEMORY_MENTAL_MODELS)
-        end_other = tracker.get_signature_stats(BUCKET_MEMORY_OTHER)
-        delta_calls_consolidation = (end_consolidation.call_count if end_consolidation else baseline_calls_consolidation) - baseline_calls_consolidation
-        delta_calls_mental_models = (end_mental_models.call_count if end_mental_models else baseline_calls_mental_models) - baseline_calls_mental_models
-        delta_calls_other = (end_other.call_count if end_other else baseline_calls_other) - baseline_calls_other
+        # Record scopes for one-consolidation-per-run instead of submitting inline
+        # Skip when repo_full_name is None (matches today's behavior: no scopes means no consolidation)
+        if repo_full_name and mental_model_scopes:
+            with self._pending_scopes_lock:
+                # Get existing scopes for this run_id (deduped by sorted tuple)
+                existing = self._pending_scopes.get(episode.run_id, [])
+                seen: set[tuple[str, ...]] = {tuple(sorted(s)) for s in existing}
+                for scope_tags in mental_model_scopes:
+                    key = tuple(sorted(scope_tags))
+                    if key not in seen:
+                        seen.add(key)
+                        existing.append(scope_tags)
+                self._pending_scopes[episode.run_id] = existing
 
         logger.info(
-            "cerebral: retained %d content blobs for episode %s (bank=%s, task=%s); "
-            "consolidation finished in %.1fs, memory_consolidation +%d calls, memory_mental_models +%d calls, memory_other +%d calls",
+            "cerebral: retained %d content blobs for episode %s (bank=%s, task=%s) in %.1fs; "
+            "consolidation deferred to end of run %s",
             len(contents), episode.id, self._bank_id, episode.task,
-            time.monotonic() - started,
-            delta_calls_consolidation,
-            delta_calls_mental_models,
-            delta_calls_other,
+            time.monotonic() - started, episode.run_id,
         )
 
     @staticmethod
@@ -795,25 +777,67 @@ class Cerebral:
             except Exception:
                 logger.warning("cerebral: failed to sync briefing trigger for %s", mm_id, exc_info=True)
 
-    def _submit_scoped_consolidation(self, scope_tags: list[str]) -> None:
-        """Submit a scoped consolidation for one scope under the process lock.
+    def consolidate_run(self, run_id: str) -> None:
+        """Trigger one consolidation for all scopes touched during a run.
 
-        Scoped consolidation is never skipped, unlike unscoped submissions which
-        are deduplicated when a pending unscoped row exists.
+        Called by the pipeline after join_episode_saves() completes.
+        Submits a single consolidation with the union of all scopes,
+        which Hindsight ORs and refreshes affected mental models once.
+        Never raises.
+
+        Args:
+            run_id: The run identifier to consolidate scopes for.
         """
-        ctx = RequestContext()
+        # Pop first so the run's entry is always released, even on failure.
+        with self._pending_scopes_lock:
+            scopes = self._pending_scopes.pop(run_id, None)
+
+        if not scopes:
+            logger.info("consolidate_run: no scopes pending for run %s; skipped", run_id)
+            return
+
         try:
-            self._run_async(
-                self._engine.submit_async_consolidation(
-                    self._bank_id,
-                    request_context=ctx,
-                    observation_scopes=[scope_tags],
+            from codespy.agents.cost_tracker import get_cost_tracker
+
+            tracker = get_cost_tracker()
+
+            def _calls(bucket: str) -> int:
+                stats = tracker.get_signature_stats(bucket)
+                return stats.call_count if stats else 0
+
+            buckets = (BUCKET_MEMORY_CONSOLIDATION, BUCKET_MEMORY_MENTAL_MODELS, BUCKET_MEMORY_OTHER)
+            baseline = {b: _calls(b) for b in buckets}
+
+            logger.info(
+                "consolidate_run: starting for run %s with %d scope(s)",
+                run_id, len(scopes),
+            )
+            started = time.monotonic()
+
+            with self._consolidation_lock:
+                # Submit one consolidation with all scopes (Hindsight ORs them)
+                self._run_async(
+                    self._engine.submit_async_consolidation(
+                        self._bank_id,
+                        request_context=RequestContext(),
+                        observation_scopes=scopes,
+                    )
                 )
+
+            delta = {b: _calls(b) - baseline[b] for b in buckets}
+            logger.info(
+                "consolidate_run: finished for run %s in %.1fs, "
+                "memory_consolidation +%d calls, memory_mental_models +%d calls, memory_other +%d calls",
+                run_id,
+                time.monotonic() - started,
+                delta[BUCKET_MEMORY_CONSOLIDATION],
+                delta[BUCKET_MEMORY_MENTAL_MODELS],
+                delta[BUCKET_MEMORY_OTHER],
             )
         except Exception:
             logger.warning(
-                "cerebral: scoped consolidation failed for scope %s",
-                scope_tags,
+                "consolidate_run: consolidation failed for run %s",
+                run_id,
                 exc_info=True,
             )
 

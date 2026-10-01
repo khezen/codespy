@@ -166,7 +166,7 @@ class Prefrontal:
         """Append one RecallRecord. Never raises."""
         try:
             rec = RecallRecord(
-                ordinal=len(self._records),
+                task=self._task,
                 kind=kind,
                 timestamp=started_at,
                 query=query,

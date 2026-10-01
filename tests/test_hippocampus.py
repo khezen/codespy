@@ -966,7 +966,6 @@ def _recall_records():
 
     return [
         RecallRecord(
-            ordinal=0,
             kind="load",
             query="context query",
             reach="org",
@@ -983,7 +982,6 @@ def _recall_records():
             details={"briefings": 1, "remote": 2, "facets": {"context": {"count": 1}}},
         ),
         RecallRecord(
-            ordinal=1,
             kind="tool",
             query="where is login",
             reach="local",
@@ -1020,7 +1018,7 @@ class TestEpisodeStoreRecalls:
             conn.row_factory = dict_row
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT * FROM recalls WHERE bank_id = %s AND episode_id = %s ORDER BY ordinal",
+                    "SELECT * FROM recalls WHERE bank_id = %s AND episode_id = %s ORDER BY timestamp",
                     (store.bank_id, str(episode_id)),
                 )
                 return cur.fetchall()
@@ -1030,7 +1028,7 @@ class TestEpisodeStoreRecalls:
         episode_store.save_episode(episode)
 
         rows = self._rows(episode_store, episode.id)
-        assert [r["ordinal"] for r in rows] == [0, 1]
+        assert len(rows) == 2
         load, tool = rows
         assert load["kind"] == "load" and load["status"] == "ok"
         assert load["text"].endswith("RECALLED-SECRET-TEXT")
@@ -1042,6 +1040,9 @@ class TestEpisodeStoreRecalls:
         assert load["latency_ms"] == 4200
         assert load["reflects"] == 5 and load["reach"] == "org"
         assert load["details"]["facets"]["context"]["count"] == 1
+        # New schema: run_id and task are populated from episode
+        assert load["run_id"] == "run-recalls"
+        assert load["task"] == "code_review"
         assert tool["status"] == "limit"
         assert tool["details"] == {"requested_reach": "bank", "mode": "reflect"}
 
@@ -1056,6 +1057,88 @@ class TestEpisodeStoreRecalls:
         episode_store.save_episode(episode)
         assert self._rows(episode_store, episode.id) == []
 
+    def test_save_recalls_with_null_episode_id(self, episode_store):
+        """Run-level recalls have episode_id=NULL."""
+        import uuid
+        from codespy.agents.memory.recall import RecallRecord
+
+        recalls = [
+            RecallRecord(
+                id=uuid.uuid4(),
+                run_id="run-level-test",
+                task="review",
+                kind="load",
+                timestamp=datetime.now(UTC),
+                query="test query",
+                reach="local",
+                status="ok",
+                text="test text",
+                model="test-model",
+            ),
+        ]
+        episode_store.save_recalls(recalls, run_id="run-level-test", episode_id=None, task="review")
+        # Query by run_id
+        from psycopg.rows import dict_row
+        with episode_store._pool.connection() as conn:
+            conn.row_factory = dict_row
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM recalls WHERE bank_id = %s AND run_id = %s",
+                    (episode_store.bank_id, "run-level-test"),
+                )
+                rows = cur.fetchall()
+        assert len(rows) == 1
+        assert rows[0]["episode_id"] is None
+        assert rows[0]["task"] == "review"
+
+    def test_legacy_table_is_dropped_and_recreated(self, episode_store):
+        """If recalls table exists without 'id' column, it should be dropped and recreated."""
+        from psycopg.rows import dict_row
+
+        # Manually create a legacy table (without 'id' column, with 'ordinal')
+        with episode_store._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DROP TABLE IF EXISTS recalls")
+                cur.execute("""
+                    CREATE TABLE recalls (
+                        bank_id VARCHAR(64) NOT NULL,
+                        episode_id UUID NOT NULL,
+                        ordinal INT NOT NULL,
+                        kind VARCHAR(8) NOT NULL,
+                        timestamp TIMESTAMPTZ NOT NULL,
+                        query TEXT NOT NULL DEFAULT '',
+                        reach VARCHAR(8) NOT NULL,
+                        reflects INT NOT NULL DEFAULT 0,
+                        status VARCHAR(8) NOT NULL,
+                        text TEXT NOT NULL DEFAULT '',
+                        model TEXT NOT NULL DEFAULT '',
+                        llm_calls INT NOT NULL DEFAULT 0,
+                        input_tokens INT NOT NULL DEFAULT 0,
+                        output_tokens INT NOT NULL DEFAULT 0,
+                        input_cost DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        output_cost DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        latency_ms INT NOT NULL DEFAULT 0,
+                        details JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        PRIMARY KEY (bank_id, episode_id, ordinal)
+                    )
+                """)
+                conn.commit()
+
+        # Call ensure_schema which should detect and drop the legacy table
+        episode_store.ensure_schema()
+
+        # Verify the new schema has 'id' column
+        with episode_store._pool.connection() as conn:
+            conn.row_factory = dict_row
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = 'recalls' AND table_schema = COALESCE(current_schema(), 'public')
+                """)
+                columns = {row["column_name"] for row in cur.fetchall()}
+                assert "id" in columns
+                assert "ordinal" not in columns
+
 
 class TestHippocampusRecalls:
     def test_end_episode_attaches_recalls_without_distilling_them(self):
@@ -1068,7 +1151,10 @@ class TestHippocampusRecalls:
         hippo.end_episode(recalls=recalls)
 
         assert hippo.episode is not None
-        assert [r.ordinal for r in hippo.episode.recalls] == [0, 1]
+        # New schema: recalls have id (UUID) and task instead of ordinal
+        assert len(hippo.episode.recalls) == 2
+        assert all(r.task == "" for r in hippo.episode.recalls)  # Not set yet
+        assert all(r.id is not None for r in hippo.episode.recalls)
         assert len(seen) == 1
         trajectory, question = seen[0]
         assert "RECALLED-SECRET-TEXT" not in trajectory

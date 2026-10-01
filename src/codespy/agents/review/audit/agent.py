@@ -10,7 +10,7 @@ from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
-from codespy.agents.memory.prefrontal import build_facets, with_prefrontal_memory
+from codespy.agents.memory.prefrontal import with_prefrontal_memory
 from codespy.agents.review.models import Issue, ReviewContext
 from codespy.agents.review.helpers import deepest_common_folder
 from codespy.config import get_settings
@@ -166,14 +166,13 @@ class Auditor(dspy.Module):
             )
 
         repo_full_name = review_context.pr_context.repo_full_name
-        scope_topic_ids = [scope.topic(repo_full_name).id for scope in scopes or []]
+        # Get Prefrontal for tool calls only (prefrontal_memory is already loaded by pipeline)
         pf = get_prefrontal(
             self._settings,
             "audit",
             repo_full_name,
-            scope_topic_ids=scope_topic_ids,
-            include_repo=True,
-        )
+            scope_topic_ids=None,
+        ) if self._settings.get_memory_enabled("audit") else None
         sig = with_prefrontal_memory(AuditSignature) if pf else AuditSignature
         auditor = ContextSafe(
             dspy.ChainOfThought(sig),
@@ -186,18 +185,8 @@ class Auditor(dspy.Module):
         logger.info("Running audit...")
 
         with SignatureContext("audit", self._cost_tracker):
-            prefrontal_memory = (
-                pf.load(
-                    build_facets(
-                        "audit",
-                        repo_full_name,
-                        pr_title=review_context.pr_context.pr_title,
-                        summary=review_context.pr_context.summary,
-                    )
-                )
-                if pf is not None
-                else None
-            )
+            # Use shared run-level recall (already loaded by pipeline)
+            prefrontal_memory = review_context.prefrontal_memory or None
             result, hippo, store, _artifacts = self._call_auditor(
                 auditor,
                 review_context,

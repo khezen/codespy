@@ -10,6 +10,8 @@ import dspy  # type: ignore[import-untyped]
 from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 
 from codespy.agents.memory.hippocampus.context_memory import Topic
+from codespy.agents.memory.prefrontal import build_facets
+from codespy.agents.memory.prefrontal.query import MAX_CONTEXT_PATHS, MAX_ENTITY_TERMS
 from codespy.agents.review.models import Issue, PRContext, ReviewContext, ReviewMetadata
 from codespy.agents.review import (
     Auditor,
@@ -23,7 +25,12 @@ from codespy.agents.memory.hippocampus.episode import join_episode_saves
 from codespy.agents.review.helpers import build_patches
 from codespy.agents.review.scope import MANIFEST_FILES, MANIFEST_GLOBS, build_sparse_patterns
 from codespy.config import Settings, get_settings
-from codespy.config_memory import verify_memory_access
+from codespy.config_memory import (
+    get_cerebral,
+    get_episode_store,
+    get_run_prefrontal,
+    verify_memory_access,
+)
 from codespy.tools.git import ChangedFile, GitClient, PullRequest, get_client
 from codespy.tools.git.local_diff import build_pr_from_diff
 
@@ -214,10 +221,49 @@ class ReviewPipeline(dspy.Module):
         if not is_local:
             self._expand_sparse_for_scopes(scopes, repo_path, changed_file_paths)
         patches = build_patches(pr.changed_files)
-        # Step 2: Run Summarizer (now receives scopes for per-scope episode persistence)
+
         # Build all scope topics (scope topics + PR topic)
         all_scope_topics = [s.topic(pr.repo_full_name) for s in scopes]
         all_scope_topics.append(pr_context.to_topic())
+
+        # Build scope topic IDs for Prefrontal
+        scope_topic_ids = [t.id for t in all_scope_topics if t.type == "project_scope"]
+
+        # Run-level Prefrontal recall: one load shared by all consumer agents
+        run_pf = get_run_prefrontal(self.settings, pr.repo_full_name, scope_topic_ids)
+        pf_text = ""
+        if run_pf:
+            # Build facets for the run-level load
+            # Collect paths, packages from all scopes
+            all_paths = list({f.filename for s in scopes for f in s.changed_files})
+            all_packages = list({
+                s.package_manifest.package_name
+                for s in scopes
+                if s.package_manifest and s.package_manifest.package_name
+            })
+            facets = build_facets(
+                task="review",
+                target=pr.repo_full_name,
+                pr_title=pr.title,
+                summary=pr.body or "",
+                paths=all_paths[:MAX_CONTEXT_PATHS],
+                packages=all_packages[:MAX_ENTITY_TERMS],
+            )
+            pf_text = run_pf.load(facets)
+            # Persist run-level recalls
+            try:
+                store = get_episode_store(self.settings)
+                if store and run_pf.recalls:
+                    store.save_recalls(
+                        run_pf.recalls,
+                        run_id=run_id,
+                        episode_id=None,
+                        task="review",
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to save run-level recalls: {e}")
+
+        # Step 2: Run Summarizer (now receives scopes for per-scope episode persistence)
         pr_summary = self.summarizer(
             pr_context=pr_context,
             changed_file_paths=changed_file_paths,
@@ -225,10 +271,13 @@ class ReviewPipeline(dspy.Module):
             run_id=run_id,
             scopes=scopes,
             topics=all_scope_topics,
+            prefrontal_memory=pf_text,
         )
-        # Enrich review_ctx with actual summary
+        # Enrich review_ctx with actual summary and prefrontal_memory
         pr_context.summary = pr_summary
-        review_ctx = ReviewContext(pr_context=pr_context, memory=None, metadata=metadata)
+        review_ctx = ReviewContext(
+            pr_context=pr_context, memory=None, metadata=metadata, prefrontal_memory=pf_text
+        )
         # Step 3: Run review modules concurrently via asyncio.gather
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
@@ -247,7 +296,9 @@ class ReviewPipeline(dspy.Module):
         # Ensure all background episode saves complete before stats collection
         # (audit's episode save runs in background and contains distiller/cartographer calls)
         join_episode_saves()
-        # Collect per-signature statistics (after all saves complete)
+        # One consolidation per run (after all episode saves complete)
+        self._consolidate_run(run_id)
+        # Collect per-signature statistics (after all saves complete, includes consolidation costs)
         signature_stats_list = self._collect_signature_stats()
         return ReviewResult(
             pr_number=pr.number,
@@ -265,6 +316,29 @@ class ReviewPipeline(dspy.Module):
             llm_calls=self.cost_tracker.call_count,
             signature_stats=signature_stats_list,
         )
+
+    def _consolidate_run(self, run_id: str) -> None:
+        """Trigger one consolidation per run after all episode saves complete.
+
+        Consolidation runs only when:
+        - Cerebral is available
+        - At least one memory-enabled signature ran in this run
+        """
+        from codespy.config_dspy import SIGNATURE_NAMES
+
+        # Check if any consumer has memory enabled (reuse the check from verify_memory_access)
+        if not any(
+            self.settings.is_signature_enabled(sig) and self.settings.get_memory_enabled(sig)
+            for sig in SIGNATURE_NAMES
+        ):
+            return
+
+        try:
+            cerebral = get_cerebral(self.settings)
+            if cerebral:
+                cerebral.consolidate_run(run_id)
+        except Exception:
+            logger.warning("Consolidation failed for run %s", run_id, exc_info=True)
 
     def _collect_signature_stats(self) -> list[SignatureStatsResult]:
         """Collect statistics from all signatures that executed.

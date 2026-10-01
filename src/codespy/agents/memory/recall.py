@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextvars
 import threading
+import uuid
 from collections.abc import Iterator, Set
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -21,7 +22,9 @@ class RecallRecord(BaseModel):
     """One Prefrontal recall (pre-call load or recall_memory tool call).
 
     Attributes:
-        ordinal: Order within one Prefrontal instance (0 = first recall).
+        id: UUID identifying this recall record.
+        run_id: Run identifier this recall belongs to.
+        task: Consumer task name (e.g. "code_review", "review" for run-level load).
         kind: "load" for pre-call aload, "tool" for recall_memory.
         timestamp: UTC time the recall started.
         query: The query used (context facet for load, truncated query for tool).
@@ -39,7 +42,9 @@ class RecallRecord(BaseModel):
         details: JSON-serializable extra data per kind.
     """
 
-    ordinal: int
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    run_id: str = Field(default="")
+    task: str = Field(default="")
     kind: Literal["load", "tool"]
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     query: str = Field(default="")

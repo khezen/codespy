@@ -10,7 +10,7 @@ from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.hippocampus.context_memory import Topic
-from codespy.agents.memory.prefrontal import build_facets, with_prefrontal_memory
+from codespy.agents.memory.prefrontal import with_prefrontal_memory
 from codespy.agents.review.helpers import deepest_common_folder
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
@@ -56,6 +56,7 @@ class Summarizer(dspy.Module):
         run_id: str | None = None,
         scopes: list["ScopeResult"] | None = None,
         topics: list[Topic] | None = None,
+        prefrontal_memory: str = "",
     ) -> str:
         """Generate a PR summary.
 
@@ -66,6 +67,7 @@ class Summarizer(dspy.Module):
             run_id: Pipeline run identifier
             scopes: List of resolved scopes for per-scope episode persistence
             topics: Optional list of Topic objects for auto-tagging
+            prefrontal_memory: Shared run-level Prefrontal recall text (already loaded by pipeline)
 
         Returns:
             Summary string
@@ -97,14 +99,14 @@ class Summarizer(dspy.Module):
                     logger.info("No prior summary episode found")
 
         repo_full_name = pr_context.repo_full_name
-        scope_topic_ids = [scope.topic(repo_full_name).id for scope in scopes or []]
+        # Get Prefrontal for tool calls only (prefrontal_memory is already loaded)
         pf = get_prefrontal(
             self._settings,
             "summary",
             repo_full_name,
-            scope_topic_ids=scope_topic_ids,
-            include_repo=True,
-        )
+            scope_topic_ids=None,
+            include_repo=False,
+        ) if self._settings.get_memory_enabled("summary") else None
         sig = with_prefrontal_memory(PRSummarySignature) if pf else PRSummarySignature
         summarizer = ContextSafe(
             dspy.ChainOfThought(sig),
@@ -120,17 +122,10 @@ class Summarizer(dspy.Module):
 
         hippo: Hippocampus | None = None
         with SignatureContext("summary", self._cost_tracker):
-            # Prefrontal: prior knowledge from Cerebral (never given to Hippocampus)
+            # Prefrontal: use shared run-level recall (never given to Hippocampus)
             pf_kwargs: dict[str, str] = {}
-            if pf is not None:
-                pf_kwargs["prefrontal_memory"] = pf.load(
-                    build_facets(
-                        "summary",
-                        repo_full_name,
-                        pr_title=pr_context.pr_title,
-                        paths=changed_file_paths,
-                    )
-                )
+            if prefrontal_memory:
+                pf_kwargs["prefrontal_memory"] = prefrontal_memory
             if self._settings.get_memory_enabled("summary") and store is not None:
                 # Build topics list for Hippocampus
                 scope_topics: list[Topic] = []
@@ -159,12 +154,14 @@ class Summarizer(dspy.Module):
                 _summary_text = result.summary
                 cerebral = get_cerebral(self._settings)
                 _cerebral = cerebral
+                # Get recalls from Prefrontal for tool calls only
+                _recalls = pf.recalls if pf else None
                 def _persist():
                     try:
                         hippo.end_episode(
                             store,
                             artifacts={"summary": _summary_text},
-                            recalls=pf.recalls if pf else None,
+                            recalls=_recalls,
                         )
                     except Exception:
                         logger.warning("Background summary episode save failed", exc_info=True)

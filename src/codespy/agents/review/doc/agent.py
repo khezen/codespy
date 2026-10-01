@@ -13,7 +13,7 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
-from codespy.agents.memory.prefrontal import build_facets, with_prefrontal_memory
+from codespy.agents.memory.prefrontal import with_prefrontal_memory
 from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
 from codespy.agents.review.scope.models import ScopeResult
 from codespy.agents.review.doc.doc_extractor import extract_documentation
@@ -23,7 +23,6 @@ from codespy.agents.review.helpers import (
     make_scope_relative,
     resolve_scope_root,
     restore_repo_paths,
-    scope_package_names,
 )
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
@@ -203,10 +202,10 @@ class DocReviewer(dspy.Module):
             return []
         try:
             repo_full_name = review_context.pr_context.repo_full_name
-            scope_topic_id = scope.topic(repo_full_name).id
+            # Get Prefrontal for tool calls only (prefrontal_memory is already loaded by pipeline)
             pf = get_prefrontal(
-                self._settings, "doc", repo_full_name, scope_topic_ids=[scope_topic_id]
-            )
+                self._settings, "doc", repo_full_name, scope_topic_ids=None
+            ) if self._settings.get_memory_enabled("doc") else None
             sig = with_prefrontal_memory(DocReviewSignature) if pf else DocReviewSignature
             reviewer = ContextSafe(
                 dspy.ChainOfThought(sig),
@@ -221,20 +220,10 @@ class DocReviewer(dspy.Module):
             )
             hippo: Hippocampus | None = None
             async with SignatureContext("doc", self._cost_tracker):
-                # Prefrontal: prior knowledge from Cerebral (never given to Hippocampus)
+                # Prefrontal: use shared run-level recall (never given to Hippocampus)
                 pf_kwargs: dict[str, Any] = {}
-                if pf is not None:
-                    pf_kwargs["prefrontal_memory"] = await pf.aload(
-                        build_facets(
-                            "doc",
-                            scope_topic_id,
-                            description=scope.description,
-                            pr_title=review_context.pr_context.pr_title,
-                            paths=[f.filename for f in scope.changed_files],
-                            summary=review_context.pr_context.summary,
-                            packages=scope_package_names(scope),
-                        )
-                    )
+                if review_context.prefrontal_memory:
+                    pf_kwargs["prefrontal_memory"] = review_context.prefrontal_memory
                 # Load own prior "doc" episode for this scope
                 scope_initial_memory: ContextMemory | None = None
                 store = None

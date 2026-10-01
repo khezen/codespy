@@ -91,16 +91,21 @@ class ReviewContext(BaseModel):
     """Evolving pipeline state threaded through review stages.
 
     Carries the immutable PR identity and runtime pipeline metadata.
-    Context memory is loaded independently by each module from its own prior episodes.
+    The prefrontal_memory field holds the shared run-level recall text
+    that is loaded once and passed to all consumer agents.
     """
 
     pr_context: PRContext = Field(
         description="Immutable PR identity (repo, number, title, summary)"
     )
     memory: ContextMemory | None = Field(
-        default=None, description="Unused — each module loads its own prior episodes. Kept for API compatibility."
+        default=None, description="Deprecated — use prefrontal_memory instead. Kept for API compatibility."
     )
     metadata: ReviewMetadata | None = Field(default=None, description="Runtime pipeline state")
+    prefrontal_memory: str = Field(
+        default="",
+        description="Shared run-level Prefrontal recall text, loaded once and passed to all consumer agents",
+    )
 
 
 class Issue(BaseModel):

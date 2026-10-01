@@ -172,8 +172,8 @@ class TestCerebralInit:
                 database_url="postgresql://localhost:5432/test",
                 llm_provider="litellm",
             )
-            # Now called twice: once for initialize(), once for ensure_maintenance_routines()
-            assert mock_run_async.call_count == 2
+            # initialize(), ensure_maintenance_routines(), repair_orphaned_operations()
+            assert mock_run_async.call_count == 3
 
     def test_init_handles_none_base_url(self, mock_memory_engine_class, mock_litellm):
         """Test that None base_url is handled correctly."""
@@ -1172,6 +1172,52 @@ class TestCerebralRetainScopes:
 
         assert with_ == without
         assert all("RECALLED-TEXT" not in item["content"] for item in with_)
+
+
+class TestConsolidateRun:
+    """One consolidation per run, submitted after all retains."""
+
+    def _engine(self, async_engine):
+        async_engine.submit_async_consolidation = AsyncMock(return_value={"operation_id": "op"})
+        return async_engine
+
+    def test_retain_does_not_consolidate(self, cerebral_async, async_engine, episode):
+        engine = self._engine(async_engine)
+        cerebral_async.retain_episode(episode, repo_full_name="test/repo")
+        engine.submit_async_consolidation.assert_not_awaited()
+        assert episode.run_id in cerebral_async._pending_scopes
+
+    def test_one_submit_with_union_of_scopes(self, cerebral_async, async_engine, episode):
+        engine = self._engine(async_engine)
+        other = episode.model_copy(update={"id": uuid.uuid4(), "task": "doc"})
+        cerebral_async.retain_episode(episode, repo_full_name="test/repo")
+        cerebral_async.retain_episode(other, repo_full_name="test/repo")
+
+        cerebral_async.consolidate_run(episode.run_id)
+
+        engine.submit_async_consolidation.assert_awaited_once()
+        scopes = engine.submit_async_consolidation.await_args.kwargs["observation_scopes"]
+        assert sorted(map(sorted, scopes)) == sorted(
+            map(sorted, [
+                ["org:test", "repo:test/repo", "project_scope:test/repo/package"],
+                ["org:test", "repo:test/repo"],
+            ])
+        )
+        assert episode.run_id not in cerebral_async._pending_scopes
+
+    def test_other_run_untouched(self, cerebral_async, async_engine, episode):
+        engine = self._engine(async_engine)
+        cerebral_async.retain_episode(episode, repo_full_name="test/repo")
+        cerebral_async.consolidate_run("another-run")
+        engine.submit_async_consolidation.assert_not_awaited()
+        assert episode.run_id in cerebral_async._pending_scopes
+
+    def test_failure_swallowed_and_pending_released(self, cerebral_async, async_engine, episode):
+        engine = self._engine(async_engine)
+        engine.submit_async_consolidation.side_effect = RuntimeError("boom")
+        cerebral_async.retain_episode(episode, repo_full_name="test/repo")
+        cerebral_async.consolidate_run(episode.run_id)  # must not raise
+        assert episode.run_id not in cerebral_async._pending_scopes
 
 
 class TestEnsureMentalModels:
