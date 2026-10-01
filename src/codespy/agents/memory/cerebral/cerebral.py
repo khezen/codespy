@@ -324,6 +324,9 @@ class Cerebral:
         reflect_llm_model: str | None = None,
         reflect_llm_api_key: str | None = None,
         reflect_llm_base_url: str | None = None,
+        consolidation_llm_model: str | None = None,
+        consolidation_llm_api_key: str | None = None,
+        consolidation_llm_base_url: str | None = None,
         embeddings_max_input_chars: int | None = None,
         min_mental_model_refresh_seconds: int = 0,
     ):
@@ -383,6 +386,17 @@ class Cerebral:
                 "reflect_llm_base_url": reflect_llm_base_url or None,
             }
 
+        # Separate consolidation LLM, only when configured; otherwise Hindsight
+        # falls back to memory_llm_*.
+        consolidation_kwargs: dict[str, str | None] = {}
+        if consolidation_llm_model:
+            consolidation_kwargs = {
+                "consolidation_llm_provider": llm_provider,
+                "consolidation_llm_model": consolidation_llm_model,
+                "consolidation_llm_api_key": consolidation_llm_api_key,
+                "consolidation_llm_base_url": consolidation_llm_base_url or None,
+            }
+
         # Run consolidation and mental-model refreshes inline. The default
         # BrokerTaskBackend only queues rows for a WorkerPoller, which
         # codespy never starts, so they would never run.
@@ -394,6 +408,7 @@ class Cerebral:
             memory_llm_api_key=llm_api_key,
             memory_llm_base_url=llm_base_url or None,
             **reflect_kwargs,
+            **consolidation_kwargs,
             embeddings=metered_embeddings,
             cross_encoder=RRFPassthroughCrossEncoder(),
             tenant_extension=DefaultTenantExtension(config={"schema": HINDSIGHT_SCHEMA}),

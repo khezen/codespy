@@ -21,6 +21,8 @@ from codespy.config_git import (
 )
 from codespy.config_llm import LLMConfig
 from codespy.config_memory import (
+    MEMORY_CONSOLIDATION,
+    MEMORY_MENTAL_MODELS,
     MEMORY_PREFRONTAL,
     MEMORY_RETAIN,
     REFLECTION_MODULES,
@@ -82,7 +84,7 @@ _ENV_MAP = build_env_map(
         ("llm", "retries"),
         ("llm", "timeout"),
         ("memory", "prefrontal", "reflects"),
-        ("memory", "prefrontal", "model"),
+        ("memory", "prefrontal", "recall"),
     },
 )
 
@@ -179,13 +181,16 @@ class Settings(BaseSettings):
             "code_review"       -> review.code_review
             "memory_distiller"  -> memory.hippocampus.distiller
             "memory_retain"     -> memory.cerebral.retain
+            "memory_consolidation" -> memory.cerebral.consolidation
+            "memory_mental_models" -> memory.cerebral.mental_models
 
         Every field falls back to its ``llm.default_*`` counterpart, so
         the result has no ``None`` fields and callers never re-apply fallbacks.
 
         Args:
             name: A signature name, or a reflection module name
-                (see ``REFLECTION_MODULES``), or "memory_retain".
+                (see ``REFLECTION_MODULES``), or "memory_retain",
+                "memory_consolidation", "memory_mental_models".
 
         Returns:
             The fully resolved settings for ``name``.
@@ -195,10 +200,29 @@ class Settings(BaseSettings):
             model = self.memory.cerebral.retain.model or self.llm.default_model
             config = ReflectionModuleConfig()  # Empty config - all fields fall back to defaults
             defaults = self.llm
-        elif name == MEMORY_PREFRONTAL:
-            # Prefrontal reflect model: falls back to retain model, then default
+        elif name == MEMORY_CONSOLIDATION:
+            # Consolidation model: falls back to retain model, then default
             model = (
-                self.memory.prefrontal.model
+                self.memory.cerebral.consolidation.model
+                or self.memory.cerebral.retain.model
+                or self.llm.default_model
+            )
+            config = ReflectionModuleConfig()  # Empty config - all fields fall back to defaults
+            defaults = self.llm
+        elif name == MEMORY_PREFRONTAL:
+            # Prefrontal recall model: falls back to retain model, then default
+            model = (
+                self.memory.prefrontal.recall.model
+                or self.memory.cerebral.retain.model
+                or self.llm.default_model
+            )
+            config = ReflectionModuleConfig()  # Empty config - all fields fall back to defaults
+            defaults = self.llm
+        elif name == MEMORY_MENTAL_MODELS:
+            # Mental-model refresh model: falls back to prefrontal.recall → retain → default
+            model = (
+                self.memory.cerebral.mental_models.model
+                or self.memory.prefrontal.recall.model
                 or self.memory.cerebral.retain.model
                 or self.llm.default_model
             )
@@ -316,12 +340,19 @@ class Settings(BaseSettings):
                 f"reasoning_effort={llm.reasoning_effort}, temperature={llm.temperature}, "
                 f"max_tokens={llm.max_tokens}"
             )
-        # Prefrontal reflect model (also refreshes briefings)
+        # Prefrontal recall model (also refreshes briefings)
         pf_llm = self.get_llm_config(MEMORY_PREFRONTAL)
         logger.info(
             f"  {MEMORY_PREFRONTAL}: model={pf_llm.model}, "
             f"reflects={self.memory.prefrontal.reflects}"
         )
+        # Consolidation model
+        cons_llm = self.get_llm_config(MEMORY_CONSOLIDATION)
+        logger.info(f"  {MEMORY_CONSOLIDATION}: model={cons_llm.model}")
+        # Mental-models refresh model (only when reflects > 0)
+        if self.memory.prefrontal.reflects > 0:
+            mm_llm = self.get_llm_config(MEMORY_MENTAL_MODELS)
+            logger.info(f"  {MEMORY_MENTAL_MODELS}: model={mm_llm.model}")
 
     @model_validator(mode="before")
     @classmethod

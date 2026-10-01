@@ -92,6 +92,32 @@ class CerebralRetainConfig(BaseModel):
     chunk_size: int = Field(default=12288, gt=0, lt=_HINDSIGHT_RETAIN_MAX_COMPLETION_TOKENS)
 
 
+class CerebralConsolidationConfig(BaseModel):
+    """Cerebral (semantic memory) LLM configuration for consolidation.
+
+    Consolidation merges facts after episode retention. Falls back to
+    cerebral.retain.model → llm.default_model when unset.
+    """
+
+    model: str | None = None  # Falls back to cerebral.retain.model → llm.default_model
+
+
+class MentalModelsConfig(BaseModel):
+    """Mental-model (briefing) refresh LLM configuration.
+
+    Mental-model refresh synthesizes briefings after consolidation.
+    Falls back to prefrontal.model → cerebral.retain.model → llm.default_model
+    when unset. Only used when reflects > 0.
+
+    Delta mode means nothing is lost - the refresh covers all new facts since
+    the last successful refresh when the interval expires.
+    """
+
+    model: str | None = None  # Falls back to prefrontal.model → retain → default
+    max_tokens: int = Field(default=2048, gt=0)  # Briefing size
+    min_refresh_seconds: int = Field(default=0, ge=0)  # Minimum seconds between refreshes
+
+
 class CerebralEmbeddingsConfig(BaseModel):
     """Cerebral (semantic memory) embeddings configuration."""
 
@@ -107,11 +133,17 @@ class CerebralConfig(BaseModel):
     """Cerebral (semantic memory) configuration."""
 
     retain: CerebralRetainConfig = Field(default_factory=CerebralRetainConfig)
+    consolidation: CerebralConsolidationConfig = Field(default_factory=CerebralConsolidationConfig)
+    mental_models: MentalModelsConfig = Field(default_factory=MentalModelsConfig)
     embeddings: CerebralEmbeddingsConfig = Field(default_factory=CerebralEmbeddingsConfig)
 
 
-class PrefrontalConfig(BaseModel):
-    """Prefrontal (semantic recall into agent context) configuration."""
+class RecallConfig(BaseModel):
+    """Prefrontal recall (read-time context injection) configuration.
+
+    Controls the read-time recall into agent context. Only used when
+    memory.prefrontal.reflects > 0.
+    """
 
     # Model for Hindsight reflect (pre-call context and recall_memory tool).
     # Falls back to cerebral.retain.model → llm.default_model.
@@ -119,25 +151,25 @@ class PrefrontalConfig(BaseModel):
     model: str | None = None
     # local: this scope/repo only. org: also other repos of the same owner.
     # bank: every repo in the bank (crosses organisations — opt-in only).
-    prefrontal_reach: Literal["local", "org", "bank"] = "org"
+    reach: Literal["local", "org", "bank"] = "org"
+    # Token budget for the pre-call context (local facets + remote facts).
+    max_tokens: int = Field(default=8192, gt=0)
+    # Token budget for recall_memory tool results.
+    max_tool_tokens: int = Field(default=2048, gt=0)
+    # recall_memory tool call limit (0 = tool disabled).
+    max_tool_calls: int = Field(default=0, ge=0)
+
+
+class PrefrontalConfig(BaseModel):
+    """Prefrontal (semantic recall into agent context) configuration."""
+
     # 0: raw facts only, no LLM at read time and no briefings (no mental models).
     # N > 0: Hindsight reflect loop, capped at N iterations (both Prefrontal and
     # briefing refreshes). Uses Hindsight's LOW budget (0.5× multiplier), so the
     # global cap is set to 2× reflects to achieve exactly reflects iterations.
     reflects: int = Field(default=3, ge=0)
-    # Briefing size. Only used when reflects > 0.
-    max_mental_model_tokens: int = Field(default=2048, gt=0)
-    # Token budget for the pre-call context (local facets + remote facts).
-    max_prefrontal_tokens: int = Field(default=8192, gt=0)
-    # Token budget for recall_memory tool results.
-    max_prefrontal_tool_tokens: int = Field(default=2048, gt=0)
-    # recall_memory tool call limit (0 = tool disabled).
-    max_prefrontal_tool_calls: int = Field(default=0, ge=0)
-    # Minimum seconds between automatic briefing refreshes (0 = refresh after
-    # every consolidation; N = at most one automatic refresh per N seconds).
-    # Delta mode means nothing is lost - the refresh covers all new facts since
-    # the last successful refresh when the interval expires.
-    min_mental_model_refresh_seconds: int = Field(default=0, ge=0)
+    # Recall settings (read-time context injection).
+    recall: RecallConfig = Field(default_factory=RecallConfig)
 
 
 class LLMSettings(BaseModel):
@@ -499,20 +531,35 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
         or EMBEDDING_MODELS.get(provider_prefix, "openai/text-embedding-3-small")
     )
 
-    # Prefrontal reflect model (optional)
-    pf_model = settings.memory.prefrontal.model
+    # Prefrontal recall model (optional)
+    recall_model = settings.memory.prefrontal.recall.model
     reflect_kwargs: dict[str, str | None] = {}
-    if pf_model:
-        pf_api_key, pf_base_url = _litellm_credentials(settings, pf_model)
+    if recall_model:
+        recall_api_key, recall_base_url = _litellm_credentials(settings, recall_model)
         reflect_kwargs = {
-            "reflect_llm_model": pf_model,
-            "reflect_llm_api_key": pf_api_key,
-            "reflect_llm_base_url": pf_base_url,
+            "reflect_llm_model": recall_model,
+            "reflect_llm_api_key": recall_api_key,
+            "reflect_llm_base_url": recall_base_url,
+        }
+
+    # Consolidation model (optional) - pass to Cerebral only when explicitly set
+    # and no operator env override is present (env wins over config)
+    cons_model = settings.memory.cerebral.consolidation.model
+    consolidation_kwargs: dict[str, str | None] = {}
+    if cons_model and not os.environ.get("HINDSIGHT_API_CONSOLIDATION_LLM_MODEL"):
+        cons_api_key, cons_base_url = _litellm_credentials(settings, cons_model)
+        consolidation_kwargs = {
+            "consolidation_llm_model": cons_model,
+            "consolidation_llm_api_key": cons_api_key,
+            "consolidation_llm_base_url": cons_base_url,
         }
 
     # Apply Hindsight LLM defaults BEFORE Cerebral construction (these are read
     # during MemoryEngine.__init__). reflect_config is applied after construction.
     _apply_hindsight_llm_call_defaults(settings)
+
+    # Apply mental-model refresh LLM config to Hindsight raw config BEFORE Cerebral construction
+    _apply_mental_model_refresh_llm(settings)
 
     try:
         _cerebral = Cerebral(
@@ -525,10 +572,11 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
             embeddings_model=embeddings_model,
             retain_chunk_size=settings.memory.cerebral.retain.chunk_size,
             mental_models=settings.memory.prefrontal.reflects > 0,
-            max_mental_model_tokens=settings.memory.prefrontal.max_mental_model_tokens,
+            max_mental_model_tokens=settings.memory.cerebral.mental_models.max_tokens,
             embeddings_max_input_chars=settings.memory.cerebral.embeddings.max_input_chars,
-            min_mental_model_refresh_seconds=settings.memory.prefrontal.min_mental_model_refresh_seconds,
+            min_mental_model_refresh_seconds=settings.memory.cerebral.mental_models.min_refresh_seconds,
             **reflect_kwargs,
+            **consolidation_kwargs,
         )
     except Exception:
         logger.error(
@@ -541,12 +589,24 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
         _cerebral_built = True
         return None
 
-    reflect_model_str = f", reflect_model={pf_model}" if pf_model else ""
+    reflect_model_str = f", reflect_model={recall_model}" if recall_model else ""
+    consolidation_model_str = (
+        f", consolidation_model={consolidation_kwargs.get('consolidation_llm_model')}"
+        if consolidation_kwargs.get("consolidation_llm_model")
+        else ""
+    )
+    mental_models_model_str = (
+        f", mental_models_model={settings.memory.cerebral.mental_models.model}"
+        if settings.memory.cerebral.mental_models.model and settings.memory.prefrontal.reflects > 0
+        else ""
+    )
     logger.info(
-        "Cerebral initialized (bank=%s, provider=litellm, model=%s%s, schema=semantic)",
+        "Cerebral initialized (bank=%s, provider=litellm, model=%s%s%s%s, schema=semantic)",
         bank_id,
         model,
         reflect_model_str,
+        consolidation_model_str,
+        mental_models_model_str,
     )
     # Apply reflect caps programmatically (after Cerebral construction, before first use)
     _apply_reflect_config(settings.memory.prefrontal)
@@ -818,13 +878,95 @@ def get_run_prefrontal(
         return None
 
 
+# Snapshot of raw config mental_model_refresh fields before mutation,
+# restored by reset_cerebral() to avoid leaking settings across rebuilds.
+_mental_model_refresh_snapshot: dict[str, Any] | None = None
+
+
+def _apply_mental_model_refresh_llm(settings: "Settings") -> None:
+    """Apply mental-model refresh LLM config to Hindsight raw config programmatically.
+
+    Hindsight reads mental_model_refresh_llm_* from raw config (populated from
+    HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_* env vars). This function sets those
+    fields when codespy's config has an explicit mental_models.model and no env
+    override is present.
+
+    The snapshot is stored in _mental_model_refresh_snapshot so reset_cerebral()
+    can restore the original values.
+
+    Args:
+        settings: Application settings.
+    """
+    global _mental_model_refresh_snapshot
+
+    # Only apply when reflects > 0 and a mental_models model is configured
+    # reflects gates mental models; the model itself lives in cerebral.mental_models
+    if settings.memory.prefrontal.reflects == 0:
+        return
+    mm_cfg = settings.memory.cerebral.mental_models
+    if not mm_cfg.model:
+        return
+
+    # Operator env wins - if any HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_* is set,
+    # do not touch the raw config (the env values are already there)
+    env_vars = [
+        "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_PROVIDER",
+        "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_MODEL",
+        "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_API_KEY",
+        "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_BASE_URL",
+    ]
+    if any(os.environ.get(v) for v in env_vars):
+        logger.info("Using HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_* env vars (operator override)")
+        return
+
+    try:
+        import hindsight_api.config as ha_cfg
+
+        raw = ha_cfg._get_raw_config()
+    except Exception as e:
+        logger.warning("Could not access Hindsight raw config for mental-model refresh: %s", e)
+        return
+
+    # Snapshot current values before mutation
+    _mental_model_refresh_snapshot = {}
+    for field in ("mental_model_refresh_llm_provider", "mental_model_refresh_llm_model",
+                  "mental_model_refresh_llm_api_key", "mental_model_refresh_llm_base_url"):
+        if hasattr(raw, field):
+            _mental_model_refresh_snapshot[field] = getattr(raw, field)
+
+    # Get credentials for the configured model
+    model = mm_cfg.model
+    api_key, base_url = _litellm_credentials(settings, model)
+
+    try:
+        # Set the raw config fields (guarded by hasattr for forward compatibility)
+        if hasattr(raw, "mental_model_refresh_llm_provider"):
+            raw.mental_model_refresh_llm_provider = "litellm"
+        if hasattr(raw, "mental_model_refresh_llm_model"):
+            raw.mental_model_refresh_llm_model = model
+        if hasattr(raw, "mental_model_refresh_llm_api_key"):
+            raw.mental_model_refresh_llm_api_key = api_key
+        if hasattr(raw, "mental_model_refresh_llm_base_url"):
+            # Use "" for no base URL (not None), so Hindsight doesn't inherit reflect's base URL
+            raw.mental_model_refresh_llm_base_url = base_url or ""
+
+        logger.info("Mental-model refresh LLM: model=%s", model)
+    except Exception as e:
+        logger.warning("Failed to set mental-model refresh LLM config: %s", e)
+
+
 def reset_cerebral() -> None:
     """Clear the cached Cerebral instance so it is rebuilt on next access.
 
     Call this after reloading settings (e.g. ``reload_settings()``) so a
     changed ``memory`` configuration takes effect.
+
+    Also restores the Hindsight raw config mental_model_refresh fields from
+    the snapshot taken by _apply_mental_model_refresh_llm to avoid leaking
+    settings across rebuilds.
     """
-    global _cerebral, _cerebral_built
+    global _cerebral, _cerebral_built, _mental_model_refresh_snapshot
+
     if _cerebral is not None:
         try:
             _cerebral.close()
@@ -832,3 +974,16 @@ def reset_cerebral() -> None:
             pass
     _cerebral = None
     _cerebral_built = False
+
+    # Restore raw config snapshot if present
+    if _mental_model_refresh_snapshot:
+        try:
+            import hindsight_api.config as ha_cfg
+
+            raw = ha_cfg._get_raw_config()
+            for field, value in _mental_model_refresh_snapshot.items():
+                if hasattr(raw, field):
+                    setattr(raw, field, value)
+        except Exception:
+            pass
+        _mental_model_refresh_snapshot = None

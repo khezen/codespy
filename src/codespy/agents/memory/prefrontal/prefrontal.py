@@ -196,7 +196,7 @@ class Prefrontal:
 
     @property
     def reach(self) -> str:
-        return self._cfg.prefrontal_reach
+        return self._cfg.recall.reach
 
     @property
     def reflects(self) -> int:
@@ -261,7 +261,7 @@ class Prefrontal:
         rec = self._record(
             kind="load",
             query=context_query,
-            reach=self._cfg.prefrontal_reach,
+            reach=self._cfg.recall.reach,
             started_at=started_at,
             t0=t0,
             text=text,
@@ -314,7 +314,7 @@ class Prefrontal:
             _n(FACET_BELIEF_CHANGES),
             int(details.get("remote", 0)),
             estimate_tokens(text),
-            self._cfg.prefrontal_reach,
+            self._cfg.recall.reach,
             self._cfg.reflects,
             usage.to_model_field() or "-",
             llm_calls,
@@ -336,7 +336,7 @@ class Prefrontal:
         local_groups = build_local_groups(self._repo, self._scope_ids, self._include_repo)
         context_query = next((f.query for f in facets if f.name == FACET_CONTEXT), "")
         local_tokens, remote_tokens = self._split_tokens(
-            cfg.max_prefrontal_tokens, cfg.prefrontal_reach
+            cfg.recall.max_tokens, cfg.recall.reach
         )
 
         async def _briefings() -> list[dict]:
@@ -384,7 +384,7 @@ class Prefrontal:
             }
 
         async def _remote() -> list[Any]:
-            groups = build_remote_groups(self._repo, cfg.prefrontal_reach)
+            groups = build_remote_groups(self._repo, cfg.recall.reach)
             if groups is None or remote_tokens <= 0 or not context_query:
                 return []
             try:
@@ -403,7 +403,7 @@ class Prefrontal:
             return [f for f in facts or [] if not is_own_repo_fact(fget(f, "tags"), self._repo)]
 
         briefings, results, remote = await asyncio.gather(_briefings(), _facets(), _remote())
-        text = format_context(briefings, results, remote, self._repo, cfg.prefrontal_reach)
+        text = format_context(briefings, results, remote, self._repo, cfg.recall.reach)
 
         n_briefings = sum(
             1
@@ -432,7 +432,7 @@ class Prefrontal:
 
     def recall_tool(self) -> Callable[..., Any] | None:
         """Async ``recall_memory`` tool for RLM agents, or None when disabled."""
-        if self._cfg.max_prefrontal_tool_calls <= 0:
+        if self._cfg.recall.max_tool_calls <= 0:
             return None
 
         async def recall_memory(query: str, reach: str = "local") -> str:
@@ -458,13 +458,13 @@ class Prefrontal:
         t0 = time.monotonic()
         # str(): RLM agents may pass non-string arguments; this must never raise.
         q = truncate_words(str(query or ""))
-        effective = clamp_reach(str(reach or ""), cfg.prefrontal_reach)
+        effective = clamp_reach(str(reach or ""), cfg.recall.reach)
         details: dict[str, Any] = {
             "requested_reach": str(reach or ""),
             "mode": "reflect" if cfg.reflects > 0 else "recall",
         }
         with track_recall_usage() as usage:
-            if self._tool_calls >= cfg.max_prefrontal_tool_calls:
+            if self._tool_calls >= cfg.recall.max_tool_calls:
                 text = RECALL_LIMIT_REACHED
             else:
                 self._tool_calls += 1
@@ -516,7 +516,7 @@ class Prefrontal:
                 text, summary = await self._cerebral.areflect(
                     prompt,
                     tag_groups=groups,
-                    max_tokens=cfg.max_prefrontal_tool_tokens,
+                    max_tokens=cfg.recall.max_tool_tokens,
                     context=self._reflect_context(),
                 )
                 details["reflect"] = {
@@ -551,7 +551,7 @@ class Prefrontal:
 
             parts: list[str] = []
             local_tokens, remote_tokens = self._split_tokens(
-                cfg.max_prefrontal_tool_tokens, effective
+                cfg.recall.max_tool_tokens, effective
             )
             local_groups = build_local_groups(self._repo, self._scope_ids, self._include_repo)
             if local_groups:

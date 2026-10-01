@@ -377,8 +377,40 @@ inputs:
     description: 'Model for Cerebral fact extraction (falls back to model / DEFAULT_MODEL)'
     required: false
 
+  memory-consolidation-model:
+    description: 'Model for Cerebral consolidation (falls back to memory-retain-model / model)'
+    required: false
+
+  memory-mental-models-model:
+    description: 'Model for mental-model briefing refresh (falls back to memory-prefrontal-model / memory-retain-model / model)'
+    required: false
+
+  memory-recall-model:
+    description: 'Model for Prefrontal recall and briefing fallback (falls back to memory-retain-model / model)'
+    required: false
+
+  memory-recall-reach:
+    description: 'Recall reach: local (this repo only), org (same owner), or bank (all repos)'
+    required: false
+    default: 'org'
+
+  memory-recall-max-tokens:
+    description: 'Pre-call context token budget'
+    required: false
+    default: '8192'
+
+  memory-recall-max-tool-tokens:
+    description: 'Recall memory tool result token budget'
+    required: false
+    default: '2048'
+
+  memory-recall-max-tool-calls:
+    description: 'Recall memory tool calls per agent (0 = tool off)'
+    required: false
+    default: '0'
+
   memory-prefrontal-model:
-    description: 'Model for Prefrontal reflect and briefing refresh (falls back to memory-retain-model / model)'
+    description: 'DEPRECATED: Use memory-recall-model instead'
     required: false
 
   memory-embeddings-model:
@@ -573,7 +605,14 @@ runs:
         MEMORY_CARTOGRAPHER_MAX_ITERS: ${{ inputs.memory-cartographer-max-iters }}
         MEMORY_CARTOGRAPHER_MAX_LLM_CALLS: ${{ inputs.memory-cartographer-max-llm-calls }}
         MEMORY_RETAIN_MODEL: ${{ inputs.memory-retain-model }}
-        MEMORY_PREFRONTAL_MODEL: ${{ inputs.memory-prefrontal-model }}
+        MEMORY_CONSOLIDATION_MODEL: ${{ inputs.memory-consolidation-model }}
+        MEMORY_MENTAL_MODELS_MODEL: ${{ inputs.memory-mental-models-model }}
+        MEMORY_PREFRONTAL_REFLECTS: ${{ inputs.memory-prefrontal-reflects }}
+        MEMORY_RECALL_MODEL: ${{ inputs.memory-recall-model }}
+        MEMORY_RECALL_REACH: ${{ inputs.memory-recall-reach }}
+        MEMORY_RECALL_MAX_TOKENS: ${{ inputs.memory-recall-max-tokens }}
+        MEMORY_RECALL_MAX_TOOL_TOKENS: ${{ inputs.memory-recall-max-tool-tokens }}
+        MEMORY_RECALL_MAX_TOOL_CALLS: ${{ inputs.memory-recall-max-tool-calls }}
         MEMORY_EMBEDDINGS_MODEL: ${{ inputs.memory-embeddings-model }}
         MEMORY_RETAIN_CHUNK_SIZE: ${{ inputs.memory-retain-chunk-size }}
         SCOPE_MEMORY_ENABLED: ${{ inputs.scope-memory-enabled }}
@@ -693,7 +732,14 @@ runs:
         [ -n "$MEMORY_CARTOGRAPHER_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MAX_ITERS"
         [ -n "$MEMORY_CARTOGRAPHER_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MAX_LLM_CALLS"
         [ -n "$MEMORY_RETAIN_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RETAIN_MODEL"
-        [ -n "$MEMORY_PREFRONTAL_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_PREFRONTAL_MODEL"
+        [ -n "$MEMORY_CONSOLIDATION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CONSOLIDATION_MODEL"
+        [ -n "$MEMORY_MENTAL_MODELS_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MENTAL_MODELS_MODEL"
+        [ -n "$MEMORY_PREFRONTAL_REFLECTS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_PREFRONTAL_REFLECTS"
+        [ -n "$MEMORY_RECALL_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RECALL_MODEL"
+        [ -n "$MEMORY_RECALL_REACH" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RECALL_REACH"
+        [ -n "$MEMORY_RECALL_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RECALL_MAX_TOKENS"
+        [ -n "$MEMORY_RECALL_MAX_TOOL_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RECALL_MAX_TOOL_TOKENS"
+        [ -n "$MEMORY_RECALL_MAX_TOOL_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RECALL_MAX_TOOL_CALLS"
         [ -n "$MEMORY_EMBEDDINGS_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_EMBEDDINGS_MODEL"
         [ -n "$MEMORY_RETAIN_CHUNK_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RETAIN_CHUNK_SIZE"
         [ -n "$SCOPE_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MEMORY_ENABLED"

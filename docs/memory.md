@@ -279,7 +279,7 @@ Cerebral keeps one per observation scope of each episode, plus one per repo
 - id: `mm-` + first 32 hex chars of `sha1("|".join(sorted(tags)))`
 - name: `Briefing: <project_scope id | repo>`
 - source query: *"What should an agent starting work here know so it does not rediscover it: structure and where things live, conventions, invariants and constants, dependencies and integrations, pitfalls and recurring problems, facts shown to be wrong."*
-- `max_tokens = max_mental_model_tokens`, trigger `refresh_after_consolidation`
+- `max_tokens = cerebral.mental_models.max_tokens`, trigger `refresh_after_consolidation`
 
 A missing model is created and refreshed once; consolidation keeps it fresh afterwards.
 Prefrontal reads the briefings of the agent's scopes (and repo) with no LLM call;
@@ -296,7 +296,7 @@ Briefing triggers are configured automatically with these settings:
 | `include_chunks` | `false` | Observation text only (no file chunks) |
 | `reflect_search_observations_max_tokens` | `3000` | Down from 5000 default |
 | `reflect_search_observations_include_entities` | `false` | Exclude entity metadata |
-| `min_refresh_interval_seconds` | `0` | Configurable via `MEMORY_MIN_MENTAL_MODEL_REFRESH_SECONDS` |
+| `min_refresh_interval_seconds` | `0` | Configurable via `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS` |
 
 **Delta mode**: After the first full refresh, subsequent refreshes only process new facts since `last_memory_seen_at`. One structured delta-ops call edits the stored document. Falls back to full refresh when content is the placeholder or when the source query changed. Falls back to candidate markdown if the delta call fails.
 
@@ -465,18 +465,29 @@ Observation capacity ≈ max_hippocampus_tokens / max_hippocampus_item_tokens (1
 | `MEMORY_ENABLED` | `memory.enabled` | `false` | Enable memory globally (episodic + semantic) |
 | `MEMORY_COMPACT_TRAJECTORY` | `memory.hippocampus.compact_trajectory` | `true` | Apply head+tail trajectory bounding before distillation |
 
+### Cerebral Mental-Models Settings
+
+| Env Var | YAML Path | Default | Description |
+|---------|-----------|---------|-------------|
+| `MEMORY_MENTAL_MODELS_MODEL` | `memory.cerebral.mental_models.model` | `memory.prefrontal.recall.model` → `memory.cerebral.retain.model` → `llm.default_model` | Briefing refresh model; unused when reflects=0 |
+| `MEMORY_MENTAL_MODELS_MAX_TOKENS` | `memory.cerebral.mental_models.max_tokens` | `2048` | Briefing size |
+| `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS` | `memory.cerebral.mental_models.min_refresh_seconds` | `0` | Minimum seconds between automatic briefing refreshes (0 = refresh after every consolidation; N = at most one automatic refresh per N seconds, nothing lost thanks to delta) |
+
 ### Prefrontal Settings
 
 | Env Var | YAML Path | Default | Description |
 |---------|-----------|---------|-------------|
-| `MEMORY_PREFRONTAL_MODEL` | `memory.prefrontal.model` | `memory.cerebral.retain.model` → `llm.default_model` | Reflect loop + mental-model refresh; unused when reflects=0 |
-| `MEMORY_PREFRONTAL_REACH` | `memory.prefrontal.prefrontal_reach` | `org` | `local`, `org` or `bank` |
 | `MEMORY_PREFRONTAL_REFLECTS` | `memory.prefrontal.reflects` | `3` | Reflect iterations; `0` = raw facts, no LLM, no briefings |
-| `MEMORY_MAX_MENTAL_MODEL_TOKENS` | `memory.prefrontal.max_mental_model_tokens` | `2048` | Briefing size |
-| `MEMORY_MAX_PREFRONTAL_TOKENS` | `memory.prefrontal.max_prefrontal_tokens` | `8192` | Pre-call context budget |
-| `MEMORY_MAX_PREFRONTAL_TOOL_TOKENS` | `memory.prefrontal.max_prefrontal_tool_tokens` | `2048` | Tool result budget |
-| `MEMORY_MAX_PREFRONTAL_TOOL_CALLS` | `memory.prefrontal.max_prefrontal_tool_calls` | `0` | Tool calls per agent call (0 = tool off) |
-| `MEMORY_MIN_MENTAL_MODEL_REFRESH_SECONDS` | `memory.prefrontal.min_mental_model_refresh_seconds` | `0` | Minimum seconds between automatic briefing refreshes (0 = refresh after every consolidation; N = at most one automatic refresh per N seconds, nothing lost thanks to delta) |
+
+### Recall Settings
+
+| Env Var | YAML Path | Default | Description |
+|---------|-----------|---------|-------------|
+| `MEMORY_RECALL_MODEL` | `memory.prefrontal.recall.model` | `memory.cerebral.retain.model` → `llm.default_model` | Reflect loop model; also mental-model fallback when unset; unused when reflects=0 |
+| `MEMORY_RECALL_REACH` | `memory.prefrontal.recall.reach` | `org` | `local`, `org` or `bank` |
+| `MEMORY_RECALL_MAX_TOKENS` | `memory.prefrontal.recall.max_tokens` | `8192` | Pre-call context budget |
+| `MEMORY_RECALL_MAX_TOOL_TOKENS` | `memory.prefrontal.recall.max_tool_tokens` | `2048` | Tool result budget |
+| `MEMORY_RECALL_MAX_TOOL_CALLS` | `memory.prefrontal.recall.max_tool_calls` | `0` | Tool calls per agent call (0 = tool off) |
 
 ### Reflection Module LLM Overrides
 

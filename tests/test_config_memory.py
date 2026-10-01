@@ -8,7 +8,9 @@ from pydantic import ValidationError
 
 from codespy.config_memory import (
     EMBEDDING_MODELS,
+    CerebralConsolidationConfig,
     CerebralRetainConfig,
+    MentalModelsConfig,
     PostgresConfig,
     _apply_hindsight_llm_call_defaults,
     _cerebral_litellm_params,
@@ -258,26 +260,24 @@ class TestPrefrontalConfig:
     """Tests for memory.prefrontal config, env mapping and get_cerebral wiring."""
 
     ENV = {
-        "MEMORY_PREFRONTAL_MODEL": ("model", "openai/gpt-4o-mini"),
-        "MEMORY_PREFRONTAL_REACH": ("prefrontal_reach", "bank"),
-        "MEMORY_PREFRONTAL_REFLECTS": ("reflects", "3"),
-        "MEMORY_MAX_MENTAL_MODEL_TOKENS": ("max_mental_model_tokens", "1000"),
-        "MEMORY_MAX_PREFRONTAL_TOKENS": ("max_prefrontal_tokens", "2000"),
-        "MEMORY_MAX_PREFRONTAL_TOOL_TOKENS": ("max_prefrontal_tool_tokens", "700"),
-        "MEMORY_MAX_PREFRONTAL_TOOL_CALLS": ("max_prefrontal_tool_calls", "2"),
+        "MEMORY_PREFRONTAL_REFLECTS": ("reflects", "5"),
+        "MEMORY_RECALL_MODEL": ("model", "openai/gpt-4o-mini"),
+        "MEMORY_RECALL_REACH": ("reach", "bank"),
+        "MEMORY_RECALL_MAX_TOKENS": ("max_tokens", "2000"),
+        "MEMORY_RECALL_MAX_TOOL_TOKENS": ("max_tool_tokens", "700"),
+        "MEMORY_RECALL_MAX_TOOL_CALLS": ("max_tool_calls", "2"),
     }
 
     def test_defaults(self):
         from codespy.config_memory import MemoryConfig
 
         pf = MemoryConfig().prefrontal
-        assert pf.model is None
-        assert pf.prefrontal_reach == "org"
         assert pf.reflects == 3  # Changed from 5 to 3
-        assert pf.max_mental_model_tokens == 2048
-        assert pf.max_prefrontal_tokens == 8192  # Changed from 16384 to 8192
-        assert pf.max_prefrontal_tool_tokens == 2048
-        assert pf.max_prefrontal_tool_calls == 0
+        assert pf.recall.model is None
+        assert pf.recall.reach == "org"
+        assert pf.recall.max_tokens == 8192
+        assert pf.recall.max_tool_tokens == 2048
+        assert pf.recall.max_tool_calls == 0
 
     def test_env_mapping(self, monkeypatch):
         from codespy.config import _ENV_MAP
@@ -287,25 +287,29 @@ class TestPrefrontalConfig:
         for env, (_, value) in self.ENV.items():
             monkeypatch.setenv(env, value)
         result = apply_env_overrides({}, _ENV_MAP)["memory"]["prefrontal"]
-        for env, (field, _) in self.ENV.items():
-            assert _ENV_MAP[env] == ("memory", "prefrontal", field)
-            assert field in result
+
+        # Verify env mapping for reflects
+        assert _ENV_MAP["MEMORY_PREFRONTAL_REFLECTS"] == ("memory", "prefrontal", "reflects")
+        assert "reflects" in result
+
+        # Verify env mapping for recall settings
+        assert _ENV_MAP["MEMORY_RECALL_MODEL"] == ("memory", "prefrontal", "recall", "model")
+        assert _ENV_MAP["MEMORY_RECALL_REACH"] == ("memory", "prefrontal", "recall", "reach")
+        assert _ENV_MAP["MEMORY_RECALL_MAX_TOKENS"] == ("memory", "prefrontal", "recall", "max_tokens")
+        assert "recall" in result
+        assert result["recall"]["model"] == "openai/gpt-4o-mini"
+        assert result["recall"]["reach"] == "bank"
+
         cfg = PrefrontalConfig(**result)
-        assert cfg.prefrontal_reach == "bank"
-        assert cfg.reflects == 3
-        assert cfg.max_prefrontal_tool_calls == 2
+        assert cfg.recall.reach == "bank"
+        assert cfg.reflects == 5
+        assert cfg.recall.max_tool_calls == 2
 
     def test_rejects_negative_reflects(self):
         from codespy.config_memory import PrefrontalConfig
 
         with pytest.raises(ValidationError):
             PrefrontalConfig(reflects=-1)
-
-    def test_rejects_invalid_reach(self):
-        from codespy.config_memory import PrefrontalConfig
-
-        with pytest.raises(ValidationError):
-            PrefrontalConfig(prefrontal_reach="world")
 
     def test_reflection_modules_unchanged(self):
         from codespy.config_memory import REFLECTION_MODULES
@@ -584,7 +588,7 @@ class TestPrefrontalModelResolution:
     override them.
     """
 
-    def _settings(self, *, prefrontal=None, retain=None):
+    def _settings(self, *, recall_model=None, retain=None):
         from codespy.config import Settings
         from codespy.config_llm import LLMConfig
         from codespy.config_memory import (
@@ -592,20 +596,21 @@ class TestPrefrontalModelResolution:
             CerebralRetainConfig,
             MemoryConfig,
             PrefrontalConfig,
+            RecallConfig,
         )
 
         return Settings(
             llm=LLMConfig(default_model="openai/gpt-4o"),
             memory=MemoryConfig(
                 cerebral=CerebralConfig(retain=CerebralRetainConfig(model=retain)),
-                prefrontal=PrefrontalConfig(model=prefrontal),
+                prefrontal=PrefrontalConfig(recall=RecallConfig(model=recall_model)),
             ),
         )
 
-    def test_explicit_prefrontal_model(self):
+    def test_explicit_recall_model(self):
         from codespy.config_memory import MEMORY_PREFRONTAL
 
-        s = self._settings(prefrontal="anthropic/claude-haiku", retain="openai/gpt-4o-mini")
+        s = self._settings(recall_model="anthropic/claude-haiku", retain="openai/gpt-4o-mini")
         assert s.get_llm_config(MEMORY_PREFRONTAL).model == "anthropic/claude-haiku"
 
     def test_falls_back_to_retain_model(self):
@@ -622,3 +627,155 @@ class TestPrefrontalModelResolution:
 
     # Note: _warn_reflect_mismatch removed - now using programmatic _apply_reflect_config
     # which sets values directly instead of warning about mismatches
+
+
+class TestConsolidationConfig:
+    """Tests for memory.cerebral.consolidation config and env mapping."""
+
+    def test_defaults(self):
+        from codespy.config_memory import CerebralConfig
+
+        cfg = CerebralConfig().consolidation
+        assert cfg.model is None
+
+    def test_env_mapping(self, monkeypatch):
+        from codespy.config import _ENV_MAP
+        from codespy.config_memory import CerebralConfig
+        from codespy.config_utils import apply_env_overrides
+
+        monkeypatch.setenv("MEMORY_CONSOLIDATION_MODEL", "openai/gpt-4o-mini")
+        result = apply_env_overrides({}, _ENV_MAP)["memory"]["cerebral"]["consolidation"]
+        assert _ENV_MAP["MEMORY_CONSOLIDATION_MODEL"] == ("memory", "cerebral", "consolidation", "model")
+        assert result["model"] == "openai/gpt-4o-mini"
+        cfg = CerebralConsolidationConfig(**result)
+        assert cfg.model == "openai/gpt-4o-mini"
+
+
+class TestRecallConfig:
+    """Tests for memory.prefrontal.recall config and env mapping."""
+
+    def test_defaults(self):
+        from codespy.config_memory import RecallConfig
+
+        cfg = RecallConfig()
+        assert cfg.model is None
+        assert cfg.reach == "org"
+        assert cfg.max_tokens == 8192
+        assert cfg.max_tool_tokens == 2048
+        assert cfg.max_tool_calls == 0
+
+    def test_env_mapping_model(self, monkeypatch):
+        from codespy.config import _ENV_MAP
+        from codespy.config_memory import RecallConfig
+        from codespy.config_utils import apply_env_overrides
+
+        monkeypatch.setenv("MEMORY_RECALL_MODEL", "openai/gpt-4o")
+        result = apply_env_overrides({}, _ENV_MAP)["memory"]["prefrontal"]["recall"]
+        assert _ENV_MAP["MEMORY_RECALL_MODEL"] == ("memory", "prefrontal", "recall", "model")
+        assert result["model"] == "openai/gpt-4o"
+        cfg = RecallConfig(**result)
+        assert cfg.model == "openai/gpt-4o"
+
+    def test_env_mapping_reach(self, monkeypatch):
+        from codespy.config import _ENV_MAP
+        from codespy.config_memory import RecallConfig
+        from codespy.config_utils import apply_env_overrides
+
+        monkeypatch.setenv("MEMORY_RECALL_REACH", "bank")
+        result = apply_env_overrides({}, _ENV_MAP)["memory"]["prefrontal"]["recall"]
+        assert _ENV_MAP["MEMORY_RECALL_REACH"] == ("memory", "prefrontal", "recall", "reach")
+        assert result["reach"] == "bank"
+        cfg = RecallConfig(**result)
+        assert cfg.reach == "bank"
+
+    def test_env_mapping_max_tokens(self, monkeypatch):
+        from codespy.config import _ENV_MAP
+        from codespy.config_memory import RecallConfig
+        from codespy.config_utils import apply_env_overrides
+
+        monkeypatch.setenv("MEMORY_RECALL_MAX_TOKENS", "4096")
+        result = apply_env_overrides({}, _ENV_MAP)["memory"]["prefrontal"]["recall"]
+        assert _ENV_MAP["MEMORY_RECALL_MAX_TOKENS"] == ("memory", "prefrontal", "recall", "max_tokens")
+        assert result["max_tokens"] == "4096"
+        cfg = RecallConfig(**result)
+        assert cfg.max_tokens == 4096
+
+    def test_rejects_invalid_reach(self):
+        from codespy.config_memory import RecallConfig
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            RecallConfig(reach="world")
+
+
+class TestMentalModelsConfig:
+    """Tests for memory.cerebral.mental_models config and env mapping."""
+
+    def test_defaults(self):
+        from codespy.config_memory import CerebralConfig
+
+        cfg = CerebralConfig().mental_models
+        assert cfg.model is None
+        assert cfg.max_tokens == 2048
+        assert cfg.min_refresh_seconds == 0
+
+    def test_env_mapping(self, monkeypatch):
+        from codespy.config import _ENV_MAP
+        from codespy.config_memory import CerebralConfig
+        from codespy.config_utils import apply_env_overrides
+
+        monkeypatch.setenv("MEMORY_MENTAL_MODELS_MODEL", "anthropic/claude-3-haiku")
+        result = apply_env_overrides({}, _ENV_MAP)["memory"]["cerebral"]["mental_models"]
+        assert _ENV_MAP["MEMORY_MENTAL_MODELS_MODEL"] == ("memory", "cerebral", "mental_models", "model")
+        assert result["model"] == "anthropic/claude-3-haiku"
+        cfg = MentalModelsConfig(**result)
+        assert cfg.model == "anthropic/claude-3-haiku"
+
+    def test_env_mapping_max_tokens(self, monkeypatch):
+        from codespy.config import _ENV_MAP
+        from codespy.config_memory import CerebralConfig
+        from codespy.config_utils import apply_env_overrides
+
+        monkeypatch.setenv("MEMORY_MENTAL_MODELS_MAX_TOKENS", "1024")
+        result = apply_env_overrides({}, _ENV_MAP)["memory"]["cerebral"]["mental_models"]
+        assert _ENV_MAP["MEMORY_MENTAL_MODELS_MAX_TOKENS"] == ("memory", "cerebral", "mental_models", "max_tokens")
+        assert result["max_tokens"] == "1024"
+        cfg = MentalModelsConfig(**result)
+        assert cfg.max_tokens == 1024
+
+    def test_env_mapping_min_refresh_seconds(self, monkeypatch):
+        from codespy.config import _ENV_MAP
+        from codespy.config_memory import CerebralConfig
+        from codespy.config_utils import apply_env_overrides
+
+        monkeypatch.setenv("MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS", "60")
+        result = apply_env_overrides({}, _ENV_MAP)["memory"]["cerebral"]["mental_models"]
+        assert _ENV_MAP["MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS"] == ("memory", "cerebral", "mental_models", "min_refresh_seconds")
+        assert result["min_refresh_seconds"] == "60"
+        cfg = MentalModelsConfig(**result)
+        assert cfg.min_refresh_seconds == 60
+
+    def test_rejects_zero_max_tokens(self):
+        from codespy.config_memory import MentalModelsConfig
+
+        with pytest.raises(ValidationError):
+            MentalModelsConfig(max_tokens=0)
+
+    def test_rejects_negative_max_tokens(self):
+        from codespy.config_memory import MentalModelsConfig
+
+        with pytest.raises(ValidationError):
+            MentalModelsConfig(max_tokens=-1)
+
+    def test_rejects_negative_min_refresh_seconds(self):
+        from codespy.config_memory import MentalModelsConfig
+
+        with pytest.raises(ValidationError):
+            MentalModelsConfig(min_refresh_seconds=-1)
+
+    def test_old_env_vars_not_in_env_map(self):
+        """Old mental_models env vars should not be in _ENV_MAP."""
+        from codespy.config import _ENV_MAP
+
+        assert "MEMORY_MAX_MENTAL_MODEL_TOKENS" not in _ENV_MAP
+        assert "MEMORY_MIN_MENTAL_MODEL_REFRESH_SECONDS" not in _ENV_MAP

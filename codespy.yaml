@@ -12,9 +12,16 @@
 #   - review.code_review.max_iters → REVIEW_CODE_REVIEW_MAX_ITERS
 #   - memory.hippocampus.distiller.model → MEMORY_DISTILLER_MODEL
 #   - memory.cerebral.retain.model → MEMORY_RETAIN_MODEL
-#   - memory.prefrontal.model → MEMORY_PREFRONTAL_MODEL
-#   - memory.prefrontal.prefrontal_reach → MEMORY_PREFRONTAL_REACH
+#   - memory.cerebral.consolidation.model → MEMORY_CONSOLIDATION_MODEL
+#   - memory.cerebral.mental_models.model → MEMORY_MENTAL_MODELS_MODEL
+#   - memory.cerebral.mental_models.max_tokens → MEMORY_MENTAL_MODELS_MAX_TOKENS
+#   - memory.cerebral.mental_models.min_refresh_seconds → MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS
 #   - memory.prefrontal.reflects → MEMORY_PREFRONTAL_REFLECTS
+#   - memory.prefrontal.recall.model → MEMORY_RECALL_MODEL
+#   - memory.prefrontal.recall.reach → MEMORY_RECALL_REACH
+#   - memory.prefrontal.recall.max_tokens → MEMORY_RECALL_MAX_TOKENS
+#   - memory.prefrontal.recall.max_tool_tokens → MEMORY_RECALL_MAX_TOOL_TOKENS
+#   - memory.prefrontal.recall.max_tool_calls → MEMORY_RECALL_MAX_TOOL_CALLS
 #
 # Provider credentials keep their standard names:
 #   OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, AWS_*, AZURE_*
@@ -112,7 +119,6 @@ memory:
     max_hippocampus_item_tokens: 512      # MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS
     max_trajectory_tokens: 16384          # MEMORY_MAX_TRAJECTORY_TOKENS
     max_question_tokens: 8192             # MEMORY_MAX_QUESTION_TOKENS
-
     distiller:
       model: null                         # MEMORY_DISTILLER_MODEL
       reasoning_effort: null              # MEMORY_DISTILLER_REASONING_EFFORT
@@ -120,7 +126,6 @@ memory:
       max_tokens: null                    # MEMORY_DISTILLER_MAX_TOKENS
       max_iters: 1                        # MEMORY_DISTILLER_MAX_ITERS
       max_llm_calls: 2                    # MEMORY_DISTILLER_MAX_LLM_CALLS
-
     cartographer:
       model: null                         # MEMORY_CARTOGRAPHER_MODEL
       reasoning_effort: null              # MEMORY_CARTOGRAPHER_REASONING_EFFORT
@@ -134,20 +139,25 @@ memory:
     retain:
       model: null                         # MEMORY_RETAIN_MODEL (falls back to llm.default_model)
       chunk_size: 12288                   # MEMORY_RETAIN_CHUNK_SIZE (chars, must be < 64000)
+    consolidation:
+      model: null                         # MEMORY_CONSOLIDATION_MODEL (falls back to retain model → default)
+    mental_models:
+      model: null                         # MEMORY_MENTAL_MODELS_MODEL (briefing refresh; falls back to prefrontal model → retain → default)
+      max_tokens: 2048                    # MEMORY_MENTAL_MODELS_MAX_TOKENS (briefing length)
+      min_refresh_seconds: 0              # MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS (0 = refresh after every consolidation; N = at most one automatic briefing refresh per N seconds, nothing lost thanks to delta)
     embeddings:
       model: null                         # MEMORY_EMBEDDINGS_MODEL (auto-derived from provider)
       max_input_chars: null               # MEMORY_EMBEDDINGS_MAX_INPUT_CHARS (null=auto per model, e.g. 2048 for Bedrock Cohere v3; 0=off)
 
   # Prefrontal (semantic recall from Cerebral into agent context: read-only)
   prefrontal:
-    model: null                       # MEMORY_PREFRONTAL_MODEL (reflect + briefings; falls back to retain model → default)
-    prefrontal_reach: org             # MEMORY_PREFRONTAL_REACH (local | org | bank)
     reflects: 3                       # MEMORY_PREFRONTAL_REFLECTS (reflect iterations for recall and briefings; 0 = raw-fact recall, no LLM, no briefings)
-    max_mental_model_tokens: 2048     # MEMORY_MAX_MENTAL_MODEL_TOKENS (briefing length)
-    max_prefrontal_tokens: 8192       # MEMORY_MAX_PREFRONTAL_TOKENS (pre-call context budget)
-    max_prefrontal_tool_tokens: 2048  # MEMORY_MAX_PREFRONTAL_TOOL_TOKENS
-    max_prefrontal_tool_calls: 0      # MEMORY_MAX_PREFRONTAL_TOOL_CALLS (0 = recall_memory tool off)
-    min_mental_model_refresh_seconds: 0  # MEMORY_MIN_MENTAL_MODEL_REFRESH_SECONDS (0 = refresh after every consolidation; N = at most one automatic briefing refresh per N seconds, nothing lost thanks to delta)
+    recall:
+      model: null                     # MEMORY_RECALL_MODEL (reflect; also briefings fallback unless cerebral.mental_models.model set)
+      reach: org                      # MEMORY_RECALL_REACH (local | org | bank)
+      max_tokens: 8192                # MEMORY_RECALL_MAX_TOKENS (pre-call context budget)
+      max_tool_tokens: 2048           # MEMORY_RECALL_MAX_TOOL_TOKENS (tool result budget)
+      max_tool_calls: 0                 # MEMORY_RECALL_MAX_TOOL_CALLS (0 = recall_memory tool off)
 
 # ============================================================================
 # REVIEW

@@ -265,3 +265,139 @@ memory:
         assert settings.get_max_llm_calls("memory_cartographer") == 15
 
         monkeypatch.delenv("CODESPY_CONFIG", raising=False)
+
+    def test_get_llm_config_for_memory_consolidation(self, monkeypatch, tmp_path):
+        """get_llm_config('memory_consolidation') reads memory.cerebral.consolidation with fallback."""
+        from codespy.config_memory import MEMORY_CONSOLIDATION
+
+        monkeypatch.chdir(tmp_path)
+
+        # Test with explicit consolidation model
+        config_file = tmp_path / "codespy.yaml"
+        config_file.write_text("""
+llm:
+  default_model: openai/gpt-4o
+memory:
+  cerebral:
+    retain:
+      model: anthropic/claude-3-opus
+    consolidation:
+      model: openai/gpt-4o-mini
+""")
+        monkeypatch.setenv("CODESPY_CONFIG", str(config_file))
+
+        settings = Settings()
+        llm_config = settings.get_llm_config(MEMORY_CONSOLIDATION)
+        assert llm_config.model == "openai/gpt-4o-mini"
+
+        monkeypatch.delenv("CODESPY_CONFIG", raising=False)
+
+    def test_get_llm_config_for_memory_consolidation_fallback(self, monkeypatch, tmp_path):
+        """get_llm_config('memory_consolidation') falls back to retain model → default."""
+        from codespy.config_memory import MEMORY_CONSOLIDATION
+
+        monkeypatch.chdir(tmp_path)
+
+        # Test fallback to retain model
+        config_file = tmp_path / "codespy.yaml"
+        config_file.write_text("""
+llm:
+  default_model: openai/gpt-4o
+memory:
+  cerebral:
+    retain:
+      model: anthropic/claude-3-opus
+    consolidation:
+      model: null
+""")
+        monkeypatch.setenv("CODESPY_CONFIG", str(config_file))
+
+        settings = Settings()
+        llm_config = settings.get_llm_config(MEMORY_CONSOLIDATION)
+        assert llm_config.model == "anthropic/claude-3-opus"
+
+        monkeypatch.delenv("CODESPY_CONFIG", raising=False)
+
+    def test_get_llm_config_for_memory_consolidation_fallback_to_default(self, monkeypatch, tmp_path):
+        """get_llm_config('memory_consolidation') falls back to default when retain is also null."""
+        from codespy.config_memory import MEMORY_CONSOLIDATION
+
+        monkeypatch.chdir(tmp_path)
+
+        # Test fallback to default when both consolidation and retain are null
+        config_file = tmp_path / "codespy.yaml"
+        config_file.write_text("""
+llm:
+  default_model: openai/gpt-4o-mini
+memory:
+  cerebral:
+    retain:
+      model: null
+    consolidation:
+      model: null
+""")
+        monkeypatch.setenv("CODESPY_CONFIG", str(config_file))
+
+        settings = Settings()
+        llm_config = settings.get_llm_config(MEMORY_CONSOLIDATION)
+        assert llm_config.model == "openai/gpt-4o-mini"
+
+        monkeypatch.delenv("CODESPY_CONFIG", raising=False)
+
+    def test_get_llm_config_for_memory_mental_models(self, monkeypatch, tmp_path):
+        """get_llm_config('memory_mental_models') reads memory.cerebral.mental_models with fallback."""
+        from codespy.config_memory import MEMORY_MENTAL_MODELS
+
+        monkeypatch.chdir(tmp_path)
+
+        # Test with explicit mental_models model
+        config_file = tmp_path / "codespy.yaml"
+        config_file.write_text("""
+llm:
+  default_model: openai/gpt-4o
+memory:
+  cerebral:
+    retain:
+      model: anthropic/claude-3-opus
+    mental_models:
+      model: anthropic/claude-3-haiku
+  prefrontal:
+    recall:
+      model: openai/gpt-4o-mini
+""")
+        monkeypatch.setenv("CODESPY_CONFIG", str(config_file))
+
+        settings = Settings()
+        llm_config = settings.get_llm_config(MEMORY_MENTAL_MODELS)
+        assert llm_config.model == "anthropic/claude-3-haiku"
+
+        monkeypatch.delenv("CODESPY_CONFIG", raising=False)
+
+    def test_get_llm_config_for_memory_mental_models_fallback(self, monkeypatch, tmp_path):
+        """get_llm_config('memory_mental_models') falls back to prefrontal.recall → retain → default."""
+        from codespy.config_memory import MEMORY_MENTAL_MODELS
+
+        monkeypatch.chdir(tmp_path)
+
+        # Test fallback chain
+        config_file = tmp_path / "codespy.yaml"
+        config_file.write_text("""
+llm:
+  default_model: openai/gpt-4o
+memory:
+  cerebral:
+    retain:
+      model: anthropic/claude-3-opus
+    mental_models:
+      model: null
+  prefrontal:
+    recall:
+      model: openai/gpt-4o-mini
+""")
+        monkeypatch.setenv("CODESPY_CONFIG", str(config_file))
+
+        settings = Settings()
+        llm_config = settings.get_llm_config(MEMORY_MENTAL_MODELS)
+        assert llm_config.model == "openai/gpt-4o-mini"
+
+        monkeypatch.delenv("CODESPY_CONFIG", raising=False)

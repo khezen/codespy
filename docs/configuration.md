@@ -125,7 +125,9 @@ AUTO_DISCOVER_GEMINI=false
 | Cheap | PR summary | `REVIEW_SUMMARY_MODEL` | Falls back to DEFAULT_MODEL | Claude Haiku |
 | Mid-tier | Memory reflection | `MEMORY_DISTILLER_MODEL` / `MEMORY_CARTOGRAPHER_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
 | Mid-tier | Semantic memory (fact extraction) | `MEMORY_RETAIN_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
-| Mid-tier | Semantic recall (reflect + briefings) | `MEMORY_PREFRONTAL_MODEL` | Falls back to MEMORY_RETAIN_MODEL → DEFAULT_MODEL | Claude Sonnet |
+| Mid-tier | Semantic consolidation | `MEMORY_CONSOLIDATION_MODEL` | Falls back to MEMORY_RETAIN_MODEL → DEFAULT_MODEL | Claude Sonnet |
+| Mid-tier | Mental-model refresh (briefings) | `MEMORY_MENTAL_MODELS_MODEL` | Falls back to MEMORY_PREFRONTAL_MODEL → MEMORY_RETAIN_MODEL → DEFAULT_MODEL | Claude Sonnet |
+| Mid-tier | Semantic recall (reflect) | `MEMORY_RECALL_MODEL` | Falls back to MEMORY_RETAIN_MODEL → DEFAULT_MODEL | Claude Sonnet |
 
 ## Per-Signature Configuration
 
@@ -198,7 +200,11 @@ LLM provider and credentials are auto-derived from the model string and existing
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| Cerebral Model | `MEMORY_RETAIN_MODEL` | `DEFAULT_MODEL` | Model for fact extraction |
+| Retain Model | `MEMORY_RETAIN_MODEL` | `DEFAULT_MODEL` | Model for fact extraction |
+| Consolidation Model | `MEMORY_CONSOLIDATION_MODEL` | `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` | Model for consolidation |
+| Mental-Models Model | `MEMORY_MENTAL_MODELS_MODEL` | `MEMORY_PREFRONTAL_MODEL` → `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` | Model for briefing refresh |
+| Mental-Models Max Tokens | `MEMORY_MENTAL_MODELS_MAX_TOKENS` | `2048` | Briefing size |
+| Mental-Models Min Refresh Seconds | `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS` | `0` | Minimum seconds between refreshes (0 = after every consolidation) |
 | Embeddings Model | `MEMORY_EMBEDDINGS_MODEL` | Auto-derived | Model for semantic memory embeddings |
 | Retain Chunk Size | `MEMORY_RETAIN_CHUNK_SIZE` | `12288` | Chars per extraction chunk (< 64000) |
 
@@ -213,13 +219,12 @@ input (briefings, recalled facts, facts from other repositories); the RLM agents
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| Model | `MEMORY_PREFRONTAL_MODEL` | `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` | Model for the reflect loop and mental-model (briefing) refresh; unused when reflects = 0 |
-| Reach | `MEMORY_PREFRONTAL_REACH` | `org` | `local`, `org` or `bank` |
 | Reflects | `MEMORY_PREFRONTAL_REFLECTS` | `3` | Reflect iterations; `0` = raw facts, no LLM, no briefings |
-| Mental model tokens | `MEMORY_MAX_MENTAL_MODEL_TOKENS` | `2048` | Briefing size |
-| Pre-call tokens | `MEMORY_MAX_PREFRONTAL_TOKENS` | `8192` | Pre-call context budget |
-| Tool tokens | `MEMORY_MAX_PREFRONTAL_TOOL_TOKENS` | `2048` | Tool result budget |
-| Tool calls | `MEMORY_MAX_PREFRONTAL_TOOL_CALLS` | `0` | Per agent call (0 = tool off) |
+| Recall Model | `MEMORY_RECALL_MODEL` | `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` | Model for the reflect loop; also briefing refresh fallback when `cerebral.mental_models.model` is unset; unused when reflects = 0 |
+| Recall Reach | `MEMORY_RECALL_REACH` | `org` | `local`, `org` or `bank` |
+| Recall Max Tokens | `MEMORY_RECALL_MAX_TOKENS` | `8192` | Pre-call context budget |
+| Recall Max Tool Tokens | `MEMORY_RECALL_MAX_TOOL_TOKENS` | `2048` | Tool result budget |
+| Recall Max Tool Calls | `MEMORY_RECALL_MAX_TOOL_CALLS` | `0` | Per agent call (0 = tool off) |
 
 Every recall (pre-call load and each `recall_memory` call) is logged as one INFO line and
 stored with its full text, model, token usage and cost in the episodic `recalls` table. Its

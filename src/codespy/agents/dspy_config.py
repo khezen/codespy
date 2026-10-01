@@ -10,7 +10,7 @@ import litellm  # type: ignore[import-untyped]
 from dspy.adapters.two_step_adapter import TwoStepAdapter  # type: ignore[import-untyped]
 
 from codespy.config import Settings, get_settings
-from codespy.config_memory import MEMORY_PREFRONTAL, MEMORY_RETAIN, REFLECTION_MODULES, LLMSettings
+from codespy.config_memory import MEMORY_CONSOLIDATION, MEMORY_MENTAL_MODELS, MEMORY_PREFRONTAL, MEMORY_RETAIN, REFLECTION_MODULES, LLMSettings
 from codespy.config_utils import secret_value
 
 logger = logging.getLogger(__name__)
@@ -326,10 +326,17 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
     cerebral = settings.get_llm_config(MEMORY_RETAIN)
     models_to_check.add(cerebral.model)
 
+    # Cerebral consolidation model
+    consolidation = settings.get_llm_config(MEMORY_CONSOLIDATION)
+    models_to_check.add(consolidation.model)
+
     # Prefrontal reflect model (only when reflects > 0, since with reflects=0 no LLM runs)
     if settings.memory.prefrontal.reflects > 0:
         prefrontal = settings.get_llm_config(MEMORY_PREFRONTAL)
         models_to_check.add(prefrontal.model)
+        # Mental-models refresh model (only when reflects > 0)
+        mental_models = settings.get_llm_config(MEMORY_MENTAL_MODELS)
+        models_to_check.add(mental_models.model)
 
     # Check each model
     verified: list[str] = []
