@@ -8,12 +8,14 @@ import logging
 import sys
 import threading
 import time
-from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import dspy  # type: ignore[import-untyped]
+
+if TYPE_CHECKING:
+    from codespy.agents.dspy_config import LMScope
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,8 @@ class SignatureStats:
     input_cost: float = 0.0
     output_cost: float = 0.0
     external_duration_seconds: float = 0.0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
     @property
     def duration_seconds(self) -> float:
@@ -62,6 +66,8 @@ class SignatureStats:
             "input_cost": self.input_cost,
             "output_cost": self.output_cost,
             "external_duration_seconds": self.external_duration_seconds,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
         }
 
 
@@ -104,6 +110,8 @@ class CostTracker:
         output_tokens: int = 0,
         input_cost: float = 0.0,
         output_cost: float = 0.0,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
     ) -> None:
         """Mark the end of a signature's execution with its costs.
 
@@ -116,6 +124,8 @@ class CostTracker:
             output_tokens: Output/completion tokens used
             input_cost: Cost for input tokens
             output_cost: Cost for output tokens
+            cache_read_tokens: Cache read tokens (from provider-side caching)
+            cache_write_tokens: Cache write tokens (from provider-side caching)
         """
         with self._lock:
             if signature_name not in self._signature_stats:
@@ -129,6 +139,8 @@ class CostTracker:
             stats.output_tokens += output_tokens
             stats.input_cost += input_cost
             stats.output_cost += output_cost
+            stats.cache_read_tokens += cache_read_tokens
+            stats.cache_write_tokens += cache_write_tokens
 
     def add_external_call(
         self,
@@ -223,19 +235,25 @@ class CostTracker:
                     input_cost=v.input_cost,
                     output_cost=v.output_cost,
                     external_duration_seconds=v.external_duration_seconds,
+                    cache_read_tokens=v.cache_read_tokens,
+                    cache_write_tokens=v.cache_write_tokens,
                 )
                 for k, v in self._signature_stats.items()
             }
 
 
-def _get_history_entries() -> list[dict]:
+def _get_history_entries(lm: Any | None = None) -> list[dict]:
     """Get current LM history entries from DSPy.
+
+    Args:
+        lm: Optional LM to read history from. If None, uses dspy.settings.lm.
 
     Returns:
         List of history entries, or empty list if LM not configured
     """
     try:
-        lm = dspy.settings.lm
+        if lm is None:
+            lm = dspy.settings.lm
         if lm is not None and hasattr(lm, "history"):
             return lm.history
     except Exception:
@@ -243,14 +261,53 @@ def _get_history_entries() -> list[dict]:
     return []
 
 
-def _get_history_uuids() -> set[str]:
+def _get_history_uuids(lm: Any | None = None) -> set[str]:
     """Get UUIDs of current history entries.
+
+    Args:
+        lm: Optional LM to read history from. If None, uses dspy.settings.lm.
 
     Returns:
         Set of UUIDs from current history
     """
-    entries = _get_history_entries()
+    entries = _get_history_entries(lm)
     return {entry.get("uuid", "") for entry in entries if entry.get("uuid")}
+
+
+def _get_cache_tokens(entry: dict) -> tuple[int, int]:
+    """Extract cache read and write tokens from a history entry.
+
+    Handles multiple provider-specific usage shapes:
+    - Anthropic/Bedrock: cache_read_input_tokens, cache_creation_input_tokens
+    - OpenAI: prompt_tokens_details.cached_tokens (object or dict)
+
+    Args:
+        entry: History entry dict with usage information.
+
+    Returns:
+        Tuple of (cache_read_tokens, cache_write_tokens).
+    """
+    usage = entry.get("usage")
+    if not isinstance(usage, dict):
+        return 0, 0
+
+    # Anthropic/Bedrock style
+    cache_read = int(_as_number(usage.get("cache_read_input_tokens")))
+    cache_write = int(_as_number(usage.get("cache_creation_input_tokens")))
+    if cache_read or cache_write:
+        return cache_read, cache_write
+
+    # OpenAI style: prompt_tokens_details.cached_tokens
+    details = usage.get("prompt_tokens_details")
+    if isinstance(details, dict):
+        cached = int(_as_number(details.get("cached_tokens")))
+        return cached, 0
+    # Handle object-style access (some providers return objects)
+    if hasattr(details, "cached_tokens"):
+        cached = int(_as_number(getattr(details, "cached_tokens", 0)))
+        return cached, 0
+
+    return 0, 0
 
 
 def _as_number(value: object) -> float:
@@ -278,7 +335,7 @@ def _as_number(value: object) -> float:
 
 def _calculate_costs_from_entries(
     entries: list[dict], exclude_uuids: set[str]
-) -> tuple[float, int, int, int, int, float, float]:
+) -> tuple[float, int, int, int, int, float, float, int, int]:
     """Calculate costs from history entries, excluding specific UUIDs.
 
     Every field is read defensively: cost accounting is observability, so a
@@ -291,7 +348,7 @@ def _calculate_costs_from_entries(
 
     Returns:
         Tuple of (total_cost, total_tokens, call_count, input_tokens, output_tokens,
-                  input_cost, output_cost)
+                  input_cost, output_cost, cache_read_tokens, cache_write_tokens)
     """
     total_cost = 0.0
     total_tokens = 0
@@ -300,6 +357,8 @@ def _calculate_costs_from_entries(
     output_tokens = 0
     input_cost = 0.0
     output_cost = 0.0
+    cache_read_tokens = 0
+    cache_write_tokens = 0
 
     for entry in entries:
         if not isinstance(entry, dict):
@@ -307,6 +366,11 @@ def _calculate_costs_from_entries(
 
         entry_uuid = entry.get("uuid", "")
         if entry_uuid and entry_uuid not in exclude_uuids:
+            # Skip DSPy cache hits (not billed)
+            response = entry.get("response")
+            if response and response.get("cache_hit"):
+                continue
+
             entry_cost = _as_number(entry.get("cost"))
             total_cost += entry_cost
 
@@ -321,6 +385,11 @@ def _calculate_costs_from_entries(
                 output_tokens += entry_output_tokens
                 total_tokens += entry_input_tokens + entry_output_tokens
 
+            # Get cache tokens
+            entry_cache_read, entry_cache_write = _get_cache_tokens(entry)
+            cache_read_tokens += entry_cache_read
+            cache_write_tokens += entry_cache_write
+
             # Calculate split costs using litellm if model is available
             entry_input_cost, entry_output_cost = _calculate_split_cost(
                 entry, entry_input_tokens, entry_output_tokens, entry_cost
@@ -330,7 +399,17 @@ def _calculate_costs_from_entries(
 
             call_count += 1
 
-    return total_cost, total_tokens, call_count, input_tokens, output_tokens, input_cost, output_cost
+    return (
+        total_cost,
+        total_tokens,
+        call_count,
+        input_tokens,
+        output_tokens,
+        input_cost,
+        output_cost,
+        cache_read_tokens,
+        cache_write_tokens,
+    )
 
 
 def _calculate_split_cost(
@@ -338,8 +417,10 @@ def _calculate_split_cost(
 ) -> tuple[float, float]:
     """Calculate split input/output cost for a history entry.
 
-    Uses litellm.cost_per_token if model is available, otherwise falls back
-    to proportional split of the fallback_cost.
+    Uses litellm.cost_per_token if model is available. When entry["cost"] is
+    a number, we compute output_cost from list price and input_cost = cost -
+    output_cost (so row sums to Total). When cost is None, we use the list
+    split for both and the row cost equals the list split.
 
     Args:
         entry: History entry dict
@@ -363,13 +444,35 @@ def _calculate_split_cost(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
         )
-        return float(prompt_cost), float(completion_cost)
+        list_input_cost = float(prompt_cost)
+        list_output_cost = float(completion_cost)
+        list_total = list_input_cost + list_output_cost
+
+        # Check if we have a billed cost (could be 0.0 which is falsy, so check for None explicitly)
+        billed_cost = entry.get("cost")
+        if billed_cost is None:
+            # No billed cost: use list split (row will sum to list_total)
+            return list_input_cost, list_output_cost
+
+        # Have billed cost: output_cost is list price, input_cost = billed - output
+        billed = float(billed_cost)
+        # If list_total is 0 (rare), use proportional split
+        if list_total == 0:
+            return _proportional_split(prompt_tokens, completion_tokens, billed)
+
+        # Cap output_cost at billed (don't let input_cost go negative)
+        output_cost = min(list_output_cost, billed)
+        input_cost = billed - output_cost
+        return input_cost, output_cost
+
     except Exception:
         # Model may not have pricing or be available; use proportional split
         return _proportional_split(prompt_tokens, completion_tokens, fallback_cost)
 
 
-def _proportional_split(input_tokens: int, output_tokens: int, total_cost: float) -> tuple[float, float]:
+def _proportional_split(
+    input_tokens: int, output_tokens: int, total_cost: float
+) -> tuple[float, float]:
     """Split cost proportionally by token count.
 
     Args:
@@ -415,9 +518,10 @@ class SignatureContext:
         self.signature_name = signature_name
         self.tracker = tracker
         self._before_uuids: set[str] = set()
+        self._before_extraction_uuids: set[str] = set()
         # Annotated so the None default doesn't narrow the attribute to
         # ``None``, which would hide the enter/exit calls from type checking.
-        self._lm_context: AbstractContextManager[Any] | None = None
+        self._lm_scope: LMScope | None = None
 
     def __enter__(self) -> "SignatureContext":
         """Enter the context, applying the LM and capturing history state.
@@ -433,14 +537,16 @@ class SignatureContext:
 
         # Apply this name's LM first, so the history we snapshot below belongs
         # to the LM that will actually serve the enclosed calls.
-        self._lm_context = lm_context(self.signature_name)
-        self._lm_context.__enter__()
+        self._lm_scope = lm_context(self.signature_name)
+        self._lm_scope.__enter__()
         try:
-            self._before_uuids = _get_history_uuids()
+            # Snapshot UUIDs from both main LM and extraction LM
+            self._before_uuids = _get_history_uuids(self._lm_scope.lm)
+            self._before_extraction_uuids = _get_history_uuids(self._lm_scope.extraction_lm)
             self.tracker.start_signature(self.signature_name)
         except BaseException:
-            self._lm_context.__exit__(*sys.exc_info())
-            self._lm_context = None
+            self._lm_scope.__exit__(*sys.exc_info())
+            self._lm_scope = None
             raise
         return self
 
@@ -463,12 +569,29 @@ class SignatureContext:
         instead of quiet and global.
         """
         try:
-            # Read history before leaving the LM context, so dspy.settings.lm
-            # still points at the LM whose history we need.
-            entries = _get_history_entries()
-            cost, tokens, call_count, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(
-                entries, self._before_uuids
+            # Read history from both LMs before leaving the context
+            main_entries = _get_history_entries(self._lm_scope.lm if self._lm_scope else None)
+            extraction_entries = _get_history_entries(
+                self._lm_scope.extraction_lm if self._lm_scope else None
             )
+
+            # Calculate costs from both histories
+            main_result = _calculate_costs_from_entries(main_entries, self._before_uuids)
+            extraction_result = _calculate_costs_from_entries(
+                extraction_entries, self._before_extraction_uuids
+            )
+
+            # Combine results: sum all numeric fields
+            cost = main_result[0] + extraction_result[0]
+            tokens = main_result[1] + extraction_result[1]
+            call_count = main_result[2] + extraction_result[2]
+            input_tokens = main_result[3] + extraction_result[3]
+            output_tokens = main_result[4] + extraction_result[4]
+            input_cost = main_result[5] + extraction_result[5]
+            output_cost = main_result[6] + extraction_result[6]
+            cache_read_tokens = main_result[7] + extraction_result[7]
+            cache_write_tokens = main_result[8] + extraction_result[8]
+
             self.tracker.end_signature(
                 self.signature_name,
                 cost=cost,
@@ -478,13 +601,15 @@ class SignatureContext:
                 output_tokens=output_tokens,
                 input_cost=input_cost,
                 output_cost=output_cost,
+                cache_read_tokens=cache_read_tokens,
+                cache_write_tokens=cache_write_tokens,
             )
         except Exception as e:
             logger.warning("Cost calculation failed for %s: %s", self.signature_name, e)
         finally:
-            if self._lm_context is not None:
-                self._lm_context.__exit__(exc_type, exc_val, exc_tb)
-                self._lm_context = None
+            if self._lm_scope is not None:
+                self._lm_scope.__exit__(exc_type, exc_val, exc_tb)
+                self._lm_scope = None
 
     async def __aenter__(self) -> "SignatureContext":
         """Async enter the context."""

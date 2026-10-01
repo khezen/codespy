@@ -24,6 +24,8 @@ class SignatureStatsResult(BaseModel):
     output_tokens: int = Field(default=0, description="Output/completion tokens used")
     input_cost: float = Field(default=0.0, description="Cost for input tokens")
     output_cost: float = Field(default=0.0, description="Cost for output tokens")
+    cache_read_tokens: int = Field(default=0, description="Cache read tokens from provider-side caching")
+    cache_write_tokens: int = Field(default=0, description="Cache write tokens from provider-side caching")
 
     @property
     def cost_per_call(self) -> float:
@@ -184,14 +186,15 @@ class ReviewResult(BaseModel):
                     [
                         "### Per-Signature Breakdown",
                         "",
-                        "| Signature | In Tokens | Out Tokens | In Cost | Out Cost | Calls | Duration |",
-                        "|-----------|-----------|------------|---------|----------|-------|----------|",
+                        "| Signature | In Tokens | Out Tokens | Cache Read | Cache Write | In Cost | Out Cost | Calls | Duration |",
+                        "|-----------|-----------|------------|------------|-------------|---------|----------|-------|----------|",
                     ]
                 )
                 for stats in sorted(self.signature_stats, key=lambda x: x.cost, reverse=True):
                     duration_str = f"{stats.duration_seconds:.1f}s"
                     lines.append(
                         f"| {stats.name} | {stats.input_tokens:,} | {stats.output_tokens:,} | "
+                        f"{stats.cache_read_tokens:,} | {stats.cache_write_tokens:,} | "
                         f"${stats.input_cost:.4f} | ${stats.output_cost:.4f} | {stats.call_count} | {duration_str} |"
                     )
                 lines.append("")

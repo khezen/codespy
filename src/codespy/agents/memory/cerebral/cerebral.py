@@ -59,6 +59,7 @@ from hindsight_api.engine.task_backend import SyncTaskBackend
 from hindsight_api.extensions import OperationValidationError
 from hindsight_api.extensions.builtin.tenant import DefaultTenantExtension
 from hindsight_api.models import RequestContext
+from hindsight_api.worker.exceptions import DeferOperation
 
 
 class _SchemaSyncTaskBackend(SyncTaskBackend):
@@ -109,6 +110,18 @@ class _SchemaSyncTaskBackend(SyncTaskBackend):
 
         try:
             await super().submit_task(task)
+        except DeferOperation as exc:
+            # Handle deferral: mark refresh_mental_model as cancelled (not failed)
+            if task_type == "refresh_mental_model":
+                await self._mark_cancelled_if_pending(task, exc)
+                logger.info(
+                    "cerebral: briefing %s refresh deferred until %s",
+                    task.get("mental_model_id", "unknown"),
+                    exc.exec_date.isoformat() if hasattr(exc, "exec_date") else "unknown",
+                )
+                return  # Don't re-raise - deferral is expected, not an error
+            # Other task types: re-raise as normal (fallback to existing behavior)
+            raise
         except Exception as exc:
             # Mark the operation as failed if it has an operation_id
             await self._mark_failed_if_pending(task, exc)
@@ -159,6 +172,44 @@ class _SchemaSyncTaskBackend(SyncTaskBackend):
                 exc_info=True,
             )
 
+    async def _mark_cancelled_if_pending(self, task: dict, exc: DeferOperation) -> None:
+        """Mark the operation as cancelled if it's still pending (deferral).
+
+        Deferral from min_refresh_interval_seconds is not a failure - the
+        operation is effectively skipped and will be retried on the next
+        consolidation after the interval expires.
+        """
+        op_id = task.get("operation_id")
+        if not op_id or self._engine is None:
+            return
+
+        from hindsight_api.engine.db_utils import acquire_with_retry
+
+        try:
+            exec_date = exc.exec_date.isoformat() if hasattr(exc, "exec_date") else "unknown"
+            error_msg = f"deferred by min_refresh_interval_seconds until {exec_date}"
+
+            async with acquire_with_retry(self._engine._backend, max_retries=1) as conn:
+                await conn.execute(
+                    f"""
+                    UPDATE "{self._schema}".async_operations
+                    SET status = 'cancelled',
+                        error_message = $2,
+                        updated_at = NOW()
+                    WHERE operation_id = $1
+                      AND status = 'pending'
+                    """,
+                    op_id,
+                    error_msg,
+                )
+        except Exception:
+            # Log but don't propagate - the original deferral is more important
+            logger.warning(
+                "Failed to mark operation %s as cancelled",
+                op_id,
+                exc_info=True,
+            )
+
 from codespy.agents.memory.cerebral.cost import (
     BUCKET_MEMORY_CONSOLIDATION,
     BUCKET_MEMORY_MENTAL_MODELS,
@@ -205,6 +256,21 @@ class ReflectSummary:
     empty: bool = True
 
 HINDSIGHT_SCHEMA = HINDSIGHT_SCHEMA_DEFAULT
+
+# Static briefing trigger configuration (hardcoded per plan)
+# Delta mode with reduced evidence caps to cut cost while preserving quality.
+# - mode=delta: Only new facts since last refresh (structured delta-ops call)
+# - exclude_mental_models=True: Briefings exclude other briefings
+# - include_chunks=False: Observation text only (no file chunks)
+# - reflect_search_observations_max_tokens=3000: Down from 5000 default
+# - reflect_search_observations_include_entities=False: Exclude entity metadata
+_BRIEFING_TRIGGER_STATIC = {
+    "mode": "delta",
+    "exclude_mental_models": True,
+    "include_chunks": False,
+    "reflect_search_observations_max_tokens": 3000,
+    "reflect_search_observations_include_entities": False,
+}
 
 # Content Hindsight's HTTP API gives a mental model before its first refresh.
 # Prefrontal skips briefings that still hold it.
@@ -259,6 +325,7 @@ class Cerebral:
         reflect_llm_api_key: str | None = None,
         reflect_llm_base_url: str | None = None,
         embeddings_max_input_chars: int | None = None,
+        min_mental_model_refresh_seconds: int = 0,
     ):
         # Fail fast: test the embedding model before building MemoryEngine.
         # A bad model name, missing creds, or unavailable region surfaces here
@@ -358,6 +425,7 @@ class Cerebral:
         self._retain_chunk_size = retain_chunk_size
         self._mental_models = mental_models
         self._max_mental_model_tokens = max_mental_model_tokens
+        self._min_mental_model_refresh_seconds = min_mental_model_refresh_seconds
         # Mental-model ids already ensured by this process.
         self._ensured_mental_models: set[str] = set()
         # Lock for consolidation serialization
@@ -691,9 +759,9 @@ class Cerebral:
         """Sync briefing triggers to match current settings before consolidation.
 
         Runs before retain+consolidation so that consolidation uses the correct
-        refresh settings. The desired trigger is:
-        - ``refresh_after_consolidation``: True when mental_models is enabled
-        - ``exclude_mental_models``: True (briefings exclude other briefings)
+        refresh settings. The desired trigger combines:
+        - Static caps from _BRIEFING_TRIGGER_STATIC (delta mode, chunk/entity caps)
+        - Dynamic settings: refresh_after_consolidation, min_refresh_interval_seconds
 
         For existing briefings, updates the trigger if it differs. For missing
         briefings, creates them only when mental_models is enabled.
@@ -702,8 +770,9 @@ class Cerebral:
             return
 
         desired_trigger = {
+            **_BRIEFING_TRIGGER_STATIC,
             "refresh_after_consolidation": self._mental_models,
-            "exclude_mental_models": True,
+            "min_refresh_interval_seconds": self._min_mental_model_refresh_seconds,
         }
 
         for tags in scopes:

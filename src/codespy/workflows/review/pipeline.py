@@ -361,6 +361,8 @@ class ReviewPipeline(dspy.Module):
                     output_tokens=stats.output_tokens,
                     input_cost=stats.input_cost,
                     output_cost=stats.output_cost,
+                    cache_read_tokens=stats.cache_read_tokens,
+                    cache_write_tokens=stats.cache_write_tokens,
                 )
             )
 

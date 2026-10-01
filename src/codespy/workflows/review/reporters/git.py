@@ -167,14 +167,15 @@ class GitReporter(BaseReporter):
             if result.signature_stats:
                 lines.extend(
                     [
-                        "| Signature | In Tokens | Out Tokens | In Cost | Out Cost | Calls | Duration |",
-                        "|-----------|-----------|------------|---------|----------|-------|----------|",
+                        "| Signature | In Tokens | Out Tokens | Cache Read | Cache Write | In Cost | Out Cost | Calls | Duration |",
+                        "|-----------|-----------|------------|------------|-------------|---------|----------|-------|----------|",
                     ]
                 )
                 for stats in sorted(result.signature_stats, key=lambda x: x.cost, reverse=True):
                     duration_str = f"{stats.duration_seconds:.1f}s"
                     lines.append(
                         f"| {stats.name} | {stats.input_tokens:,} | {stats.output_tokens:,} | "
+                        f"{stats.cache_read_tokens:,} | {stats.cache_write_tokens:,} | "
                         f"${stats.input_cost:.4f} | ${stats.output_cost:.4f} | {stats.call_count} | {duration_str} |"
                     )
                 lines.append("")

@@ -1,6 +1,9 @@
 """DSPy and LiteLLM configuration utilities."""
 
 import logging
+from dataclasses import dataclass
+from types import TracebackType
+from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 import litellm  # type: ignore[import-untyped]
@@ -11,6 +14,85 @@ from codespy.config_memory import MEMORY_PREFRONTAL, MEMORY_RETAIN, REFLECTION_M
 from codespy.config_utils import secret_value
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LMScope:
+    """Container for LM context with both main and extraction LMs.
+
+    Returned by lm_context() to expose both the main LM (used by DSPy predictors)
+    and the extraction LM (used by TwoStepAdapter) for cost attribution.
+    The ctx is the actual dspy.context that must be exited to release resources.
+
+    Attributes:
+        ctx: The dspy.context manager (must call __exit__ to release).
+        lm: The main LM used for reasoning/generation.
+        extraction_lm: The extraction LM used for structured field extraction.
+    """
+
+    ctx: Any
+    lm: Any
+    extraction_lm: Any
+
+    def __enter__(self) -> "LMScope":
+        """Enter the context."""
+        self.ctx.__enter__()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Exit the context, releasing the LM."""
+        self.ctx.__exit__(exc_type, exc_val, exc_tb)
+
+    async def __aenter__(self) -> "LMScope":
+        """Async enter the context."""
+        return self.__enter__()
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Async exit the context."""
+        self.__exit__(exc_type, exc_val, exc_tb)
+
+
+def new_extraction_lm(settings: Settings) -> dspy.LM:
+    """Build a fresh extraction LM for per-context TwoStepAdapter use.
+
+    The extraction LM is used by TwoStepAdapter for the second stage:
+    deterministic field extraction from the main LM's free-form response.
+    A fresh instance per context ensures correct cost attribution and
+    thread isolation.
+
+    The extraction model is taken from the "default" LLMSettings via
+    ``settings.get_llm_config("default")``, using its ``extraction_model``
+    (which falls back to ``default_model``). This matches the global fallback
+    in ``configure_dspy()`` and does NOT use per-signature overrides.
+
+    Args:
+        settings: Application settings.
+
+    Returns:
+        A configured dspy.LM with temperature=0.0 and no reasoning.
+    """
+    defaults = settings.get_llm_config("default")
+    extraction_model = defaults.extraction_model
+    return new_lm(
+        settings,
+        defaults.model_copy(
+            update={
+                "model": extraction_model,
+                "reasoning_effort": None,
+                "temperature": 0.0,
+            }
+        ),
+    )
 
 
 def _resolve_max_tokens(model: str, max_tokens: int) -> int:
@@ -113,7 +195,7 @@ def new_lm(settings: Settings, config: LLMSettings) -> dspy.LM:
     return dspy.LM(**lm_kwargs)
 
 
-def lm_context(name: str):
+def lm_context(name: str) -> LMScope:
     """Return a ``dspy.context`` applying the LM configured for ``name``.
 
     ``name`` is a signature or reflection module name — see
@@ -121,16 +203,21 @@ def lm_context(name: str):
     named unit of work runs on its own configured model, falling back to the
     top-level defaults when it declares no overrides.
 
+    Also creates a per-context extraction LM so that TwoStepAdapter's extraction
+    calls can be attributed correctly to the calling signature.
+
     Args:
         name: The signature or reflection module name.
 
     Returns:
-        A context manager that scopes the LM to the enclosed block.
+        An LMScope wrapping the context manager, main LM, and extraction LM.
     """
     settings = get_settings()
     llm_config = settings.get_llm_config(name)
     lm = new_lm(settings, llm_config)
-    return dspy.context(lm=lm)
+    extraction_lm = new_extraction_lm(settings)
+    ctx = dspy.context(lm=lm, adapter=TwoStepAdapter(extraction_lm))
+    return LMScope(ctx=ctx, lm=lm, extraction_lm=extraction_lm)
 
 
 def configure_dspy(settings: Settings) -> None:
@@ -179,17 +266,7 @@ def configure_dspy(settings: Settings) -> None:
     # Extraction LM for TwoStepAdapter's second stage: deterministic field extraction
     # from the main LM's free-form response. Never uses reasoning; temperature=0.0 for
     # deterministic output.
-    extraction_model = defaults.extraction_model
-    extraction_lm = new_lm(
-        settings,
-        defaults.model_copy(
-            update={
-                "model": extraction_model,
-                "reasoning_effort": None,
-                "temperature": 0.0,
-            }
-        ),
-    )
+    extraction_lm = new_extraction_lm(settings)
 
     dspy.settings.configure(
         lm=lm,
@@ -205,6 +282,7 @@ def configure_dspy(settings: Settings) -> None:
         prompt_cache_status = "enabled (cache_control markers)"
     else:
         prompt_cache_status = "enabled (provider-automatic, no markers)"
+    extraction_model = defaults.extraction_model
     logger.info(
         f"Configured DSPy with model: {model} "
         f"(TwoStepAdapter with extraction_model={extraction_model}, "

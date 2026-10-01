@@ -15,12 +15,27 @@
   `memory_consolidation` and `memory_mental_models` respectively, instead of `memory_other`.
   The `memory_other` bucket now only holds uncategorized LLM calls (e.g., standalone reflect calls).
   Embeddings remain in `memory_embeddings` / `memory_prefrontal_embeddings` (unchanged).
+- **Briefing refresh trigger**: Now defaults to delta mode with reduced evidence caps:
+  - `mode=delta` (was `full`): only new facts since last refresh
+  - `include_chunks=false` (was `true`): observation text only, no file chunks
+  - `reflect_search_observations_max_tokens=3000` (was 5000)
+  - `reflect_search_observations_include_entities=false` (was `true`)
+- **Doc review CHANGELOG trim**: CHANGELOG files are now trimmed to preamble + 2 newest sections (keeps `[Unreleased]` + latest release). Saves ~25KB (21%) of the ~118KB doc payload in this repo. Non-CHANGELOG docs are unchanged.
+- **Cost table columns**: Added `Cache Read` and `Cache Write` columns to per-signature cost breakdown. Cache tokens are extracted from provider usage (Anthropic/Bedrock style or OpenAI style).
+
+### Added
+- **`memory.prefrontal.min_mental_model_refresh_seconds`** (env `MEMORY_MIN_MENTAL_MODEL_REFRESH_SECONDS`, default `0`): Minimum seconds between automatic briefing refreshes. `0` = refresh after every consolidation; `N` = at most one automatic refresh per N seconds. Delta mode means nothing is lost — the refresh covers all new facts since `last_memory_seen_at` when the interval expires. Deferred refreshes are marked `cancelled` (not `failed`) and logged at INFO level.
+- **Cost tracking for extraction LM**: `TwoStepAdapter` extraction calls are now counted and attributed to the calling signature. Previously these were missing from cost tracking.
 
 ### Fixed
+- Cerebral consolidation and retain LLM calls now use `llm.timeout` / `llm.retries`. Previously only reflect did, so consolidation timed out at Hindsight's 120 s default.
 - Cerebral consolidation no longer logs `relation "webhooks" does not exist`. Inline (`SyncTaskBackend`) tasks now carry the `semantic` schema, so consolidation completion no longer rolls back and falls back.
 - Cerebral consolidation no longer fails at exit with `cannot schedule new futures after shutdown`. Background episode saves now finish before Python shuts down its thread pools, and the pipeline waits for them without the old 120 s cap. Runs can end later, because posting the review now waits for the consolidation to finish.
 - Briefings no longer stay stuck on "Generating content..." after a failed refresh. The `_SchemaSyncTaskBackend` now marks failed operations as failed, and startup repair marks orphaned pending operations older than 1 hour as failed so subsequent refreshes can proceed.
 - Embedding inputs are now capped for Bedrock Cohere v3 (2048 characters) to prevent `maxLength: 2048, actual: 2639` errors. Use `memory.cerebral.embeddings.max_input_chars` (env: `MEMORY_EMBEDDINGS_MAX_INPUT_CHARS`) to override: `null` = auto per model, `0` = disabled, `N` = custom cap.
+- **Cost calculation**: `TwoStepAdapter` extraction calls are now included in signature cost tracking. Previously these calls were invisible because `SignatureContext` only read the main LM's history.
+- **Cost billing**: DSPy cache hits (`response.cache_hit`) are now skipped in cost accounting, as they are not billed by the provider.
+- **Cost split calculation**: When `entry["cost"]` is available (billed cost), input cost is now calculated as `billed_cost - output_cost` (list price). Previously rows could sum to more than Total when cache discounts applied.
 
 ### Added
 - **Prefrontal reflect hard caps**: programmatic reflect configuration with new caps:

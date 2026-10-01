@@ -285,6 +285,25 @@ A missing model is created and refreshed once; consolidation keeps it fresh afte
 Prefrontal reads the briefings of the agent's scopes (and repo) with no LLM call;
 missing models and models still holding the placeholder content are skipped.
 
+#### Trigger configuration
+
+Briefing triggers are configured automatically with these settings:
+
+| Trigger Field | Value | Description |
+|-------------|-------|-------------|
+| `mode` | `delta` | Only new facts since last refresh (with structured delta-ops call) |
+| `exclude_mental_models` | `true` | Briefings exclude other briefings |
+| `include_chunks` | `false` | Observation text only (no file chunks) |
+| `reflect_search_observations_max_tokens` | `3000` | Down from 5000 default |
+| `reflect_search_observations_include_entities` | `false` | Exclude entity metadata |
+| `min_refresh_interval_seconds` | `0` | Configurable via `MEMORY_MIN_MENTAL_MODEL_REFRESH_SECONDS` |
+
+**Delta mode**: After the first full refresh, subsequent refreshes only process new facts since `last_memory_seen_at`. One structured delta-ops call edits the stored document. Falls back to full refresh when content is the placeholder or when the source query changed. Falls back to candidate markdown if the delta call fails.
+
+**Deferral**: When `min_refresh_interval_seconds > 0`, automatic refreshes inside the window are deferred (operation marked `cancelled`, not `failed`). The deferral is logged at INFO level. The next consolidation after the interval expires covers everything since `last_memory_seen_at`.
+
+**Quality trade-off**: The reduced caps (`include_chunks=False`, entities off, 3000-token observation budget) shrink evidence per briefing. Monitor briefing quality in the first runs after enabling.
+
 ### Reach
 
 `memory.prefrontal.prefrontal_reach` (`local` | `org` | `bank`, default `org`):
@@ -337,9 +356,18 @@ agent the content may be stale or wrong and that issues must be verified with to
 as-is (not doubled). Both Prefrontal and briefing refreshes then get half of that
 value (with LOW budget).
 
-**Reflect LLM timeout/retries**: reuse codespy's `llm.timeout` / `llm.retries`. Override
-via `HINDSIGHT_API_REFLECT_LLM_TIMEOUT` / `HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES` (or
-the generic `HINDSIGHT_API_LLM_TIMEOUT` / `HINDSIGHT_API_LLM_MAX_RETRIES`).
+**Hindsight LLM timeout/retries**: `llm.timeout` / `llm.retries` apply to **all**
+Hindsight calls — retain, consolidation, reflect, and mental-model refresh.
+
+Operator overrides (precedence: env > codespy settings):
+- **Global**: `HINDSIGHT_API_LLM_TIMEOUT` / `HINDSIGHT_API_LLM_MAX_RETRIES` — affect all operations
+- **Per-operation**:
+  - `HINDSIGHT_API_RETAIN_LLM_TIMEOUT` / `HINDSIGHT_API_RETAIN_LLM_MAX_RETRIES`
+  - `HINDSIGHT_API_CONSOLIDATION_LLM_TIMEOUT` / `HINDSIGHT_API_CONSOLIDATION_LLM_MAX_RETRIES`
+  - `HINDSIGHT_API_REFLECT_LLM_TIMEOUT` / `HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES` (also sets reflect-specific defaults)
+  - `HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_TIMEOUT` / `HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_MAX_RETRIES`
+
+Per-operation env vars win automatically because Hindsight prefers non-None per-op values.
 
 **Monitoring**: the load INFO line includes `maps=N` (split synthesis map-call count),
 `rewrite` (if a rewrite occurred), `thoughts=N` (reasoning tokens), and `tools=...`
@@ -448,6 +476,7 @@ Observation capacity ≈ max_hippocampus_tokens / max_hippocampus_item_tokens (1
 | `MEMORY_MAX_PREFRONTAL_TOKENS` | `memory.prefrontal.max_prefrontal_tokens` | `8192` | Pre-call context budget |
 | `MEMORY_MAX_PREFRONTAL_TOOL_TOKENS` | `memory.prefrontal.max_prefrontal_tool_tokens` | `2048` | Tool result budget |
 | `MEMORY_MAX_PREFRONTAL_TOOL_CALLS` | `memory.prefrontal.max_prefrontal_tool_calls` | `0` | Tool calls per agent call (0 = tool off) |
+| `MEMORY_MIN_MENTAL_MODEL_REFRESH_SECONDS` | `memory.prefrontal.min_mental_model_refresh_seconds` | `0` | Minimum seconds between automatic briefing refreshes (0 = refresh after every consolidation; N = at most one automatic refresh per N seconds, nothing lost thanks to delta) |
 
 ### Reflection Module LLM Overrides
 

@@ -147,6 +147,7 @@ memory:
     max_prefrontal_tokens: 8192       # MEMORY_MAX_PREFRONTAL_TOKENS (pre-call context budget)
     max_prefrontal_tool_tokens: 2048  # MEMORY_MAX_PREFRONTAL_TOOL_TOKENS
     max_prefrontal_tool_calls: 0      # MEMORY_MAX_PREFRONTAL_TOOL_CALLS (0 = recall_memory tool off)
+    min_mental_model_refresh_seconds: 0  # MEMORY_MIN_MENTAL_MODEL_REFRESH_SECONDS (0 = refresh after every consolidation; N = at most one automatic briefing refresh per N seconds, nothing lost thanks to delta)
 
 # ============================================================================
 # REVIEW

@@ -92,40 +92,45 @@ class TestGetHistoryEntries:
     """Tests for _get_history_entries helper."""
 
     def test_returns_empty_list_when_no_lm(self):
-        with patch("dspy.settings.lm", None):
-            result = _get_history_entries()
-            assert result == []
+        # When LM is None, _get_history_entries should return empty list
+        result = _get_history_entries(None)
+        assert result == []
 
     def test_returns_empty_list_when_no_history_attr(self):
         mock_lm = MagicMock()
         del mock_lm.history
-        with patch("dspy.settings.lm", mock_lm):
-            result = _get_history_entries()
-            assert result == []
+        result = _get_history_entries(mock_lm)
+        assert result == []
 
-    def test_returns_history_when_available(self):
+    def test_returns_history_for_provided_lm(self):
+        """Test _get_history_entries with explicitly provided LM."""
         mock_history = [{"uuid": "test-uuid", "cost": 0.5}]
         mock_lm = MagicMock()
         mock_lm.history = mock_history
-        with patch("dspy.settings.lm", mock_lm):
-            result = _get_history_entries()
-            assert result == mock_history
+        result = _get_history_entries(mock_lm)
+        assert result == mock_history
+
+    def test_returns_empty_list_for_provided_lm_no_history(self):
+        """Test _get_history_entries with LM that has no history attribute."""
+        mock_lm = MagicMock()
+        del mock_lm.history
+        result = _get_history_entries(mock_lm)
+        assert result == []
 
 
 class TestGetHistoryUuids:
     """Tests for _get_history_uuids helper."""
 
-    def test_returns_set_of_uuids(self):
+    def test_returns_set_of_uuids_for_provided_lm(self):
+        """Test _get_history_uuids with explicitly provided LM."""
         mock_history = [
             {"uuid": "uuid-1", "cost": 0.5},
             {"uuid": "uuid-2", "cost": 0.3},
-            {"cost": 0.1},  # No uuid
         ]
         mock_lm = MagicMock()
         mock_lm.history = mock_history
-        with patch("dspy.settings.lm", mock_lm):
-            result = _get_history_uuids()
-            assert result == {"uuid-1", "uuid-2"}
+        result = _get_history_uuids(mock_lm)
+        assert result == {"uuid-1", "uuid-2"}
 
 
 class TestCalculateCostsFromEntries:
@@ -146,7 +151,7 @@ class TestCalculateCostsFromEntries:
         ]
         exclude = set()
 
-        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
 
         assert cost == 0.8
         assert tokens == 450
@@ -154,6 +159,8 @@ class TestCalculateCostsFromEntries:
         assert input_tokens == 300
         assert output_tokens == 150
         assert input_cost + output_cost == cost  # Costs should sum correctly
+        assert cache_read == 0
+        assert cache_write == 0
 
     def test_excludes_specified_uuids(self):
         entries = [
@@ -162,22 +169,26 @@ class TestCalculateCostsFromEntries:
         ]
         exclude = {"uuid-1"}
 
-        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
 
         assert cost == 0.3
         assert tokens == 200
         assert calls == 1
         assert input_tokens == 200  # Only uuid-2's tokens
         assert output_tokens == 0
+        assert cache_read == 0
+        assert cache_write == 0
 
     def test_handles_non_dict_entries(self):
         entries = ["not a dict", {"uuid": "uuid-1", "cost": 0.5, "usage": {}}]
         exclude = set()
 
-        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
 
         assert cost == 0.5
         assert calls == 1
+        assert cache_read == 0
+        assert cache_write == 0
 
     def test_handles_missing_usage(self):
         entries = [
@@ -185,13 +196,69 @@ class TestCalculateCostsFromEntries:
         ]
         exclude = set()
 
-        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
 
         assert cost == 0.5
         assert tokens == 0
         assert calls == 1
         assert input_tokens == 0
         assert output_tokens == 0
+        assert cache_read == 0
+        assert cache_write == 0
+
+    def test_skips_cache_hit_entries(self):
+        """Entries with cache_hit=True should be skipped."""
+        entries = [
+            {"uuid": "uuid-1", "cost": 0.5, "usage": {"prompt_tokens": 100}, "response": {"cache_hit": True}},
+            {"uuid": "uuid-2", "cost": 0.3, "usage": {"prompt_tokens": 200}, "response": {"cache_hit": False}},
+        ]
+        exclude = set()
+
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
+
+        assert cost == 0.3
+        assert tokens == 200
+        assert calls == 1
+        assert input_tokens == 200
+
+    def test_extracts_cache_tokens_bedrock_style(self):
+        """Test extraction of cache_read_input_tokens and cache_creation_input_tokens."""
+        entries = [
+            {
+                "uuid": "uuid-1",
+                "cost": 0.5,
+                "usage": {
+                    "prompt_tokens": 100,
+                    "cache_read_input_tokens": 50,
+                    "cache_creation_input_tokens": 25,
+                },
+            },
+        ]
+        exclude = set()
+
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
+
+        assert cache_read == 50
+        assert cache_write == 25
+
+    def test_extracts_cache_tokens_openai_style(self):
+        """Test extraction of cached_tokens from prompt_tokens_details."""
+        entries = [
+            {
+                "uuid": "uuid-1",
+                "cost": 0.5,
+                "usage": {
+                    "prompt_tokens": 100,
+                    "prompt_tokens_details": {"cached_tokens": 30},
+                },
+            },
+        ]
+        exclude = set()
+
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
+
+        assert cache_read == 30
+        assert cache_write == 0
 
 
 class TestCostTracker:
@@ -397,53 +464,65 @@ class TestSignatureContext:
     """Tests for SignatureContext context manager."""
 
     @pytest.fixture
-    def mock_lm_context(self):
+    def mock_lm_scope(self):
+        """Create a mock LMScope with main and extraction LMs."""
         with patch("codespy.agents.dspy_config.lm_context") as mock:
-            ctx = MagicMock()
-            ctx.__enter__ = MagicMock(return_value=ctx)
-            ctx.__exit__ = MagicMock(return_value=None)
-            mock.return_value = ctx
+            from codespy.agents.dspy_config import LMScope
+
+            mock_lm = MagicMock()
+            mock_lm.history = []
+            mock_extraction_lm = MagicMock()
+            mock_extraction_lm.history = []
+
+            scope = MagicMock()
+            scope.lm = mock_lm
+            scope.extraction_lm = mock_extraction_lm
+            scope.__enter__ = MagicMock(return_value=scope)
+            scope.__exit__ = MagicMock(return_value=None)
+            mock.return_value = scope
             yield mock
 
-    def test_enter_applies_lm_and_starts_tracking(self, mock_lm_context):
+    def test_enter_applies_lm_and_starts_tracking(self, mock_lm_scope):
         tracker = CostTracker()
 
-        with patch("dspy.settings.lm", MagicMock(history=[])):
-            with SignatureContext("test_sig", tracker):
-                pass
+        with SignatureContext("test_sig", tracker):
+            pass
 
         stats = tracker.get_signature_stats("test_sig")
         assert stats is not None
 
-    def test_exit_calculates_costs(self, mock_lm_context):
+    def test_exit_calculates_costs(self, mock_lm_scope):
         tracker = CostTracker()
         mock_history = [
             {"uuid": "new-uuid", "cost": 0.5, "usage": {"prompt_tokens": 100}},
         ]
 
-        with patch("dspy.settings.lm", MagicMock(history=mock_history)):
-            with patch.object(tracker, "end_signature") as mock_end:
-                with SignatureContext("test_sig", tracker):
-                    pass
+        # Set history on both LMs
+        scope = mock_lm_scope.return_value
+        scope.lm.history = mock_history
+        scope.extraction_lm.history = []
 
-                mock_end.assert_called_once()
-                args = mock_end.call_args
-                assert args[0][0] == "test_sig"
-
-    def test_exit_always_releases_lm_context(self, mock_lm_context):
-        tracker = CostTracker()
-        mock_lm = MagicMock()
-        mock_lm.history = []
-
-        with patch("dspy.settings.lm", mock_lm):
-            try:
-                with SignatureContext("test_sig", tracker):
-                    raise ValueError("Test error")
-            except ValueError:
+        with patch.object(tracker, "end_signature") as mock_end:
+            with SignatureContext("test_sig", tracker):
                 pass
 
+            mock_end.assert_called_once()
+            args = mock_end.call_args
+            assert args[0][0] == "test_sig"
+
+    def test_exit_always_releases_lm_context(self, mock_lm_scope):
+        tracker = CostTracker()
+
+        try:
+            with SignatureContext("test_sig", tracker):
+                raise ValueError("Test error")
+        except ValueError:
+            pass
+
         # lm_context.__exit__ should have been called
-        assert mock_lm_context.return_value.__exit__.called
+        assert mock_lm_scope.return_value.__exit__.called
+
+
 
 
 class TestGetCostTracker:

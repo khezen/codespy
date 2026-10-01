@@ -133,6 +133,11 @@ class PrefrontalConfig(BaseModel):
     max_prefrontal_tool_tokens: int = Field(default=2048, gt=0)
     # recall_memory tool call limit (0 = tool disabled).
     max_prefrontal_tool_calls: int = Field(default=0, ge=0)
+    # Minimum seconds between automatic briefing refreshes (0 = refresh after
+    # every consolidation; N = at most one automatic refresh per N seconds).
+    # Delta mode means nothing is lost - the refresh covers all new facts since
+    # the last successful refresh when the interval expires.
+    min_mental_model_refresh_seconds: int = Field(default=0, ge=0)
 
 
 class LLMSettings(BaseModel):
@@ -505,9 +510,9 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
             "reflect_llm_base_url": pf_base_url,
         }
 
-    # Apply reflect LLM defaults BEFORE Cerebral construction (these are read
+    # Apply Hindsight LLM defaults BEFORE Cerebral construction (these are read
     # during MemoryEngine.__init__). reflect_config is applied after construction.
-    _apply_reflect_llm_call_defaults(settings)
+    _apply_hindsight_llm_call_defaults(settings)
 
     try:
         _cerebral = Cerebral(
@@ -522,6 +527,7 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
             mental_models=settings.memory.prefrontal.reflects > 0,
             max_mental_model_tokens=settings.memory.prefrontal.max_mental_model_tokens,
             embeddings_max_input_chars=settings.memory.cerebral.embeddings.max_input_chars,
+            min_mental_model_refresh_seconds=settings.memory.prefrontal.min_mental_model_refresh_seconds,
             **reflect_kwargs,
         )
     except Exception:
@@ -555,12 +561,19 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
 _LOW_BUDGET_MULTIPLIER_INVERSE = 2
 
 
-def _apply_reflect_llm_call_defaults(settings: "Settings") -> None:
-    """Apply reflect LLM timeout and retry settings from codespy config.
+def _apply_hindsight_llm_call_defaults(settings: "Settings") -> None:
+    """Apply Hindsight LLM timeout and retry settings from codespy config.
 
-    Reflect LLM timeout and retries reuse codespy's llm.timeout / llm.retries.
-    Operator env (HINDSIGHT_API_REFLECT_LLM_TIMEOUT, HINDSIGHT_API_LLM_TIMEOUT,
-    HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES, HINDSIGHT_API_LLM_MAX_RETRIES) wins.
+    Sets global ``llm_timeout`` and ``llm_max_retries`` so all Hindsight operations
+    (retain, consolidation, reflect, mental-model refresh) inherit codespy's
+    ``llm.timeout`` / ``llm.retries``. Per-operation env vars still win automatically
+    because Hindsight prefers non-None per-op values.
+
+    Also sets ``reflect_llm_timeout`` / ``reflect_llm_max_retries`` to override
+    Hindsight's 30s reflect default when no operator env is set.
+
+    Operator env (HINDSIGHT_API_LLM_TIMEOUT, HINDSIGHT_API_LLM_MAX_RETRIES,
+    HINDSIGHT_API_REFLECT_LLM_TIMEOUT, HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES) wins.
 
     Called in get_cerebral() after Cerebral import but before Cerebral() construction.
     This must run before Cerebral is built because the defaults are resolved in
@@ -577,39 +590,79 @@ def _apply_reflect_llm_call_defaults(settings: "Settings") -> None:
         logger.warning("Could not access Hindsight raw config for LLM defaults: %s", e)
         return
 
-    # Determine effective timeout: env wins, then settings.llm.timeout
-    timeout: float | None = None
-    env_timeout = os.environ.get("HINDSIGHT_API_REFLECT_LLM_TIMEOUT") or os.environ.get("HINDSIGHT_API_LLM_TIMEOUT")
-    if env_timeout is not None:
+    # --- Global settings (retain, consolidation, reflect, mental-model refresh) ---
+
+    # Determine global timeout: env wins, then settings.llm.timeout
+    global_timeout: float | None = None
+    global_env_timeout = os.environ.get("HINDSIGHT_API_LLM_TIMEOUT")
+    if global_env_timeout is not None:
         try:
-            timeout = float(env_timeout)
-            logger.info("Using env HINDSIGHT_API_REFLECT_LLM_TIMEOUT=%s (operator override)", timeout)
+            global_timeout = float(global_env_timeout)
+            logger.info("Using env HINDSIGHT_API_LLM_TIMEOUT=%s (operator override)", global_timeout)
         except ValueError:
             pass
-    if timeout is None and hasattr(raw, "reflect_llm_timeout"):
-        timeout = float(settings.llm.timeout)
-        if hasattr(raw, "reflect_llm_timeout"):
-            raw.reflect_llm_timeout = timeout
+    if global_timeout is None and hasattr(raw, "llm_timeout"):
+        global_timeout = float(settings.llm.timeout)
+        raw.llm_timeout = global_timeout
 
-    # Determine effective retries: env wins, then settings.llm.retries
-    retries: int | None = None
-    env_retries = os.environ.get("HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES") or os.environ.get("HINDSIGHT_API_LLM_MAX_RETRIES")
-    if env_retries is not None:
+    # Determine global retries: env wins, then settings.llm.retries
+    global_retries: int | None = None
+    global_env_retries = os.environ.get("HINDSIGHT_API_LLM_MAX_RETRIES")
+    if global_env_retries is not None:
         try:
-            retries = int(env_retries)
-            logger.info("Using env HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES=%s (operator override)", retries)
+            global_retries = int(global_env_retries)
+            logger.info("Using env HINDSIGHT_API_LLM_MAX_RETRIES=%s (operator override)", global_retries)
         except ValueError:
             pass
-    if retries is None and hasattr(raw, "reflect_llm_max_retries"):
-        retries = int(settings.llm.retries)
-        if hasattr(raw, "reflect_llm_max_retries"):
-            raw.reflect_llm_max_retries = retries
+    if global_retries is None and hasattr(raw, "llm_max_retries"):
+        global_retries = int(settings.llm.retries)
+        raw.llm_max_retries = global_retries
 
-    if timeout is not None or retries is not None:
+    # --- Reflect-specific settings (override Hindsight's 30s default) ---
+
+    # Determine reflect timeout: env wins, then settings.llm.timeout
+    reflect_timeout: float | None = None
+    reflect_env_timeout = os.environ.get("HINDSIGHT_API_REFLECT_LLM_TIMEOUT") or os.environ.get("HINDSIGHT_API_LLM_TIMEOUT")
+    if reflect_env_timeout is not None:
+        try:
+            reflect_timeout = float(reflect_env_timeout)
+            # Log the actual env var that was used
+            used_env = "HINDSIGHT_API_REFLECT_LLM_TIMEOUT" if os.environ.get("HINDSIGHT_API_REFLECT_LLM_TIMEOUT") else "HINDSIGHT_API_LLM_TIMEOUT"
+            logger.info("Using env %s=%s (operator override)", used_env, reflect_timeout)
+        except ValueError:
+            pass
+    if reflect_timeout is None and hasattr(raw, "reflect_llm_timeout"):
+        reflect_timeout = float(settings.llm.timeout)
+        raw.reflect_llm_timeout = reflect_timeout
+
+    # Determine reflect retries: env wins, then settings.llm.retries
+    reflect_retries: int | None = None
+    reflect_env_retries = os.environ.get("HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES") or os.environ.get("HINDSIGHT_API_LLM_MAX_RETRIES")
+    if reflect_env_retries is not None:
+        try:
+            reflect_retries = int(reflect_env_retries)
+            # Log the actual env var that was used
+            used_env = "HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES" if os.environ.get("HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES") else "HINDSIGHT_API_LLM_MAX_RETRIES"
+            logger.info("Using env %s=%s (operator override)", used_env, reflect_retries)
+        except ValueError:
+            pass
+    if reflect_retries is None and hasattr(raw, "reflect_llm_max_retries"):
+        reflect_retries = int(settings.llm.retries)
+        raw.reflect_llm_max_retries = reflect_retries
+
+    # Summary log
+    global_timeout_str = str(global_timeout) if global_timeout is not None else "-"
+    global_retries_str = str(global_retries) if global_retries is not None else "-"
+    reflect_timeout_str = str(reflect_timeout) if reflect_timeout is not None else "-"
+    reflect_retries_str = str(reflect_retries) if reflect_retries is not None else "-"
+
+    if global_timeout is not None or global_retries is not None:
         logger.info(
-            "Hindsight reflect LLM defaults: timeout=%s, max_retries=%s",
-            timeout if timeout is not None else "-",
-            retries if retries is not None else "-",
+            "Hindsight LLM defaults: timeout=%s, max_retries=%s (reflect timeout=%s, max_retries=%s)",
+            global_timeout_str,
+            global_retries_str,
+            reflect_timeout_str,
+            reflect_retries_str,
         )
 
 
