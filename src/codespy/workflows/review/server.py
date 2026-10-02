@@ -19,6 +19,7 @@ _pipeline: Any = None
 
 # Thread pool for running the review pipeline (which uses asyncio.run() internally)
 # without conflicting with the MCP server's own event loop.
+# Single worker ensures memory phase of one review completes before the next starts.
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
 
@@ -33,18 +34,20 @@ def _get_pipeline() -> Any:
 
 
 def _run_in_thread(fn: Any, *args: Any, **kwargs: Any) -> Any:
-    """Run a function in the thread pool and return the result.
+    """Run a function in the thread pool and return an asyncio future.
 
     The ReviewPipeline uses asyncio.run() internally, which can't be called
     from within the MCP server's event loop. Running in a separate thread
     gives the pipeline its own event loop.
     """
     loop = asyncio.get_event_loop()
-    return loop.run_in_executor(_executor, lambda: fn(*args, **kwargs))
+    # Submit to executor and wrap as asyncio future
+    executor_fut = _executor.submit(fn, *args, **kwargs)
+    return asyncio.wrap_future(executor_fut)
 
 
 def _do_local_review(repo_path: str, base_ref: str, output_format: str) -> str:
-    """Synchronous local review — runs in thread pool."""
+    """Synchronous local review — runs in thread pool with full memory phase."""
     import json
 
     from codespy.workflows.review.models import LocalReviewConfig
@@ -53,7 +56,8 @@ def _do_local_review(repo_path: str, base_ref: str, output_format: str) -> str:
     config = LocalReviewConfig(repo_path=repo, base_ref=base_ref, uncommitted=False)
 
     pipeline = _get_pipeline()
-    result = pipeline(config)
+    # Run review phase then memory phase
+    result = pipeline.finish_memory(pipeline(config))
 
     if output_format == "json":
         return json.dumps(result.to_json_dict(), indent=2)
@@ -61,7 +65,7 @@ def _do_local_review(repo_path: str, base_ref: str, output_format: str) -> str:
 
 
 def _do_uncommitted_review(repo_path: str, output_format: str) -> str:
-    """Synchronous uncommitted review — runs in thread pool."""
+    """Synchronous uncommitted review — runs in thread pool with full memory phase."""
     import json
 
     from codespy.workflows.review.models import LocalReviewConfig
@@ -70,7 +74,8 @@ def _do_uncommitted_review(repo_path: str, output_format: str) -> str:
     config = LocalReviewConfig(repo_path=repo, uncommitted=True)
 
     pipeline = _get_pipeline()
-    result = pipeline(config)
+    # Run review phase then memory phase
+    result = pipeline.finish_memory(pipeline(config))
 
     if output_format == "json":
         return json.dumps(result.to_json_dict(), indent=2)
@@ -78,7 +83,7 @@ def _do_uncommitted_review(repo_path: str, output_format: str) -> str:
 
 
 def _do_pr_review(pr_url: str, output_format: str) -> str:
-    """Synchronous PR review — runs in thread pool."""
+    """Synchronous PR review — runs in thread pool with full memory phase."""
     import json
 
     from codespy.workflows.review.models import RemoteReviewConfig
@@ -86,7 +91,8 @@ def _do_pr_review(pr_url: str, output_format: str) -> str:
     config = RemoteReviewConfig(url=pr_url)
 
     pipeline = _get_pipeline()
-    result = pipeline(config)
+    # Run review phase then memory phase
+    result = pipeline.finish_memory(pipeline(config))
 
     if output_format == "json":
         return json.dumps(result.to_json_dict(), indent=2)

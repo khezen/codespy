@@ -126,6 +126,10 @@ class ReviewResult(BaseModel):
         default_factory=list,
         description="Prefrontal pre-call memory injected into agent inputs",
     )
+    memory_pending: bool = Field(
+        default=False,
+        description="True when memory phase (saves, retain, consolidation) is still pending",
+    )
 
     @property
     def total_issues(self) -> int:
@@ -209,9 +213,11 @@ class ReviewResult(BaseModel):
                     "",
                     f"- **LLM Calls:** {self.llm_calls}",
                     f"- **Total Cost:** ${self.total_cost:.4f}",
-                    "",
                 ]
             )
+            if self.memory_pending:
+                lines.append("- **Memory:** pending (retain, consolidation, mental models)")
+            lines.append("")
 
             # Per-signature breakdown
             lines.extend(self.cost_breakdown_markdown_lines("###"))
@@ -392,8 +398,12 @@ class ReviewResult(BaseModel):
 
         lines: list[str] = []
         remaining = None if max_chars is None else max_chars - outer_overhead
+        outer_stopped = False
 
         for memory in self.memories:
+            if outer_stopped:
+                break
+
             r_head = recall_head(memory.task)
             r_tail = recall_tail()
             recall_overhead = size(r_head) + size(r_tail)
@@ -407,8 +417,12 @@ class ReviewResult(BaseModel):
 
             r_lines: list[str] = list(r_head)
             has_section = False
+            recall_stopped = False
 
             for section in memory.sections:
+                if recall_stopped:
+                    break
+
                 s_block = section_block(section.title, section.text)
                 s_size = size(s_block)
                 if remaining is None or s_size <= remaining:
@@ -423,12 +437,19 @@ class ReviewResult(BaseModel):
                         truncated_body = section.text[: remaining - overhead] + TRUNCATED_MARKER
                         r_lines.extend(section_block(section.title, truncated_body))
                         has_section = True
+                        # Account for the truncated section size
+                        remaining -= overhead + len(truncated_body)
                     # Close this recall - stop processing sections for this recall
-                    break
+                    recall_stopped = True
+                    # Also stop the outer loop - no more recalls fit
+                    outer_stopped = True
 
             r_lines.extend(r_tail)
             if has_section:
                 lines.extend(r_lines)
+            elif remaining is not None:
+                # No section rendered for this recall: give back its overhead
+                remaining += recall_overhead
 
         if not lines:
             return []

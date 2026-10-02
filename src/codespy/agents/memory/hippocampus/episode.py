@@ -14,7 +14,9 @@ import logging
 import threading
 import uuid
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import datetime
+from typing import Generator
 
 from pydantic import BaseModel, Field
 
@@ -34,6 +36,10 @@ logger = logging.getLogger(__name__)
 _save_threads: list[threading.Thread] = []
 _save_lock = threading.Lock()
 
+# Deferred save queue: holds saves when _defer is True
+_deferred: list[tuple[Callable[[], object], str]] = []
+_defer: bool = False
+
 
 def submit_episode_save(target: Callable[[], object], *, name: str = "episode-save") -> None:
     """Start *target* in a non-daemon background thread and track it.
@@ -51,14 +57,62 @@ def submit_episode_save(target: Callable[[], object], *, name: str = "episode-sa
     Therefore, saves finish while the executors are still alive, even when
     ReviewPipeline.forward() raised or the caller never joined explicitly.
 
+    When _defer is True (inside defer_episode_saves() context), saves are
+    queued instead of started immediately. Call start_deferred_episode_saves()
+    to drain the queue and start them.
+
     Args:
         target: A zero-arg callable that performs the episode save.
         name: Thread name (for debugging / log messages).
     """
+    with _save_lock:
+        if _defer:
+            _deferred.append((target, name))
+            return
+
     t = threading.Thread(target=target, name=name, daemon=False)
     with _save_lock:
         _save_threads.append(t)
     t.start()
+
+
+@contextmanager
+def defer_episode_saves() -> Generator[None, None, None]:
+    """Context manager that defers episode saves until exit.
+
+    Inside this context, submit_episode_save() queues saves instead of
+    starting them. When the context exits, saves remain queued until
+    start_deferred_episode_saves() is called.
+    """
+    global _defer
+    with _save_lock:
+        _defer = True
+    try:
+        yield
+    finally:
+        # _defer stays True - caller must call start_deferred_episode_saves()
+        pass
+
+
+def start_deferred_episode_saves() -> None:
+    """Drain the deferred queue and start all queued saves.
+
+    Called after the review phase completes to start the memory phase.
+    Saves submitted after this call start immediately (defer is off).
+    """
+    global _defer, _deferred
+    with _save_lock:
+        _defer = False
+        to_start = list(_deferred)
+        _deferred.clear()
+
+    for target, name in to_start:
+        t = threading.Thread(target=target, name=name, daemon=False)
+        with _save_lock:
+            _save_threads.append(t)
+        t.start()
+    if to_start:
+        logger.info("started %d deferred episode save(s)", len(to_start))
 
 
 def join_episode_saves(timeout_per_thread: float | None = None) -> None:
@@ -103,6 +157,8 @@ def _join_episode_saves_at_exit() -> None:
     that rely on ThreadPoolExecutor can still submit embedding tasks.
     """
     try:
+        # Start any deferred saves that were never started
+        start_deferred_episode_saves()
         join_episode_saves()
     except BaseException:
         # Log at debug level so Ctrl+C during exit doesn't print a traceback

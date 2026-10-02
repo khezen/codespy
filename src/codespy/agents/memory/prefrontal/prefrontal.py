@@ -30,7 +30,6 @@ from codespy.agents.memory.prefrontal.format import (
     MENTAL_MODEL_PLACEHOLDER,
     estimate_tokens,
     fget,
-    format_context,
     format_context_sections,
     format_facts,
 )
@@ -260,9 +259,11 @@ class Prefrontal:
         text = ""
         status: RecallStatus = "error"
         details: dict[str, Any] = {}
+        sections: list[tuple[str, str]] = []
         with track_recall_usage() as usage:
             try:
-                text, details = await self._aload(facet_list)
+                text, details, sections = await self._aload(facet_list)
+                self._last_sections = sections
                 status = "ok" if text else "empty"
             except Exception:
                 logger.warning("Prefrontal[%s]: load failed", self._task, exc_info=True)
@@ -338,8 +339,8 @@ class Prefrontal:
         )
         return text
 
-    async def _aload(self, facets: list[Facet]) -> tuple[str, dict[str, Any]]:
-        """Return the rendered context and the load ``details`` for the RecallRecord."""
+    async def _aload(self, facets: list[Facet]) -> tuple[str, dict[str, Any], list[tuple[str, str]]]:
+        """Return the rendered context, load ``details``, and sections for the RecallRecord."""
         cfg = self._cfg
         now = datetime.now(UTC)
         local_groups = build_local_groups(self._repo, self._scope_ids, self._include_repo)
@@ -412,11 +413,11 @@ class Prefrontal:
             return [f for f in facts or [] if not is_own_repo_fact(fget(f, "tags"), self._repo)]
 
         briefings, results, remote = await asyncio.gather(_briefings(), _facets(), _remote())
-        # Store sections for structured rendering
-        self._last_sections = format_context_sections(
+        # Compute sections once for structured rendering
+        sections = format_context_sections(
             briefings, results, remote, self._repo, cfg.recall.reach
         )
-        text = format_context(briefings, results, remote, self._repo, cfg.recall.reach)
+        text = "\n\n".join(f"## {t}\n{b}" for t, b in sections)
 
         n_briefings = sum(
             1
@@ -437,7 +438,7 @@ class Prefrontal:
             "facets": facet_details,
             "reflect": _extract_reflect_summary(results),
         }
-        return text, details
+        return text, details, sections
 
     # ------------------------------------------------------------------
     # Tool

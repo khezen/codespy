@@ -4,6 +4,7 @@ import asyncio
 import logging
 import uuid
 from pathlib import Path
+from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 
@@ -21,7 +22,11 @@ from codespy.agents.review import (
     Summarizer,
     SupplyChainAuditor,
 )
-from codespy.agents.memory.hippocampus.episode import join_episode_saves
+from codespy.agents.memory.hippocampus.episode import (
+    defer_episode_saves,
+    join_episode_saves,
+    start_deferred_episode_saves,
+)
 from codespy.agents.review.helpers import build_patches
 from codespy.agents.review.scope import MANIFEST_FILES, MANIFEST_GLOBS, build_sparse_patterns
 from codespy.config import Settings, get_settings
@@ -157,13 +162,16 @@ class ReviewPipeline(dspy.Module):
         )
 
     def forward(self, config: ReviewConfig) -> ReviewResult:
-        """Run the complete review pipeline.
+        """Run the complete review pipeline (review phase only).
+
+        The review phase includes scope identification, summarizer, review modules,
+        and audit. Episode saves are deferred until finish_memory() is called.
 
         Args:
             config: Review configuration (RemoteReviewConfig or LocalReviewConfig)
 
         Returns:
-            ReviewResult with issues, summary, costs, etc.
+            ReviewResult with issues, summary, costs, etc. (memory_pending=True)
         """
         self.cost_tracker.reset()
 
@@ -192,8 +200,37 @@ class ReviewPipeline(dspy.Module):
         else:
             raise ValueError(f"Invalid config type: {type(config)}")
 
-        # Step 1: Identify scopes FIRST
+        # Run the review phase with deferred episode saves
+        try:
+            with defer_episode_saves():
+                result = self._run_review_phase(config, pr, repo_path, run_id)
+                return result
+        except Exception:
+            # Ensure saves are started on exception before re-raising
+            start_deferred_episode_saves()
+            raise
+
+    def _run_review_phase(
+        self,
+        config: ReviewConfig,
+        pr: Any,
+        repo_path: Path,
+        run_id: str,
+    ) -> ReviewResult:
+        """Run the review phase (scope identification through audit).
+
+        Args:
+            config: Review configuration
+            pr: PullRequest object
+            repo_path: Path to the repository
+            run_id: Unique run identifier
+
+        Returns:
+            ReviewResult with memory_pending=True
+        """
         is_local = isinstance(config, LocalReviewConfig)
+
+        # Step 1: Identify scopes FIRST
         logger.info("Identifying code scopes...")
         pr_context = PRContext(
             repo_slug=pr.repo_slug,
@@ -218,6 +255,7 @@ class ReviewPipeline(dspy.Module):
                     logger.info(f"    Lock file: {manifest.lock_file_path}")
                 if manifest.dependencies_changed:
                     logger.info("    Dependencies changed: Yes")
+
         # Expand sparse checkout to cover full scope subtrees
         changed_file_paths = [f.filename for f in pr.changed_files]
         if not is_local:
@@ -236,7 +274,6 @@ class ReviewPipeline(dspy.Module):
         pf_text = ""
         if run_pf:
             # Build facets for the run-level load
-            # Collect paths, packages from all scopes
             all_paths = list({f.filename for s in scopes for f in s.changed_files})
             all_packages = list({
                 s.package_manifest.package_name
@@ -265,7 +302,7 @@ class ReviewPipeline(dspy.Module):
             except Exception as e:
                 logger.warning(f"Failed to save run-level recalls: {e}")
 
-        # Step 2: Run Summarizer (now receives scopes for per-scope episode persistence)
+        # Step 2: Run Summarizer
         pr_summary = self.summarizer(
             pr_context=pr_context,
             changed_file_paths=changed_file_paths,
@@ -280,6 +317,7 @@ class ReviewPipeline(dspy.Module):
         review_ctx = ReviewContext(
             pr_context=pr_context, memory=None, metadata=metadata, prefrontal_memory=pf_text
         )
+
         # Step 3: Run review modules concurrently via asyncio.gather
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
@@ -287,7 +325,8 @@ class ReviewPipeline(dspy.Module):
             self._run_review_modules(scopes, module_names, review_context=review_ctx)
         )
         logger.info(f"Found {len(all_issues)} issues")
-        # Step 4: Run Audit (loads own prior episodes per scope, no memory inheritance from parallel modules)
+
+        # Step 4: Run Audit
         quality_assessment, recommendation = self.auditor(
             review_context=review_ctx,
             all_issues=all_issues,
@@ -295,13 +334,6 @@ class ReviewPipeline(dspy.Module):
             scopes=scopes,
             topics=all_scope_topics,
         )
-        # Ensure all background episode saves complete before stats collection
-        # (audit's episode save runs in background and contains distiller/cartographer calls)
-        join_episode_saves()
-        # One consolidation per run (after all episode saves complete)
-        self._consolidate_run(run_id)
-        # Collect per-signature statistics (after all saves complete, includes consolidation costs)
-        signature_stats_list = self._collect_signature_stats()
 
         # Build memories list from scope and run-level Prefrontal loads
         memories: list[RecalledMemory] = []
@@ -321,6 +353,9 @@ class ReviewPipeline(dspy.Module):
                 )
             )
 
+        # Collect stats at end of review phase (before memory phase)
+        signature_stats_list = self._collect_signature_stats()
+
         return ReviewResult(
             pr_number=pr.number,
             pr_title=pr.title,
@@ -337,7 +372,44 @@ class ReviewPipeline(dspy.Module):
             llm_calls=self.cost_tracker.call_count,
             signature_stats=signature_stats_list,
             memories=memories,
+            memory_pending=True,
         )
+
+    def finish_memory(self, result: ReviewResult) -> ReviewResult:
+        """Run the memory phase: start deferred saves, join them, consolidate.
+
+        Args:
+            result: ReviewResult from forward() with memory_pending=True
+
+        Returns:
+            ReviewResult with updated costs and memory_pending=False.
+            Never raises - errors are logged and the result is returned.
+        """
+        if not result.memory_pending:
+            return result
+
+        try:
+            # Start deferred saves (they were queued during review phase)
+            start_deferred_episode_saves()
+            # Wait for all saves to complete
+            join_episode_saves()
+            # Run consolidation and mental model update
+            self._consolidate_run(result.run_id)
+            # Recollect stats with memory costs
+            signature_stats_list = self._collect_signature_stats()
+
+            return result.model_copy(update={
+                "signature_stats": signature_stats_list,
+                "total_cost": self.cost_tracker.total_cost,
+                "total_tokens": self.cost_tracker.total_tokens,
+                "llm_calls": self.cost_tracker.call_count,
+                "memory_pending": False,
+            })
+        except Exception as e:
+            logger.warning("Memory phase failed: %s", e, exc_info=True)
+            # Return result as-is, but mark memory as no longer pending
+            # (we tried and failed, don't keep showing "pending")
+            return result.model_copy(update={"memory_pending": False})
 
     def _consolidate_run(self, run_id: str) -> None:
         """Trigger one consolidation per run after all episode saves complete.

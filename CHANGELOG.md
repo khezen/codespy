@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **Review is now published before the memory phase**: Episode saves, retain, consolidation and mental-model refresh run after audit. For remote reviews, the GitHub/GitLab review is posted first with "Memory: pending", then edited with full costs after the memory phase completes. Local CLI and MCP reviews run the memory phase before returning/printing. This keeps the review pipeline responsive while memory operations complete in the background.
+
 ### Added
 - **Review memories section**: The pre-call Prefrontal memory (run-level and scope-level) now appears in a collapsed `memories` section **before** the Summary. Each recall is nested under its own `<details>` block, and each memory section (Briefings, Around this work, Seen before, Decisions, Recurring patterns, What changed, Other repositories) is also collapsible. This section is shown in both the GitHub/GitLab review body and the stdout/MCP markdown output.
 - **Cerebral structured output support**: Native structured output registration for Bedrock models (e.g., Nvidia Nemotron Super) that support it but lack the flag in litellm's model map. Two-step structured output fallback for memory models litellm cannot schema-enforce, using `llm.extraction_model`.

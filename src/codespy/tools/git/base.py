@@ -1,12 +1,25 @@
 """Abstract base class for Git platform clients."""
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from codespy.config import Settings
     from codespy.tools.git.models import PullRequest
+
+
+@dataclass
+class SubmittedReview:
+    """Reference to a submitted review for later editing.
+
+    Attributes:
+        id: The review/note ID from the platform
+        body_suffix: Any content appended to the body (e.g., fallback inline comments)
+    """
+    id: int
+    body_suffix: str = ""
 
 
 class GitClient(ABC):
@@ -81,7 +94,7 @@ class GitClient(ABC):
         body: str,
         comments: list[dict] | None = None,
         commit_sha: str | None = None,
-    ) -> None:
+    ) -> SubmittedReview | None:
         """Submit a review on a pull request.
 
         Args:
@@ -92,6 +105,26 @@ class GitClient(ABC):
                 - line: Line number
                 - body: Comment text
             commit_sha: Commit SHA to review (defaults to head SHA)
+
+        Returns:
+            SubmittedReview with the review ID and any body suffix appended,
+            or None if no review was created.
+        """
+        ...
+
+    @abstractmethod
+    def update_review(
+        self,
+        url: str,
+        review: SubmittedReview,
+        body: str,
+    ) -> None:
+        """Update an existing review with a new body.
+
+        Args:
+            url: Pull request URL
+            review: The SubmittedReview returned by submit_review
+            body: New review body (replaces the original)
         """
         ...
 

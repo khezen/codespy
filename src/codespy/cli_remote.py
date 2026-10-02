@@ -161,16 +161,36 @@ def review(
     try:
         from codespy.workflows.review.models import RemoteReviewConfig
         from codespy.workflows.review.pipeline import ReviewPipeline
+        from codespy.workflows.review.reporters import GitReporter, StdoutReporter
 
         pipeline = ReviewPipeline(settings)
 
         # Create remote review config
         config = RemoteReviewConfig(url=pr_url)
 
-        # Run review (model access always verified in pipeline)
+        # Run review phase (model access always verified in pipeline)
+        # Episode saves are deferred until finish_memory is called
         result = pipeline(config)
 
-        # Show cost summary
+        handle = None
+        try:
+            # Publish to git platform after audit (before memory phase)
+            if settings.review.output_git:
+                console.print(f"[dim]Posting review to {platform.title()}...[/dim]")
+                git_reporter = GitReporter(url=pr_url, settings=settings)
+                handle = git_reporter.publish(result)
+                console.print(f"[green]✓[/green] {platform.title()} review posted successfully")
+        finally:
+            # Run memory phase (saves, retain, consolidation)
+            # This runs even if git publication failed
+            result = pipeline.finish_memory(result)
+
+        # Update the git review with full costs after memory phase
+        if handle and settings.review.output_git:
+            git_reporter = GitReporter(url=pr_url, settings=settings)
+            git_reporter.update(handle, result)
+
+        # Show cost summary with full costs (after memory phase)
         if result.llm_calls > 0:
             cost_str = f"${result.total_cost:.4f}" if result.total_cost > 0 else "N/A"
             # Calculate input/output totals from signature_stats
@@ -188,18 +208,10 @@ def review(
                 )
             )
 
-        # Output results using reporters
-        from codespy.workflows.review.reporters import GitReporter, StdoutReporter
-
+        # Output results to stdout once at the end (after memory phase)
         if settings.review.output_stdout:
             stdout_reporter = StdoutReporter(format=settings.review.output_format, console=console)
             stdout_reporter.report(result)
-
-        if settings.review.output_git:
-            console.print(f"[dim]Posting review to {platform.title()}...[/dim]")
-            git_reporter = GitReporter(url=pr_url, settings=settings)
-            git_reporter.report(result)
-            console.print(f"[green]✓[/green] {platform.title()} review posted successfully")
 
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")

@@ -9,7 +9,7 @@ from github import Auth, Github
 from github.PullRequest import PullRequest as GHPullRequest
 
 from codespy.config_utils import secret_value
-from codespy.tools.git.base import GitClient
+from codespy.tools.git.base import GitClient, SubmittedReview
 from codespy.tools.git.models import (
     ChangedFile,
     FileStatus,
@@ -216,7 +216,7 @@ class GitHubClient(GitClient):
         body: str,
         comments: list[dict] | None = None,
         commit_sha: str | None = None,
-    ) -> None:
+    ) -> SubmittedReview | None:
         """Submit a review on a pull request.
 
         Uses optimistic approach: try all comments first, then validate and retry on failure.
@@ -229,7 +229,10 @@ class GitHubClient(GitClient):
                 - line: Line number (in the diff, not the file)
                 - body: Comment text
                 - side: 'RIGHT' for additions, 'LEFT' for deletions (default: RIGHT)
-            commit_sha: Commit SHA to review (defaults to PR head SHA)
+            commit_sha: Commit SHA to review (defaults to head SHA)
+
+        Returns:
+            SubmittedReview with the review ID and body suffix.
 
         Note:
             Uses event='COMMENT' to avoid approving/requesting changes.
@@ -280,14 +283,18 @@ class GitHubClient(GitClient):
                     review_comment["start_line"] = comment["start_line"]
                 review_comments.append(review_comment)
 
+        body_suffix = ""
+        review_id = 0
+
         # Try to submit the review optimistically with all inline comments
         try:
-            gh_pr.create_review(
+            review = gh_pr.create_review(
                 commit=repo.get_commit(review_commit),
                 body=body,
                 event="COMMENT",
                 comments=review_comments,
             )
+            review_id = review.id
             logger.info(
                 f"Submitted review on {owner}/{repo_name}#{pr_number} "
                 f"with {len(review_comments)} inline comments"
@@ -325,12 +332,14 @@ class GitHubClient(GitClient):
 
                 # Retry with valid comments only
                 try:
-                    gh_pr.create_review(
+                    review = gh_pr.create_review(
                         commit=repo.get_commit(review_commit),
                         body=updated_body,
                         event="COMMENT",
                         comments=valid_comments,
                     )
+                    review_id = review.id
+                    body_suffix = updated_body[len(body):]
                     logger.info(
                         f"Submitted review on {owner}/{repo_name}#{pr_number} "
                         f"with {len(valid_comments)} inline comments (after validation)"
@@ -342,12 +351,14 @@ class GitHubClient(GitClient):
                     )
                     all_failed_comments = review_comments  # All original comments
                     final_body = self._append_comments_to_body(body, all_failed_comments)
-                    gh_pr.create_review(
+                    review = gh_pr.create_review(
                         commit=repo.get_commit(review_commit),
                         body=final_body,
                         event="COMMENT",
                         comments=[],
                     )
+                    review_id = review.id
+                    body_suffix = final_body[len(body):]
                     logger.info(
                         f"Submitted review on {owner}/{repo_name}#{pr_number} "
                         f"(body only, all comments)"
@@ -357,6 +368,30 @@ class GitHubClient(GitClient):
 
         if skipped_path_comments:
             logger.info(f"Skipped {len(skipped_path_comments)} comments for files not in PR")
+
+        return SubmittedReview(id=review_id, body_suffix=body_suffix)
+
+    def update_review(
+        self,
+        url: str,
+        review: SubmittedReview,
+        body: str,
+    ) -> None:
+        """Update an existing GitHub PR review with a new body.
+
+        Args:
+            url: GitHub PR URL
+            review: The SubmittedReview returned by submit_review
+            body: New review body (replaces the original)
+        """
+        owner, repo_name, pr_number = self.parse_url(url)
+        repo = self.github.get_repo(f"{owner}/{repo_name}")
+        gh_pr: GHPullRequest = repo.get_pull(pr_number)
+
+        # Get the review and edit it
+        gh_review = gh_pr.get_review(review.id)
+        gh_review.edit(body=body)
+        logger.info(f"Updated review {review.id} on {owner}/{repo_name}#{pr_number}")
 
     def _append_comments_to_body(self, body: str, comments: list[dict]) -> str:
         """Append inline comments to the review body when they can't be posted inline.

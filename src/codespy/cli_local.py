@@ -109,6 +109,7 @@ def review_local(
     try:
         from codespy.workflows.review.models import LocalReviewConfig
         from codespy.workflows.review.pipeline import ReviewPipeline
+        from codespy.workflows.review.reporters import StdoutReporter
 
         pipeline = ReviewPipeline(settings)
 
@@ -116,7 +117,8 @@ def review_local(
         config = LocalReviewConfig(repo_path=repo, base_ref=base_ref, uncommitted=False)
 
         # Run review (model access always verified in pipeline)
-        result = pipeline(config)
+        # Episode saves are deferred; finish_memory runs them
+        result = pipeline.finish_memory(pipeline(config))
 
         if result.llm_calls > 0:
             cost_str = f"${result.total_cost:.4f}" if result.total_cost > 0 else "N/A"
@@ -134,8 +136,6 @@ def review_local(
                     title="Cost Summary",
                 )
             )
-
-        from codespy.workflows.review.reporters import StdoutReporter
 
         stdout_reporter = StdoutReporter(format=settings.review.output_format, console=console)
         stdout_reporter.report(result)
@@ -228,6 +228,7 @@ def review_uncommitted(
     try:
         from codespy.workflows.review.models import LocalReviewConfig
         from codespy.workflows.review.pipeline import ReviewPipeline
+        from codespy.workflows.review.reporters import StdoutReporter
 
         pipeline = ReviewPipeline(settings)
 
@@ -235,7 +236,8 @@ def review_uncommitted(
         config = LocalReviewConfig(repo_path=repo, uncommitted=True)
 
         # Run review (model access always verified in pipeline)
-        result = pipeline(config)
+        # Episode saves are deferred; finish_memory runs them
+        result = pipeline.finish_memory(pipeline(config))
 
         if result.llm_calls > 0:
             cost_str = f"${result.total_cost:.4f}" if result.total_cost > 0 else "N/A"
@@ -253,8 +255,6 @@ def review_uncommitted(
                     title="Cost Summary",
                 )
             )
-
-        from codespy.workflows.review.reporters import StdoutReporter
 
         stdout_reporter = StdoutReporter(format=settings.review.output_format, console=console)
         stdout_reporter.report(result)
