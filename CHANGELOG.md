@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- **Cerebral structured output support**: Native structured output registration for Bedrock models (e.g., Nvidia Nemotron Super) that support it but lack the flag in litellm's model map. Two-step structured output fallback for memory models litellm cannot schema-enforce, using `llm.extraction_model`.
 - **Cerebral per-scope observation cap**: New `max_observations_per_scope` setting under `memory.cerebral.consolidation` (env `MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE`, default `100`). Limits observations per `[org:*, repo:*, project_scope:*]` scope; `-1` = unlimited, `0` = no new observations. Scopes that hit the cap only allow UPDATE/DELETE.
 
 ### Changed
@@ -40,6 +41,8 @@
 - **Cost tracking for extraction LM**: `TwoStepAdapter` extraction calls are now counted and attributed to the calling signature. Previously these were missing from cost tracking.
 
 ### Fixed
+- **Retain no longer fails with "all N facts returned by the LLM were unusable" on Nemotron 3 Super (Bedrock)**. litellm lacked its native structured-output flag, so it fell back to forced tool calls with string-encoded arrays. Cerebral now registers the capability and strips JSON Schema keywords Bedrock's native structured output rejects (e.g., `minimum`/`maximum`, `maxItems`).
+- **Briefing (mental model) delta refreshes no longer fail with "operations must be a list, got <class 'str'>"** (`delta_ops_failed`). Models without native structured output on Bedrock (e.g., Nvidia Nemotron) return the operations array JSON-encoded as a string; Cerebral now decodes it before Hindsight validates it.
 - **`Missing required inputs: ['prefrontal_memory']` regression**: Fixed a bug where agents failed with `dspy.RLM._validate_inputs` error when the Prefrontal instance existed but the shared run-level `prefrontal_memory` text was empty (fresh DB). The signature is now chosen based on whether there is text to pass, not on the presence of the Prefrontal instance. Affects: summary, code_review, doc, supply_chain, audit.
 - Cerebral consolidation and retain LLM calls now use `llm.timeout` / `llm.retries`. Previously only reflect did, so consolidation timed out at Hindsight's 120 s default.
 - Cerebral consolidation no longer logs `relation "webhooks" does not exist`. Inline (`SyncTaskBackend`) tasks now carry the `semantic` schema, so consolidation completion no longer rolls back and falls back.

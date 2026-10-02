@@ -564,6 +564,17 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
     # Apply mental-model refresh LLM config to Hindsight raw config BEFORE Cerebral construction
     _apply_mental_model_refresh_llm(settings)
 
+    # Extraction model for two-step structured output fallback
+    extraction_model = settings.get_llm_config(MEMORY_RETAIN).extraction_model
+    extraction_kwargs: dict[str, str | None] = {}
+    if extraction_model:
+        extraction_api_key, extraction_base_url = _litellm_credentials(settings, extraction_model)
+        extraction_kwargs = {
+            "extraction_llm_model": extraction_model,
+            "extraction_llm_api_key": extraction_api_key,
+            "extraction_llm_base_url": extraction_base_url,
+        }
+
     try:
         _cerebral = Cerebral(
             database_url=pg_uri,
@@ -581,6 +592,7 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
             max_observations_per_scope=settings.memory.cerebral.consolidation.max_observations_per_scope,
             **reflect_kwargs,
             **consolidation_kwargs,
+            **extraction_kwargs,
         )
     except Exception:
         logger.error(

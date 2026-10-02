@@ -61,6 +61,21 @@ from hindsight_api.extensions.builtin.tenant import DefaultTenantExtension
 from hindsight_api.models import RequestContext
 from hindsight_api.worker.exceptions import DeferOperation
 
+# Install delta operations coercion shim for string-encoded operations
+# (see delta_ops_compat.py for details)
+from codespy.agents.memory.cerebral.delta_ops_compat import install_delta_ops_coercion
+
+install_delta_ops_coercion()
+
+# Install native structured output support and Bedrock schema sanitizer
+from codespy.agents.memory.cerebral.structured_output import (
+    install_bedrock_schema_sanitizer,
+    register_native_structured_output_overrides,
+)
+
+register_native_structured_output_overrides()
+install_bedrock_schema_sanitizer()
+
 
 class _SchemaSyncTaskBackend(SyncTaskBackend):
     """SyncTaskBackend that tags inline tasks with Cerebral's schema.
@@ -329,6 +344,9 @@ class Cerebral:
         consolidation_llm_model: str | None = None,
         consolidation_llm_api_key: str | None = None,
         consolidation_llm_base_url: str | None = None,
+        extraction_llm_model: str | None = None,
+        extraction_llm_api_key: str | None = None,
+        extraction_llm_base_url: str | None = None,
         embeddings_max_input_chars: int | None = None,
         min_mental_model_refresh_seconds: int = 0,
         max_observations_per_scope: int = -1,
@@ -421,6 +439,30 @@ class Cerebral:
 
         # Attach engine to task backend so it can mark failed operations
         task_backend.attach(self._engine)
+
+        # Install two-step structured output fallback when extraction model is configured
+        if extraction_llm_model:
+            try:
+                from hindsight_api.engine.llm_wrapper import LLMConfig
+                from codespy.agents.memory.cerebral.structured_output import (
+                    install_two_step_structured_output,
+                )
+
+                extraction_cfg = LLMConfig(
+                    provider="litellm",
+                    model=extraction_llm_model,
+                    api_key=extraction_llm_api_key,
+                    base_url=extraction_llm_base_url or "",
+                    reasoning_effort=None,
+                )
+                extraction_impl = extraction_cfg._provider_impl
+                install_two_step_structured_output(self._engine, extraction_impl)
+            except Exception:
+                logger.warning(
+                    "Failed to install two-step structured output for extraction model %s",
+                    extraction_llm_model,
+                    exc_info=True,
+                )
 
         self._run_async(self._engine.initialize())
 

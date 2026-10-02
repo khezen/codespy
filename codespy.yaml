@@ -59,7 +59,7 @@ llm:
 
   # Default model settings
   default_model: anthropic/claude-opus-4-6        # DEFAULT_MODEL
-  extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model)
+  extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model; also used by Cerebral two-step structured output for memory models litellm cannot schema-enforce)
   default_max_iters: 5                            # DEFAULT_MAX_ITERS
   default_max_llm_calls: 8                        # DEFAULT_MAX_LLM_CALLS
   default_reasoning_effort: medium                # DEFAULT_REASONING_EFFORT
@@ -224,8 +224,8 @@ review:
   # Documentation Review
   doc:
     enabled: true                         # REVIEW_DOC_ENABLED
-    max_iters: 1                          # REVIEW_DOC_MAX_ITERS
-    max_llm_calls: 2                      # REVIEW_DOC_MAX_LLM_CALLS
+    max_iters: 2                          # REVIEW_DOC_MAX_ITERS
+    max_llm_calls: 4                      # REVIEW_DOC_MAX_LLM_CALLS
     model: null                           # REVIEW_DOC_MODEL
     reasoning_effort: null                # REVIEW_DOC_REASONING_EFFORT
     temperature: null                     # REVIEW_DOC_TEMPERATURE
