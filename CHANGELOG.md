@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- `recall_memory` with `reach=local` returned nothing for code_review and supply_chain; the tool now searches the reviewed project scope
 - Fixed "too many values to unpack" error in review statistics matrix (line 345 was iterating `severities` as tuples instead of enums)
 - `GITLAB_URL` from the environment was ignored — now properly takes precedence over YAML `gitlab.url`
 - Token precedence now matches documentation: env/`.env` beats YAML (`github.token` / `gitlab.token`)

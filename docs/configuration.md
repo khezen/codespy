@@ -174,68 +174,33 @@ export REVIEW_OUTPUT_GIT=true
 
 ## Memory Configuration
 
-Brief overview:
+The memory system has three components:
+
+- **Hippocampus**: Episodic memory (learns from the current review)
+- **Cerebral**: Semantic memory (retains episodes, consolidates, refreshes mental models)
+- **Prefrontal**: Reads Cerebral and injects prior knowledge into agents
+
+Master switch and connection:
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| PostgreSQL host | `MEMORY_POSTGRES_HOST` | — | External PostgreSQL host |
-| PostgreSQL port | `MEMORY_POSTGRES_PORT` | `5432` | External PostgreSQL port |
-| PostgreSQL user | `MEMORY_POSTGRES_USER` | — (connects as `postgres`) | External PostgreSQL user |
-| PostgreSQL password | `MEMORY_POSTGRES_PASSWORD` | — | External PostgreSQL password |
-| PostgreSQL database | `MEMORY_POSTGRES_DATABASE` | `codespy` | External PostgreSQL database |
-| PostgreSQL schema | `MEMORY_POSTGRES_SCHEMA` | `episodic` | PostgreSQL schema / search_path per memory type |
+| Enabled | `MEMORY_ENABLED` | `false` | Enable memory globally |
 | Bank ID | `MEMORY_BANK_ID` | `codespy` | Scopes all memory data |
-| pg0 name | `MEMORY_PG0_NAME` | `codespy` | pg0-embedded database name (local dev) |
-| pg0 port | `MEMORY_PG0_PORT` | auto | pg0-embedded port (local dev) |
-| pg0 data dir | `MEMORY_PG0_DATA_DIR` | — | pg0-embedded data directory (local dev) |
-| Enabled | `MEMORY_ENABLED` | `false` | Enable memory globally (episodic + semantic) |
-| Context memory tokens | `MEMORY_MAX_HIPPOCAMPUS_TOKENS` | `16384` | Ceiling on persisted context memory |
-| Observation tokens | `MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS` | `512` | Soft per-observation token limit |
-| Trajectory tokens | `MEMORY_MAX_TRAJECTORY_TOKENS` | `16384` | Cap on trajectory fed to Distiller |
-| Question tokens | `MEMORY_MAX_QUESTION_TOKENS` | `8192` | Cap on serialized reflection inputs |
+| PostgreSQL host | `MEMORY_POSTGRES_HOST` | — | External PostgreSQL host |
+| PostgreSQL port | `MEMORY_POSTGRES_PORT` | `5432` | PostgreSQL port |
+| PostgreSQL user | `MEMORY_POSTGRES_USER` | `postgres` | PostgreSQL user |
+| PostgreSQL password | `MEMORY_POSTGRES_PASSWORD` | — | PostgreSQL password |
+| PostgreSQL database | `MEMORY_POSTGRES_DATABASE` | `codespy` | PostgreSQL database |
+| PostgreSQL schema | `MEMORY_POSTGRES_SCHEMA` | `episodic` | Schema for episodic store |
+| pg0 name | `MEMORY_PG0_NAME` | `codespy` | pg0-embedded database name |
+| pg0 port | `MEMORY_PG0_PORT` | auto | pg0-embedded port |
+| pg0 data dir | `MEMORY_PG0_DATA_DIR` | — | pg0-embedded data directory |
 
-See [Memory System](memory.md) for full memory configuration details.
-
-## Cerebral Semantic Memory
-
-Cerebral retains episode observations and artifacts into Hindsight AI semantic memory, creating a knowledge layer alongside the episodic store. It activates automatically when `MEMORY_ENABLED=true`.
-
-LLM provider and credentials are auto-derived from the model string and existing LLM config (e.g., `bedrock/*` uses AWS env vars, `openai/*` uses `OPENAI_API_KEY`).
-
-| Setting | Env Var | Default | Description |
-|---------|---------|---------|-------------|
-| Retain Model | `MEMORY_RETAIN_MODEL` | `DEFAULT_MODEL` | Model for fact extraction |
-| Consolidation Model | `MEMORY_CONSOLIDATION_MODEL` | `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` | Model for consolidation |
-| Consolidation Observation Cap | `MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE` | `100` | Per-scope observation limit (-1 = unlimited, 0 = no new observations) |
-| Mental-Models Model | `MEMORY_MENTAL_MODELS_MODEL` | `MEMORY_RECALL_MODEL` → `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` | Model for briefing refresh |
-| Mental-Models Max Tokens | `MEMORY_MENTAL_MODELS_MAX_TOKENS` | `2048` | Briefing size |
-| Mental-Models Min Refresh Seconds | `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS` | `0` | Minimum seconds between refreshes (0 = after every consolidation) |
-| Embeddings Model | `MEMORY_EMBEDDINGS_MODEL` | Auto-derived | Model for semantic memory embeddings |
-| Retain Chunk Size | `MEMORY_RETAIN_CHUNK_SIZE` | `12288` | Chars per extraction chunk (< 64000) |
-
-Hindsight MemoryEngine uses the same PostgreSQL instance under the `semantic` schema (created automatically alongside `episodic`).
-Consolidation and mental-model refreshes run inline in the background save thread.
-
-## Prefrontal Semantic Recall
-
-Prefrontal reads Cerebral before each agent call and injects a read-only `prefrontal_memory`
-input (briefings, recalled facts, facts from other repositories); the RLM agents also get a
-`recall_memory` tool. It is active per signature when memory is enabled and Cerebral is available.
-
-| Setting | Env Var | Default | Description |
-|---------|---------|---------|-------------|
-| Reflects | `MEMORY_PREFRONTAL_REFLECTS` | `3` | Reflect iterations; `0` = raw facts, no LLM, no briefings |
-| Recall Model | `MEMORY_RECALL_MODEL` | `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` | Model for the reflect loop; also briefing refresh fallback when `cerebral.mental_models.model` is unset; unused when reflects = 0 |
-| Recall Reach | `MEMORY_RECALL_REACH` | `org` | `local`, `org` or `bank` |
-| Recall Max Tokens | `MEMORY_RECALL_MAX_TOKENS` | `8192` | Pre-call context budget |
-| Recall Max Tool Tokens | `MEMORY_RECALL_MAX_TOOL_TOKENS` | `2048` | Tool result budget |
-| Recall Max Tool Calls | `MEMORY_RECALL_MAX_TOOL_CALLS` | `0` | Per agent call (0 = tool off) |
-
-Every recall (pre-call load and each `recall_memory` call) is logged as one INFO line and
-stored with its full text, model, token usage and cost in the episodic `recalls` table. Its
-cost appears in the `memory_recall` line of the cost report.
-
-See [Memory System](memory.md#semantic-memory-cerebral-and-prefrontal) for details.
+See [Memory System](memory.md) for:
+- Full configuration tables (token budgets, models, per-signature overrides)
+- Database schema and SQL examples
+- Lifecycle, data flow, and monitoring
+- Prefrontal recall settings (reach, reflects, facets, `recall_memory` tool)
 
 ## Output Settings
 

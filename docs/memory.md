@@ -1,19 +1,57 @@
 [← Back to README](../README.md#documentation)
 
-# Hippocampus Memory System
+# Memory System
 
-## Overview
+CodeSpy's memory system has three independent components:
 
-Episode-based memory that wraps DSPy agents with persistent context across reviews.
-Agents accumulate knowledge about a codebase scope over time — patterns, constants,
-parsing schemas — and reuse it in subsequent reviews of the same code area.
+| Component | Role | Storage | Schema |
+|-----------|------|---------|--------|
+| **Hippocampus** | Learns from the current episode | PostgreSQL (`episodic`) | Episodic: episodes, observations, recalls |
+| **Cerebral** | Retains episodes into semantic memory, consolidates, refreshes mental models | Hindsight bank | Semantic: observations, mental models |
+| **Prefrontal** | Reads Cerebral and injects prior knowledge into agents | — | Read-only |
 
-## Concepts
+**Terminology note:** The module is "Prefrontal" but its configuration lives under `memory.prefrontal.recall.*` and its cost bucket is `memory_recall`. *Recall* = the read operation Prefrontal performs (config, bucket, table).
+
+## Lifecycle of one review run
+
+```
+1. forward() runs the review phase inside defer_episode_saves()
+   ├── Scope agent (if memory enabled and model refinement runs)
+   │   └── Own Prefrontal load (task="review", include_repo=True)
+   ├── Run-level Prefrontal recall (task="review", episode_id=NULL)
+   ├── Summary
+   ├── code_review, doc, supply_chain (concurrent)
+   └── Audit
+2. Review published with "Memory: pending" (remote) or printed (local CLI/MCP)
+3. finish_memory() starts queued saves
+   ├── Each episode: end_episode() → Distiller → Cartographer → evict → save
+   └── retain_episode() for each scope
+4. join_episode_saves()
+5. consolidate_run() → one consolidation over union of touched scopes
+6. Hindsight refreshes briefings via refresh_after_consolidation trigger
+7. Costs recollected, review edited with full costs (remote) or printed
+```
+
+If `forward()` raises, deferred saves still start but consolidation does not run. The at-exit hook finishes pending saves but does **not** call `consolidate_run`.
+
+## Agents and memory
+
+| Agent | Gets pre-call memory from | Has `recall_memory` tool | Writes episode |
+|-------|---------------------------|--------------------------|----------------|
+| scope | Own load (run-level if no refinement) | Yes | Yes |
+| summary | Run-level | No | Yes |
+| code_review | Run-level | Yes | Yes |
+| doc | Run-level | No | Yes |
+| supply_chain | Run-level | Yes | Yes |
+| audit | Run-level | No | Yes |
+
+The run-level recall (`task="review"`, `episode_id=NULL`) covers all project scopes plus the repo. Only the scope agent loads its own memory when model refinement runs; all other agents share the run-level recall.
+
+## Hippocampus (episodic)
 
 ### Banks
 
-A bank is the top-level data partition. All episodes, topics, observations,
-artifacts and recalls cascade-delete from a bank.
+A bank is the top-level data partition. All episodes, topics, observations, artifacts and recalls cascade-delete from a bank.
 
 - Configured via `MEMORY_BANK_ID` (default: `codespy`)
 - Typical values: service name, team name, org identifier
@@ -27,13 +65,23 @@ artifacts and recalls cascade-delete from a bank.
 
 ### Episodes
 
-- An Episode captures one agent's run: task, context_memory, mutations, artifacts, recalls, timestamp
-- Stored in PostgreSQL (auto-created tables). pg0-embedded auto-starts
-  a local instance when no `MEMORY_POSTGRES_HOST` is set.
-- `EpisodeStore.load_context(task, topic_ids, topic_prefix)` retrieves
-  the latest context by `timestamp DESC`, filtering on bank + task + topic
+An Episode captures one agent's run:
 
-### Context Memory
+- `id` (UUID): unique episode identifier
+- `run_id` (varchar): parent run identifier
+- `task` (varchar): agent task name (e.g., "code_review")
+- `module` (varchar): module identifier
+- `question` (text): the task question
+- `context_memory`: six sections of observations
+- `mutations`: ADD/REPLACE/DELETE operations produced by Cartographer
+- `artifacts`: named outputs (e.g., review markdown)
+- `recalls`: Prefrontal loads and tool calls
+- `timestamp`: episode timestamp
+- `topics`: list of Topic objects for this episode
+
+`EpisodeStore.load_context(task, topic_ids)` merges every live (non-tombstone) observation from **all** prior episodes of the task that match the topics, ordered **oldest first** (`timestamp ASC`) so eviction drops the oldest facts on ties.
+
+### Context Memory sections
 
 Six sections (from general to specific):
 
@@ -44,43 +92,185 @@ Six sections (from general to specific):
 5. **`parsing_schema`** — How to parse the context's format: delimiters, boundary patterns, field structure
 6. **`reusable_results`** — Agent-derived aggregated outputs (counts, distributions, classifications) reusable across questions
 
-Each section contains `Observation` objects with `id`, `content`, and `topic_ids` linking
-the observation to its relevant scopes.
+Each section contains `Observation` objects with `id`, `content`, and `topic_ids` linking the observation to its relevant scopes.
 
 ### Observations
 
-Observations are the versioned audit trail of context memory items in the database.
-Each time the Cartographer ADDs, REPLACEs, or DELETEs an observation, or eviction drops
-one, a new observation row is inserted with an incremented `version` number.
+Observations are the versioned audit trail of context memory items in the database. Each time the Cartographer ADDs, REPLACEs, or DELETEs an observation, or eviction drops one, a new observation row is inserted with an incremented `version` number.
 
-- `content` holds the new value (`NULL` for the DELETE and EVICT tombstones)
+- `content` holds the new value (`NULL` for DELETE and EVICT tombstones)
 - `previous_content` preserves the prior state (for REPLACE / DELETE / EVICT)
 - `op_type` records the operation: `ADD`, `REPLACE`, `DELETE` or `EVICT`
 - Linked to the episode that produced the mutation and the topics it belongs to
 
-Observations in `ContextMemory` map 1:1 to the latest observation version that is not a
-tombstone.
+Observations in `ContextMemory` map 1:1 to the latest observation version that is not a tombstone.
 
 ### Artifacts
 
-Named text outputs attached to an episode — for example, the final review
-markdown or the PR summary text. Stored as `(episode_id, name) → content`.
+Named text outputs attached to an episode — for example, the final review markdown or the PR summary text. Stored as `(episode_id, name) → content`.
 
-### Recalls
+### Reflection Pipeline
 
-One row per Prefrontal recall made during the agent call: the pre-call load
-(`kind = load`) and each `recall_memory` tool call (`kind = tool`). A row holds the exact
-text the agent received, plus the query, reach, status, model, LLM calls, input/output
-tokens and cost, and latency. Recalls are for monitoring only: they are never given to the
-Distiller or the Cartographer and never retained into Cerebral. See
-[Monitoring recalls](#monitoring-recalls).
+At `end_episode()` (one pass per episode, after the review is published):
 
-## Database Schema
+1. **Distiller** — Analyzes the agent's trajectory (head 60% + tail 40% when `compact_trajectory=true`, capped at `max_trajectory_tokens`) and proposes `CacheCandidate` observations
+2. **Cartographer** — Takes candidates + current context memory, decides operations: `ADD`, `REPLACE`, `DELETE`
+3. **Eviction** — If memory exceeds `max_hippocampus_tokens`, evicts by:
+   - Section priority first: `parsing_schema` → `actions` → `reusable_results` → `domain_constants` → `context_roadmap` → `context_understanding`
+   - Then by score (helpful +1, harmful/stale −1, new +1)
+   - Then by age (oldest first)
+
+The Distiller tags each existing observation:
+
+- **`helpful`** — directly aided the agent; keep
+- **`harmful`** — misled the agent or contradicted observations; remove
+- **`neutral`** — present but unused this round; keep
+- **`stale`** — no longer reflects the external context; remove
+
+These tags inform the Cartographer's edit decisions.
+
+## Cerebral (semantic store)
+
+Cerebral retains Hippocampus episodes into Hindsight semantic memory and keeps mental models (briefings) fresh.
+
+### Tags and observation scopes
+
+Every retained item carries its `project_scope:<id>` topic tags, `task:`, and `repo:<owner/repo>`/`org:<owner>`. `pull_request:`, `episode:`, and `run_id:` tags are no longer added.
+
+Consolidation uses an explicit `observation_scopes` list: one `[org:, repo:, project_scope:]` scope per `project_scope` topic of the episode, or `[org:, repo:, project_scope:<owner/repo>]` (the repo-root scope) when there is none.
+
+**Per-scope observation cap**: Hindsight supports `observation_scope_limits` to cap observations per scope. codespy sets one rule: `[org:*, repo:*, project_scope:*]` with limit `max_observations_per_scope` (default 100, -1 = unlimited, 0 = no new observations). Scopes that hit the cap only allow UPDATE/DELETE; nothing is trimmed.
+
+**Consolidation**: Runs once per run, over the union of touched scopes, on the pipeline thread after `join_episode_saves()`. Not inline in `retain_episode`.
+
+### Mental models (briefings)
+
+Mental models are the abstraction layer ("when X happens, consider Y because Z"). Cerebral keeps one per observation scope of each episode, plus one per repo (`[org:, repo:]`), when `memory.prefrontal.reflects > 0`:
+
+- id: `mm-` + first 32 hex chars of `sha1("|".join(sorted(tags)))`
+- name: `Briefing: <project_scope id | repo>`
+- source query: *"What should an agent starting work here know so it does not rediscover it..."*
+- `max_tokens = cerebral.mental_models.max_tokens`, trigger `refresh_after_consolidation`
+
+codespy creates a missing briefing with placeholder content `"Generating content..."` in `_sync_briefing_triggers`, before retain. The content comes from Hindsight's `refresh_after_consolidation` trigger, which fires during `consolidate_run` at the end of the same run. It also updates the trigger of an existing briefing when settings changed.
+
+#### Trigger configuration
+
+Briefing triggers are configured automatically with these settings:
+
+| Trigger Field | Value | Description |
+|-------------|-------|-------------|
+| `mode` | `delta` | Only new facts since last refresh (with structured delta-ops call) |
+| `exclude_mental_models` | `true` | Briefings exclude other briefings |
+| `include_chunks` | `false` | Observation text only (no file chunks) |
+| `reflect_search_observations_max_tokens` | `3000` | Down from 5000 default |
+| `reflect_search_observations_include_entities` | `false` | Exclude entity metadata |
+| `min_refresh_interval_seconds` | `0` | Configurable via `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS` |
+
+**Delta mode**: After the first full refresh, subsequent refreshes only process new facts since `last_memory_seen_at`. Falls back to full refresh when content is the placeholder or when the source query changed.
+
+**Deferral**: When `min_refresh_interval_seconds > 0`, automatic refreshes inside the window are deferred (operation marked `cancelled`, not `failed`). The next consolidation after the interval expires covers everything since `last_memory_seen_at`.
+
+Monitor briefing quality in the `memories` section of the review output and the `mental_models` content.
+
+### Hindsight maintenance
+
+- Orphaned pending operations are repaired by `orphans.py`
+- Maintenance routines are repaired by `routines.py`
+
+## Prefrontal (recall)
+
+Prefrontal reads Cerebral and injects prior knowledge into agents.
+
+### Run-level load vs scope load
+
+**One run-level load** (`task="review"`, all project scopes + repo) shared by summary, code_review, doc, supply_chain, audit. Only the **scope** agent does its own load when model refinement runs. The other agents create a per-agent Prefrontal only for the `recall_memory` tool.
+
+### Facets
+
+Five facets answer different questions:
+
+| Facet | Question | Runs reflect? | Share |
+|-------|----------|---------------|-------|
+| `context` | What happened around this work? | Yes | 30% |
+| `seen_before` | Have we met this before? | No (raw) | 20% |
+| `decisions` | What was decided about it? | No (raw) | 20% |
+| `patterns` | What keeps recurring? | No (raw) | 20% |
+| `belief_changes` | What did we believe before, and what changed? | History only | 10% |
+
+Only the `context` facet runs the reflect loop; the others stay raw recall at MID budget. Facts are deduplicated across sections by id, then by exact text.
+
+### Reach
+
+`memory.prefrontal.recall.reach` (`local` | `org` | `bank`, default `org`):
+
+- **Local pool** (always): `project_scope:<scope id>` for code_review and supply_chain; `repo:<owner/repo>` for scope, summary and audit (summary and audit also OR in their scopes' `project_scope:` ids)
+- **Remote pool** (`org`: `org:<owner>` AND NOT `repo:<own>`; `bank`: NOT `repo:<own>`): always raw facts, labelled with their source repo. Takes a fixed 25% share of `max_tokens` (and of `max_tool_tokens` for the tool); local facets split the rest. With `local` reach the local pool gets the whole budget.
+
+### `recall_memory` tool
+
+RLM agents (code_review, scope, supply_chain) get `async recall_memory(query: str, reach: str = "local") -> str`. A reach above the configured one is clamped; at most `max_tool_calls` calls per agent call (then `"recall limit reached"`); errors return `"memory unavailable"`.
+
+`reflects=0` disables the reflect loop, but the tool still works in raw-recall mode (`details.mode="recall"`). Only `max_tool_calls=0` (the **default**) turns it off.
+
+### Reflect loop tuning
+
+`memory.prefrontal.reflects` (env `MEMORY_PREFRONTAL_REFLECTS`, default `3`):
+
+- `0`: raw facts only — no LLM at read time, no briefings
+- `N > 0`: both Prefrontal and briefing refreshes run at Hindsight's LOW budget (0.5× multiplier), with a doubled global cap (2 × N), so each gets exactly N iterations
+
+**Environment override**: if `HINDSIGHT_API_REFLECT_MAX_ITERATIONS` is set, it is used as-is (not doubled).
+
+**Hindsight LLM timeout/retry**: `llm.timeout` / `llm.retries` apply to all Hindsight calls. Operator overrides (precedence: env > codespy settings):
+
+- **Global**: `HINDSIGHT_API_LLM_TIMEOUT` / `HINDSIGHT_API_LLM_MAX_RETRIES`
+- **Per-operation**:
+  - `HINDSIGHT_API_RETAIN_LLM_TIMEOUT` / `HINDSIGHT_API_RETAIN_LLM_MAX_RETRIES`
+  - `HINDSIGHT_API_CONSOLIDATION_LLM_TIMEOUT` / `HINDSIGHT_API_CONSOLIDATION_LLM_MAX_RETRIES`
+  - `HINDSIGHT_API_REFLECT_LLM_TIMEOUT` / `HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES`
+  - `HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_TIMEOUT` / `HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_MAX_RETRIES`
+
+### Model
+
+`memory.prefrontal.recall.model` (env `MEMORY_RECALL_MODEL`) is the model Hindsight's reflect loop uses. Falls back to `memory.cerebral.retain.model`, then `llm.default_model`. Unused when `reflects = 0`.
+
+## Monitoring and cost
+
+### Logs
+
+Every recall is logged:
+
+```
+Prefrontal[review]: load status=ok 1 briefings, facets context=1 seen_before=3 ... remote=5 (512 tokens, reach=org, reflects=3) model=... calls=3 in=5120 out=410 cost=$0.0042 latency=6400ms maps=0 thoughts=256 tools=...
+Prefrontal[code_review]: recall_memory reach=local status=ok mode=reflect model=... calls=2 in=2210 out=180 cost=$0.0017 latency=3100ms query='...'
+```
+
+### Episodic store
+
+One `recalls` row per recall, with PK `(bank_id, id UUID)`, `run_id`, `task`, and nullable `episode_id` (NULL for run-level loads). Index: `idx_recalls_run (bank_id, run_id)`.
+
+### Cost buckets
+
+| Bucket | Description |
+|--------|-------------|
+| `memory_distiller` | Distiller LLM calls |
+| `memory_cartographer` | Cartographer LLM calls |
+| `memory_retain` | Fact extraction (retain) |
+| `memory_embeddings` | Embeddings during retain |
+| `memory_recall` | Prefrontal reflect LLM calls |
+| `memory_recall_embeddings` | Embeddings during recall |
+| `memory_consolidation` | Consolidation LLM calls |
+| `memory_mental_models` | Mental-model refresh LLM calls |
+| `memory_other` | Uncategorized LLM calls |
+
+### Gating and failure
+
+Prefrontal is active for a signature only when its memory is enabled and Cerebral is available; otherwise the agent behaves exactly as before. Every failure in Prefrontal or mental-model upkeep logs a warning and degrades to less context, or to `""`.
+
+## Database schema
 
 Auto-created by `EpisodeStore.ensure_schema()` on first connect.
-Source: `EpisodeStore.ensure_schema()` in `src/codespy/agents/memory/postgres.py`.
-
-### Entity Relationship Diagram
 
 ```mermaid
 erDiagram
@@ -91,14 +281,14 @@ erDiagram
 
     banks {
         varchar(64) id PK
-        text description
+        text description "NULLABLE"
     }
 
     topics {
         varchar(64) bank_id PK, FK
         varchar(256) id PK
         varchar(64) type
-        text description
+        text description "NOT NULL"
     }
 
     episodes {
@@ -122,11 +312,11 @@ erDiagram
         varchar(48) id PK
         int version PK "DEFAULT 1"
         varchar(32) type
-        text content "NULL for tombstones"
+        text content "NULLABLE"
         uuid episode_id FK
         int step "DEFAULT 0"
         varchar(8) op_type "ADD | REPLACE | DELETE | EVICT"
-        text previous_content
+        text previous_content "NULLABLE"
         int ordinal "DEFAULT 0"
     }
 
@@ -148,10 +338,12 @@ erDiagram
 
     recalls {
         varchar(64) bank_id PK, FK
-        uuid episode_id PK, FK
-        int ordinal PK
-        varchar(8) kind "load | tool"
+        uuid id PK
+        varchar(48) run_id
+        varchar(64) task
+        uuid episode_id FK "NULLABLE"
         timestamptz timestamp
+        varchar(8) kind "load | tool"
         text query "DEFAULT ''"
         varchar(8) reach "local | org | bank"
         int reflects "DEFAULT 0"
@@ -179,279 +371,26 @@ erDiagram
     topics ||--o{ observation_topics : "scopes"
 ```
 
-### Indexes
-
-| Index | Table | Definition |
-|-------|-------|------------|
-| `idx_topics_id_trgm` | topics | `GIN (id gin_trgm_ops)` — trigram fuzzy search |
-| `idx_episodes_task_time` | episodes | `(bank_id, task, timestamp DESC)` |
-| `idx_episode_topics_reverse` | episode_topics | `(bank_id, topic_id)` |
-| `idx_observations_episode` | observations | `(bank_id, episode_id)` |
-| `idx_observation_topics_reverse` | observation_topics | `(bank_id, topic_id)` |
-| `idx_recalls_time` | recalls | `(bank_id, timestamp DESC)` |
-
-### Notes
-
+**Notes:**
 - All tables cascade-delete from `banks`
-- `observations` is versioned: PK `(bank_id, id, version)` tracks ADD/REPLACE/DELETE/EVICT history per observation
+- `observations` is versioned: PK `(bank_id, id, version)` tracks ADD/REPLACE/DELETE/EVICT history
 - `episode_topics` and `observation_topics` are M:N junction tables
 - `observation_topics.observation_occurrence` counts cumulative topic associations across all versions; `version_occurrence` counts within one version
-- `recalls` is episodic-only (never retained into Cerebral); PK `(bank_id, episode_id, ordinal)` makes saves idempotent
+- All columns except those marked "NULLABLE" are NOT NULL
 - Requires PostgreSQL extension: `pg_trgm`
 
-## Reflection Pipeline
-
-After each agent run (at `end_episode()`):
-
-1. **Distiller** — Analyzes the agent's trajectory (head 60% + tail 40%, capped at `max_trajectory_tokens`) and proposes `CacheCandidate` observations for context memory
-2. **Cartographer** — Takes candidates + current context memory, decides operations:
-   - `ADD` — Insert new observation
-   - `REPLACE` — Update existing observation with new knowledge
-   - `DELETE` — Remove outdated/irrelevant observation
-3. **Eviction** — If memory exceeds `max_hippocampus_tokens`, oldest general observations are evicted first
-
-The Distiller also tags each existing context memory observation with an `ObservationTag`:
-
-- **`helpful`** — directly aided the agent; keep
-- **`harmful`** — misled the agent or contradicted observations; remove
-- **`neutral`** — present but unused this round; keep
-- **`stale`** — no longer reflects the external context; remove
-
-These tags inform the Cartographer's edit decisions.
-
-## Semantic Memory: Cerebral and Prefrontal
-
-Three components, fully independent:
-
-| Component | Role | Reads | Writes |
-|-----------|------|-------|--------|
-| **Hippocampus** | Learns from the current episode. Reloads prior episodes (`load_context` → `initial_memory`) only so it does not relearn existing facts. | episodic store | episodic store |
-| **Cerebral** | Retains Hippocampus episodes into the Hindsight bank, consolidates them into observations and keeps the mental models (briefings) fresh. | — | Hindsight bank |
-| **Prefrontal** | Gives the agent useful prior knowledge so it does not rediscover it. | Hindsight bank | nothing |
-
-The reloaded Hippocampus episode is **never** passed to the agent, and
-`prefrontal_memory` is never given to the Distiller or the Cartographer.
-Prefrontal and Hippocampus never feed each other.
-
-### Data flow
-
-```
-agent call ──► Prefrontal.aload() / recall_memory ──reads──► Cerebral (Hindsight bank)
-    │              │ prefrontal_memory (read-only input) + recall_memory tool
-    │              └──► RecallRecord[] ──► Episode.recalls ──► episodic store (recalls table)
-    ▼
-trajectory ──► Hippocampus (Distiller → Cartographer) ──► episodic store
-                                   └──► Cerebral.retain_episode()  (background save thread; recalls excluded)
-                                          ├─ retain_batch_async (fact extraction)
-                                          ├─ consolidation (inline, SyncTaskBackend)
-                                          └─ mental-model upkeep
-```
-
-### Tags and observation scopes
-
-Every retained item carries its `project_scope:<id>` topic tags, `task:`, and
-`repo:<owner/repo>`/`org:<owner>`. `pull_request:`, `episode:`, and `run_id:` tags are
-no longer added — they were not used for scoping or reach and bloated the tag set.
-
-Consolidation uses an explicit `observation_scopes` list: one
-`[org:, repo:, project_scope:]` scope per `project_scope` topic of the episode, or
-`[org:, repo:, project_scope:<owner/repo>]` (the repo-root scope) when there is none.
-The repo-root scope matches what `make_topic_id(repo, ".")` returns, so episodes without
-a project scope consolidate into the same scope as a root-level PR. `task:` never
-enters a scope, so facts about the same scope merge across tasks and runs, and a
-correction made by one task reaches all of them. Task relevance is handled at read time
-(the task-specific query ranks; raw facts keep their `task:` label).
-
-**Per-scope observation cap**: Hindsight supports `observation_scope_limits` to cap
-observations per scope. codespy sets one rule: `[org:*, repo:*, project_scope:*]`
-with limit `max_observations_per_scope` (default 100, -1 = unlimited, 0 = no new
-observations). Scopes that hit the cap only allow UPDATE/DELETE; nothing is trimmed.
-
-Cerebral runs Hindsight with `SyncTaskBackend`: consolidation and mental-model refreshes
-run inline inside `retain_episode`, on the background save thread. (Previously
-`BrokerTaskBackend` only queued them for a worker codespy never started, so they never ran.)
-The first retain after upgrading consolidates the whole backlog, which is slow and costs
-LLM tokens; Cerebral logs when consolidation starts and ends. The process waits for
-background saves (retain + consolidation) to complete before exiting.
-
-Old data has no `repo:`/`org:` tags and per-episode observations. It stays reachable
-through `project_scope:` tags; briefings cover only new data. There is no backfill and
-no automatic drop.
-
-### Mental models (briefings)
-
-Mental models are the abstraction layer ("when X happens, consider Y because Z").
-Cerebral keeps one per observation scope of each episode, plus one per repo
-(`[org:, repo:]`), when `memory.prefrontal.reflects > 0` (briefings enabled):
-
-- id: `mm-` + first 32 hex chars of `sha1("|".join(sorted(tags)))`
-- name: `Briefing: <project_scope id | repo>`
-- source query: *"What should an agent starting work here know so it does not rediscover it: structure and where things live, conventions, invariants and constants, dependencies and integrations, pitfalls and recurring problems, facts shown to be wrong."*
-- `max_tokens = cerebral.mental_models.max_tokens`, trigger `refresh_after_consolidation`
-
-A missing model is created and refreshed once; consolidation keeps it fresh afterwards.
-Prefrontal reads the briefings of the agent's scopes (and repo) with no LLM call;
-missing models and models still holding the placeholder content are skipped.
-
-#### Trigger configuration
-
-Briefing triggers are configured automatically with these settings:
-
-| Trigger Field | Value | Description |
-|-------------|-------|-------------|
-| `mode` | `delta` | Only new facts since last refresh (with structured delta-ops call) |
-| `exclude_mental_models` | `true` | Briefings exclude other briefings |
-| `include_chunks` | `false` | Observation text only (no file chunks) |
-| `reflect_search_observations_max_tokens` | `3000` | Down from 5000 default |
-| `reflect_search_observations_include_entities` | `false` | Exclude entity metadata |
-| `min_refresh_interval_seconds` | `0` | Configurable via `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS` |
-
-**Delta mode**: After the first full refresh, subsequent refreshes only process new facts since `last_memory_seen_at`. One structured delta-ops call edits the stored document. Falls back to full refresh when content is the placeholder or when the source query changed. Falls back to candidate markdown if the delta call fails.
-
-**Deferral**: When `min_refresh_interval_seconds > 0`, automatic refreshes inside the window are deferred (operation marked `cancelled`, not `failed`). The deferral is logged at INFO level. The next consolidation after the interval expires covers everything since `last_memory_seen_at`.
-
-**Quality trade-off**: The reduced caps (`include_chunks=False`, entities off, 3000-token observation budget) shrink evidence per briefing. Monitor briefing quality in the first runs after enabling.
-
-### Reach
-
-`memory.prefrontal.prefrontal_reach` (`local` | `org` | `bank`, default `org`):
-
-- **Local pool** (always): `project_scope:<scope id>` for code_review, doc and
-  supply_chain; `repo:<owner/repo>` for scope, summary and audit (summary and audit
-  also OR in their scopes' `project_scope:` ids).
-- **Remote pool** (`org`: `org:<owner>` AND NOT `repo:<own>`; `bank`: NOT `repo:<own>`):
-  always raw facts, labelled with their source repo. It takes a fixed 25% share
-  of `max_prefrontal_tokens` (and of `max_prefrontal_tool_tokens` for the tool);
-  the local facets split the rest. With `local` reach the local pool gets the
-  whole budget. `bank` crosses organisations — opt-in only.
-
-### Pre-call context
-
-Before each call, the agent gets a read-only `prefrontal_memory` input:
-
-1. **Briefings** — one block per mental model.
-2. **Five facets** — the semantic layer, which answers the messier questions a briefing
-   cannot. They always run, even when briefings exist:
-
-   | Facet | Question | `fact_type` | Share |
-   |-------|----------|-------------|-------|
-   | `context` | What happened around this work? | experience, world | 30% |
-   | `seen_before` | Have we met this file, symbol, package or problem before? | world, observation | 20% |
-   | `decisions` | What was decided about it? | world, observation | 20% |
-   | `patterns` | What keeps recurring? | observation | 20% |
-   | `belief_changes` | What did we believe before, and what changed? | (history) | 10% |
-
-   Facets 1–4 run concurrently (`question_date=now`). `belief_changes` reads the history
-   of the top 3 observations of facets 2–4 (2 entries each) and collects
-   `RETRACTED` / `supersedes:` facts — no recall, no embedding. Facts are deduplicated
-   across sections by id, then by exact text.
-3. **Other repositories** — remote facts, "verify before relying on it".
-
-Empty sections are omitted; with nothing at all the input is `""`. The field tells the
-agent the content may be stale or wrong and that issues must be verified with tools.
-
-### `reflects`
-
-`memory.prefrontal.reflects` (env `MEMORY_PREFRONTAL_REFLECTS`, default `3`):
-
-- `0`: raw facts only — no LLM at read time, no briefings. The recall_memory tool is
-  also disabled.
-- `N > 0`: both Prefrontal and briefing refreshes run at Hindsight's LOW budget with
-  a doubled global cap (2 × N), so each gets exactly N iterations. The LOW budget
-  uses a 0.5× multiplier, so max(1, int(2N × 0.5)) = N iterations.
-
-**Environment override**: if `HINDSIGHT_API_REFLECT_MAX_ITERATIONS` is set, it is used
-as-is (not doubled). Both Prefrontal and briefing refreshes then get half of that
-value (with LOW budget).
-
-**Hindsight LLM timeout/retries**: `llm.timeout` / `llm.retries` apply to **all**
-Hindsight calls — retain, consolidation, reflect, and mental-model refresh.
-
-Operator overrides (precedence: env > codespy settings):
-- **Global**: `HINDSIGHT_API_LLM_TIMEOUT` / `HINDSIGHT_API_LLM_MAX_RETRIES` — affect all operations
-- **Per-operation**:
-  - `HINDSIGHT_API_RETAIN_LLM_TIMEOUT` / `HINDSIGHT_API_RETAIN_LLM_MAX_RETRIES`
-  - `HINDSIGHT_API_CONSOLIDATION_LLM_TIMEOUT` / `HINDSIGHT_API_CONSOLIDATION_LLM_MAX_RETRIES`
-  - `HINDSIGHT_API_REFLECT_LLM_TIMEOUT` / `HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES` (also sets reflect-specific defaults)
-  - `HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_TIMEOUT` / `HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_MAX_RETRIES`
-
-Per-operation env vars win automatically because Hindsight prefers non-None per-op values.
-
-**Monitoring**: the load INFO line includes `maps=N` (split synthesis map-call count),
-`rewrite` (if a rewrite occurred), `thoughts=N` (reasoning tokens), and `tools=...`
-(per-tool token sizes). A WARNING is logged when `maps > 0` (split synthesis detected)
-or when LLM calls exceed `reflects + 1` (unexpected split synthesis or rewrite).
-
-### `recall_memory` tool
-
-The RLM agents (code_review, scope, supply_chain) get
-`async recall_memory(query: str, reach: str = "local") -> str` for follow-up questions.
-A reach above the configured one is clamped; at most `memory.prefrontal.recall.max_tool_calls`
-calls per agent call (then `"recall limit reached"`); errors return `"memory unavailable"`.
-
-### Model
-
-`memory.prefrontal.recall.model` (env `MEMORY_RECALL_MODEL`, Action input
-`memory-recall-model`) is the model Hindsight's reflect loop uses. It falls back to
-`memory.cerebral.retain.model`, then `llm.default_model`. It is passed to `MemoryEngine`
-as its reflect LLM, so it **also refreshes the mental models (briefings)** when
-`cerebral.mental_models.model` is unset. It is unused when `reflects = 0`.
-
-### Monitoring recalls
-
-Every recall is logged and stored.
-
-- **Logs** — one INFO line per recall, without the recalled text:
-  ```
-  Prefrontal[code_review]: load status=ok 1 briefings, facets context=1 seen_before=3 ... model=openai/gpt-4o-mini calls=3 in=5120 out=410 cost=$0.0042 latency=6400ms
-  Prefrontal[code_review]: recall_memory reach=local status=ok mode=reflect model=openai/gpt-4o-mini calls=2 in=2210 out=180 cost=$0.0017 latency=3100ms query='where is session refresh'
-  ```
-- **Episodic store** — one `recalls` row per recall, attached to the agent's episode.
-  `text` is exactly what the agent received. `status` is `ok`, `empty`, `limit` (tool cap
-  reached) or `error`, so an empty load and a failed load can be told apart. `details`
-  holds per-facet queries, counts and failures for loads, and requested reach, mode and
-  fact counts for tool calls.
-- **Usage** — measured, not estimated: `input_tokens` counts LLM prompt tokens plus query
-  embeddings, `output_tokens` counts completions, and costs use `litellm.cost_per_token`
-  (0 for unpriced models). With `reflects = 0`, only embedding tokens are recorded.
-- **Cost report** — Prefrontal reads are billed to the `memory_recall` bucket.
-  Mental-model refreshes during retain are billed to `memory_mental_models`.
-  Consolidation LLM calls are billed to `memory_consolidation`.
-- Recalls are **not** retained into Cerebral and are never shown to the Distiller or the
-  Cartographer. When the episodic store is unavailable, recalls are only logged.
+### SQL example
 
 ```sql
-SELECT e.task, e.run_id, r.kind, r.status, r.model, r.llm_calls,
+-- Run-level recalls (task='review', episode_id IS NULL)
+SELECT r.task, r.run_id, r.kind, r.status, r.model, r.llm_calls,
        r.input_tokens, r.output_tokens, r.input_cost + r.output_cost AS cost,
        r.latency_ms, r.query, r.text
-FROM recalls r JOIN episodes e ON e.bank_id = r.bank_id AND e.id = r.episode_id
-ORDER BY r.timestamp DESC LIMIT 50;
+FROM recalls r
+WHERE r.bank_id = 'codespy' AND r.task = 'review' AND r.episode_id IS NULL
+ORDER BY r.timestamp DESC
+LIMIT 50;
 ```
-
-### Gating and failure
-
-Prefrontal is active for a signature only when its memory is enabled and Cerebral is
-available; otherwise the agent behaves exactly as before. Every failure in Prefrontal or
-in mental-model upkeep logs a warning and degrades to less context, or to `""`.
-
-### Cost and latency
-
-Every retain now runs consolidation (billed to `memory_consolidation`) and refreshes the touched
-scopes' models (billed to `memory_mental_models`). `reflects > 0` adds a nested loop to
-every agent call and tool call; those Prefrontal reads are billed to `memory_recall`.
-Background saves take longer, and process exit waits on them.
-
-## Token Budgets
-
-| Budget | Env Var | Default | Purpose |
-|--------|---------|---------|---------|
-| Context memory | `MEMORY_MAX_HIPPOCAMPUS_TOKENS` | 16384 | Ceiling on persisted ContextMemory (re-sent every iteration) |
-| Observation | `MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS` | 512 | Soft per-observation token limit (expressed to LLM, not truncated) |
-| Trajectory | `MEMORY_MAX_TRAJECTORY_TOKENS` | 16384 | Head+tail cap on trajectory fed to Distiller |
-| Question | `MEMORY_MAX_QUESTION_TOKENS` | 8192 | Cap on serialized inputs as reflection question |
-| Compact trajectory | `MEMORY_COMPACT_TRAJECTORY` | `true` | Apply head+tail trajectory bounding before distillation |
-
-Observation capacity ≈ max_hippocampus_tokens / max_hippocampus_item_tokens (16384/512 = 32 observations)
 
 ## Configuration
 
@@ -464,33 +403,43 @@ Observation capacity ≈ max_hippocampus_tokens / max_hippocampus_item_tokens (1
 | `MEMORY_POSTGRES_USER` | `memory.postgres.user` | `postgres` | External PostgreSQL user |
 | `MEMORY_POSTGRES_PASSWORD` | `memory.postgres.password` | — | External PostgreSQL password |
 | `MEMORY_POSTGRES_DATABASE` | `memory.postgres.database` | `codespy` | External PostgreSQL database |
-| `MEMORY_POSTGRES_SCHEMA` | `memory.postgres.schema` | `episodic` | PostgreSQL schema (search_path per memory type) |
+| `MEMORY_POSTGRES_SCHEMA` | `memory.postgres.schema` | `episodic` | PostgreSQL schema for episodic store |
 | `MEMORY_PG0_NAME` | `memory.pg0.name` | `codespy` | pg0-embedded database name |
 | `MEMORY_PG0_PORT` | `memory.pg0.port` | auto | pg0-embedded port |
 | `MEMORY_PG0_DATA_DIR` | `memory.pg0.data_dir` | — | Custom data directory for pg0-embedded |
 | `MEMORY_BANK_ID` | `memory.bank_id` | `codespy` | Scopes all memory data |
 | `MEMORY_ENABLED` | `memory.enabled` | `false` | Enable memory globally (episodic + semantic) |
-| `MEMORY_COMPACT_TRAJECTORY` | `memory.hippocampus.compact_trajectory` | `true` | Apply head+tail trajectory bounding before distillation |
 
-### Cerebral Mental-Models Settings
+### Hippocampus Settings
 
 | Env Var | YAML Path | Default | Description |
 |---------|-----------|---------|-------------|
-| `MEMORY_MENTAL_MODELS_MODEL` | `memory.cerebral.mental_models.model` | `bedrock/converse/nvidia.nemotron-super-3-120b` | Briefing refresh model; unused when reflects=0 |
+| `MEMORY_COMPACT_TRAJECTORY` | `memory.hippocampus.compact_trajectory` | `true` | Apply head+tail trajectory bounding before distillation |
+| `MEMORY_MAX_HIPPOCAMPUS_TOKENS` | `memory.hippocampus.max_hippocampus_tokens` | `16384` | Ceiling on persisted ContextMemory |
+| `MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS` | `memory.hippocampus.max_hippocampus_item_tokens` | `512` | Soft per-observation token limit |
+| `MEMORY_MAX_TRAJECTORY_TOKENS` | `memory.hippocampus.max_trajectory_tokens` | `16384` | Cap on trajectory fed to Distiller |
+| `MEMORY_MAX_QUESTION_TOKENS` | `memory.hippocampus.max_question_tokens` | `8192` | Cap on serialized reflection inputs |
+
+### Cerebral Settings
+
+| Env Var | YAML Path | Default | Description |
+|---------|-----------|---------|-------------|
+| `MEMORY_RETAIN_MODEL` | `memory.cerebral.retain.model` | Nemotron Super | Model for fact extraction |
+| `MEMORY_RETAIN_CHUNK_SIZE` | `memory.cerebral.retain.chunk_size` | `12288` | Chars per extraction chunk (< 64000) |
+| `MEMORY_CONSOLIDATION_MODEL` | `memory.cerebral.consolidation.model` | → retain | Model for consolidation |
+| `MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE` | `memory.cerebral.consolidation.max_observations_per_scope` | `100` | Per-scope cap (-1=unlimited, 0=no new) |
+| `MEMORY_MENTAL_MODELS_MODEL` | `memory.cerebral.mental_models.model` | Nemotron Super | Briefing refresh model |
 | `MEMORY_MENTAL_MODELS_MAX_TOKENS` | `memory.cerebral.mental_models.max_tokens` | `2048` | Briefing size |
-| `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS` | `memory.cerebral.mental_models.min_refresh_seconds` | `0` | Minimum seconds between automatic briefing refreshes (0 = refresh after every consolidation; N = at most one automatic refresh per N seconds, nothing lost thanks to delta) |
+| `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS` | `memory.cerebral.mental_models.min_refresh_seconds` | `0` | Min seconds between refreshes |
+| `MEMORY_EMBEDDINGS_MODEL` | `memory.cerebral.embeddings.model` | Auto-derived | Embeddings model |
+| `MEMORY_EMBEDDINGS_MAX_INPUT_CHARS` | `memory.cerebral.embeddings.max_input_chars` | `null` | Max chars per embedding (null=auto, 0=off, N=cap) |
 
 ### Prefrontal Settings
 
 | Env Var | YAML Path | Default | Description |
 |---------|-----------|---------|-------------|
-| `MEMORY_PREFRONTAL_REFLECTS` | `memory.prefrontal.reflects` | `3` | Reflect iterations; `0` = raw facts, no LLM, no briefings |
-
-### Recall Settings
-
-| Env Var | YAML Path | Default | Description |
-|---------|-----------|---------|-------------|
-| `MEMORY_RECALL_MODEL` | `memory.prefrontal.recall.model` | `bedrock/converse/nvidia.nemotron-super-3-120b` | Reflect loop model; also mental-model fallback when unset; unused when reflects=0 |
+| `MEMORY_PREFRONTAL_REFLECTS` | `memory.prefrontal.reflects` | `3` | Reflect iterations; 0 = raw facts, no LLM, no briefings |
+| `MEMORY_RECALL_MODEL` | `memory.prefrontal.recall.model` | Nemotron Super | Reflect loop model; also mental-model fallback |
 | `MEMORY_RECALL_REACH` | `memory.prefrontal.recall.reach` | `org` | `local`, `org` or `bank` |
 | `MEMORY_RECALL_MAX_TOKENS` | `memory.prefrontal.recall.max_tokens` | `8192` | Pre-call context budget |
 | `MEMORY_RECALL_MAX_TOOL_TOKENS` | `memory.prefrontal.recall.max_tool_tokens` | `2048` | Tool result budget |
@@ -503,17 +452,26 @@ Observation capacity ≈ max_hippocampus_tokens / max_hippocampus_item_tokens (1
 | Distiller | `MEMORY_DISTILLER_{MODEL,REASONING_EFFORT,TEMPERATURE,MAX_TOKENS,MAX_ITERS,MAX_LLM_CALLS}` | `memory.hippocampus.distiller.*` |
 | Cartographer | `MEMORY_CARTOGRAPHER_{MODEL,REASONING_EFFORT,TEMPERATURE,MAX_TOKENS,MAX_ITERS,MAX_LLM_CALLS}` | `memory.hippocampus.cartographer.*` |
 
+### Model fallback chains
+
+| Setting | Fallback chain |
+|---------|----------------|
+| `memory.cerebral.retain.model` | `DEFAULT_MODEL` |
+| `memory.cerebral.consolidation.model` | `retain.model` → `DEFAULT_MODEL` |
+| `memory.cerebral.mental_models.model` | `prefrontal.recall.model` → `retain.model` → `DEFAULT_MODEL` |
+| `memory.prefrontal.recall.model` | `retain.model` → `DEFAULT_MODEL` |
+
+Every default is non-null (Nemotron), so a fallback only applies when a value is explicitly set to `null`.
+
 ### Per-Signature Memory Overrides
 
 Each signature's `memory:` block in YAML (or `REVIEW_<SIGNATURE>_MEMORY_*` env vars):
 
 | Setting | Env Var Suffix | Description |
 |---------|---------------|-------------|
-| enabled | `_MEMORY_ENABLED` | Enable/disable memory for this signature |
+| `enabled` | `_MEMORY_ENABLED` | Enable/disable memory for this signature |
 
 Example: `REVIEW_CODE_REVIEW_MEMORY_ENABLED=true`
-
-See [Configuration](configuration.md#recommended-model-strategy) for recommended reflection models.
 
 ## Quick Start
 
@@ -555,7 +513,7 @@ MEMORY_CARTOGRAPHER_MODEL=anthropic/claude-sonnet-4-5-20250929
     memory-distiller-model: 'anthropic/claude-haiku-4-5-20251001'
     memory-cartographer-model: 'anthropic/claude-haiku-4-5-20251001'
     # memory-retain-model: 'anthropic/claude-sonnet-4-5-20250929'
-    # memory-prefrontal-model: 'anthropic/claude-sonnet-4-5-20250929'
+    # memory-recall-model: 'anthropic/claude-sonnet-4-5-20250929'
 ```
 
 > **Note:** pg0-embedded is included in the Docker image. For persistent memory
@@ -563,4 +521,4 @@ MEMORY_CARTOGRAPHER_MODEL=anthropic/claude-sonnet-4-5-20250929
 
 ---
 
-[← Back to README](../README.md#documentation)
+ [← Back to README](../README.md#documentation)

@@ -27,7 +27,7 @@ FACET_ORDER: tuple[str, ...] = (
     FACET_BELIEF_CHANGES,
 )
 
-# Share of memory.prefrontal.max_prefrontal_tokens per facet (sums to 1.0).
+# Share of memory.prefrontal.recall.max_tokens per facet (sums to 1.0).
 SHARE_CONTEXT = 0.30
 SHARE_SEEN_BEFORE = 0.20
 SHARE_DECISIONS = 0.20

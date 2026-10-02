@@ -371,9 +371,11 @@ class SupplyChainAuditor(dspy.Module):
             # Combine scoped filesystem tools with shared OSV tools
             all_tools = scoped_tools + osv_tools
             repo_full_name = review_context.pr_context.repo_full_name
+            # Compute scope topic ID once, reused for Prefrontal and Hippocampus load
+            scope_topic_id = scope.topic(repo_full_name).id
             # Get Prefrontal for tool calls only (prefrontal_memory is already loaded by pipeline)
             pf = get_prefrontal(
-                self._settings, "supply_chain", repo_full_name, scope_topic_ids=None
+                self._settings, "supply_chain", repo_full_name, scope_topic_ids=[scope_topic_id]
             ) if self._settings.get_memory_enabled("supply_chain") else None
             sig = (
                 with_prefrontal_memory(SupplyChainSecuritySignature)
@@ -415,10 +417,9 @@ class SupplyChainAuditor(dspy.Module):
                 if self._settings.get_memory_enabled("supply_chain"):
                     store = get_episode_store(self._settings)
                     if store is not None:
-                        topic_ids = [scope.topic(review_context.pr_context.repo_full_name).id]
                         scope_initial_memory = store.load_context(
                             task="supply_chain",
-                            topic_ids=topic_ids,
+                            topic_ids=[scope_topic_id],
                         )
                         if scope_initial_memory:
                             logger.info("Loaded prior supply_chain episode for scope %s", scope.subroot)
@@ -432,7 +433,7 @@ class SupplyChainAuditor(dspy.Module):
                         f"{review_context.pr_context.summary}"
                     )
                     pr_ctx = review_context.pr_context
-                    topics = [scope.topic(pr.repo_full_name), pr_ctx.to_topic()] if pr else []
+                    topics = [scope.topic(pr_ctx.repo_full_name), pr_ctx.to_topic()] if pr else []
                     hippo = Hippocampus(
                         task_name="supply_chain",
                         budget=self._settings.get_memory_budget("supply_chain"),
