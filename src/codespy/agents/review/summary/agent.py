@@ -107,7 +107,7 @@ class Summarizer(dspy.Module):
             scope_topic_ids=None,
             include_repo=False,
         ) if self._settings.get_memory_enabled("summary") else None
-        sig = with_prefrontal_memory(PRSummarySignature) if pf else PRSummarySignature
+        sig = with_prefrontal_memory(PRSummarySignature) if prefrontal_memory else PRSummarySignature
         summarizer = ContextSafe(
             dspy.ChainOfThought(sig),
             sig,

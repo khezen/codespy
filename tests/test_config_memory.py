@@ -580,6 +580,16 @@ class TestPrefrontalConfig:
         # Should bind without error
         inspect.signature(Cerebral.__init__).bind(None, **kwargs_with_pf)
 
+    def test_get_cerebral_passes_max_observations_per_scope(self, monkeypatch):
+        """Test that get_cerebral passes max_observations_per_scope to Cerebral."""
+        pytest = __import__("pytest")
+        pytest.importorskip("hindsight_api")  # Skip if hindsight_api not available
+
+        settings = self._settings(0)
+        settings.memory.cerebral.consolidation.max_observations_per_scope = 42
+        kwargs = self._capture_cerebral_kwargs(monkeypatch, settings)
+        assert kwargs["max_observations_per_scope"] == 42
+
 
 class TestPrefrontalModelResolution:
     """get_llm_config('memory_prefrontal') fallback chain.
@@ -637,6 +647,7 @@ class TestConsolidationConfig:
 
         cfg = CerebralConfig().consolidation
         assert cfg.model is None
+        assert cfg.max_observations_per_scope == 100  # default
 
     def test_env_mapping(self, monkeypatch):
         from codespy.config import _ENV_MAP
@@ -649,6 +660,37 @@ class TestConsolidationConfig:
         assert result["model"] == "openai/gpt-4o-mini"
         cfg = CerebralConsolidationConfig(**result)
         assert cfg.model == "openai/gpt-4o-mini"
+
+    def test_max_observations_per_scope_default(self):
+        """Default max_observations_per_scope is 100."""
+        cfg = CerebralConsolidationConfig()
+        assert cfg.max_observations_per_scope == 100
+
+    def test_max_observations_per_scope_custom(self):
+        """Custom max_observations_per_scope is accepted."""
+        cfg = CerebralConsolidationConfig(max_observations_per_scope=50)
+        assert cfg.max_observations_per_scope == 50
+
+    def test_max_observations_per_scope_unlimited(self):
+        """-1 means unlimited."""
+        cfg = CerebralConsolidationConfig(max_observations_per_scope=-1)
+        assert cfg.max_observations_per_scope == -1
+
+    def test_max_observations_per_scope_rejects_less_than_minus_one(self):
+        """Values < -1 are rejected."""
+        with pytest.raises(ValidationError):
+            CerebralConsolidationConfig(max_observations_per_scope=-2)
+
+    def test_max_observations_per_scope_env_mapping(self, monkeypatch):
+        """MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE env var works."""
+        from codespy.config import _ENV_MAP
+        from codespy.config_utils import apply_env_overrides
+
+        monkeypatch.setenv("MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE", "200")
+        result = apply_env_overrides({}, _ENV_MAP)["memory"]["cerebral"]["consolidation"]
+        assert result["max_observations_per_scope"] == "200"
+        cfg = CerebralConsolidationConfig(**result)
+        assert cfg.max_observations_per_scope == 200
 
 
 class TestRecallConfig:

@@ -100,6 +100,9 @@ class CerebralConsolidationConfig(BaseModel):
     """
 
     model: str | None = None  # Falls back to cerebral.retain.model → llm.default_model
+    # Hindsight observation_scope_limits cap. -1 = unlimited, 0 = no new observations.
+    # Applied per scope as: scope=[org:*, repo:*, project_scope:*], limit=N
+    max_observations_per_scope: int = Field(default=100, ge=-1)
 
 
 class MentalModelsConfig(BaseModel):
@@ -575,6 +578,7 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
             max_mental_model_tokens=settings.memory.cerebral.mental_models.max_tokens,
             embeddings_max_input_chars=settings.memory.cerebral.embeddings.max_input_chars,
             min_mental_model_refresh_seconds=settings.memory.cerebral.mental_models.min_refresh_seconds,
+            max_observations_per_scope=settings.memory.cerebral.consolidation.max_observations_per_scope,
             **reflect_kwargs,
             **consolidation_kwargs,
         )

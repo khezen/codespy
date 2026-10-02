@@ -364,28 +364,110 @@ class TestCerebralBank:
             # Should call ensure_bank_profile and update_bank_config
             assert mock_run_async.call_count == 2
 
+    def test_ensure_bank_sends_observation_scope_limits_default(self, mock_memory_engine_class, mock_engine, mock_litellm):
+        """Test that _ensure_bank sends observation_scope_limits with default cap (100)."""
+        captured_updates = None
+
+        async def mock_update_bank_config(bank_id, updates, request_context):
+            nonlocal captured_updates
+            captured_updates = updates
+            return None
+
+        mock_engine.update_bank_config = mock_update_bank_config
+
+        with patch("codespy.agents.memory.cerebral.cerebral.MemoryEngine", return_value=mock_engine), \
+                patch("codespy.agents.memory.cerebral.cerebral.ensure_maintenance_routines", AsyncMock()):
+            c = Cerebral(database_url="postgresql://x/y", llm_provider="litellm")
+            c._ensure_bank()
+            c.close()
+
+        assert captured_updates is not None
+        assert "observation_scope_limits" in captured_updates
+        limits = captured_updates["observation_scope_limits"]
+        assert len(limits) == 1
+        assert limits[0]["scope"] == ["org:*", "repo:*", "project_scope:*"]
+        assert limits[0]["limit"] == 100  # default
+
+    def test_ensure_bank_sends_observation_scope_limits_custom(self, mock_memory_engine_class, mock_engine, mock_litellm):
+        """Test that _ensure_bank sends observation_scope_limits with custom cap."""
+        captured_updates = None
+
+        async def mock_update_bank_config(bank_id, updates, request_context):
+            nonlocal captured_updates
+            captured_updates = updates
+            return None
+
+        mock_engine.update_bank_config = mock_update_bank_config
+
+        with patch("codespy.agents.memory.cerebral.cerebral.MemoryEngine", return_value=mock_engine), \
+                patch("codespy.agents.memory.cerebral.cerebral.ensure_maintenance_routines", AsyncMock()):
+            c = Cerebral(
+                database_url="postgresql://x/y",
+                llm_provider="litellm",
+                max_observations_per_scope=50,
+            )
+            c._ensure_bank()
+            c.close()
+
+        assert captured_updates is not None
+        assert "observation_scope_limits" in captured_updates
+        limits = captured_updates["observation_scope_limits"]
+        assert limits[0]["limit"] == 50
+
+    def test_ensure_bank_no_observation_scope_limits_when_unlimited(self, mock_memory_engine_class, mock_engine, mock_litellm):
+        """Test that _ensure_bank skips observation_scope_limits when cap is -1 (unlimited)."""
+        captured_updates = None
+
+        async def mock_update_bank_config(bank_id, updates, request_context):
+            nonlocal captured_updates
+            captured_updates = updates
+            return None
+
+        mock_engine.update_bank_config = mock_update_bank_config
+
+        with patch("codespy.agents.memory.cerebral.cerebral.MemoryEngine", return_value=mock_engine), \
+                patch("codespy.agents.memory.cerebral.cerebral.ensure_maintenance_routines", AsyncMock()):
+            c = Cerebral(
+                database_url="postgresql://x/y",
+                llm_provider="litellm",
+                max_observations_per_scope=-1,
+            )
+            c._ensure_bank()
+            c.close()
+
+        assert captured_updates is not None
+        # Should NOT include observation_scope_limits when -1
+        assert "observation_scope_limits" not in captured_updates
+
 
 class TestCerebralRetainEpisode:
     """Tests for Cerebral retain_episode method."""
 
     def test_retain_episode_builds_correct_tags(self, mock_memory_engine_class, episode, mock_litellm):
-        """Test that tags are built correctly from episode."""
+        """Test that tags are built correctly from episode.
+
+        Only project_scope topics are included; pull_request, episode, and
+        run_id tags are no longer added. Repo/org tags are added when repo is known.
+        """
         with patch.object(Cerebral, "_run_async"):
             cerebral = Cerebral(
                 database_url="postgresql://localhost:5432/test",
                 llm_provider="litellm",
             )
 
-            tags = cerebral._build_tags(episode)
+            tags = cerebral._build_tags(episode, repo_full_name="test/repo")
 
             expected_tags = [
                 "project_scope:test/repo/package",
-                "pull_request:https://github.com/test/repo/pull/1",
-                f"episode:{episode.id}",
+                "org:test",
+                "repo:test/repo",
                 "task:code_review",
-                "run_id:test-run-123",
             ]
             assert tags == expected_tags
+            # episode: and run_id: should NOT be present
+            assert not any(t.startswith(("episode:", "run_id:")) for t in tags)
+            # pull_request: should NOT be present
+            assert not any(t.startswith("pull_request:") for t in tags)
 
     def test_retain_episode_creates_contents_for_observations(self, mock_memory_engine_class, episode, mock_engine, mock_litellm):
         """Test that retain_episode creates a single merged content item for all observations."""
@@ -515,9 +597,10 @@ class TestCerebralRetainEpisode:
             obs_item = None
             art_item = None
             for item in captured_contents:
-                if "observation changes" in item.get("context", ""):
+                # Check metadata.kind instead of context
+                if item.get("metadata", {}).get("kind") == "observation changes":
                     obs_item = item
-                elif "artifacts" in item.get("context", ""):
+                elif item.get("metadata", {}).get("kind") == "artifacts":
                     art_item = item
 
             # Verify observations item
@@ -526,14 +609,25 @@ class TestCerebralRetainEpisode:
             assert "[actions]" in obs_item["content"], "Missing actions header"
             assert "This is a test observation" in obs_item["content"], "Missing observation content"
             assert "Performed tool call" in obs_item["content"], "Missing action content"
+            # Verify metadata instead of context
+            assert "metadata" in obs_item, "Observations should have metadata"
+            assert "context" not in obs_item, "Observations should not have context"
+            assert obs_item["metadata"]["task"] == "code_review"
+            assert obs_item["metadata"]["kind"] == "observation changes"
+            assert obs_item["metadata"]["question"] == episode.question
 
             # Verify artifacts item
             assert art_item is not None, "Artifacts content item not found"
             assert "[artifact:review]" in art_item["content"], "Missing artifact header"
             assert "# Review Results" in art_item["content"], "Missing artifact content"
+            # Verify metadata
+            assert "metadata" in art_item, "Artifacts should have metadata"
+            assert "context" not in art_item, "Artifacts should not have context"
+            assert art_item["metadata"]["task"] == "code_review"
+            assert art_item["metadata"]["kind"] == "artifacts"
 
             # Verify shared fields
-            expected_tags = cerebral._build_tags(episode)
+            expected_tags = cerebral._build_tags(episode, repo_full_name="test/repo")
             expected_doc_id = f"episode-{episode.id}"
             expected_event_date = episode.timestamp.isoformat()
 
@@ -1111,28 +1205,42 @@ class TestCerebralRetainScopes:
         tags = Cerebral._build_tags(episode, "test/repo")
         assert "repo:test/repo" in tags
         assert "org:test" in tags
-        assert tags.index("repo:test/repo") < tags.index(f"episode:{episode.id}")
+        # episode: no longer added
+        assert f"episode:{episode.id}" not in tags
+        # pull_request: no longer added
+        assert "pull_request:https://github.com/test/repo/pull/1" not in tags
+        # task: still present
+        assert "task:code_review" in tags
 
     def test_tags_without_repo_unchanged(self, episode):
         assert Cerebral._build_tags(episode) == Cerebral._build_tags(episode, None)
         assert not any(t.startswith(("repo:", "org:")) for t in Cerebral._build_tags(episode))
+        # episode: and run_id: should not be present
+        assert not any(t.startswith(("episode:", "run_id:")) for t in Cerebral._build_tags(episode))
 
     def test_observation_scopes_per_project_scope(self, episode):
         scopes = Cerebral._observation_scopes(episode, "test/repo")
         assert scopes == [["org:test", "repo:test/repo", "project_scope:test/repo/package"]]
 
     def test_observation_scopes_without_project_scope(self):
+        """Fallback is now repo-root project scope, not bare [org:, repo:]."""
         ep = Episode(
             id=uuid.uuid4(), run_id="r", timestamp=datetime.now(UTC), task="summary",
             module="m", question="q", artifacts={}, context_memory=ContextMemory(),
         )
-        assert Cerebral._observation_scopes(ep, "o/r") == [["org:o", "repo:o/r"]]
+        # Fallback is now [org:, repo:, project_scope:o/r] (repo-root scope)
+        assert Cerebral._observation_scopes(ep, "o/r") == [
+            ["org:o", "repo:o/r", "project_scope:o/r"]
+        ]
 
     def test_observation_scopes_none_without_repo(self, episode):
         assert Cerebral._observation_scopes(episode, None) is None
 
     def test_scope_excludes_run_tags(self, episode):
         for scope in Cerebral._observation_scopes(episode, "test/repo"):
+            # Scopes should only contain org:, repo:, project_scope:
+            assert all(t.startswith(("org:", "repo:", "project_scope:")) for t in scope)
+            # task:, episode:, run_id:, pull_request: should NOT be in scope
             assert not any(t.startswith(("task:", "episode:", "run_id:", "pull_request:")) for t in scope)
 
     def test_retain_sets_observation_scopes_on_both_items(self, cerebral_async, async_engine, episode):

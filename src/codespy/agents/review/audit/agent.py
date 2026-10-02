@@ -166,6 +166,8 @@ class Auditor(dspy.Module):
             )
 
         repo_full_name = review_context.pr_context.repo_full_name
+        # Use shared run-level recall (already loaded by pipeline)
+        prefrontal_memory = review_context.prefrontal_memory or None
         # Get Prefrontal for tool calls only (prefrontal_memory is already loaded by pipeline)
         pf = get_prefrontal(
             self._settings,
@@ -173,7 +175,7 @@ class Auditor(dspy.Module):
             repo_full_name,
             scope_topic_ids=None,
         ) if self._settings.get_memory_enabled("audit") else None
-        sig = with_prefrontal_memory(AuditSignature) if pf else AuditSignature
+        sig = with_prefrontal_memory(AuditSignature) if prefrontal_memory else AuditSignature
         auditor = ContextSafe(
             dspy.ChainOfThought(sig),
             sig,
@@ -185,8 +187,6 @@ class Auditor(dspy.Module):
         logger.info("Running audit...")
 
         with SignatureContext("audit", self._cost_tracker):
-            # Use shared run-level recall (already loaded by pipeline)
-            prefrontal_memory = review_context.prefrontal_memory or None
             result, hippo, store, _artifacts = self._call_auditor(
                 auditor,
                 review_context,

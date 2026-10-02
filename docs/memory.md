@@ -249,15 +249,23 @@ trajectory ──► Hippocampus (Distiller → Cartographer) ──► episodic
 
 ### Tags and observation scopes
 
-Every retained item carries its topic tags (`project_scope:<id>`, `pull_request:<url>`),
-`episode:`, `task:`, `run_id:`, and — new — `repo:<owner/repo>` and `org:<owner>`.
+Every retained item carries its `project_scope:<id>` topic tags, `task:`, and
+`repo:<owner/repo>`/`org:<owner>`. `pull_request:`, `episode:`, and `run_id:` tags are
+no longer added — they were not used for scoping or reach and bloated the tag set.
 
 Consolidation uses an explicit `observation_scopes` list: one
 `[org:, repo:, project_scope:]` scope per `project_scope` topic of the episode, or
-`[org:, repo:]` when there is none. `task:`, `episode:`, `run_id:` and
-`pull_request:` never enter a scope, so facts about the same scope merge across tasks
-and runs, and a correction made by one task reaches all of them. Task relevance is
-handled at read time (the task-specific query ranks; raw facts keep their `task:` label).
+`[org:, repo:, project_scope:<owner/repo>]` (the repo-root scope) when there is none.
+The repo-root scope matches what `make_topic_id(repo, ".")` returns, so episodes without
+a project scope consolidate into the same scope as a root-level PR. `task:` never
+enters a scope, so facts about the same scope merge across tasks and runs, and a
+correction made by one task reaches all of them. Task relevance is handled at read time
+(the task-specific query ranks; raw facts keep their `task:` label).
+
+**Per-scope observation cap**: Hindsight supports `observation_scope_limits` to cap
+observations per scope. codespy sets one rule: `[org:*, repo:*, project_scope:*]`
+with limit `max_observations_per_scope` (default 100, -1 = unlimited, 0 = no new
+observations). Scopes that hit the cap only allow UPDATE/DELETE; nothing is trimmed.
 
 Cerebral runs Hindsight with `SyncTaskBackend`: consolidation and mental-model refreshes
 run inline inside `retain_episode`, on the background save thread. (Previously

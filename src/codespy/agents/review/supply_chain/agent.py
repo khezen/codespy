@@ -377,7 +377,7 @@ class SupplyChainAuditor(dspy.Module):
             ) if self._settings.get_memory_enabled("supply_chain") else None
             sig = (
                 with_prefrontal_memory(SupplyChainSecuritySignature)
-                if pf
+                if review_context.prefrontal_memory
                 else SupplyChainSecuritySignature
             )
             recall_tool = pf.recall_tool() if pf else None

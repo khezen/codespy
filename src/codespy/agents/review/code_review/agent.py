@@ -277,7 +277,7 @@ class CodeReviewer(dspy.Module):
             pf = get_prefrontal(
                 self._settings, "code_review", repo_full_name, scope_topic_ids=None
             ) if self._settings.get_memory_enabled("code_review") else None
-            sig = with_prefrontal_memory(CodeReviewSignature) if pf else CodeReviewSignature
+            sig = with_prefrontal_memory(CodeReviewSignature) if review_context.prefrontal_memory else CodeReviewSignature
             recall_tool = pf.recall_tool() if pf else None
             agent_tools = [*tools, recall_tool] if recall_tool else tools
             agent = ContextSafe(

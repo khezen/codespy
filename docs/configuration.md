@@ -202,6 +202,7 @@ LLM provider and credentials are auto-derived from the model string and existing
 |---------|---------|---------|-------------|
 | Retain Model | `MEMORY_RETAIN_MODEL` | `DEFAULT_MODEL` | Model for fact extraction |
 | Consolidation Model | `MEMORY_CONSOLIDATION_MODEL` | `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` | Model for consolidation |
+| Consolidation Observation Cap | `MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE` | `100` | Per-scope observation limit (-1 = unlimited, 0 = no new observations) |
 | Mental-Models Model | `MEMORY_MENTAL_MODELS_MODEL` | `MEMORY_PREFRONTAL_MODEL` → `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` | Model for briefing refresh |
 | Mental-Models Max Tokens | `MEMORY_MENTAL_MODELS_MAX_TOKENS` | `2048` | Briefing size |
 | Mental-Models Min Refresh Seconds | `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS` | `0` | Minimum seconds between refreshes (0 = after every consolidation) |

@@ -2,7 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- **Cerebral per-scope observation cap**: New `max_observations_per_scope` setting under `memory.cerebral.consolidation` (env `MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE`, default `100`). Limits observations per `[org:*, repo:*, project_scope:*]` scope; `-1` = unlimited, `0` = no new observations. Scopes that hit the cap only allow UPDATE/DELETE.
+
 ### Changed
+- **Cerebral tags**: Removed `episode:` and `run_id:` tags — they were not used for scoping or reach and bloated the tag set. `pull_request:` tags are also no longer added. Retained items now only carry `project_scope:`, `repo:`, `org:`, and `task:` tags.
+- **Cerebral retain framing**: Moved from `context` to `metadata`. The `context` field is no longer set on retain items; instead `metadata` carries `task`, `repo` (when known), `kind` (`"observation changes"` / `"artifacts"`), and `question`. This reduces consolidation input size (context was repeated for every fact).
+- **Cerebral fallback scope**: Episodes without a `project_scope` topic now consolidate into `[org:, repo:, project_scope:<owner/repo>]` (the repo-root project scope) instead of `[org:, repo:]`. This ensures every write scope matches the observation cap rule and creates/updates the repo-root briefing.
 - **Mental-model configuration moved to `memory.cerebral.mental_models`**: Mental-model settings (`model`, `max_tokens`, `min_refresh_seconds`) now live under `memory.cerebral.mental_models` instead of `memory.prefrontal`. This better reflects that mental models are produced by Cerebral (briefing refresh after consolidation), not Prefrontal (read-only). Old env vars `MEMORY_MAX_MENTAL_MODEL_TOKENS` and `MEMORY_MIN_MENTAL_MODEL_REFRESH_SECONDS` are removed (no aliases, as they were unreleased). New env vars: `MEMORY_MENTAL_MODELS_MAX_TOKENS`, `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS`.
 
 ### Added
@@ -34,6 +40,7 @@
 - **Cost tracking for extraction LM**: `TwoStepAdapter` extraction calls are now counted and attributed to the calling signature. Previously these were missing from cost tracking.
 
 ### Fixed
+- **`Missing required inputs: ['prefrontal_memory']` regression**: Fixed a bug where agents failed with `dspy.RLM._validate_inputs` error when the Prefrontal instance existed but the shared run-level `prefrontal_memory` text was empty (fresh DB). The signature is now chosen based on whether there is text to pass, not on the presence of the Prefrontal instance. Affects: summary, code_review, doc, supply_chain, audit.
 - Cerebral consolidation and retain LLM calls now use `llm.timeout` / `llm.retries`. Previously only reflect did, so consolidation timed out at Hindsight's 120 s default.
 - Cerebral consolidation no longer logs `relation "webhooks" does not exist`. Inline (`SyncTaskBackend`) tasks now carry the `semantic` schema, so consolidation completion no longer rolls back and falls back.
 - Cerebral consolidation no longer fails at exit with `cannot schedule new futures after shutdown`. Background episode saves now finish before Python shuts down its thread pools, and the pipeline waits for them without the old 120 s cap. Runs can end later, because posting the review now waits for the consolidation to finish.

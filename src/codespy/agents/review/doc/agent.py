@@ -206,7 +206,7 @@ class DocReviewer(dspy.Module):
             pf = get_prefrontal(
                 self._settings, "doc", repo_full_name, scope_topic_ids=None
             ) if self._settings.get_memory_enabled("doc") else None
-            sig = with_prefrontal_memory(DocReviewSignature) if pf else DocReviewSignature
+            sig = with_prefrontal_memory(DocReviewSignature) if review_context.prefrontal_memory else DocReviewSignature
             reviewer = ContextSafe(
                 dspy.ChainOfThought(sig),
                 sig,

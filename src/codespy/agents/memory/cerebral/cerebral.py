@@ -220,7 +220,9 @@ from codespy.agents.memory.cerebral.cost import (
 )
 from codespy.agents.memory.cerebral.routines import ensure_maintenance_routines
 from codespy.agents.memory.prefrontal.reach import (
+    TAG_ORG,
     TAG_PROJECT_SCOPE,
+    TAG_REPO,
     mental_model_id,
     repo_tags,
     scope_tags,
@@ -329,6 +331,7 @@ class Cerebral:
         consolidation_llm_base_url: str | None = None,
         embeddings_max_input_chars: int | None = None,
         min_mental_model_refresh_seconds: int = 0,
+        max_observations_per_scope: int = -1,
     ):
         # Fail fast: test the embedding model before building MemoryEngine.
         # A bad model name, missing creds, or unavailable region surfaces here
@@ -441,6 +444,7 @@ class Cerebral:
         self._mental_models = mental_models
         self._max_mental_model_tokens = max_mental_model_tokens
         self._min_mental_model_refresh_seconds = min_mental_model_refresh_seconds
+        self._max_observations_per_scope = max_observations_per_scope
         # Mental-model ids already ensured by this process.
         self._ensured_mental_models: set[str] = set()
         # Lock for consolidation serialization
@@ -501,36 +505,45 @@ class Cerebral:
             logger.debug("cerebral: bank %s profile ensure failed", self._bank_id)
 
         try:
+            updates: dict[str, Any] = {
+                "retain_extraction_mode": "concise",
+                # See CerebralRetainConfig.chunk_size for constraint details.
+                "retain_chunk_size": self._retain_chunk_size,
+                "retain_mission": (
+                    "Retain durable knowledge learned while working on a task, whatever the domain. "
+                    "Focus on how the subject is structured, the entities involved and how they relate, "
+                    "domain rules, constraints and constants, procedures that proved effective, "
+                    "data formats, and findings or results worth reusing later. "
+                    "Each line starts with a [section] label naming the kind of knowledge, "
+                    "or [artifact:name] for a produced output. "
+                    "State each fact about the subject itself, keep names, identifiers, quantities "
+                    "and references exact, and skip transient process notes that will not hold beyond this run.\n"
+                    "Observation lines use these markers:\n"
+                    "- A plain line is a newly learned fact.\n"
+                    "- '(supersedes: X)': the line is the current wording of a fact previously worded X. "
+                    "Update that fact; do not keep both.\n"
+                    "- 'RETRACTED — shown incorrect or misleading': the fact was proven wrong or misled "
+                    "the agent. Mark it invalid and do not rely on it.\n"
+                    "A fact missing from a batch is unchanged, not outdated. Only RETRACTED invalidates a fact."
+                ),
+                "observations_mission": OBSERVATIONS_MISSION,
+                # Disable auto-consolidation; Cerebral triggers it explicitly
+                # after retain with proper scope scoping (prevents unscoped
+                # pending rows from blocking scoped submissions).
+                "enable_auto_consolidation": False,
+            }
+            # Per-scope observation cap (not bank-wide; -1 means unlimited)
+            if self._max_observations_per_scope >= 0:
+                updates["observation_scope_limits"] = [
+                    {
+                        "scope": [f"{TAG_ORG}*", f"{TAG_REPO}*", f"{TAG_PROJECT_SCOPE}*"],
+                        "limit": self._max_observations_per_scope,
+                    }
+                ]
             self._run_async(
                 self._engine.update_bank_config(
                     self._bank_id,
-                    updates={
-                        "retain_extraction_mode": "concise",
-                        # See CerebralRetainConfig.chunk_size for constraint details.
-                        "retain_chunk_size": self._retain_chunk_size,
-                        "retain_mission": (
-                            "Retain durable knowledge learned while working on a task, whatever the domain. "
-                            "Focus on how the subject is structured, the entities involved and how they relate, "
-                            "domain rules, constraints and constants, procedures that proved effective, "
-                            "data formats, and findings or results worth reusing later. "
-                            "Each line starts with a [section] label naming the kind of knowledge, "
-                            "or [artifact:name] for a produced output. "
-                            "State each fact about the subject itself, keep names, identifiers, quantities "
-                            "and references exact, and skip transient process notes that will not hold beyond this run.\n"
-                            "Observation lines use these markers:\n"
-                            "- A plain line is a newly learned fact.\n"
-                            "- '(supersedes: X)': the line is the current wording of a fact previously worded X. "
-                            "Update that fact; do not keep both.\n"
-                            "- 'RETRACTED — shown incorrect or misleading': the fact was proven wrong or misled "
-                            "the agent. Mark it invalid and do not rely on it.\n"
-                            "A fact missing from a batch is unchanged, not outdated. Only RETRACTED invalidates a fact."
-                        ),
-                        "observations_mission": OBSERVATIONS_MISSION,
-                        # Disable auto-consolidation; Cerebral triggers it explicitly
-                        # after retain with proper scope scoping (prevents unscoped
-                        # pending rows from blocking scoped submissions).
-                        "enable_auto_consolidation": False,
-                    },
+                    updates=updates,
                     request_context=ctx,
                 )
             )
@@ -631,6 +644,27 @@ class Cerebral:
 
         return lines
 
+    @staticmethod
+    def _retain_metadata(episode: Episode, repo_full_name: str | None, kind: str) -> dict[str, str]:
+        """Build metadata dict for a retain item.
+
+        Args:
+            episode: The episode being retained.
+            repo_full_name: Full repo name (owner/repo) or None.
+            kind: "observation changes" or "artifacts".
+
+        Returns:
+            Dict with task, repo (when known), kind, and question (episode.question).
+        """
+        meta: dict[str, str] = {
+            "task": episode.task,
+            "kind": kind,
+            "question": episode.question,
+        }
+        if repo_full_name:
+            meta["repo"] = repo_full_name
+        return meta
+
     def retain_episode(self, episode: Episode, repo_full_name: str | None = None) -> None:
         """Retain episode mutations and artifacts in Hindsight semantic memory.
 
@@ -661,7 +695,7 @@ class Cerebral:
         if obs_lines:
             contents.append({
                 "content": "\n\n".join(obs_lines),
-                "context": f"{episode.task}: {episode.question}: observation changes",
+                "metadata": self._retain_metadata(episode, repo_full_name, "observation changes"),
                 "tags": tags,
                 "document_id": episode_doc_id,
                 "event_date": episode.timestamp.isoformat(),
@@ -674,7 +708,7 @@ class Cerebral:
         if artifact_lines:
             contents.append({
                 "content": "\n\n".join(artifact_lines),
-                "context": f"{episode.task}: {episode.question}: artifacts",
+                "metadata": self._retain_metadata(episode, repo_full_name, "artifacts"),
                 "tags": tags,
                 "document_id": episode_doc_id,
                 "event_date": episode.timestamp.isoformat(),
@@ -735,7 +769,9 @@ class Cerebral:
         """Observation scopes for consolidation, or None without a repo (Hindsight default).
 
         One ``[org:, repo:, project_scope:]`` scope per ``project_scope`` topic,
-        or ``[org:, repo:]`` when the episode has none.
+        or ``[org:, repo:, project_scope:<repo>]`` (repo-root scope) when the
+        episode has none. The repo-root scope is what ``make_topic_id(repo, '.')``
+        returns, so it matches the scope a root-level PR would use.
         """
         if not repo_full_name:
             return None
@@ -744,7 +780,8 @@ class Cerebral:
             for topic in episode.context_memory.topics
             if topic.type == "project_scope"
         ]
-        return scopes or [repo_tags(repo_full_name)]
+        # Fallback to repo-root project scope instead of bare [org:, repo:]
+        return scopes or [scope_tags(repo_full_name, repo_full_name)]
 
     @staticmethod
     def _mental_model_scopes(
@@ -1128,12 +1165,17 @@ class Cerebral:
 
     @staticmethod
     def _build_tags(episode: Episode, repo_full_name: str | None = None) -> list[str]:
+        """Build tags for retain items.
+
+        Includes project_scope topics and repo/org tags. Excludes episode:,
+        run_id:, and pull_request: tags — they are not used for scoping or
+        reach and bloat the tag set.
+        """
         tags: list[str] = []
         for topic in episode.context_memory.topics:
-            tags.append(f"{topic.type}:{topic.id}")
+            if topic.type == "project_scope":
+                tags.append(f"{topic.type}:{topic.id}")
         if repo_full_name:
             tags.extend(repo_tags(repo_full_name))
-        tags.append(f"episode:{episode.id}")
         tags.append(f"task:{episode.task}")
-        tags.append(f"run_id:{episode.run_id}")
         return tags
