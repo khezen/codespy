@@ -103,6 +103,18 @@ class GitReporter(BaseReporter):
         )
         lines.append("")
 
+        # Memories section (collapsible, size-limited for GitHub's 65,536 char body limit)
+        # Insert right after header, before Summary
+        if result.memories:
+            # Calculate remaining budget after header
+            header_len = len("\n".join(lines)) + 1  # +1 for trailing newline
+            remaining_budget = self.MAX_BODY_CHARS - header_len
+            memory_lines = result.memories_markdown_lines(
+                summary="🧠 memories", max_chars=max(0, remaining_budget)
+            )
+            if memory_lines:
+                lines.extend(memory_lines)
+
         # Summary section
         if result.overall_summary:
             lines.extend(
@@ -239,15 +251,6 @@ class GitReporter(BaseReporter):
                     "</details>",
                     "",
                 ]
-            )
-
-        # Memories section (collapsible, size-limited for GitHub's 65,536 char body limit)
-        if result.memories:
-            remaining_budget = self.MAX_BODY_CHARS - len("\n".join(lines)) - 1
-            lines.extend(
-                result.memories_markdown_lines(
-                    summary="🧠 memories", max_chars=max(0, remaining_budget)
-                )
             )
 
         return "\n".join(lines)

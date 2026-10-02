@@ -13,11 +13,20 @@ from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
 TRUNCATED_MARKER = "…(truncated)"
 
 
+class MemorySection(BaseModel):
+    """One section of a recalled memory (e.g., 'Briefing: ...', 'Around this work')."""
+
+    title: str = Field(description="Section title without markdown heading markers")
+    text: str = Field(description="Section body text")
+
+
 class RecalledMemory(BaseModel):
     """A recalled memory entry from Prefrontal."""
 
     task: str = Field(description="Task name that loaded the memory (e.g., 'scope', 'review')")
-    text: str = Field(description="The recalled memory text (markdown formatted)")
+    sections: list[MemorySection] = Field(
+        default_factory=list, description="Sections of the recalled memory"
+    )
 
 
 class SignatureStatsResult(BaseModel):
@@ -166,6 +175,9 @@ class ReviewResult(BaseModel):
             "",
         ]
 
+        # Memories section (collapsible) - placed before Summary
+        lines.extend(self.memories_markdown_lines())
+
         # Overall summary
         if self.overall_summary:
             lines.extend(["## Summary", "", self.overall_summary, ""])
@@ -275,9 +287,6 @@ class ReviewResult(BaseModel):
         if self.recommendation:
             lines.extend(["## Recommendation", "", self.recommendation, ""])
 
-        # Memories section (collapsible)
-        lines.extend(self.memories_markdown_lines())
-
         return "\n".join(lines)
 
     def cost_breakdown_markdown_lines(self, heading: str = "###") -> list[str]:
@@ -330,10 +339,16 @@ class ReviewResult(BaseModel):
     def memories_markdown_lines(
         self, summary: str = "memories", max_chars: int | None = None
     ) -> list[str]:
-        """Build the collapsible memories section, optionally size-limited.
+        """Build the collapsible memories section with nested per-recall and per-section details.
 
-        With a single memory, it is rendered under a ``### <task>`` heading.
-        With several, each one gets its own nested collapsible section.
+        Structure:
+          <details><summary>{summary}</summary>
+            <details><summary>{task}</summary>
+              <details><summary>{section_title}</summary>{body}</details>
+              ...
+            </details>
+            ...
+          </details>
 
         GitReporter passes ``max_chars`` to stay within GitHub's 65,536 char
         review body limit: memory texts are truncated in order, other sections
@@ -349,48 +364,75 @@ class ReviewResult(BaseModel):
         if not self.memories:
             return []
 
-        nested = len(self.memories) > 1
-
-        def block(memory: RecalledMemory, text: str) -> list[str]:
-            if nested:
-                return [
-                    "<details>",
-                    f"<summary>{memory.task}</summary>",
-                    "",
-                    text,
-                    "",
-                    "</details>",
-                    "",
-                ]
-            return [f"### {memory.task}", "", text, ""]
-
         def size(block_lines: list[str]) -> int:
             # Lines are joined with "\n" by the caller
             return sum(len(line) + 1 for line in block_lines)
 
-        head = ["<details>", f"<summary>{summary}</summary>", ""]
-        tail = ["</details>", ""]
-        lines = list(head)
-        remaining = None if max_chars is None else max_chars - size(head) - size(tail)
+        def recall_head(task: str) -> list[str]:
+            return ["<details>", f"<summary>{task}</summary>", ""]
+
+        def recall_tail() -> list[str]:
+            return ["</details>", ""]
+
+        def section_block(title: str, body: str) -> list[str]:
+            return [
+                "<details>",
+                f"<summary>{title}</summary>",
+                "",
+                body,
+                "",
+                "</details>",
+                "",
+            ]
+
+        # Reserve room for outer head/tail and per-recall tails
+        outer_head = ["<details>", f"<summary>{summary}</summary>", ""]
+        outer_tail = ["</details>", ""]
+        outer_overhead = size(outer_head) + size(outer_tail)
+
+        lines: list[str] = []
+        remaining = None if max_chars is None else max_chars - outer_overhead
 
         for memory in self.memories:
-            full = block(memory, memory.text)
-            if remaining is None or size(full) <= remaining:
-                lines.extend(full)
-                if remaining is not None:
-                    remaining -= size(full)
-                continue
-            # Truncate this memory to fit, then stop
-            overhead = size(block(memory, "")) + len(TRUNCATED_MARKER)
-            if remaining > overhead:
-                text = memory.text[: remaining - overhead] + TRUNCATED_MARKER
-                lines.extend(block(memory, text))
-            break
+            r_head = recall_head(memory.task)
+            r_tail = recall_tail()
+            recall_overhead = size(r_head) + size(r_tail)
 
-        if len(lines) == len(head):
+            # Budget check: need at least recall overhead + one section
+            if remaining is not None and remaining < recall_overhead:
+                break
+
+            if remaining is not None:
+                remaining -= recall_overhead
+
+            r_lines: list[str] = list(r_head)
+            has_section = False
+
+            for section in memory.sections:
+                s_block = section_block(section.title, section.text)
+                s_size = size(s_block)
+                if remaining is None or s_size <= remaining:
+                    r_lines.extend(s_block)
+                    has_section = True
+                    if remaining is not None:
+                        remaining -= s_size
+                else:
+                    # Try to truncate the section body
+                    overhead = size(section_block(section.title, "")) + len(TRUNCATED_MARKER)
+                    if remaining is not None and remaining > overhead:
+                        truncated_body = section.text[: remaining - overhead] + TRUNCATED_MARKER
+                        r_lines.extend(section_block(section.title, truncated_body))
+                        has_section = True
+                    # Close this recall - stop processing sections for this recall
+                    break
+
+            r_lines.extend(r_tail)
+            if has_section:
+                lines.extend(r_lines)
+
+        if not lines:
             return []
-        lines.extend(tail)
-        return lines
+        return outer_head + lines + outer_tail
 
     def to_json_dict(self) -> dict:
         """Convert to a JSON-serializable dictionary."""

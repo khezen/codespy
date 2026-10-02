@@ -36,6 +36,7 @@ from codespy.tools.git.local_diff import build_pr_from_diff
 
 from codespy.workflows.review.models import (
     LocalReviewConfig,
+    MemorySection,
     RecalledMemory,
     RemoteReviewConfig,
     ReviewConfig,
@@ -304,11 +305,21 @@ class ReviewPipeline(dspy.Module):
 
         # Build memories list from scope and run-level Prefrontal loads
         memories: list[RecalledMemory] = []
-        scope_memory_text = self.scope_resolver.prefrontal_memory
-        if scope_memory_text:
-            memories.append(RecalledMemory(task="scope", text=scope_memory_text))
-        if pf_text:
-            memories.append(RecalledMemory(task="review", text=pf_text))
+        scope_pf_sections = self.scope_resolver.prefrontal_sections
+        if scope_pf_sections:
+            memories.append(
+                RecalledMemory(
+                    task="scope",
+                    sections=[MemorySection(title=t, text=b) for t, b in scope_pf_sections],
+                )
+            )
+        if run_pf and run_pf.last_sections:
+            memories.append(
+                RecalledMemory(
+                    task="review",
+                    sections=[MemorySection(title=t, text=b) for t, b in run_pf.last_sections],
+                )
+            )
 
         return ReviewResult(
             pr_number=pr.number,

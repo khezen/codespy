@@ -117,19 +117,6 @@ def render_change(change: BeliefChange) -> str:
     return f"- {_clean(change.current)} (was: {_clean(change.previous)}{when})"
 
 
-def _briefing_sections(briefings: Iterable[Mapping[str, Any]]) -> list[str]:
-    sections: list[str] = []
-    for mm in briefings or []:
-        content = (mm.get("content") or "").strip()
-        if not content or content == MENTAL_MODEL_PLACEHOLDER:
-            continue
-        name = (mm.get("name") or "Briefing").strip()
-        if not name.startswith("Briefing"):
-            name = f"Briefing: {name}"
-        sections.append(f"## {name}\n{content}")
-    return sections
-
-
 class _Dedup:
     """Keeps the first occurrence: by id, then by exact text."""
 
@@ -150,21 +137,37 @@ class _Dedup:
         return True
 
 
-def format_context(
+def format_context_sections(
     briefings: Sequence[Mapping[str, Any]],
     facet_results: Mapping[str, FacetResult],
     remote_facts: Sequence[Any],
     repo: str,
     reach: str = "org",
-) -> str:
-    """Render briefings, facet sections (order 1 → 5) and remote facts.
+) -> list[tuple[str, str]]:
+    """Render briefings, facet sections (order 1 → 5) and remote facts as sections.
+
+    Returns a list of (title, body) tuples in the current order. Empty sections
+    are omitted. The result can be joined by format_context to produce the same
+    output as before.
 
     Facts are deduplicated across sections by id, then by exact text, keeping
-    the first occurrence. Empty sections are omitted; nothing at all → ``""``.
+    the first occurrence.
     """
-    sections = _briefing_sections(briefings)
+    sections: list[tuple[str, str]] = []
+
+    # Briefing sections
+    for mm in briefings or []:
+        content = (mm.get("content") or "").strip()
+        if not content or content == MENTAL_MODEL_PLACEHOLDER:
+            continue
+        name = (mm.get("name") or "Briefing").strip()
+        if not name.startswith("Briefing"):
+            name = f"Briefing: {name}"
+        sections.append((name, content))
+
     dedup = _Dedup()
 
+    # Facet sections in FACET_ORDER
     for name in FACET_ORDER:
         result = facet_results.get(name)
         if result is None:
@@ -179,8 +182,9 @@ def format_context(
             if dedup.admit(change.id, f"{change.current} (was: {change.previous})"):
                 lines.append(render_change(change))
         if lines:
-            sections.append(f"## {SECTION_TITLES[name]}\n" + "\n".join(lines))
+            sections.append((SECTION_TITLES[name], "\n".join(lines)))
 
+    # Remote facts section
     remote_lines = [
         render_fact(fact, with_repo=True)
         for fact in remote_facts or []
@@ -188,12 +192,26 @@ def format_context(
     ]
     if remote_lines:
         where = "" if reach == REACH_BANK else f" in {org_of(repo)}"
-        sections.append(
-            f"## Other repositories{where} — verify before relying on it\n"
-            + "\n".join(remote_lines)
-        )
+        title = f"Other repositories{where} — verify before relying on it"
+        sections.append((title, "\n".join(remote_lines)))
 
-    return "\n\n".join(sections)
+    return sections
+
+
+def format_context(
+    briefings: Sequence[Mapping[str, Any]],
+    facet_results: Mapping[str, FacetResult],
+    remote_facts: Sequence[Any],
+    repo: str,
+    reach: str = "org",
+) -> str:
+    """Render briefings, facet sections (order 1 → 5) and remote facts.
+
+    Facts are deduplicated across sections by id, then by exact text, keeping
+    the first occurrence. Empty sections are omitted; nothing at all → ``""``.
+    """
+    sections = format_context_sections(briefings, facet_results, remote_facts, repo, reach)
+    return "\n\n".join(f"## {title}\n{body}" for title, body in sections)
 
 
 def format_facts(facts: Sequence[Any], *, with_repo: bool = False) -> str:

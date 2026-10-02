@@ -500,6 +500,7 @@ class ScopeResolver(dspy.Module):
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
         self.prefrontal_memory: str = ""
+        self.prefrontal_sections: list[tuple[str, str]] = []
 
     async def _create_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
         """Create tools for the scope agent: filesystem + ripgrep.
@@ -1091,6 +1092,7 @@ class ScopeResolver(dspy.Module):
                     )
                     pf_kwargs["prefrontal_memory"] = scope_pf_text
                     self.prefrontal_memory = scope_pf_text
+                    self.prefrontal_sections = pf.last_sections
                 if self._settings.get_memory_enabled("scope"):
                     question = (
                         f"refine scopes of {review_context.pr_context.repo_slug}: "
@@ -1231,6 +1233,7 @@ class ScopeResolver(dspy.Module):
         """
         # Reset prefrontal memory at start of each run
         self.prefrontal_memory = ""
+        self.prefrontal_sections = []
 
         # Local bindings from review_context metadata
         pr = review_context.metadata.pr

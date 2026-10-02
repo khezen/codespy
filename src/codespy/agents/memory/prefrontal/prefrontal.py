@@ -31,6 +31,7 @@ from codespy.agents.memory.prefrontal.format import (
     estimate_tokens,
     fget,
     format_context,
+    format_context_sections,
     format_facts,
 )
 from codespy.agents.memory.prefrontal.query import (
@@ -144,11 +145,18 @@ class Prefrontal:
         # One record per recall (pre-call load and each tool call), for monitoring.
         # Kept across aload() calls: one Prefrontal serves one agent call.
         self._records: list[RecallRecord] = []
+        # Sections from the last aload() call, for structured memory rendering.
+        self._last_sections: list[tuple[str, str]] = []
 
     @property
     def recalls(self) -> list[RecallRecord]:
         """Recall records so far (a copy). Persisted with the episode, never distilled."""
         return list(self._records)
+
+    @property
+    def last_sections(self) -> list[tuple[str, str]]:
+        """Sections from the last aload() call as (title, body) tuples."""
+        return list(self._last_sections)
 
     def _record(
         self,
@@ -244,6 +252,7 @@ class Prefrontal:
         thread does not copy the caller's context.
         """
         self._tool_calls = 0
+        self._last_sections = []
         facet_list = list(facets)
         context_query = next((f.query for f in facet_list if f.name == FACET_CONTEXT), "")
         started_at = datetime.now(UTC)
@@ -403,6 +412,10 @@ class Prefrontal:
             return [f for f in facts or [] if not is_own_repo_fact(fget(f, "tags"), self._repo)]
 
         briefings, results, remote = await asyncio.gather(_briefings(), _facets(), _remote())
+        # Store sections for structured rendering
+        self._last_sections = format_context_sections(
+            briefings, results, remote, self._repo, cfg.recall.reach
+        )
         text = format_context(briefings, results, remote, self._repo, cfg.recall.reach)
 
         n_briefings = sum(

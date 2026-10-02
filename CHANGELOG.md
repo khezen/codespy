@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Added
-- **Review memories section**: The pre-call Prefrontal memory (run-level and scope-level) now appears in a collapsed `memories` section at the end of the review. When there are several recalls, each one is in its own nested collapsed section titled by task. This section is shown in both the GitHub/GitLab review body and the stdout/MCP markdown output.
+- **Review memories section**: The pre-call Prefrontal memory (run-level and scope-level) now appears in a collapsed `memories` section **before** the Summary. Each recall is nested under its own `<details>` block, and each memory section (Briefings, Around this work, Seen before, Decisions, Recurring patterns, What changed, Other repositories) is also collapsible. This section is shown in both the GitHub/GitLab review body and the stdout/MCP markdown output.
 - **Cerebral structured output support**: Native structured output registration for Bedrock models (e.g., Nvidia Nemotron Super) that support it but lack the flag in litellm's model map. Two-step structured output fallback for memory models litellm cannot schema-enforce, using `llm.extraction_model`.
 - **Cerebral per-scope observation cap**: New `max_observations_per_scope` setting under `memory.cerebral.consolidation` (env `MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE`, default `100`). Limits observations per `[org:*, repo:*, project_scope:*]` scope; `-1` = unlimited, `0` = no new observations. Scopes that hit the cap only allow UPDATE/DELETE.
 
