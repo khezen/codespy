@@ -23,7 +23,7 @@ from codespy.config_llm import LLMConfig
 from codespy.config_memory import (
     MEMORY_CONSOLIDATION,
     MEMORY_MENTAL_MODELS,
-    MEMORY_PREFRONTAL,
+    MEMORY_RECALL,
     MEMORY_RETAIN,
     REFLECTION_MODULES,
     LLMSettings,
@@ -208,8 +208,8 @@ class Settings(BaseSettings):
             )
             config = ReflectionModuleConfig()  # Empty config - all fields fall back to defaults
             defaults = self.llm
-        elif name == MEMORY_PREFRONTAL:
-            # Prefrontal recall model: falls back to retain model, then default
+        elif name == MEMORY_RECALL:
+            # Recall model: falls back to retain model, then default
             model = (
                 self.memory.prefrontal.recall.model
                 or self.memory.cerebral.retain.model
@@ -340,9 +340,9 @@ class Settings(BaseSettings):
                 f"max_tokens={llm.max_tokens}"
             )
         # Prefrontal recall model (also refreshes briefings)
-        pf_llm = self.get_llm_config(MEMORY_PREFRONTAL)
+        pf_llm = self.get_llm_config(MEMORY_RECALL)
         logger.info(
-            f"  {MEMORY_PREFRONTAL}: model={pf_llm.model}, "
+            f"  {MEMORY_RECALL}: model={pf_llm.model}, "
             f"reflects={self.memory.prefrontal.reflects}"
         )
         # Consolidation model

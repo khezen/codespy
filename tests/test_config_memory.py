@@ -592,7 +592,7 @@ class TestPrefrontalConfig:
 
 
 class TestPrefrontalModelResolution:
-    """get_llm_config('memory_prefrontal') fallback chain.
+    """get_llm_config('memory_recall') fallback chain.
 
     Settings are built with explicit sections so a local ``.env`` cannot
     override them.
@@ -618,22 +618,22 @@ class TestPrefrontalModelResolution:
         )
 
     def test_explicit_recall_model(self):
-        from codespy.config_memory import MEMORY_PREFRONTAL
+        from codespy.config_memory import MEMORY_RECALL
 
         s = self._settings(recall_model="anthropic/claude-haiku", retain="openai/gpt-4o-mini")
-        assert s.get_llm_config(MEMORY_PREFRONTAL).model == "anthropic/claude-haiku"
+        assert s.get_llm_config(MEMORY_RECALL).model == "anthropic/claude-haiku"
 
     def test_falls_back_to_retain_model(self):
-        from codespy.config_memory import MEMORY_PREFRONTAL
+        from codespy.config_memory import MEMORY_RECALL
 
         s = self._settings(retain="openai/gpt-4o-mini")
-        assert s.get_llm_config(MEMORY_PREFRONTAL).model == "openai/gpt-4o-mini"
+        assert s.get_llm_config(MEMORY_RECALL).model == "openai/gpt-4o-mini"
 
     def test_falls_back_to_default_model(self):
-        from codespy.config_memory import MEMORY_PREFRONTAL
+        from codespy.config_memory import MEMORY_RECALL
 
         s = self._settings()
-        assert s.get_llm_config(MEMORY_PREFRONTAL).model == s.llm.default_model
+        assert s.get_llm_config(MEMORY_RECALL).model == s.llm.default_model
 
     # Note: _warn_reflect_mismatch removed - now using programmatic _apply_reflect_config
     # which sets values directly instead of warning about mismatches

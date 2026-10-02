@@ -233,7 +233,7 @@ input (briefings, recalled facts, facts from other repositories); the RLM agents
 
 Every recall (pre-call load and each `recall_memory` call) is logged as one INFO line and
 stored with its full text, model, token usage and cost in the episodic `recalls` table. Its
-cost appears in the `memory_prefrontal` line of the cost report.
+cost appears in the `memory_recall` line of the cost report.
 
 See [Memory System](memory.md#semantic-memory-cerebral-and-prefrontal) for details.
 

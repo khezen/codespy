@@ -13,8 +13,8 @@ from codespy.agents.memory.cerebral.cost import (
     BUCKET_MEMORY_EMBEDDINGS,
     BUCKET_MEMORY_MENTAL_MODELS,
     BUCKET_MEMORY_OTHER,
-    BUCKET_MEMORY_PREFRONTAL,
-    BUCKET_MEMORY_PREFRONTAL_EMBEDDINGS,
+    BUCKET_MEMORY_RECALL,
+    BUCKET_MEMORY_RECALL_EMBEDDINGS,
     BUCKET_MEMORY_RETAIN,
     CerebralCostRecorder,
     MeteredLiteLLMSDKEmbeddings,
@@ -165,7 +165,7 @@ class TestCerebralCostRecorder:
         assert stats.output_tokens == 50
 
     def test_record_llm_call_recall_wins_over_task_tag(self, mock_tracker, fresh_recorder):
-        """current_recall_usage set AND current_memory_task set → memory_prefrontal (recall wins)."""
+        """current_recall_usage set AND current_memory_task set → memory_recall (recall wins)."""
         with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
             with patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.02, 0.01)):
                 with track_recall_usage() as usage:
@@ -182,7 +182,7 @@ class TestCerebralCostRecorder:
                         current_memory_task.reset(token)
 
         # Should go to prefrontal, not consolidation
-        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_PREFRONTAL)
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_RECALL)
         assert stats is not None
         assert stats.input_tokens == 100
         assert stats.output_tokens == 50
@@ -331,7 +331,7 @@ class TestCerebralCostRecorder:
 
 
 class TestRecallUsageAttribution:
-    """LLM/embedding calls inside track_recall_usage() are billed to memory_prefrontal."""
+    """LLM/embedding calls inside track_recall_usage() are billed to memory_recall."""
 
     def test_llm_call_inside_recall_goes_to_prefrontal(self, mock_tracker, fresh_recorder):
         with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):
@@ -347,7 +347,7 @@ class TestRecallUsageAttribution:
         assert usage.input_tokens == 100 and usage.output_tokens == 40
         assert usage.input_cost == 0.03 and usage.output_cost == 0.02
         assert usage.to_model_field() == "openai/gpt-4o"
-        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_PREFRONTAL).cost == 0.05
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_RECALL).cost == 0.05
         assert mock_tracker.get_signature_stats(BUCKET_MEMORY_OTHER) is None
 
     def test_llm_call_outside_recall_unchanged(self, mock_tracker, fresh_recorder):
@@ -358,7 +358,7 @@ class TestRecallUsageAttribution:
                 )
         assert current_recall_usage.get() is None
         assert mock_tracker.get_signature_stats(BUCKET_MEMORY_OTHER) is not None
-        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_PREFRONTAL) is None
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_RECALL) is None
 
     @pytest.mark.asyncio
     async def test_embedding_inside_recall_goes_to_prefrontal_embeddings(self, mock_tracker):
@@ -379,8 +379,8 @@ class TestRecallUsageAttribution:
         assert usage.input_cost == 0.001
         assert usage.llm_calls == 0  # embeddings are not LLM calls
         # Embeddings during active recall go to the new prefrontal_embeddings bucket
-        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_PREFRONTAL_EMBEDDINGS).tokens == 12
-        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_PREFRONTAL) is None
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_RECALL_EMBEDDINGS).tokens == 12
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_RECALL) is None
         assert mock_tracker.get_signature_stats(BUCKET_MEMORY_EMBEDDINGS) is None
 
     def test_usage_propagates_to_cross_thread_loop(self):

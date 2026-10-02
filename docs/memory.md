@@ -414,7 +414,7 @@ Every recall is logged and stored.
 - **Usage** — measured, not estimated: `input_tokens` counts LLM prompt tokens plus query
   embeddings, `output_tokens` counts completions, and costs use `litellm.cost_per_token`
   (0 for unpriced models). With `reflects = 0`, only embedding tokens are recorded.
-- **Cost report** — Prefrontal reads are billed to the `memory_prefrontal` bucket.
+- **Cost report** — Prefrontal reads are billed to the `memory_recall` bucket.
   Mental-model refreshes during retain are billed to `memory_mental_models`.
   Consolidation LLM calls are billed to `memory_consolidation`.
 - Recalls are **not** retained into Cerebral and are never shown to the Distiller or the
@@ -438,7 +438,7 @@ in mental-model upkeep logs a warning and degrades to less context, or to `""`.
 
 Every retain now runs consolidation (billed to `memory_consolidation`) and refreshes the touched
 scopes' models (billed to `memory_mental_models`). `reflects > 0` adds a nested loop to
-every agent call and tool call; those Prefrontal reads are billed to `memory_prefrontal`.
+every agent call and tool call; those Prefrontal reads are billed to `memory_recall`.
 Background saves take longer, and process exit waits on them.
 
 ## Token Budgets

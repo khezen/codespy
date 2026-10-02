@@ -73,7 +73,7 @@
 - **Cerebral cost bucket split**: Consolidation and mental-model refresh LLM calls are now billed to
   `memory_consolidation` and `memory_mental_models` respectively, instead of `memory_other`.
   The `memory_other` bucket now only holds uncategorized LLM calls (e.g., standalone reflect calls).
-  Embeddings remain in `memory_embeddings` / `memory_prefrontal_embeddings` (unchanged).
+  Embeddings remain in `memory_embeddings` / `memory_recall_embeddings` (unchanged).
 - **Briefing refresh trigger**: Now defaults to delta mode with reduced evidence caps:
   - `mode=delta` (was `full`): only new facts since last refresh
   - `include_chunks=false` (was `true`): observation text only, no file chunks
@@ -104,7 +104,7 @@
   - `memory.prefrontal.max_reflect_context_tokens` (env `MEMORY_MAX_REFLECT_CONTEXT_TOKENS`, default `null`): when `null`, the cap is auto-derived from `5 × max_mental_model_tokens + max_reflect_fetch_tokens + 2048` overhead, divided by 0.8, so worst-case history fits in one chunk and no map calls occur. With defaults this is ~16000. An explicit value still wins.
   - Reflect caps are set programmatically on the Hindsight `_raw_config` after import, so they do not require a process restart. Env vars still win as operator overrides.
   - Load INFO line now includes `maps=N` (split synthesis map-call count), `rewrite` flag, and `thoughts=N` (reasoning tokens) for monitoring.
-- **Prefrontal embeddings bucket**: `memory_prefrontal_embeddings` cost bucket for embeddings during Prefrontal recall (separate from `memory_prefrontal` LLM calls).
+- **Recall embeddings bucket**: `memory_recall_embeddings` cost bucket for embeddings during recall (separate from `memory_recall` LLM calls).
 - **Reflect summary**: `areflect` returns `(text, ReflectSummary)` with iterations, LLM calls, map calls, rewrite flag, tools used, usage, and empty flag. Stored in `RecallRecord.details["reflect"]` for monitoring.
 - **Prefrontal reflect cost caps**: new settings to cap the Hindsight reflect loop cost:
   - `memory.prefrontal.max_reflect_fetch_tokens` (env `MEMORY_MAX_REFLECT_FETCH_TOKENS`, default `2048`): per-call fetch limit for recall and search_observations tools. This is the default size used when the LLM omits one; the LLM can still ask for more up to the ceiling. Also disables chunk retrieval (`recall_include_chunks=false`).
@@ -112,7 +112,7 @@
 - **Cerebral read API**: `arecall`/`recall`, `areflect`/`reflect` (`budget=mid`), `aget_mental_models`, `aget_observation_history`.
 - **Prefrontal model setting**: `memory.prefrontal.model` (env `MEMORY_PREFRONTAL_MODEL`, Action input `memory-prefrontal-model`) selects the model for Hindsight's reflect loop and mental-model refresh. It falls back to `memory.cerebral.retain.model` → `llm.default_model`, so behaviour is unchanged when unset. It is checked at startup when `reflects > 0`.
 - **Prefrontal recall monitoring**: every pre-call load and `recall_memory` call is logged as one INFO line (status, model, LLM calls, input/output tokens, cost, latency) and persisted to a new episodic `recalls` table (`Episode.recalls`, `RecallRecord` in `codespy/agents/memory/recall.py`). Rows hold the exact text the agent received and the measured token usage and cost. The table is additive (`CREATE TABLE IF NOT EXISTS`); recalls are never retained into Cerebral nor given to the Distiller/Cartographer.
-- **`memory_prefrontal` cost bucket**: Prefrontal read calls (reflect LLM calls and query embeddings) are attributed to it through a context variable. Previously they were counted in `memory_other` / `memory_embeddings`.
+- **`memory_recall` cost bucket**: Recall calls (reflect LLM calls and query embeddings) are attributed to it through a context variable. Previously they were counted in `memory_other` / `memory_embeddings`.
 - **Cerebral mental models**: one briefing per observation scope and per repo, created on first retain and refreshed after consolidation. `memory.prefrontal.reflects > 0` sets `HINDSIGHT_API_REFLECT_MAX_ITERATIONS`, which also caps mental-model refresh loops.
 - **Cerebral (Semantic Memory)**:
   - New `memory.cerebral.retain.chunk_size` configuration (default: 12288, env var: `MEMORY_RETAIN_CHUNK_SIZE`). Chars per fact-extraction chunk; must be < 64000. See `CerebralRetainConfig` in `config_memory.py`.

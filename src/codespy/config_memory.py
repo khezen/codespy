@@ -265,7 +265,7 @@ MEMORY_CARTOGRAPHER = "memory_cartographer"
 MEMORY_RETAIN = "memory_retain"
 MEMORY_EMBEDDINGS = "memory_embeddings"
 MEMORY_OTHER = "memory_other"
-MEMORY_PREFRONTAL = "memory_prefrontal"
+MEMORY_RECALL = "memory_recall"
 MEMORY_CONSOLIDATION = "memory_consolidation"
 MEMORY_MENTAL_MODELS = "memory_mental_models"
 

@@ -20,7 +20,7 @@ from codespy.config_memory import (
     MEMORY_EMBEDDINGS,
     MEMORY_MENTAL_MODELS,
     MEMORY_OTHER,
-    MEMORY_PREFRONTAL,
+    MEMORY_RECALL,
     MEMORY_RETAIN,
 )
 
@@ -48,10 +48,10 @@ current_memory_task: ContextVar[str | None] = ContextVar("current_memory_task", 
 BUCKET_MEMORY_RETAIN = MEMORY_RETAIN
 BUCKET_MEMORY_OTHER = MEMORY_OTHER
 BUCKET_MEMORY_EMBEDDINGS = MEMORY_EMBEDDINGS
-# Prefrontal reads (recall/reflect inside a track_recall_usage() block)
-BUCKET_MEMORY_PREFRONTAL = MEMORY_PREFRONTAL
-# Prefrontal embeddings (separate bucket for embeddings during Prefrontal recall)
-BUCKET_MEMORY_PREFRONTAL_EMBEDDINGS = f"{MEMORY_PREFRONTAL}_embeddings"
+# Recall reads (recall/reflect inside a track_recall_usage() block)
+BUCKET_MEMORY_RECALL = MEMORY_RECALL
+# Recall embeddings (separate bucket for embeddings during recall)
+BUCKET_MEMORY_RECALL_EMBEDDINGS = f"{MEMORY_RECALL}_embeddings"
 # Consolidation task LLM calls
 BUCKET_MEMORY_CONSOLIDATION = MEMORY_CONSOLIDATION
 # Mental model refresh task LLM calls
@@ -65,7 +65,7 @@ def _llm_bucket(scope: str) -> str:
     """Determine the cost bucket for an LLM call based on scope and context.
 
     Precedence (first match wins):
-    1. current_recall_usage set → memory_prefrontal (handled in record_llm_call)
+    1. current_recall_usage set → memory_recall (handled in record_llm_call)
     2. current_memory_task == "refresh_mental_model" → memory_mental_models
     3. current_memory_task == "consolidation" → memory_consolidation
     4. scope starts with "retain" → memory_retain
@@ -146,13 +146,13 @@ class CerebralCostRecorder:
             cost = prompt_cost + completion_cost
             tokens = input_tokens + output_tokens
 
-            # Determine bucket: an active Prefrontal recall wins over the scope/task tag,
-            # because Hindsight scopes cannot tell a Prefrontal reflect apart
+            # Determine bucket: an active recall wins over the scope/task tag,
+            # because Hindsight scopes cannot tell a reflect apart
             # from a mental-model refresh.
             usage = current_recall_usage.get()
             if usage is not None:
                 usage.add_llm(model, input_tokens, output_tokens, prompt_cost, completion_cost)
-                bucket = BUCKET_MEMORY_PREFRONTAL
+                bucket = BUCKET_MEMORY_RECALL
             else:
                 bucket = _llm_bucket(scope)
 
@@ -337,7 +337,7 @@ class _LiteLLMProxy:
             usage = current_recall_usage.get()
             if usage is not None:
                 usage.add_embedding(tokens, cost or 0.0)
-                bucket = BUCKET_MEMORY_PREFRONTAL_EMBEDDINGS
+                bucket = BUCKET_MEMORY_RECALL_EMBEDDINGS
             else:
                 bucket = BUCKET_MEMORY_EMBEDDINGS
 
