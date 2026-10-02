@@ -928,7 +928,7 @@ def async_engine():
     ):
         setattr(engine, name, AsyncMock(return_value=None))
     # Default get_bank_profile to return a profile so existing tests pass
-    engine.get_bank_profile.return_value = {"bank_id": "codespy"}
+    engine.get_bank_profile.return_value = {"bank_id": "codebase"}
     return engine
 
 
@@ -1605,7 +1605,7 @@ class TestCerebralMissingBank:
         assert async_engine.get_bank_profile.await_count == 1
 
         # Second call: bank now exists (e.g., retain_episode was called)
-        async_engine.get_bank_profile.return_value = {"bank_id": "codespy"}
+        async_engine.get_bank_profile.return_value = {"bank_id": "codebase"}
         # _bank_exists is still False because we didn't call _ensure_bank
         cerebral_async._bank_exists = False
 
@@ -1621,7 +1621,7 @@ class TestCerebralMissingBank:
         """Exists is cached: multiple arecalls only check once."""
         import asyncio as _asyncio
 
-        async_engine.get_bank_profile.return_value = {"bank_id": "codespy"}
+        async_engine.get_bank_profile.return_value = {"bank_id": "codebase"}
         cerebral_async._bank_exists = False
         cerebral_async._missing_bank_logged = False
 

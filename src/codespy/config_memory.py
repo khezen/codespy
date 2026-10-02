@@ -25,6 +25,12 @@ HINDSIGHT_REFLECT_MAX_ITERATIONS_ENV = "HINDSIGHT_API_REFLECT_MAX_ITERATIONS"
 # its config is first built. Also bounds briefing refreshes (LOW budget).
 HINDSIGHT_REFLECT_MAX_CONTEXT_TOKENS_ENV = "HINDSIGHT_API_REFLECT_MAX_CONTEXT_TOKENS"
 
+# Default bank ID for memory storage when not explicitly configured.
+DEFAULT_BANK_ID = "codebase"
+
+# Fixed schema name for episodic memory (Hippocampus).
+EPISODIC_SCHEMA = "episodic"
+
 if TYPE_CHECKING:
     from codespy.agents.memory.cerebral import Cerebral
     from codespy.agents.memory.postgres import EpisodeStore
@@ -202,17 +208,14 @@ class PostgresConfig(BaseModel):
     user: str | None = None
     password: str | None = None
     database: str = "codespy"
-    schema_name: str | None = Field(
-        default="episodic", alias="schema"
-    )
 
     def build_uri(self) -> str | None:
         """Build a psycopg connection URI. Returns None when host is unset.
 
-        Schema is NOT included in the URI. Each memory store (EpisodeStore,
-        future SemanticStore) handles CREATE SCHEMA and SET search_path
-        itself, so multiple stores can share the same base URI while
-        targeting different schemas.
+        Each memory store (EpisodeStore for episodic, Cerebral for semantic)
+        handles its own schema internally and sets search_path accordingly.
+        The URI returned here is schema-less so stores can share the same
+        base connection while using different schemas.
         """
         if not self.host:
             return None
@@ -334,8 +337,8 @@ def get_episode_store(settings: Settings) -> EpisodeStore | None:
         return _store
 
     mem = settings.memory
-    bank_id = mem.bank_id or "codespy"
-    schema = mem.postgres.schema_name  # "episodic" by default
+    bank_id = mem.bank_id or DEFAULT_BANK_ID
+    schema = EPISODIC_SCHEMA
 
     # Try external PostgreSQL first
     uri = mem.postgres.build_uri()
@@ -413,7 +416,7 @@ def verify_memory_access(settings: Settings) -> tuple[bool, str]:
     except Exception as e:
         return False, f"Memory storage not accessible: {e}"
 
-    return True, f"Memory storage verified (PostgreSQL, bank={settings.memory.bank_id or 'codespy'})"
+    return True, f"Memory storage verified (PostgreSQL, bank={settings.memory.bank_id or DEFAULT_BANK_ID})"
 
 
 # Cached singleton Cerebral instance.
@@ -526,7 +529,7 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
             return None
 
     model, api_key, base_url = _cerebral_litellm_params(settings)
-    bank_id = settings.memory.bank_id or "codespy"
+    bank_id = settings.memory.bank_id or DEFAULT_BANK_ID
     # Choose embedding default based on the provider prefix
     provider_prefix = model.split("/", 1)[0] if "/" in model else "openai"
     embeddings_model = (

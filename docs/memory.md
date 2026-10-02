@@ -53,7 +53,7 @@ The run-level recall (`task="review"`, `episode_id=NULL`) covers all project sco
 
 A bank is the top-level data partition. All episodes, topics, observations, artifacts and recalls cascade-delete from a bank.
 
-- Configured via `MEMORY_BANK_ID` (default: `codespy`)
+- Configured via `MEMORY_BANK_ID` (default: `codebase`)
 - Typical values: service name, team name, org identifier
 - Changing the bank ID starts a fresh memory silo — no data carries over
 
@@ -387,7 +387,7 @@ SELECT r.task, r.run_id, r.kind, r.status, r.model, r.llm_calls,
        r.input_tokens, r.output_tokens, r.input_cost + r.output_cost AS cost,
        r.latency_ms, r.query, r.text
 FROM recalls r
-WHERE r.bank_id = 'codespy' AND r.task = 'review' AND r.episode_id IS NULL
+WHERE r.bank_id = 'codebase' AND r.task = 'review' AND r.episode_id IS NULL
 ORDER BY r.timestamp DESC
 LIMIT 50;
 ```
@@ -403,11 +403,10 @@ LIMIT 50;
 | `MEMORY_POSTGRES_USER` | `memory.postgres.user` | `postgres` | External PostgreSQL user |
 | `MEMORY_POSTGRES_PASSWORD` | `memory.postgres.password` | — | External PostgreSQL password |
 | `MEMORY_POSTGRES_DATABASE` | `memory.postgres.database` | `codespy` | External PostgreSQL database |
-| `MEMORY_POSTGRES_SCHEMA` | `memory.postgres.schema` | `episodic` | PostgreSQL schema for episodic store |
 | `MEMORY_PG0_NAME` | `memory.pg0.name` | `codespy` | pg0-embedded database name |
 | `MEMORY_PG0_PORT` | `memory.pg0.port` | auto | pg0-embedded port |
 | `MEMORY_PG0_DATA_DIR` | `memory.pg0.data_dir` | — | Custom data directory for pg0-embedded |
-| `MEMORY_BANK_ID` | `memory.bank_id` | `codespy` | Scopes all memory data |
+| `MEMORY_BANK_ID` | `memory.bank_id` | `codebase` | Scopes all memory data |
 | `MEMORY_ENABLED` | `memory.enabled` | `false` | Enable memory globally (episodic + semantic) |
 
 ### Hippocampus Settings

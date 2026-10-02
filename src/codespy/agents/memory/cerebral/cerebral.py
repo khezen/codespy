@@ -333,7 +333,7 @@ class Cerebral:
         llm_model: str | None = None,
         llm_api_key: str | None = None,
         llm_base_url: str | None = None,
-        bank_id: str = "codespy",
+        bank_id: str = "codebase",
         embeddings_model: str = "openai/text-embedding-3-small",
         retain_chunk_size: int = 12288,
         mental_models: bool = True,

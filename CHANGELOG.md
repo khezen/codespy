@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed (Breaking)
+- Removed `memory.postgres.schema` / `MEMORY_POSTGRES_SCHEMA` / action input `memory-postgres-schema`; the episodic schema is now hard-coded to `episodic` (like `semantic`)
+
 ### Fixed
 - `recall_memory` with `reach=local` returned nothing for code_review and supply_chain; the tool now searches the reviewed project scope
 - Fixed "too many values to unpack" error in review statistics matrix (line 345 was iterating `severities` as tuples instead of enums)
@@ -37,6 +40,7 @@
 - Action `model` input is now optional (was `required: true`); when unset, codespy.yaml default applies
 - Action inputs no longer carry `default:` values; codespy.yaml applies instead
 - Setting a pinned unit to `null` (YAML `model: null` or env `VAR=null`) re-enables the fallback chain
+- **Default `MEMORY_BANK_ID` changed from `codespy` to `codebase`** — set `MEMORY_BANK_ID=codespy` to keep using existing memory data
 
 ### Removed
 - Action input `memory-prefrontal-model` (was deprecated, never wired)

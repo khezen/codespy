@@ -21,11 +21,14 @@ from codespy.config_memory import (
 class TestGenerateBankId:
     """Tests for default bank_id behavior."""
 
-    def test_default_bank_id_is_codespy(self):
-        """Bank ID defaults to 'codespy' when not set."""
+    def test_default_bank_id_is_codebase(self):
+        """Bank ID defaults to 'codebase' when not set."""
+        from codespy.config_memory import DEFAULT_BANK_ID
+
         settings = MagicMock()
         settings.memory.bank_id = None
-        assert settings.memory.bank_id or "codespy" == "codespy"
+        assert DEFAULT_BANK_ID == "codebase"
+        assert (settings.memory.bank_id or DEFAULT_BANK_ID) == "codebase"
 
 
 class TestApplyMemoryEnvOverrides:
@@ -121,7 +124,6 @@ class TestGetEpisodeStore:
         settings = MagicMock()
         settings.memory.postgres = MagicMock()
         settings.memory.postgres.build_uri.return_value = None
-        settings.memory.postgres.schema_name = "episodic"
         settings.memory.pg0 = MagicMock()
         settings.memory.pg0.name = "codespy"
         settings.memory.pg0.port = None

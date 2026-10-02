@@ -354,12 +354,8 @@ inputs:
     description: 'PostgreSQL database name. Default from codespy.yaml: codespy'
     required: false
 
-  memory-postgres-schema:
-    description: 'PostgreSQL schema / search_path. Default from codespy.yaml: episodic'
-    required: false
-
   memory-bank-id:
-    description: 'Bank ID scoping all memory data (e.g., project name or agent name). Default from codespy.yaml: codespy'
+    description: 'Bank ID scoping all memory data (e.g., project name or agent name). Default from codespy.yaml: codebase'
     required: false
 
   memory-compact-trajectory:
@@ -642,7 +638,6 @@ runs:
         MEMORY_POSTGRES_USER: ${{ inputs.memory-postgres-user }}
         MEMORY_POSTGRES_PASSWORD: ${{ inputs.memory-postgres-password }}
         MEMORY_POSTGRES_DATABASE: ${{ inputs.memory-postgres-database }}
-        MEMORY_POSTGRES_SCHEMA: ${{ inputs.memory-postgres-schema }}
         MEMORY_BANK_ID: ${{ inputs.memory-bank-id }}
         MEMORY_DISTILLER_MODEL: ${{ inputs.memory-distiller-model }}
         MEMORY_DISTILLER_REASONING_EFFORT: ${{ inputs.memory-distiller-reasoning-effort }}
@@ -789,7 +784,6 @@ runs:
         [ -n "$MEMORY_POSTGRES_USER" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_POSTGRES_USER"
         [ -n "$MEMORY_POSTGRES_PASSWORD" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_POSTGRES_PASSWORD"
         [ -n "$MEMORY_POSTGRES_DATABASE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_POSTGRES_DATABASE"
-        [ -n "$MEMORY_POSTGRES_SCHEMA" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_POSTGRES_SCHEMA"
         [ -n "$MEMORY_BANK_ID" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_BANK_ID"
         [ -n "$MEMORY_DISTILLER_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MODEL"
         [ -n "$MEMORY_DISTILLER_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_REASONING_EFFORT"

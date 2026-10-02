@@ -99,7 +99,6 @@ memory:
     user: null                            # MEMORY_POSTGRES_USER
     password: null                        # MEMORY_POSTGRES_PASSWORD
     database: codespy                     # MEMORY_POSTGRES_DATABASE
-    schema: episodic                      # MEMORY_POSTGRES_SCHEMA
 
   # pg0-embedded settings
   pg0:
@@ -109,7 +108,7 @@ memory:
 
   # Master switch
   enabled: false                          # MEMORY_ENABLED
-  bank_id: null                           # MEMORY_BANK_ID
+  bank_id: codebase                           # MEMORY_BANK_ID
 
   # Hippocampus (episodic memory)
   hippocampus:

@@ -185,13 +185,12 @@ Master switch and connection:
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
 | Enabled | `MEMORY_ENABLED` | `false` | Enable memory globally |
-| Bank ID | `MEMORY_BANK_ID` | `codespy` | Scopes all memory data |
+| Bank ID | `MEMORY_BANK_ID` | `codebase` | Scopes all memory data |
 | PostgreSQL host | `MEMORY_POSTGRES_HOST` | — | External PostgreSQL host |
 | PostgreSQL port | `MEMORY_POSTGRES_PORT` | `5432` | PostgreSQL port |
 | PostgreSQL user | `MEMORY_POSTGRES_USER` | `postgres` | PostgreSQL user |
 | PostgreSQL password | `MEMORY_POSTGRES_PASSWORD` | — | PostgreSQL password |
 | PostgreSQL database | `MEMORY_POSTGRES_DATABASE` | `codespy` | PostgreSQL database |
-| PostgreSQL schema | `MEMORY_POSTGRES_SCHEMA` | `episodic` | Schema for episodic store |
 | pg0 name | `MEMORY_PG0_NAME` | `codespy` | pg0-embedded database name |
 | pg0 port | `MEMORY_PG0_PORT` | auto | pg0-embedded port |
 | pg0 data dir | `MEMORY_PG0_DATA_DIR` | — | pg0-embedded data directory |
