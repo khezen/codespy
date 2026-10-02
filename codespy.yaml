@@ -4,8 +4,7 @@
 # All settings can be overridden via environment variables using the YAML path,
 # uppercased and joined with underscores. The llm., memory.hippocampus.,
 # memory.cerebral. and memory.prefrontal. segments are dropped; llm.retries,
-# llm.timeout, memory.prefrontal.reflects and memory.prefrontal.model keep their
-# full names.
+# llm.timeout and memory.prefrontal.reflects keep their full names.
 # Examples:
 #   - llm.default_model → DEFAULT_MODEL
 #   - llm.retries → LLM_RETRIES
@@ -58,13 +57,13 @@ llm:
   azure_api_version: null                # AZURE_API_VERSION
 
   # Default model settings
-  default_model: anthropic/claude-opus-4-6        # DEFAULT_MODEL
-  extraction_model: null                          # EXTRACTION_MODEL (falls back to default_model; also used by Cerebral two-step structured output for memory models litellm cannot schema-enforce)
-  default_max_iters: 5                            # DEFAULT_MAX_ITERS
-  default_max_llm_calls: 8                        # DEFAULT_MAX_LLM_CALLS
-  default_reasoning_effort: medium                # DEFAULT_REASONING_EFFORT
-  default_temperature: 0.2                        # DEFAULT_TEMPERATURE
-  default_max_tokens: 32000                       # DEFAULT_MAX_TOKENS
+  default_model: bedrock/converse/nvidia.nemotron-nano-3-30b        # DEFAULT_MODEL
+  extraction_model: bedrock/converse/nvidia.nemotron-nano-3-30b   # EXTRACTION_MODEL (falls back to default_model; also used by Cerebral two-step structured output for memory models litellm cannot schema-enforce)
+  default_max_iters: 5                                              # DEFAULT_MAX_ITERS
+  default_max_llm_calls: 8                                        # DEFAULT_MAX_LLM_CALLS
+  default_reasoning_effort: medium                                  # DEFAULT_REASONING_EFFORT
+  default_temperature: 1.0                                          # DEFAULT_TEMPERATURE
+  default_max_tokens: 32000                                       # DEFAULT_MAX_TOKENS
 
   # Global LLM reliability settings
   retries: 2                              # LLM_RETRIES
@@ -120,14 +119,14 @@ memory:
     max_trajectory_tokens: 16384          # MEMORY_MAX_TRAJECTORY_TOKENS
     max_question_tokens: 8192             # MEMORY_MAX_QUESTION_TOKENS
     distiller:
-      model: null                         # MEMORY_DISTILLER_MODEL
+      model: bedrock/converse/nvidia.nemotron-super-3-120b     # MEMORY_DISTILLER_MODEL
       reasoning_effort: null              # MEMORY_DISTILLER_REASONING_EFFORT
       temperature: null                   # MEMORY_DISTILLER_TEMPERATURE
       max_tokens: null                    # MEMORY_DISTILLER_MAX_TOKENS
       max_iters: 1                        # MEMORY_DISTILLER_MAX_ITERS
       max_llm_calls: 2                    # MEMORY_DISTILLER_MAX_LLM_CALLS
     cartographer:
-      model: null                         # MEMORY_CARTOGRAPHER_MODEL
+      model: bedrock/converse/nvidia.nemotron-super-3-120b     # MEMORY_CARTOGRAPHER_MODEL
       reasoning_effort: null              # MEMORY_CARTOGRAPHER_REASONING_EFFORT
       temperature: null                   # MEMORY_CARTOGRAPHER_TEMPERATURE
       max_tokens: null                    # MEMORY_CARTOGRAPHER_MAX_TOKENS
@@ -137,24 +136,24 @@ memory:
   # Cerebral (semantic memory)
   cerebral:
     retain:
-      model: null                         # MEMORY_RETAIN_MODEL (falls back to llm.default_model)
+      model: bedrock/converse/nvidia.nemotron-super-3-120b     # MEMORY_RETAIN_MODEL (falls back to llm.default_model)
       chunk_size: 12288                   # MEMORY_RETAIN_CHUNK_SIZE (chars, must be < 64000)
     consolidation:
-      model: null                         # MEMORY_CONSOLIDATION_MODEL (falls back to retain model → default)
+      model: bedrock/converse/nvidia.nemotron-super-3-120b     # MEMORY_CONSOLIDATION_MODEL (falls back to retain model → default)
       max_observations_per_scope: 100   # MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE (-1 = unlimited, 0 = no new observations)
     mental_models:
-      model: null                         # MEMORY_MENTAL_MODELS_MODEL (briefing refresh; falls back to prefrontal model → retain → default)
+      model: bedrock/converse/nvidia.nemotron-super-3-120b     # MEMORY_MENTAL_MODELS_MODEL (briefing refresh; falls back to prefrontal model → retain → default)
       max_tokens: 2048                    # MEMORY_MENTAL_MODELS_MAX_TOKENS (briefing length)
       min_refresh_seconds: 0              # MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS (0 = refresh after every consolidation; N = at most one automatic briefing refresh per N seconds, nothing lost thanks to delta)
     embeddings:
-      model: null                         # MEMORY_EMBEDDINGS_MODEL (auto-derived from provider)
+      model: bedrock/cohere.embed-v4:0                         # MEMORY_EMBEDDINGS_MODEL (auto-derived from provider)
       max_input_chars: null               # MEMORY_EMBEDDINGS_MAX_INPUT_CHARS (null=auto per model, e.g. 2048 for Bedrock Cohere v3; 0=off)
 
   # Prefrontal (semantic recall from Cerebral into agent context: read-only)
   prefrontal:
     reflects: 3                       # MEMORY_PREFRONTAL_REFLECTS (reflect iterations for recall and briefings; 0 = raw-fact recall, no LLM, no briefings)
     recall:
-      model: null                     # MEMORY_RECALL_MODEL (reflect; also briefings fallback unless cerebral.mental_models.model set)
+      model: bedrock/converse/nvidia.nemotron-super-3-120b     # MEMORY_RECALL_MODEL (reflect; also briefings fallback unless cerebral.mental_models.model set)
       reach: org                      # MEMORY_RECALL_REACH (local | org | bank)
       max_tokens: 8192                # MEMORY_RECALL_MAX_TOKENS (pre-call context budget)
       max_tool_tokens: 2048           # MEMORY_RECALL_MAX_TOOL_TOKENS (tool result budget)
@@ -198,74 +197,74 @@ review:
 
   # Supply Chain Security
   supply_chain:
-    enabled: true                         # REVIEW_SUPPLY_CHAIN_ENABLED
-    max_iters: null                       # REVIEW_SUPPLY_CHAIN_MAX_ITERS
-    max_llm_calls: null                   # REVIEW_SUPPLY_CHAIN_MAX_LLM_CALLS
-    model: null                           # REVIEW_SUPPLY_CHAIN_MODEL
-    reasoning_effort: null                # REVIEW_SUPPLY_CHAIN_REASONING_EFFORT
-    temperature: null                     # REVIEW_SUPPLY_CHAIN_TEMPERATURE
-    max_tokens: null                      # REVIEW_SUPPLY_CHAIN_MAX_TOKENS
-    scan_unchanged: false                 # REVIEW_SUPPLY_CHAIN_SCAN_UNCHANGED
+    enabled: true                                                 # REVIEW_SUPPLY_CHAIN_ENABLED
+    max_iters: null                                               # REVIEW_SUPPLY_CHAIN_MAX_ITERS
+    max_llm_calls: null                                           # REVIEW_SUPPLY_CHAIN_MAX_LLM_CALLS
+    model: bedrock/converse/nvidia.nemotron-super-3-120b         # REVIEW_SUPPLY_CHAIN_MODEL
+    reasoning_effort: null                                        # REVIEW_SUPPLY_CHAIN_REASONING_EFFORT
+    temperature: null                                             # REVIEW_SUPPLY_CHAIN_TEMPERATURE
+    max_tokens: null                                              # REVIEW_SUPPLY_CHAIN_MAX_TOKENS
+    scan_unchanged: false                                         # REVIEW_SUPPLY_CHAIN_SCAN_UNCHANGED
     memory:
-      enabled: null                       # REVIEW_SUPPLY_CHAIN_MEMORY_ENABLED
+      enabled: null                                               # REVIEW_SUPPLY_CHAIN_MEMORY_ENABLED
 
   # Code Review
   code_review:
-    enabled: true                         # REVIEW_CODE_REVIEW_ENABLED
-    max_iters: 5                          # REVIEW_CODE_REVIEW_MAX_ITERS
-    max_llm_calls: 8                      # REVIEW_CODE_REVIEW_MAX_LLM_CALLS
-    model: null                           # REVIEW_CODE_REVIEW_MODEL
-    reasoning_effort: null                # REVIEW_CODE_REVIEW_REASONING_EFFORT
-    temperature: null                     # REVIEW_CODE_REVIEW_TEMPERATURE
-    max_tokens: null                      # REVIEW_CODE_REVIEW_MAX_TOKENS
+    enabled: true                                                 # REVIEW_CODE_REVIEW_ENABLED
+    max_iters: 5                                                  # REVIEW_CODE_REVIEW_MAX_ITERS
+    max_llm_calls: 8                                              # REVIEW_CODE_REVIEW_MAX_LLM_CALLS
+    model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_CODE_REVIEW_MODEL
+    reasoning_effort: null                                        # REVIEW_CODE_REVIEW_REASONING_EFFORT
+    temperature: null                                             # REVIEW_CODE_REVIEW_TEMPERATURE
+    max_tokens: null                                              # REVIEW_CODE_REVIEW_MAX_TOKENS
     memory:
-      enabled: null                       # REVIEW_CODE_REVIEW_MEMORY_ENABLED
+      enabled: null                                               # REVIEW_CODE_REVIEW_MEMORY_ENABLED
 
   # Documentation Review
   doc:
-    enabled: true                         # REVIEW_DOC_ENABLED
-    max_iters: 2                          # REVIEW_DOC_MAX_ITERS
-    max_llm_calls: 4                      # REVIEW_DOC_MAX_LLM_CALLS
-    model: null                           # REVIEW_DOC_MODEL
-    reasoning_effort: null                # REVIEW_DOC_REASONING_EFFORT
-    temperature: null                     # REVIEW_DOC_TEMPERATURE
-    max_tokens: null                      # REVIEW_DOC_MAX_TOKENS
+    enabled: true                                                 # REVIEW_DOC_ENABLED
+    max_iters: 2                                                  # REVIEW_DOC_MAX_ITERS
+    max_llm_calls: 4                                              # REVIEW_DOC_MAX_LLM_CALLS
+    model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_DOC_MODEL
+    reasoning_effort: null                                        # REVIEW_DOC_REASONING_EFFORT
+    temperature: null                                             # REVIEW_DOC_TEMPERATURE
+    max_tokens: null                                              # REVIEW_DOC_MAX_TOKENS
     memory:
-      enabled: null                       # REVIEW_DOC_MEMORY_ENABLED
+      enabled: null                                               # REVIEW_DOC_MEMORY_ENABLED
 
   # Scope Identification
   scope:
-    enabled: true                         # REVIEW_SCOPE_ENABLED
-    max_iters: 3                          # REVIEW_SCOPE_MAX_ITERS
-    max_llm_calls: 5                      # REVIEW_SCOPE_MAX_LLM_CALLS
-    model: null                           # REVIEW_SCOPE_MODEL
-    reasoning_effort: null                # REVIEW_SCOPE_REASONING_EFFORT
-    temperature: null                     # REVIEW_SCOPE_TEMPERATURE
-    max_tokens: null                      # REVIEW_SCOPE_MAX_TOKENS
-    skip_refinement_when_clean: null      # REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN
+    enabled: true                                                 # REVIEW_SCOPE_ENABLED
+    max_iters: 3                                                  # REVIEW_SCOPE_MAX_ITERS
+    max_llm_calls: 5                                              # REVIEW_SCOPE_MAX_LLM_CALLS
+    model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_SCOPE_MODEL
+    reasoning_effort: null                                        # REVIEW_SCOPE_REASONING_EFFORT
+    temperature: null                                             # REVIEW_SCOPE_TEMPERATURE
+    max_tokens: null                                              # REVIEW_SCOPE_MAX_TOKENS
+    skip_refinement_when_clean: null                              # REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN
     memory:
-      enabled: null                       # REVIEW_SCOPE_MEMORY_ENABLED
+      enabled: null                                               # REVIEW_SCOPE_MEMORY_ENABLED
 
   # Summary
   summary:
-    enabled: true                         # REVIEW_SUMMARY_ENABLED
-    max_iters: 1                          # REVIEW_SUMMARY_MAX_ITERS
-    max_llm_calls: 2                      # REVIEW_SUMMARY_MAX_LLM_CALLS
-    model: null                           # REVIEW_SUMMARY_MODEL
-    reasoning_effort: null                # REVIEW_SUMMARY_REASONING_EFFORT
-    temperature: null                     # REVIEW_SUMMARY_TEMPERATURE
-    max_tokens: null                      # REVIEW_SUMMARY_MAX_TOKENS
+    enabled: true                                                 # REVIEW_SUMMARY_ENABLED
+    max_iters: 1                                                  # REVIEW_SUMMARY_MAX_ITERS
+    max_llm_calls: 2                                              # REVIEW_SUMMARY_MAX_LLM_CALLS
+    model: bedrock/converse/nvidia.nemotron-super-3-120b         # REVIEW_SUMMARY_MODEL
+    reasoning_effort: null                                        # REVIEW_SUMMARY_REASONING_EFFORT
+    temperature: null                                             # REVIEW_SUMMARY_TEMPERATURE
+    max_tokens: null                                              # REVIEW_SUMMARY_MAX_TOKENS
     memory:
-      enabled: null                       # REVIEW_SUMMARY_MEMORY_ENABLED
+      enabled: null                                               # REVIEW_SUMMARY_MEMORY_ENABLED
 
   # Audit
   audit:
-    enabled: true                         # REVIEW_AUDIT_ENABLED
-    max_iters: 1                          # REVIEW_AUDIT_MAX_ITERS
-    max_llm_calls: 2                      # REVIEW_AUDIT_MAX_LLM_CALLS
-    model: null                           # REVIEW_AUDIT_MODEL
-    reasoning_effort: null                # REVIEW_AUDIT_REASONING_EFFORT
-    temperature: null                     # REVIEW_AUDIT_TEMPERATURE
-    max_tokens: null                      # REVIEW_AUDIT_MAX_TOKENS
+    enabled: true                                                 # REVIEW_AUDIT_ENABLED
+    max_iters: 1                                                  # REVIEW_AUDIT_MAX_ITERS
+    max_llm_calls: 2                                              # REVIEW_AUDIT_MAX_LLM_CALLS
+    model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_AUDIT_MODEL
+    reasoning_effort: null                                        # REVIEW_AUDIT_REASONING_EFFORT
+    temperature: null                                             # REVIEW_AUDIT_TEMPERATURE
+    max_tokens: null                                              # REVIEW_AUDIT_MAX_TOKENS
     memory:
-      enabled: null                       # REVIEW_AUDIT_MEMORY_ENABLED
+      enabled: null                                               # REVIEW_AUDIT_MEMORY_ENABLED

@@ -182,7 +182,7 @@ class TestEmbeddingModels:
     def test_embedding_models_mapping_bedrock(self):
         """EMBEDDING_MODELS should have entry for bedrock."""
         assert "bedrock" in EMBEDDING_MODELS
-        assert "cohere" in EMBEDDING_MODELS["bedrock"]
+        assert "embed-v4:0" in EMBEDDING_MODELS["bedrock"]
 
     def test_embedding_models_mapping_openai(self):
         """EMBEDDING_MODELS should have entry for openai."""
@@ -273,7 +273,7 @@ class TestPrefrontalConfig:
 
         pf = MemoryConfig().prefrontal
         assert pf.reflects == 3  # Changed from 5 to 3
-        assert pf.recall.model is None
+        assert pf.recall.model == "bedrock/converse/nvidia.nemotron-super-3-120b"
         assert pf.recall.reach == "org"
         assert pf.recall.max_tokens == 8192
         assert pf.recall.max_tool_tokens == 2048
@@ -533,13 +533,13 @@ class TestPrefrontalConfig:
         kwargs = self._capture_cerebral_kwargs(monkeypatch, self._settings(0))
         assert not any(k.startswith("reflect_llm_") for k in kwargs)
 
-    def test_get_cerebral_passes_prefrontal_model_as_reflect_llm(self, monkeypatch):
+    def test_get_cerebral_passes_prefrontal_recall_model_as_reflect_llm(self, monkeypatch):
         pytest = __import__("pytest")
         pytest.importorskip("hindsight_api")  # Skip if hindsight_api not available
         from pydantic import SecretStr
 
         settings = self._settings(3)
-        settings.memory.prefrontal.model = "anthropic/claude-sonnet-4-5"
+        settings.memory.prefrontal.recall.model = "anthropic/claude-sonnet-4-5"
         settings.llm.anthropic_api_key = SecretStr("sk-ant")
         kwargs = self._capture_cerebral_kwargs(monkeypatch, settings)
         # Engine model is unchanged; reflect gets its own model and credentials.
@@ -573,8 +573,8 @@ class TestPrefrontalConfig:
         # Should bind without error
         inspect.signature(Cerebral.__init__).bind(None, **kwargs_no_pf)
 
-        # Test with prefrontal model
-        settings.memory.prefrontal.model = "anthropic/claude-sonnet-4-5"
+        # Test with prefrontal recall model
+        settings.memory.prefrontal.recall.model = "anthropic/claude-sonnet-4-5"
         settings.llm.anthropic_api_key = SecretStr("sk-ant")
         kwargs_with_pf = self._capture_cerebral_kwargs(monkeypatch, settings)
         # Should bind without error
@@ -646,7 +646,7 @@ class TestConsolidationConfig:
         from codespy.config_memory import CerebralConfig
 
         cfg = CerebralConfig().consolidation
-        assert cfg.model is None
+        assert cfg.model == "bedrock/converse/nvidia.nemotron-super-3-120b"
         assert cfg.max_observations_per_scope == 100  # default
 
     def test_env_mapping(self, monkeypatch):
@@ -700,7 +700,7 @@ class TestRecallConfig:
         from codespy.config_memory import RecallConfig
 
         cfg = RecallConfig()
-        assert cfg.model is None
+        assert cfg.model == "bedrock/converse/nvidia.nemotron-super-3-120b"
         assert cfg.reach == "org"
         assert cfg.max_tokens == 8192
         assert cfg.max_tool_tokens == 2048
@@ -757,7 +757,7 @@ class TestMentalModelsConfig:
         from codespy.config_memory import CerebralConfig
 
         cfg = CerebralConfig().mental_models
-        assert cfg.model is None
+        assert cfg.model == "bedrock/converse/nvidia.nemotron-super-3-120b"
         assert cfg.max_tokens == 2048
         assert cfg.min_refresh_seconds == 0
 

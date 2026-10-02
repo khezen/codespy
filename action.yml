@@ -12,11 +12,11 @@ inputs:
     default: ${{ github.token }}
   
   model:
-    description: 'Default LLM model to use (e.g., anthropic/claude-sonnet-4-5-20250929, openai/gpt-5, bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0)'
-    required: true
+    description: 'Default LLM model to use (e.g., anthropic/claude-sonnet-4-5-20250929, openai/gpt-5, bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0). Affects units without a model pin. Default from codespy.yaml: bedrock/converse/nvidia.nemotron-nano-3-30b'
+    required: false
   
   extraction-model:
-    description: 'Model for field extraction (smaller model recommended)'
+    description: 'Model for field extraction (smaller model recommended). Default from codespy.yaml: bedrock/converse/nvidia.nemotron-nano-3-30b'
     required: false
   
   pr-url:
@@ -30,9 +30,8 @@ inputs:
     default: 'true'
   
   output-format:
-    description: 'Output format: markdown or json'
+    description: 'Output format: markdown or json. Note: issue count parsing only understands markdown. Default from codespy.yaml: markdown'
     required: false
-    default: 'markdown'
   
   # LLM Provider API Keys
   anthropic-api-key:
@@ -51,405 +50,450 @@ inputs:
   aws-access-key-id:
     description: 'AWS Access Key ID (for Bedrock models)'
     required: false
-  
+
   aws-secret-access-key:
     description: 'AWS Secret Access Key (for Bedrock models)'
     required: false
-  
+
   aws-region:
-    description: 'AWS Region (for Bedrock models)'
+    description: 'AWS Region (for Bedrock models). Default from codespy.yaml: us-east-1'
     required: false
-    default: 'us-east-1'
-  
+
   # Global defaults
   default-max-iters:
-    description: 'Default maximum iterations for all signatures'
+    description: 'Default maximum iterations for all signatures. Default from codespy.yaml: 5'
     required: false
-    default: '5'
-  
+
   default-reasoning-effort:
-    description: 'Default reasoning effort for all signatures (minimal|low|medium|high)'
+    description: 'Default reasoning effort for all signatures (minimal|low|medium|high). Default from codespy.yaml: medium'
     required: false
-    default: 'medium'
-  
+
   default-temperature:
-    description: 'Default temperature for LLM calls'
+    description: 'Default temperature for LLM calls. Default from codespy.yaml: 1.0'
     required: false
-    default: '0.2'
 
   default-max-tokens:
-    description: 'Output token budget per completion (reasoning tokens included). Clamped to model ceiling.'
+    description: 'Output token budget per completion (reasoning tokens included). Clamped to model ceiling. Default from codespy.yaml: 32000'
     required: false
-    default: '32000'
 
   llm-retries:
-    description: 'Number of retries for LLM API calls'
+    description: 'Number of retries for LLM API calls. Default from codespy.yaml: 2'
     required: false
-    default: '2'
-  
+
   llm-timeout:
-    description: 'Timeout in seconds for LLM calls'
+    description: 'Timeout in seconds for LLM calls. Default from codespy.yaml: 240'
     required: false
-    default: '120'
-  
+
   default-max-llm-calls:
-    description: 'Maximum LLM calls for RLM fallback (context overflow recovery)'
+    description: 'Maximum LLM calls for RLM fallback (context overflow recovery). Default from codespy.yaml: 8'
     required: false
-    default: '8'
 
   # RLM fallback (context rot prevention)
   rlm-fallback-enabled:
-    description: 'Enable proactive RLM fallback before context window overflow'
+    description: 'Enable proactive RLM fallback before context window overflow. Default from codespy.yaml: true'
     required: false
-    default: 'true'
 
   rlm-fallback-react-threshold:
-    description: 'Context ratio for ReAct modules (0.0-1.0). RLM used when input exceeds this ratio of max_input_tokens.'
+    description: 'Context ratio for ReAct modules (0.0-1.0). RLM used when input exceeds this ratio of max_input_tokens. Default from codespy.yaml: 0.30'
     required: false
-    default: '0.30'
 
   rlm-fallback-chain-of-thought-threshold:
-    description: 'Context ratio for ChainOfThought modules (0.0-1.0). RLM used when input exceeds this ratio.'
+    description: 'Context ratio for ChainOfThought modules (0.0-1.0). RLM used when input exceeds this ratio. Default from codespy.yaml: 0.40'
     required: false
-    default: '0.40'
 
   rlm-fallback-predict-threshold:
-    description: 'Context ratio for Predict modules (0.0-1.0). RLM used when input exceeds this ratio.'
+    description: 'Context ratio for Predict modules (0.0-1.0). RLM used when input exceeds this ratio. Default from codespy.yaml: 0.50'
     required: false
-    default: '0.50'
 
   min-confidence:
-    description: 'Minimum confidence threshold (0.0-1.0) for reported issues'
+    description: 'Minimum confidence threshold (0.0-1.0) for reported issues. Default from codespy.yaml: 0.81'
     required: false
-    default: '0.81'
 
   # ==========================================
   # SIGNATURE: scope
   # ==========================================
   scope-enabled:
-    description: 'Enable scope identification signature'
+    description: 'Enable scope identification signature. Default from codespy.yaml: true'
     required: false
-    default: 'true'
-  
+
   scope-model:
-    description: 'Model for scope identification (empty = use default)'
+    description: 'Model for scope identification (empty = use default). Default from codespy.yaml: bedrock/converse/global.anthropic.claude-opus-5-5'
     required: false
-  
+
   scope-max-iters:
-    description: 'Max iterations for scope identification'
+    description: 'Max iterations for scope identification. Default from codespy.yaml: 3'
     required: false
 
   scope-max-llm-calls:
-    description: 'Max LLM calls for scope RLM fallback'
+    description: 'Max LLM calls for scope RLM fallback. Default from codespy.yaml: 5'
+    required: false
+
+  scope-max-tokens:
+    description: 'Max tokens for scope identification. Default from codespy.yaml: default-max-tokens'
     required: false
 
   scope-reasoning-effort:
-    description: 'Reasoning effort for scope (minimal|low|medium|high)'
+    description: 'Reasoning effort for scope (minimal|low|medium|high). Default from codespy.yaml: medium'
     required: false
-  
+
+  scope-skip-refinement-when-clean:
+    description: 'Skip LLM refinement when deterministic resolution is clean. Default from codespy.yaml: true'
+    required: false
+
   scope-temperature:
-    description: 'Temperature for scope identification'
+    description: 'Temperature for scope identification. Default from codespy.yaml: 1.0'
     required: false
-  
+
+  scope-memory-enabled:
+    description: 'Enable memory for scope identification (overrides global memory-enabled). Default from codespy.yaml: null (use global)'
+    required: false
+
   # ==========================================
   # SIGNATURE: code_review
   # ==========================================
   code-review-enabled:
-    description: 'Enable code review signature (bugs, security vulnerabilities, code smells)'
+    description: 'Enable code review signature (bugs, security vulnerabilities, code smells). Default from codespy.yaml: true'
     required: false
-    default: 'true'
-  
+
   code-review-model:
-    description: 'Model for code review (empty = use default)'
+    description: 'Model for code review (empty = use default). Default from codespy.yaml: bedrock/converse/global.anthropic.claude-opus-5-5'
     required: false
-  
+
   code-review-max-iters:
-    description: 'Max iterations for code review'
+    description: 'Max iterations for code review. Default from codespy.yaml: 5'
     required: false
 
   code-review-max-llm-calls:
-    description: 'Max LLM calls for code review RLM fallback'
+    description: 'Max LLM calls for code review RLM fallback. Default from codespy.yaml: 8'
+    required: false
+
+  code-review-max-tokens:
+    description: 'Max tokens for code review. Default from codespy.yaml: default-max-tokens'
     required: false
 
   code-review-reasoning-effort:
-    description: 'Reasoning effort for code review (minimal|low|medium|high)'
+    description: 'Reasoning effort for code review (minimal|low|medium|high). Default from codespy.yaml: medium'
     required: false
-  
+
   code-review-temperature:
-    description: 'Temperature for code review'
+    description: 'Temperature for code review. Default from codespy.yaml: 1.0'
     required: false
-  
+
+  code-review-memory-enabled:
+    description: 'Enable memory for code review (overrides global memory-enabled). Default from codespy.yaml: null (use global)'
+    required: false
+
   # ==========================================
   # SIGNATURE: doc
   # ==========================================
   doc-enabled:
-    description: 'Enable documentation review signature (stale/wrong documentation)'
+    description: 'Enable documentation review signature (stale/wrong documentation). Default from codespy.yaml: true'
     required: false
-    default: 'true'
-  
+
   doc-model:
-    description: 'Model for doc review (empty = use default)'
+    description: 'Model for doc review (empty = use default). Default from codespy.yaml: bedrock/converse/global.anthropic.claude-opus-5-5'
     required: false
 
   doc-max-iters:
-    description: 'Max iterations for doc review'
+    description: 'Max iterations for doc review. Default from codespy.yaml: 2'
     required: false
 
   doc-max-llm-calls:
-    description: 'Max LLM calls for doc review RLM fallback'
+    description: 'Max LLM calls for doc review RLM fallback. Default from codespy.yaml: 4'
+    required: false
+
+  doc-max-tokens:
+    description: 'Max tokens for doc review. Default from codespy.yaml: default-max-tokens'
     required: false
 
   doc-reasoning-effort:
-    description: 'Reasoning effort for doc (minimal|low|medium|high)'
+    description: 'Reasoning effort for doc (minimal|low|medium|high). Default from codespy.yaml: medium'
     required: false
-  
+
   doc-temperature:
-    description: 'Temperature for doc review'
+    description: 'Temperature for doc review. Default from codespy.yaml: 1.0'
     required: false
-  
+
+  doc-memory-enabled:
+    description: 'Enable memory for doc review (overrides global memory-enabled). Default from codespy.yaml: null (use global)'
+    required: false
+
   # ==========================================
   # SIGNATURE: supply_chain
   # ==========================================
   supply-chain-enabled:
-    description: 'Enable supply chain security signature'
+    description: 'Enable supply chain security signature. Default from codespy.yaml: true'
     required: false
-    default: 'true'
-  
+
   supply-chain-model:
-    description: 'Model for supply chain security (empty = use default)'
+    description: 'Model for supply chain security (empty = use default). Default from codespy.yaml: bedrock/converse/nvidia.nemotron-super-3-120b'
     required: false
-  
+
   supply-chain-max-iters:
-    description: 'Max iterations for supply chain security'
+    description: 'Max iterations for supply chain security. Default from codespy.yaml: null (use default-max-iters)'
     required: false
 
   supply-chain-max-llm-calls:
-    description: 'Max LLM calls for supply chain RLM fallback'
+    description: 'Max LLM calls for supply chain RLM fallback. Default from codespy.yaml: null (use default-max-llm-calls)'
+    required: false
+
+  supply-chain-max-tokens:
+    description: 'Max tokens for supply chain. Default from codespy.yaml: default-max-tokens'
     required: false
 
   supply-chain-reasoning-effort:
-    description: 'Reasoning effort for supply chain (minimal|low|medium|high)'
+    description: 'Reasoning effort for supply chain (minimal|low|medium|high). Default from codespy.yaml: medium'
     required: false
-  
+
   supply-chain-temperature:
-    description: 'Temperature for supply chain security'
+    description: 'Temperature for supply chain security. Default from codespy.yaml: 1.0'
     required: false
-  
+
   supply-chain-scan-unchanged:
-    description: 'Scan all artifacts/manifests even if not modified in the PR (default: only scan changed)'
+    description: 'Scan all artifacts/manifests even if not modified in the PR (default: only scan changed). Default from codespy.yaml: false'
     required: false
-    default: 'false'
-  
+
+  supply-chain-memory-enabled:
+    description: 'Enable memory for supply chain (overrides global memory-enabled). Default from codespy.yaml: null (use global)'
+    required: false
+
   # ==========================================
   # SIGNATURE: summary
   # ==========================================
   summary-enabled:
-    description: 'Enable PR summary signature'
+    description: 'Enable PR summary signature. Default from codespy.yaml: true'
     required: false
-    default: 'true'
 
   summary-max-iters:
-    description: 'Max iterations for summary'
+    description: 'Max iterations for summary. Default from codespy.yaml: 1'
     required: false
 
   summary-model:
-    description: 'Model for summary (empty = use default)'
+    description: 'Model for summary (empty = use default). Default from codespy.yaml: bedrock/converse/nvidia.nemotron-super-3-120b'
     required: false
 
   summary-max-llm-calls:
-    description: 'Max LLM calls for summary RLM fallback'
+    description: 'Max LLM calls for summary RLM fallback. Default from codespy.yaml: 2'
+    required: false
+
+  summary-max-tokens:
+    description: 'Max tokens for summary. Default from codespy.yaml: default-max-tokens'
     required: false
 
   summary-reasoning-effort:
-    description: 'Reasoning effort for summary (minimal|low|medium|high)'
+    description: 'Reasoning effort for summary (minimal|low|medium|high). Default from codespy.yaml: medium'
     required: false
 
   summary-temperature:
-    description: 'Temperature for summary'
+    description: 'Temperature for summary. Default from codespy.yaml: 1.0'
+    required: false
+
+  summary-memory-enabled:
+    description: 'Enable memory for summary (overrides global memory-enabled). Default from codespy.yaml: null (use global)'
     required: false
 
   # ==========================================
   # SIGNATURE: audit
   # ==========================================
   audit-enabled:
-    description: 'Enable audit signature (quality assessment + recommendation)'
+    description: 'Enable audit signature (quality assessment + recommendation). Default from codespy.yaml: true'
     required: false
-    default: 'true'
 
   audit-model:
-    description: 'Model for audit (empty = use default)'
+    description: 'Model for audit (empty = use default). Default from codespy.yaml: bedrock/converse/global.anthropic.claude-opus-5-5'
     required: false
 
   audit-max-iters:
-    description: 'Max iterations for audit'
+    description: 'Max iterations for audit. Default from codespy.yaml: 1'
     required: false
 
   audit-max-llm-calls:
-    description: 'Max LLM calls for audit RLM fallback'
+    description: 'Max LLM calls for audit RLM fallback. Default from codespy.yaml: 2'
+    required: false
+
+  audit-max-tokens:
+    description: 'Max tokens for audit. Default from codespy.yaml: default-max-tokens'
     required: false
 
   audit-reasoning-effort:
-    description: 'Reasoning effort for audit (minimal|low|medium|high)'
+    description: 'Reasoning effort for audit (minimal|low|medium|high). Default from codespy.yaml: medium'
     required: false
 
   audit-temperature:
-    description: 'Temperature for audit'
+    description: 'Temperature for audit. Default from codespy.yaml: 1.0'
+    required: false
+
+  audit-memory-enabled:
+    description: 'Enable memory for audit (overrides global memory-enabled). Default from codespy.yaml: null (use global)'
     required: false
 
   # ==========================================
   # MEMORY (Hippocampus)
   # ==========================================
   memory-enabled:
-    description: 'Enable memory (Hippocampus) globally for cross-run learning (default: false)'
+    description: 'Enable memory (Hippocampus) globally for cross-run learning. Default from codespy.yaml: false'
     required: false
-    default: 'false'
 
   memory-postgres-host:
     description: 'PostgreSQL host for memory storage (e.g., rds-host.amazonaws.com). When unset, pg0-embedded auto-starts.'
     required: false
+
   memory-postgres-port:
-    description: 'PostgreSQL port (default: 5432)'
+    description: 'PostgreSQL port. Default from codespy.yaml: 5432'
     required: false
-    default: '5432'
+
   memory-postgres-user:
-    description: 'PostgreSQL user (default: postgres)'
+    description: 'PostgreSQL user (falls back to postgres if unset)'
     required: false
+
   memory-postgres-password:
     description: 'PostgreSQL password'
     required: false
+
   memory-postgres-database:
-    description: 'PostgreSQL database name (default: codespy)'
+    description: 'PostgreSQL database name. Default from codespy.yaml: codespy'
     required: false
-    default: 'codespy'
+
   memory-postgres-schema:
-    description: 'PostgreSQL schema / search_path (default: episodic)'
+    description: 'PostgreSQL schema / search_path. Default from codespy.yaml: episodic'
     required: false
-    default: 'episodic'
 
   memory-bank-id:
-    description: 'Bank ID scoping all memory data (e.g., project name or agent name). Defaults to "codespy".'
+    description: 'Bank ID scoping all memory data (e.g., project name or agent name). Default from codespy.yaml: codespy'
+    required: false
+
+  memory-compact-trajectory:
+    description: 'Apply head+tail trajectory bounding before distillation. Default from codespy.yaml: true'
+    required: false
+
+  memory-max-hippocampus-tokens:
+    description: 'Ceiling on persisted context memory. Default from codespy.yaml: 16384'
+    required: false
+
+  memory-max-hippocampus-item-tokens:
+    description: 'Soft per-observation token limit. Default from codespy.yaml: 512'
+    required: false
+
+  memory-max-trajectory-tokens:
+    description: 'Cap on trajectory fed to Distiller. Default from codespy.yaml: 16384'
+    required: false
+
+  memory-max-question-tokens:
+    description: 'Cap on serialized inputs as reflection question. Default from codespy.yaml: 8192'
     required: false
 
   memory-distiller-model:
-    description: 'Model for the Distiller reflection module (smaller model recommended)'
+    description: 'Model for the Distiller reflection module. Default from codespy.yaml: bedrock/converse/nvidia.nemotron-super-3-120b'
     required: false
 
   memory-distiller-reasoning-effort:
-    description: 'Reasoning effort for Distiller (minimal|low|medium|high)'
+    description: 'Reasoning effort for Distiller (minimal|low|medium|high). Default from codespy.yaml: medium'
     required: false
 
   memory-distiller-temperature:
-    description: 'Temperature for Distiller'
+    description: 'Temperature for Distiller. Default from codespy.yaml: 1.0'
+    required: false
+
+  memory-distiller-max-tokens:
+    description: 'Max tokens for Distiller. Default from codespy.yaml: default-max-tokens'
     required: false
 
   memory-distiller-max-iters:
-    description: 'Max RLM iterations for Distiller (default: 1)'
+    description: 'Max RLM iterations for Distiller. Default from codespy.yaml: 1'
     required: false
 
   memory-distiller-max-llm-calls:
-    description: 'Max RLM LLM calls for Distiller (default: 2)'
+    description: 'Max RLM LLM calls for Distiller. Default from codespy.yaml: 2'
     required: false
 
   memory-cartographer-model:
-    description: 'Model for the Cartographer reflection module (smaller model recommended)'
+    description: 'Model for the Cartographer reflection module. Default from codespy.yaml: bedrock/converse/nvidia.nemotron-super-3-120b'
     required: false
 
   memory-cartographer-reasoning-effort:
-    description: 'Reasoning effort for Cartographer (minimal|low|medium|high)'
+    description: 'Reasoning effort for Cartographer (minimal|low|medium|high). Default from codespy.yaml: medium'
     required: false
 
   memory-cartographer-temperature:
-    description: 'Temperature for Cartographer'
+    description: 'Temperature for Cartographer. Default from codespy.yaml: 1.0'
+    required: false
+
+  memory-cartographer-max-tokens:
+    description: 'Max tokens for Cartographer. Default from codespy.yaml: default-max-tokens'
     required: false
 
   memory-cartographer-max-iters:
-    description: 'Max RLM iterations for Cartographer (default: 1)'
+    description: 'Max RLM iterations for Cartographer. Default from codespy.yaml: 1'
     required: false
 
   memory-cartographer-max-llm-calls:
-    description: 'Max RLM LLM calls for Cartographer (default: 2)'
+    description: 'Max RLM LLM calls for Cartographer. Default from codespy.yaml: 2'
     required: false
 
   # ==========================================
   # MEMORY (Cerebral — semantic memory)
   # ==========================================
   memory-retain-model:
-    description: 'Model for Cerebral fact extraction (falls back to model / DEFAULT_MODEL)'
-    required: false
-
-  memory-consolidation-model:
-    description: 'Model for Cerebral consolidation (falls back to memory-retain-model / model)'
-    required: false
-
-  memory-consolidation-max-observations-per-scope:
-    description: 'Per-scope observation cap (-1 = unlimited, 0 = no new observations)'
-    required: false
-    default: '100'
-
-  memory-mental-models-model:
-    description: 'Model for mental-model briefing refresh (falls back to memory-prefrontal-model / memory-retain-model / model)'
-    required: false
-
-  memory-recall-model:
-    description: 'Model for Prefrontal recall and briefing fallback (falls back to memory-retain-model / model)'
-    required: false
-
-  memory-recall-reach:
-    description: 'Recall reach: local (this repo only), org (same owner), or bank (all repos)'
-    required: false
-    default: 'org'
-
-  memory-recall-max-tokens:
-    description: 'Pre-call context token budget'
-    required: false
-    default: '8192'
-
-  memory-recall-max-tool-tokens:
-    description: 'Recall memory tool result token budget'
-    required: false
-    default: '2048'
-
-  memory-recall-max-tool-calls:
-    description: 'Recall memory tool calls per agent (0 = tool off)'
-    required: false
-    default: '0'
-
-  memory-prefrontal-model:
-    description: 'DEPRECATED: Use memory-recall-model instead'
-    required: false
-
-  memory-embeddings-model:
-    description: 'litellm embedding model for Cerebral (auto-derived from the provider when unset)'
+    description: 'Model for Cerebral fact extraction. Default from codespy.yaml: bedrock/converse/nvidia.nemotron-super-3-120b'
     required: false
 
   memory-retain-chunk-size:
-    description: 'Chars per Cerebral fact-extraction chunk (default: 12288, must be < 64000)'
+    description: 'Chars per Cerebral fact-extraction chunk (must be < 64000). Default from codespy.yaml: 12288'
     required: false
 
-  # Per-signature memory overrides
-  scope-memory-enabled:
-    description: 'Enable memory for scope identification (overrides global memory-enabled)'
+  memory-consolidation-model:
+    description: 'Model for Cerebral consolidation. Default from codespy.yaml: bedrock/converse/nvidia.nemotron-super-3-120b'
     required: false
 
-  code-review-memory-enabled:
-    description: 'Enable memory for code review (overrides global memory-enabled)'
+  memory-consolidation-max-observations-per-scope:
+    description: 'Per-scope observation cap (-1 = unlimited, 0 = no new observations). Default from codespy.yaml: 100'
     required: false
 
-  doc-memory-enabled:
-    description: 'Enable memory for doc review (overrides global memory-enabled)'
+  memory-mental-models-model:
+    description: 'Model for mental-model briefing refresh. Default from codespy.yaml: bedrock/converse/nvidia.nemotron-super-3-120b'
     required: false
 
-  supply-chain-memory-enabled:
-    description: 'Enable memory for supply chain (overrides global memory-enabled)'
+  memory-mental-models-max-tokens:
+    description: 'Briefing size. Default from codespy.yaml: 2048'
     required: false
 
-  summary-memory-enabled:
-    description: 'Enable memory for summary (overrides global memory-enabled)'
+  memory-mental-models-min-refresh-seconds:
+    description: 'Minimum seconds between automatic briefing refreshes. Default from codespy.yaml: 0'
     required: false
 
-  audit-memory-enabled:
-    description: 'Enable memory for audit (overrides global memory-enabled)'
+  memory-recall-model:
+    description: 'Model for Prefrontal recall and briefing fallback. Default from codespy.yaml: bedrock/converse/nvidia.nemotron-super-3-120b'
     required: false
+
+  memory-recall-reach:
+    description: 'Recall reach: local (this repo only), org (same owner), or bank (all repos). Default from codespy.yaml: org'
+    required: false
+
+  memory-recall-max-tokens:
+    description: 'Pre-call context token budget. Default from codespy.yaml: 8192'
+    required: false
+
+  memory-recall-max-tool-tokens:
+    description: 'Recall memory tool result token budget. Default from codespy.yaml: 2048'
+    required: false
+
+  memory-recall-max-tool-calls:
+    description: 'Recall memory tool calls per agent (0 = tool off). Default from codespy.yaml: 0'
+    required: false
+
+  memory-prefrontal-reflects:
+    description: 'Reflect iterations for recall and briefings (0 = raw-fact recall, no LLM, no briefings). Default from codespy.yaml: 3'
+    required: false
+
+  memory-embeddings-model:
+    description: 'litellm embedding model for Cerebral. Default from codespy.yaml: bedrock/cohere.embed-v4:0'
+    required: false
+
+  memory-embeddings-max-input-chars:
+    description: 'Maximum characters per embedding input (null=auto per model, 0=off). Default from codespy.yaml: null (auto)'
+    required: false
+
+  # Per-signature memory overrides (already defined above)
 
   excluded-directories:
     description: 'JSON array of directories to exclude from review (e.g., ["vendor", "dist"])'
@@ -537,8 +581,10 @@ runs:
         REVIEW_SCOPE_MODEL: ${{ inputs.scope-model }}
         REVIEW_SCOPE_MAX_ITERS: ${{ inputs.scope-max-iters }}
         REVIEW_SCOPE_MAX_LLM_CALLS: ${{ inputs.scope-max-llm-calls }}
+        REVIEW_SCOPE_MAX_TOKENS: ${{ inputs.scope-max-tokens }}
         REVIEW_SCOPE_REASONING_EFFORT: ${{ inputs.scope-reasoning-effort }}
         REVIEW_SCOPE_TEMPERATURE: ${{ inputs.scope-temperature }}
+        REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN: ${{ inputs.scope-skip-refinement-when-clean }}
         REVIEW_SCOPE_MEMORY_ENABLED: ${{ inputs.scope-memory-enabled }}
 
         # Code review signature
@@ -587,8 +633,7 @@ runs:
         REVIEW_AUDIT_TEMPERATURE: ${{ inputs.audit-temperature }}
         REVIEW_AUDIT_MEMORY_ENABLED: ${{ inputs.audit-memory-enabled }}
 
-        # Output settings
-        REVIEW_OUTPUT_FORMAT: ${{ inputs.output-format }}
+        # Output settings (REVIEW_OUTPUT_FORMAT removed - only via CLI flag)
 
         # Memory (Hippocampus)
         MEMORY_ENABLED: ${{ inputs.memory-enabled }}
@@ -612,7 +657,17 @@ runs:
         MEMORY_RETAIN_MODEL: ${{ inputs.memory-retain-model }}
         MEMORY_CONSOLIDATION_MODEL: ${{ inputs.memory-consolidation-model }}
         MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE: ${{ inputs.memory-consolidation-max-observations-per-scope }}
+        MEMORY_COMPACT_TRAJECTORY: ${{ inputs.memory-compact-trajectory }}
+        MEMORY_MAX_HIPPOCAMPUS_TOKENS: ${{ inputs.memory-max-hippocampus-tokens }}
+        MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS: ${{ inputs.memory-max-hippocampus-item-tokens }}
+        MEMORY_MAX_TRAJECTORY_TOKENS: ${{ inputs.memory-max-trajectory-tokens }}
+        MEMORY_MAX_QUESTION_TOKENS: ${{ inputs.memory-max-question-tokens }}
+        MEMORY_DISTILLER_MAX_TOKENS: ${{ inputs.memory-distiller-max-tokens }}
+        MEMORY_CARTOGRAPHER_MAX_TOKENS: ${{ inputs.memory-cartographer-max-tokens }}
         MEMORY_MENTAL_MODELS_MODEL: ${{ inputs.memory-mental-models-model }}
+        MEMORY_MENTAL_MODELS_MAX_TOKENS: ${{ inputs.memory-mental-models-max-tokens }}
+        MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS: ${{ inputs.memory-mental-models-min-refresh-seconds }}
+        MEMORY_EMBEDDINGS_MAX_INPUT_CHARS: ${{ inputs.memory-embeddings-max-input-chars }}
         MEMORY_PREFRONTAL_REFLECTS: ${{ inputs.memory-prefrontal-reflects }}
         MEMORY_RECALL_MODEL: ${{ inputs.memory-recall-model }}
         MEMORY_RECALL_REACH: ${{ inputs.memory-recall-reach }}
@@ -621,12 +676,6 @@ runs:
         MEMORY_RECALL_MAX_TOOL_CALLS: ${{ inputs.memory-recall-max-tool-calls }}
         MEMORY_EMBEDDINGS_MODEL: ${{ inputs.memory-embeddings-model }}
         MEMORY_RETAIN_CHUNK_SIZE: ${{ inputs.memory-retain-chunk-size }}
-        SCOPE_MEMORY_ENABLED: ${{ inputs.scope-memory-enabled }}
-        CODE_REVIEW_MEMORY_ENABLED: ${{ inputs.code-review-memory-enabled }}
-        DOC_MEMORY_ENABLED: ${{ inputs.doc-memory-enabled }}
-        SUPPLY_CHAIN_MEMORY_ENABLED: ${{ inputs.supply-chain-memory-enabled }}
-        SUMMARY_MEMORY_ENABLED: ${{ inputs.summary-memory-enabled }}
-        AUDIT_MEMORY_ENABLED: ${{ inputs.audit-memory-enabled }}
       run: |
         set -eo pipefail
         
@@ -634,14 +683,16 @@ runs:
         DOCKER_ARGS="--rm --network host"
         
         # Core settings
-        DOCKER_ARGS="$DOCKER_ARGS -e GITHUB_TOKEN -e DEFAULT_MODEL -e OUTPUT_FORMAT"
+        DOCKER_ARGS="$DOCKER_ARGS -e GITHUB_TOKEN"
+        [ -n "$DEFAULT_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MODEL"
         [ -n "$EXTRACTION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e EXTRACTION_MODEL"
         
         # Add optional API keys if provided
         [ -n "$ANTHROPIC_API_KEY" ] && DOCKER_ARGS="$DOCKER_ARGS -e ANTHROPIC_API_KEY"
         [ -n "$OPENAI_API_KEY" ] && DOCKER_ARGS="$DOCKER_ARGS -e OPENAI_API_KEY"
         [ -n "$GEMINI_API_KEY" ] && DOCKER_ARGS="$DOCKER_ARGS -e GEMINI_API_KEY"
-        [ -n "$AWS_ACCESS_KEY_ID" ] && DOCKER_ARGS="$DOCKER_ARGS -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_REGION"
+        [ -n "$AWS_ACCESS_KEY_ID" ] && DOCKER_ARGS="$DOCKER_ARGS -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY"
+        [ -n "$AWS_REGION" ] && DOCKER_ARGS="$DOCKER_ARGS -e AWS_REGION"
         
         # Global defaults
         [ -n "$DEFAULT_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_ITERS"
@@ -665,8 +716,10 @@ runs:
         [ -n "$REVIEW_SCOPE_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_MODEL"
         [ -n "$REVIEW_SCOPE_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_MAX_ITERS"
         [ -n "$REVIEW_SCOPE_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_MAX_LLM_CALLS"
+        [ -n "$REVIEW_SCOPE_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_MAX_TOKENS"
         [ -n "$REVIEW_SCOPE_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_REASONING_EFFORT"
         [ -n "$REVIEW_SCOPE_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_TEMPERATURE"
+        [ -n "$REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN"
         [ -n "$REVIEW_SCOPE_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_MEMORY_ENABLED"
 
         # Code review
@@ -677,6 +730,18 @@ runs:
         [ -n "$REVIEW_CODE_REVIEW_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_REASONING_EFFORT"
         [ -n "$REVIEW_CODE_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_TEMPERATURE"
         [ -n "$REVIEW_CODE_REVIEW_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_MEMORY_ENABLED"
+
+        # Per-signature max_tokens
+        [ -n "$REVIEW_SCOPE_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_MAX_TOKENS"
+        [ -n "$REVIEW_CODE_REVIEW_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_MAX_TOKENS"
+        [ -n "$REVIEW_DOC_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_DOC_MAX_TOKENS"
+        [ -n "$REVIEW_SUPPLY_CHAIN_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUPPLY_CHAIN_MAX_TOKENS"
+        [ -n "$REVIEW_SUMMARY_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUMMARY_MAX_TOKENS"
+        [ -n "$REVIEW_AUDIT_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_AUDIT_MAX_TOKENS"
+
+        # Memory module max_tokens
+        [ -n "$MEMORY_DISTILLER_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MAX_TOKENS"
+        [ -n "$MEMORY_CARTOGRAPHER_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MAX_TOKENS"
 
         # Doc review
         [ -n "$REVIEW_DOC_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_DOC_ENABLED"
@@ -715,8 +780,7 @@ runs:
         [ -n "$REVIEW_AUDIT_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_AUDIT_TEMPERATURE"
         [ -n "$REVIEW_AUDIT_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_AUDIT_MEMORY_ENABLED"
 
-        # Output settings
-        [ -n "$REVIEW_OUTPUT_FORMAT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_OUTPUT_FORMAT"
+        # Output settings (REVIEW_OUTPUT_FORMAT removed - only via CLI flag)
 
         # Memory (Hippocampus)
         [ -n "$MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_ENABLED"
@@ -740,7 +804,17 @@ runs:
         [ -n "$MEMORY_RETAIN_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RETAIN_MODEL"
         [ -n "$MEMORY_CONSOLIDATION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CONSOLIDATION_MODEL"
         [ -n "$MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE"
+        [ -n "$MEMORY_COMPACT_TRAJECTORY" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_COMPACT_TRAJECTORY"
+        [ -n "$MEMORY_MAX_HIPPOCAMPUS_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MAX_HIPPOCAMPUS_TOKENS"
+        [ -n "$MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS"
+        [ -n "$MEMORY_MAX_TRAJECTORY_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MAX_TRAJECTORY_TOKENS"
+        [ -n "$MEMORY_MAX_QUESTION_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MAX_QUESTION_TOKENS"
+        [ -n "$MEMORY_DISTILLER_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MAX_TOKENS"
+        [ -n "$MEMORY_CARTOGRAPHER_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MAX_TOKENS"
         [ -n "$MEMORY_MENTAL_MODELS_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MENTAL_MODELS_MODEL"
+        [ -n "$MEMORY_MENTAL_MODELS_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MENTAL_MODELS_MAX_TOKENS"
+        [ -n "$MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS"
+        [ -n "$MEMORY_EMBEDDINGS_MAX_INPUT_CHARS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_EMBEDDINGS_MAX_INPUT_CHARS"
         [ -n "$MEMORY_PREFRONTAL_REFLECTS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_PREFRONTAL_REFLECTS"
         [ -n "$MEMORY_RECALL_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RECALL_MODEL"
         [ -n "$MEMORY_RECALL_REACH" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RECALL_REACH"
@@ -749,12 +823,6 @@ runs:
         [ -n "$MEMORY_RECALL_MAX_TOOL_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RECALL_MAX_TOOL_CALLS"
         [ -n "$MEMORY_EMBEDDINGS_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_EMBEDDINGS_MODEL"
         [ -n "$MEMORY_RETAIN_CHUNK_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RETAIN_CHUNK_SIZE"
-        [ -n "$SCOPE_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SCOPE_MEMORY_ENABLED"
-        [ -n "$CODE_REVIEW_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e CODE_REVIEW_MEMORY_ENABLED"
-        [ -n "$DOC_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e DOC_MEMORY_ENABLED"
-        [ -n "$SUPPLY_CHAIN_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUPPLY_CHAIN_MEMORY_ENABLED"
-        [ -n "$SUMMARY_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e SUMMARY_MEMORY_ENABLED"
-        [ -n "$AUDIT_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e AUDIT_MEMORY_ENABLED"
 
         # Build codespy command arguments
         CMD_ARGS="review ${{ steps.pr-url.outputs.url }}"

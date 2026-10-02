@@ -386,17 +386,16 @@ or when LLM calls exceed `reflects + 1` (unexpected split synthesis or rewrite).
 
 The RLM agents (code_review, scope, supply_chain) get
 `async recall_memory(query: str, reach: str = "local") -> str` for follow-up questions.
-A reach above the configured one is clamped; at most `max_prefrontal_tool_calls`
+A reach above the configured one is clamped; at most `memory.prefrontal.recall.max_tool_calls`
 calls per agent call (then `"recall limit reached"`); errors return `"memory unavailable"`.
 
 ### Model
 
-`memory.prefrontal.model` (env `MEMORY_PREFRONTAL_MODEL`, Action input
-`memory-prefrontal-model`) is the model Hindsight's reflect loop uses. It falls back to
+`memory.prefrontal.recall.model` (env `MEMORY_RECALL_MODEL`, Action input
+`memory-recall-model`) is the model Hindsight's reflect loop uses. It falls back to
 `memory.cerebral.retain.model`, then `llm.default_model`. It is passed to `MemoryEngine`
-as its reflect LLM, so it **also refreshes the mental models (briefings)**. It is unused
-when `reflects = 0`, and it is checked at startup only when `reflects > 0`. Retain and
-consolidation keep using the retain model.
+as its reflect LLM, so it **also refreshes the mental models (briefings)** when
+`cerebral.mental_models.model` is unset. It is unused when `reflects = 0`.
 
 ### Monitoring recalls
 
@@ -477,7 +476,7 @@ Observation capacity ≈ max_hippocampus_tokens / max_hippocampus_item_tokens (1
 
 | Env Var | YAML Path | Default | Description |
 |---------|-----------|---------|-------------|
-| `MEMORY_MENTAL_MODELS_MODEL` | `memory.cerebral.mental_models.model` | `memory.prefrontal.recall.model` → `memory.cerebral.retain.model` → `llm.default_model` | Briefing refresh model; unused when reflects=0 |
+| `MEMORY_MENTAL_MODELS_MODEL` | `memory.cerebral.mental_models.model` | `bedrock/converse/nvidia.nemotron-super-3-120b` | Briefing refresh model; unused when reflects=0 |
 | `MEMORY_MENTAL_MODELS_MAX_TOKENS` | `memory.cerebral.mental_models.max_tokens` | `2048` | Briefing size |
 | `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS` | `memory.cerebral.mental_models.min_refresh_seconds` | `0` | Minimum seconds between automatic briefing refreshes (0 = refresh after every consolidation; N = at most one automatic refresh per N seconds, nothing lost thanks to delta) |
 
@@ -491,7 +490,7 @@ Observation capacity ≈ max_hippocampus_tokens / max_hippocampus_item_tokens (1
 
 | Env Var | YAML Path | Default | Description |
 |---------|-----------|---------|-------------|
-| `MEMORY_RECALL_MODEL` | `memory.prefrontal.recall.model` | `memory.cerebral.retain.model` → `llm.default_model` | Reflect loop model; also mental-model fallback when unset; unused when reflects=0 |
+| `MEMORY_RECALL_MODEL` | `memory.prefrontal.recall.model` | `bedrock/converse/nvidia.nemotron-super-3-120b` | Reflect loop model; also mental-model fallback when unset; unused when reflects=0 |
 | `MEMORY_RECALL_REACH` | `memory.prefrontal.recall.reach` | `org` | `local`, `org` or `bank` |
 | `MEMORY_RECALL_MAX_TOKENS` | `memory.prefrontal.recall.max_tokens` | `8192` | Pre-call context budget |
 | `MEMORY_RECALL_MAX_TOOL_TOKENS` | `memory.prefrontal.recall.max_tool_tokens` | `2048` | Tool result budget |

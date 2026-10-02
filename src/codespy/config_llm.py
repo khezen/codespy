@@ -277,12 +277,12 @@ class LLMConfig(BaseModel):
     azure_api_version: str | None = None
 
     # Default model settings
-    default_model: str = "anthropic/claude-opus-4-6"
-    extraction_model: str | None = None  # TwoStepAdapter extraction (falls back to default_model)
+    default_model: str = "bedrock/converse/nvidia.nemotron-nano-3-30b"
+    extraction_model: str | None = "bedrock/converse/nvidia.nemotron-nano-3-30b"  # TwoStepAdapter extraction (falls back to default_model)
     default_max_iters: int = 5
     default_max_llm_calls: int = 8
     default_reasoning_effort: ReasoningEffort = "medium"
-    default_temperature: float = 0.2
+    default_temperature: float = 1.0
     default_max_tokens: int = 32000
 
     # Global LLM reliability settings
@@ -292,40 +292,4 @@ class LLMConfig(BaseModel):
     # RLM fallback configuration
     rlm_fallback: RLMFallbackConfig = Field(default_factory=RLMFallbackConfig)
 
-    def sync_from_flat(
-        self,
-        *,
-        openai_api_key: SecretStr | None = None,
-        anthropic_api_key: SecretStr | None = None,
-        gemini_api_key: SecretStr | None = None,
-        aws_region: str | None = None,
-        aws_access_key_id: SecretStr | None = None,
-        aws_secret_access_key: SecretStr | None = None,
-    ) -> dict[str, object]:
-        """Sync flat settings into this LLMConfig and return values to propagate back.
 
-        Priority: flat fields (from env vars via pydantic-settings) > nested defaults.
-        Returns dict of field values that should be set on the parent Settings.
-        """
-        # Step 1: Flat → nested (env vars win over nested defaults)
-        if secret_value(openai_api_key):
-            self.openai_api_key = openai_api_key
-        if secret_value(anthropic_api_key):
-            self.anthropic_api_key = anthropic_api_key
-        if secret_value(gemini_api_key):
-            self.gemini_api_key = gemini_api_key
-        if aws_region:
-            self.aws_region = aws_region
-        if secret_value(aws_access_key_id):
-            self.aws_access_key_id = aws_access_key_id
-        if secret_value(aws_secret_access_key):
-            self.aws_secret_access_key = aws_secret_access_key
-
-        # Step 2: Return merged values (nested fills gaps where flat is not set)
-        return {
-            "openai_api_key": openai_api_key if secret_value(openai_api_key) else self.openai_api_key,
-            "anthropic_api_key": anthropic_api_key if secret_value(anthropic_api_key) else self.anthropic_api_key,
-            "gemini_api_key": gemini_api_key if secret_value(gemini_api_key) else self.gemini_api_key,
-            "aws_access_key_id": aws_access_key_id if secret_value(aws_access_key_id) else self.aws_access_key_id,
-            "aws_secret_access_key": aws_secret_access_key if secret_value(aws_secret_access_key) else self.aws_secret_access_key,
-        }

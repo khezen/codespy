@@ -2,7 +2,48 @@
 
 ## [Unreleased]
 
+### Fixed
+- Fixed "too many values to unpack" error in review statistics matrix (line 345 was iterating `severities` as tuples instead of enums)
+- `GITLAB_URL` from the environment was ignored — now properly takes precedence over YAML `gitlab.url`
+- Token precedence now matches documentation: env/`.env` beats YAML (`github.token` / `gitlab.token`)
+- Added missing `memory-prefrontal-reflects` action input
+- Removed action `llm-timeout` default (was `'120'`, now uses codespy.yaml's `240`)
+- Doc reviewer defaults now match codespy.yaml (`max_iters: 2`, `max_llm_calls: 4`)
+- Fixed workflow example input: `summarization-model` → `summary-model`
+
+### Added
+- New action inputs (no defaults, values taken from codespy.yaml when unset):
+  - `scope-max-tokens`, `code-review-max-tokens`, `doc-max-tokens`, `supply-chain-max-tokens`, `summary-max-tokens`, `audit-max-tokens`
+  - `memory-distiller-max-tokens`, `memory-cartographer-max-tokens`
+  - `scope-skip-refinement-when-clean`
+  - `memory-compact-trajectory`
+  - `memory-max-hippocampus-tokens`, `memory-max-hippocampus-item-tokens`, `memory-max-trajectory-tokens`, `memory-max-question-tokens`
+  - `memory-mental-models-max-tokens`, `memory-mental-models-min-refresh-seconds`
+  - `memory-embeddings-max-input-chars`
+  - `openai-api-base`, `azure-api-key`, `azure-api-base`, `azure-api-version`
+- AWS region now forwarded independently of access key (was bundled with credentials)
+
+### Changed (Breaking)
+- **New default models and temperature** — out-of-the-box codespy now requires AWS Bedrock access to Opus 5.5 and both Nemotron models:
+  - `DEFAULT_MODEL`: `bedrock/converse/nvidia.nemotron-nano-3-30b`
+  - `EXTRACTION_MODEL`: `bedrock/converse/nvidia.nemotron-nano-3-30b`
+  - `REVIEW_SCOPE_MODEL`, `REVIEW_CODE_REVIEW_MODEL`, `REVIEW_DOC_MODEL`, `REVIEW_AUDIT_MODEL`: `bedrock/converse/global.anthropic.claude-opus-5-5`
+  - `REVIEW_SUPPLY_CHAIN_MODEL`, `REVIEW_SUMMARY_MODEL`: `bedrock/converse/nvidia.nemotron-super-3-120b`
+  - `MEMORY_*_MODEL` (distiller, cartographer, retain, consolidation, mental_models, recall): `bedrock/converse/nvidia.nemotron-super-3-120b`
+  - `MEMORY_EMBEDDINGS_MODEL`: `bedrock/cohere.embed-v4:0`
+  - `DEFAULT_TEMPERATURE`: `1.0`
+- **Embeddings model v4** changes the vector dimension — requires a semantic DB reset (`DROP SCHEMA semantic CASCADE`)
+- Action `model` input is now optional (was `required: true`); when unset, codespy.yaml default applies
+- Action inputs no longer carry `default:` values; codespy.yaml applies instead
+- Setting a pinned unit to `null` (YAML `model: null` or env `VAR=null`) re-enables the fallback chain
+
+### Removed
+- Action input `memory-prefrontal-model` (was deprecated, never wired)
+- Action env vars: `SCOPE_MEMORY_ENABLED`, `CODE_REVIEW_MEMORY_ENABLED`, `DOC_MEMORY_ENABLED`, `SUPPLY_CHAIN_MEMORY_ENABLED`, `SUMMARY_MEMORY_ENABLED`, `AUDIT_MEMORY_ENABLED`, `OUTPUT_FORMAT`
+- Dead code: `Settings.sync_llm_settings()` and `LLMConfig.sync_from_flat()`
+
 ### Changed
+- **Review statistics matrix**: the GitHub/GitLab review Statistics table is now a severity × category matrix (Security, Bugs, Documentation, Smells + totals); Smells are now counted.
 - **Review is now published before the memory phase**: Episode saves, retain, consolidation and mental-model refresh run after audit. For remote reviews, the GitHub/GitLab review is posted first with "Memory: pending", then edited with full costs after the memory phase completes. Local CLI and MCP reviews run the memory phase before returning/printing. This keeps the review pipeline responsive while memory operations complete in the background.
 
 ### Added

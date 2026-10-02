@@ -84,7 +84,6 @@ _ENV_MAP = build_env_map(
         ("llm", "retries"),
         ("llm", "timeout"),
         ("memory", "prefrontal", "reflects"),
-        ("memory", "prefrontal", "recall"),
     },
 )
 
@@ -374,7 +373,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def resolve_github_token(self) -> "Settings":
-        """Auto-discover GitHub token if not explicitly set."""
+        """Auto-discover GitHub token if not explicitly set.
+
+        Precedence: flat github_token (GITHUB_TOKEN env) → flat gh_token (GH_TOKEN env)
+        → YAML github.token → auto-discovery.
+        """
 
         def is_placeholder(token: str) -> bool:
             """Check if token looks like a placeholder."""
@@ -382,35 +385,41 @@ class Settings(BaseSettings):
             token_lower = token.lower()
             return any(p in token_lower for p in placeholders)
 
-        # First check nested config
-        nested_val = secret_value(self.github.token)
-        if nested_val and not is_placeholder(nested_val):
-            self.github_token = self.github.token  # SecretStr → SecretStr
-            set_github_token_source("YAML config or GITHUB_TOKEN environment variable")
-            return self
+        def clear_placeholders():
+            """Clear any placeholder values from both fields."""
+            gh_val = secret_value(self.github_token)
+            if gh_val and is_placeholder(gh_val):
+                self.github_token = None
+            nested_val = secret_value(self.github.token)
+            if nested_val and is_placeholder(nested_val):
+                self.github.token = None
 
-        # If github_token is set and not a placeholder, use it
+        # First, clear any placeholders
+        clear_placeholders()
+
+        # Precedence 1: flat github_token (GITHUB_TOKEN env / .env)
         gh_val = secret_value(self.github_token)
-        if gh_val and not is_placeholder(gh_val):
+        if gh_val:
             self.github.token = self.github_token  # SecretStr → SecretStr
             set_github_token_source("GITHUB_TOKEN environment variable or .env file")
             return self
 
-        # If GH_TOKEN is set and not a placeholder, use it
+        # Precedence 2: flat gh_token (GH_TOKEN env)
         gh_token_val = secret_value(self.gh_token)
-        if gh_token_val and not is_placeholder(gh_token_val):
+        if gh_token_val:
             self.github_token = self.gh_token      # SecretStr → SecretStr
             self.github.token = self.gh_token
             set_github_token_source("GH_TOKEN environment variable")
             return self
 
-        # Clear placeholder if present
-        gh_val2 = secret_value(self.github_token)
-        if gh_val2 and is_placeholder(gh_val2):
-            self.github_token = None
-            self.github.token = None
+        # Precedence 3: YAML github.token (already set if present)
+        nested_val = secret_value(self.github.token)
+        if nested_val:
+            self.github_token = self.github.token  # SecretStr → SecretStr
+            set_github_token_source("YAML config (github.token)")
+            return self
 
-        # Try auto-discovery if enabled
+        # Precedence 4: auto-discovery
         auto_discover = self.github.auto_discover_token and self.github_auto_discover_token
 
         if auto_discover:
@@ -430,7 +439,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def resolve_gitlab_token(self) -> "Settings":
-        """Auto-discover GitLab token if not explicitly set."""
+        """Auto-discover GitLab token if not explicitly set.
+
+        URL precedence: GITLAB_URL env → YAML gitlab.url → default (https://gitlab.com)
+        Token precedence: GITLAB_TOKEN env → YAML gitlab.token → auto-discovery
+        """
 
         def is_placeholder(token: str) -> bool:
             """Check if token looks like a placeholder."""
@@ -438,31 +451,42 @@ class Settings(BaseSettings):
             token_lower = token.lower()
             return any(p in token_lower for p in placeholders)
 
-        # First check nested config
-        nested_val = secret_value(self.gitlab.token)
-        if nested_val and not is_placeholder(nested_val):
-            self.gitlab_token = self.gitlab.token  # SecretStr → SecretStr
-            set_gitlab_token_source("YAML config or GITLAB_TOKEN environment variable")
-            return self
+        def clear_placeholders():
+            """Clear any placeholder values from both fields."""
+            token_val = secret_value(self.gitlab_token)
+            if token_val and is_placeholder(token_val):
+                self.gitlab_token = None
+            nested_val = secret_value(self.gitlab.token)
+            if nested_val and is_placeholder(nested_val):
+                self.gitlab.token = None
 
-        # Sync URL from nested config
-        if self.gitlab.url:
+        # Clear placeholders first
+        clear_placeholders()
+
+        # URL resolution: env wins over YAML
+        # Check if GITLAB_URL came from env (via model_fields_set)
+        if "gitlab_url" in self.model_fields_set:
+            # Env var was set, keep it and sync to nested
+            self.gitlab.url = self.gitlab_url
+        else:
+            # No env var, sync from YAML to flat (YAML wins over default)
             self.gitlab_url = self.gitlab.url
 
-        # If gitlab_token is set and not a placeholder, use it
+        # Precedence 1: flat gitlab_token (GITLAB_TOKEN env / .env)
         token_val = secret_value(self.gitlab_token)
-        if token_val and not is_placeholder(token_val):
+        if token_val:
             self.gitlab.token = self.gitlab_token  # SecretStr → SecretStr
             set_gitlab_token_source("GITLAB_TOKEN environment variable or .env file")
             return self
 
-        # Clear placeholder if present
-        token_val2 = secret_value(self.gitlab_token)
-        if token_val2 and is_placeholder(token_val2):
-            self.gitlab_token = None
-            self.gitlab.token = None
+        # Precedence 2: YAML gitlab.token (already set if present)
+        nested_val = secret_value(self.gitlab.token)
+        if nested_val:
+            self.gitlab_token = self.gitlab.token  # SecretStr → SecretStr
+            set_gitlab_token_source("YAML config (gitlab.token)")
+            return self
 
-        # Try auto-discovery if enabled
+        # Precedence 3: auto-discovery
         auto_discover = self.gitlab.auto_discover_token and self.gitlab_auto_discover_token
 
         if auto_discover:
@@ -485,28 +509,6 @@ class Settings(BaseSettings):
         """Expand ~ in paths to the user's home directory."""
         self.review.cache_dir = Path(self.review.cache_dir).expanduser().resolve()
         return self
-
-    @model_validator(mode="after")
-    def sync_llm_settings(self) -> "Settings":
-        """Sync LLM settings between nested and flat fields.
-
-        Delegates to LLMConfig.sync_from_flat which enforces:
-        env vars (flat fields from pydantic-settings) > YAML/nested > defaults.
-        """
-        merged = self.llm.sync_from_flat(
-            openai_api_key=self.llm.openai_api_key,
-            anthropic_api_key=self.llm.anthropic_api_key,
-            gemini_api_key=self.llm.gemini_api_key,
-            aws_region=self.llm.aws_region,
-            aws_access_key_id=self.llm.aws_access_key_id,
-            aws_secret_access_key=self.llm.aws_secret_access_key,
-        )
-        # Propagate merged values back to llm
-        for field, value in merged.items():
-            if value is not None:
-                setattr(self.llm, field, value)
-        return self
-
 
 # Global settings instance
 settings = Settings()

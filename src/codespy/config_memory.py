@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # Default embedding model per LLM provider prefix. Used by get_cerebral()
 # when embeddings.model is None. litellm-sdk routes through litellm.
 EMBEDDING_MODELS: dict[str, str] = {
-    "bedrock": "bedrock/cohere.embed-multilingual-v3",
+    "bedrock": "bedrock/cohere.embed-v4:0",
     "openai": "openai/text-embedding-3-small",
     "anthropic": "openai/text-embedding-3-small",
     "gemini": "gemini/text-embedding-004",
@@ -57,7 +57,7 @@ class ReflectionModuleConfig(BaseModel):
     one used for code review.
     """
 
-    model: str | None = None
+    model: str | None = "bedrock/converse/nvidia.nemotron-super-3-120b"
     reasoning_effort: ReasoningEffort | None = None
     temperature: float | None = None
     max_tokens: int | None = None
@@ -78,14 +78,14 @@ class HippocampusConfig(BaseModel):
     max_question_tokens: int | None = Field(default=8192)
 
     # Reflection modules
-    distiller: ReflectionModuleConfig = Field(default_factory=ReflectionModuleConfig)
-    cartographer: ReflectionModuleConfig = Field(default_factory=ReflectionModuleConfig)
+    distiller: ReflectionModuleConfig = Field(default_factory=lambda: ReflectionModuleConfig(model="bedrock/converse/nvidia.nemotron-super-3-120b"))
+    cartographer: ReflectionModuleConfig = Field(default_factory=lambda: ReflectionModuleConfig(model="bedrock/converse/nvidia.nemotron-super-3-120b"))
 
 
 class CerebralRetainConfig(BaseModel):
     """Cerebral (semantic memory) LLM configuration for fact extraction."""
 
-    model: str | None = None  # Falls back to llm.default_model
+    model: str | None = "bedrock/converse/nvidia.nemotron-super-3-120b"  # Falls back to llm.default_model
     # Value is in chars. The merged observations blob is bounded by
     # max_hippocampus_tokens (~65K chars worst case), so large blobs split
     # into several chunks. Must be < _HINDSIGHT_RETAIN_MAX_COMPLETION_TOKENS.
@@ -99,7 +99,7 @@ class CerebralConsolidationConfig(BaseModel):
     cerebral.retain.model → llm.default_model when unset.
     """
 
-    model: str | None = None  # Falls back to cerebral.retain.model → llm.default_model
+    model: str | None = "bedrock/converse/nvidia.nemotron-super-3-120b"  # Falls back to cerebral.retain.model → llm.default_model
     # Hindsight observation_scope_limits cap. -1 = unlimited, 0 = no new observations.
     # Applied per scope as: scope=[org:*, repo:*, project_scope:*], limit=N
     max_observations_per_scope: int = Field(default=100, ge=-1)
@@ -109,14 +109,14 @@ class MentalModelsConfig(BaseModel):
     """Mental-model (briefing) refresh LLM configuration.
 
     Mental-model refresh synthesizes briefings after consolidation.
-    Falls back to prefrontal.model → cerebral.retain.model → llm.default_model
+    Falls back to prefrontal.recall.model → cerebral.retain.model → llm.default_model
     when unset. Only used when reflects > 0.
 
     Delta mode means nothing is lost - the refresh covers all new facts since
     the last successful refresh when the interval expires.
     """
 
-    model: str | None = None  # Falls back to prefrontal.model → retain → default
+    model: str | None = "bedrock/converse/nvidia.nemotron-super-3-120b"  # Falls back to prefrontal.recall.model → retain → default
     max_tokens: int = Field(default=2048, gt=0)  # Briefing size
     min_refresh_seconds: int = Field(default=0, ge=0)  # Minimum seconds between refreshes
 
@@ -124,7 +124,7 @@ class MentalModelsConfig(BaseModel):
 class CerebralEmbeddingsConfig(BaseModel):
     """Cerebral (semantic memory) embeddings configuration."""
 
-    model: str | None = None  # Auto-derived from provider if unset
+    model: str | None = "bedrock/cohere.embed-v4:0"  # Auto-derived from provider if unset
     max_input_chars: int | None = Field(
         default=None,
         ge=0,
@@ -151,7 +151,7 @@ class RecallConfig(BaseModel):
     # Model for Hindsight reflect (pre-call context and recall_memory tool).
     # Falls back to cerebral.retain.model → llm.default_model.
     # Unused when reflects=0 (no LLM at read time).
-    model: str | None = None
+    model: str | None = "bedrock/converse/nvidia.nemotron-super-3-120b"
     # local: this scope/repo only. org: also other repos of the same owner.
     # bank: every repo in the bank (crosses organisations — opt-in only).
     reach: Literal["local", "org", "bank"] = "org"

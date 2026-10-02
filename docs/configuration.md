@@ -106,10 +106,10 @@ AUTO_DISCOVER_GEMINI=false
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| Model | `DEFAULT_MODEL` | `anthropic/claude-opus-4-6` | Primary model for all signatures |
+| Model | `DEFAULT_MODEL` | `bedrock/converse/nvidia.nemotron-nano-3-30b` | Primary fallback model (most signatures have dedicated pins) |
 | Reasoning effort | `DEFAULT_REASONING_EFFORT` | `medium` | Provider reasoning budget: `minimal`, `low`, `medium`, `high` |
 | Max tokens | `DEFAULT_MAX_TOKENS` | `32000` | Output token budget per completion (reasoning tokens included) |
-| Temperature | `DEFAULT_TEMPERATURE` | `0.2` | Default temperature for LLM calls |
+| Temperature | `DEFAULT_TEMPERATURE` | `1.0` | Default temperature for LLM calls |
 | Max iterations | `DEFAULT_MAX_ITERS` | `5` | Maximum ReAct iterations for tool-using agents |
 | RLM fallback | `RLM_FALLBACK_ENABLED` | `true` | Proactive RLM fallback for context rot prevention |
 | RLM react threshold | `RLM_FALLBACK_REACT_THRESHOLD` | `0.30` | Context ratio triggering RLM for ReAct modules |
@@ -118,16 +118,20 @@ AUTO_DISCOVER_GEMINI=false
 
 ## Recommended Model Strategy
 
-| Tier | Role | Env Var | Default | Recommended |
-|------|------|---------|---------|-------------|
-| Smart | Core analysis & reasoning | `DEFAULT_MODEL` | `anthropic/claude-opus-4-6` | Claude Opus / GPT-5 |
-| Mid-tier | Field extraction | `EXTRACTION_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
-| Cheap | PR summary | `REVIEW_SUMMARY_MODEL` | Falls back to DEFAULT_MODEL | Claude Haiku |
-| Mid-tier | Memory reflection | `MEMORY_DISTILLER_MODEL` / `MEMORY_CARTOGRAPHER_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
-| Mid-tier | Semantic memory (fact extraction) | `MEMORY_RETAIN_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
-| Mid-tier | Semantic consolidation | `MEMORY_CONSOLIDATION_MODEL` | Falls back to MEMORY_RETAIN_MODEL → DEFAULT_MODEL | Claude Sonnet |
-| Mid-tier | Mental-model refresh (briefings) | `MEMORY_MENTAL_MODELS_MODEL` | Falls back to MEMORY_PREFRONTAL_MODEL → MEMORY_RETAIN_MODEL → DEFAULT_MODEL | Claude Sonnet |
-| Mid-tier | Semantic recall (reflect) | `MEMORY_RECALL_MODEL` | Falls back to MEMORY_RETAIN_MODEL → DEFAULT_MODEL | Claude Sonnet |
+All models are now pinned in `codespy.yaml`. Setting a unit to `null` (YAML `model: null` or env `VAR=null`) re-enables the fallback chain.
+
+| Tier | Role | Env Var | Default | Fallback chain |
+|------|------|---------|---------|----------------|
+| Smart | Core analysis & reasoning | `REVIEW_*_MODEL` | `bedrock/converse/global.anthropic.claude-opus-5-5` | `model` → `DEFAULT_MODEL` |
+| Mid-tier | Field extraction | `EXTRACTION_MODEL` | `bedrock/converse/nvidia.nemotron-nano-3-30b` | `DEFAULT_MODEL` |
+| Cheap | PR summary | `REVIEW_SUMMARY_MODEL` | `bedrock/converse/nvidia.nemotron-super-3-120b` | `model` → `DEFAULT_MODEL` |
+| Mid-tier | Memory reflection | `MEMORY_DISTILLER_MODEL` / `MEMORY_CARTOGRAPHER_MODEL` | `bedrock/converse/nvidia.nemotron-super-3-120b` | `model` → `DEFAULT_MODEL` |
+| Mid-tier | Semantic memory (fact extraction) | `MEMORY_RETAIN_MODEL` | `bedrock/converse/nvidia.nemotron-super-3-120b` | `DEFAULT_MODEL` |
+| Mid-tier | Semantic consolidation | `MEMORY_CONSOLIDATION_MODEL` | `bedrock/converse/nvidia.nemotron-super-3-120b` | `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` |
+| Mid-tier | Mental-model refresh (briefings) | `MEMORY_MENTAL_MODELS_MODEL` | `bedrock/converse/nvidia.nemotron-super-3-120b` | `MEMORY_RECALL_MODEL` → `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` |
+| Mid-tier | Semantic recall (reflect) | `MEMORY_RECALL_MODEL` | `bedrock/converse/nvidia.nemotron-super-3-120b` | `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` |
+
+**Precedence:** Environment variables (`.env` or shell) > `codespy.yaml` (`github.token` / `gitlab.token`) > auto-discovery.
 
 ## Per-Signature Configuration
 
@@ -176,7 +180,7 @@ Brief overview:
 |---------|---------|---------|-------------|
 | PostgreSQL host | `MEMORY_POSTGRES_HOST` | — | External PostgreSQL host |
 | PostgreSQL port | `MEMORY_POSTGRES_PORT` | `5432` | External PostgreSQL port |
-| PostgreSQL user | `MEMORY_POSTGRES_USER` | `postgres` | External PostgreSQL user |
+| PostgreSQL user | `MEMORY_POSTGRES_USER` | — (connects as `postgres`) | External PostgreSQL user |
 | PostgreSQL password | `MEMORY_POSTGRES_PASSWORD` | — | External PostgreSQL password |
 | PostgreSQL database | `MEMORY_POSTGRES_DATABASE` | `codespy` | External PostgreSQL database |
 | PostgreSQL schema | `MEMORY_POSTGRES_SCHEMA` | `episodic` | PostgreSQL schema / search_path per memory type |
@@ -203,7 +207,7 @@ LLM provider and credentials are auto-derived from the model string and existing
 | Retain Model | `MEMORY_RETAIN_MODEL` | `DEFAULT_MODEL` | Model for fact extraction |
 | Consolidation Model | `MEMORY_CONSOLIDATION_MODEL` | `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` | Model for consolidation |
 | Consolidation Observation Cap | `MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE` | `100` | Per-scope observation limit (-1 = unlimited, 0 = no new observations) |
-| Mental-Models Model | `MEMORY_MENTAL_MODELS_MODEL` | `MEMORY_PREFRONTAL_MODEL` → `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` | Model for briefing refresh |
+| Mental-Models Model | `MEMORY_MENTAL_MODELS_MODEL` | `MEMORY_RECALL_MODEL` → `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` | Model for briefing refresh |
 | Mental-Models Max Tokens | `MEMORY_MENTAL_MODELS_MAX_TOKENS` | `2048` | Briefing size |
 | Mental-Models Min Refresh Seconds | `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS` | `0` | Minimum seconds between refreshes (0 = after every consolidation) |
 | Embeddings Model | `MEMORY_EMBEDDINGS_MODEL` | Auto-derived | Model for semantic memory embeddings |

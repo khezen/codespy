@@ -78,12 +78,24 @@ class ReviewConfig(BaseModel):
     excluded_directories: list[str] = Field(default=DEFAULT_EXCLUDED_DIRECTORIES)
 
     # Per-signature configs
-    supply_chain: SignatureConfig = Field(default_factory=SignatureConfig)
-    code_review: SignatureConfig = Field(default_factory=SignatureConfig)
-    doc: SignatureConfig = Field(default_factory=lambda: SignatureConfig(max_iters=1, max_llm_calls=2))
-    scope: SignatureConfig = Field(default_factory=lambda: SignatureConfig(max_iters=3, max_llm_calls=5))
-    summary: SignatureConfig = Field(default_factory=lambda: SignatureConfig(max_iters=1, max_llm_calls=2))
-    audit: SignatureConfig = Field(default_factory=lambda: SignatureConfig(max_iters=1, max_llm_calls=2))
+    supply_chain: SignatureConfig = Field(
+        default_factory=lambda: SignatureConfig(model="bedrock/converse/nvidia.nemotron-super-3-120b")
+    )
+    code_review: SignatureConfig = Field(
+        default_factory=lambda: SignatureConfig(model="bedrock/converse/global.anthropic.claude-opus-5-5")
+    )
+    doc: SignatureConfig = Field(
+        default_factory=lambda: SignatureConfig(max_iters=2, max_llm_calls=4, model="bedrock/converse/global.anthropic.claude-opus-5-5")
+    )
+    scope: SignatureConfig = Field(
+        default_factory=lambda: SignatureConfig(max_iters=3, max_llm_calls=5, model="bedrock/converse/global.anthropic.claude-opus-5-5")
+    )
+    summary: SignatureConfig = Field(
+        default_factory=lambda: SignatureConfig(max_iters=1, max_llm_calls=2, model="bedrock/converse/nvidia.nemotron-super-3-120b")
+    )
+    audit: SignatureConfig = Field(
+        default_factory=lambda: SignatureConfig(max_iters=1, max_llm_calls=2, model="bedrock/converse/global.anthropic.claude-opus-5-5")
+    )
 
     def signatures(self) -> dict[str, SignatureConfig]:
         """Return a dict of signature name -> SignatureConfig."""

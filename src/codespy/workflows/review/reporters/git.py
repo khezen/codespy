@@ -4,7 +4,9 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from codespy.agents.review.models import Issue, IssueSeverity
+from collections import Counter
+
+from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
 from codespy.workflows.review.models import ReviewResult
 from codespy.workflows.review.reporters.base import BaseReporter
 from codespy.tools.git.base import SubmittedReview
@@ -207,28 +209,8 @@ class GitReporter(BaseReporter):
                 ]
             )
 
-        # Statistics section
-        lines.extend(
-            [
-                "<details>",
-                "<summary>📊 Statistics</summary>",
-                "",
-                "| Metric | Count |",
-                "|--------|-------|",
-                f"| Total Issues | {result.total_issues} |",
-                f"| Critical | {len(result.critical_issues)} |",
-                f"| High | {sum(1 for i in result.issues if i.severity == IssueSeverity.HIGH)} |",
-                f"| Medium | {sum(1 for i in result.issues if i.severity == IssueSeverity.MEDIUM)} |",  # noqa: E501
-                f"| Low | {sum(1 for i in result.issues if i.severity == IssueSeverity.LOW)} |",
-                f"| Security | {len(result.security_issues)} |",
-                f"| Bugs | {len(result.bug_issues)} |",
-                f"| Documentation | {len(result.documentation_issues)} |",
-                f"| Info | {sum(1 for i in result.issues if i.severity == IssueSeverity.INFO)} |",  # noqa: E501
-                "",
-                "</details>",
-                "",
-            ]
-        )
+        # Statistics section (severity × category matrix)
+        lines.extend(self._build_statistics_section(result))
 
         # Cost section
         if result.total_cost > 0 or result.llm_calls > 0:
@@ -332,6 +314,73 @@ class GitReporter(BaseReporter):
                 lines[insert_at:insert_at] = memory_lines
 
         return "\n".join(lines)
+
+    def _build_statistics_section(self, result: ReviewResult) -> list[str]:
+        """Build the statistics section as a severity × category matrix.
+
+        Args:
+            result: The review result containing issues.
+
+        Returns:
+            Markdown lines for the statistics section.
+        """
+        severities = [
+            IssueSeverity.CRITICAL,
+            IssueSeverity.HIGH,
+            IssueSeverity.MEDIUM,
+            IssueSeverity.LOW,
+            IssueSeverity.INFO,
+        ]
+        categories = [
+            (IssueCategory.SECURITY, "Security"),
+            (IssueCategory.BUG, "Bugs"),
+            (IssueCategory.DOCUMENTATION, "Documentation"),
+            (IssueCategory.SMELL, "Smells"),
+        ]
+
+        # Build counts with one pass over issues
+        counts = Counter((issue.severity, issue.category) for issue in result.issues)
+
+        # Calculate row totals (per severity)
+        row_totals = {s: sum(counts[(s, c)] for c, _ in categories) for s in severities}
+
+        # Calculate column totals (per category)
+        col_totals = {c: sum(counts[(s, c)] for s in severities) for c, _ in categories}
+
+        # Grand total
+        grand_total = result.total_issues
+
+        # Build table lines
+        lines = [
+            "<details>",
+            "<summary>📊 Statistics</summary>",
+            "",
+            "| Severity | Security | Bugs | Documentation | Smells | Total |",
+            "|----------|----------|------|---------------|--------|-------|",
+        ]
+
+        # Data rows
+        for severity in severities:
+            cells = [severity.value.title()]
+            for cat, _ in categories:
+                cells.append(str(counts[(severity, cat)]))
+            cells.append(str(row_totals[severity]))
+            lines.append("| " + " | ".join(cells) + " |")
+
+        # Totals row (bold)
+        total_row = ["**Total**"]
+        for cat, _ in categories:
+            total_row.append(f"**{col_totals[cat]}**")
+        total_row.append(f"**{grand_total}**")
+        lines.append("| " + " | ".join(total_row) + " |")
+
+        lines.extend([
+            "",
+            "</details>",
+            "",
+        ])
+
+        return lines
 
     def _build_inline_comments(self, issues: list[Issue]) -> list[dict]:
         """Build inline comment dictionaries for the Git API.
