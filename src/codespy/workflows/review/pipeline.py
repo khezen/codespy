@@ -336,20 +336,22 @@ class ReviewPipeline(dspy.Module):
         )
 
         # Build memories list from scope and run-level Prefrontal loads
+        # Run-level first (flat), then scope (nested)
         memories: list[RecalledMemory] = []
+        if run_pf and run_pf.last_sections:
+            memories.append(
+                RecalledMemory(
+                    task="review",
+                    nested=False,
+                    sections=[MemorySection(title=t, text=b) for t, b in run_pf.last_sections],
+                )
+            )
         scope_pf_sections = self.scope_resolver.prefrontal_sections
         if scope_pf_sections:
             memories.append(
                 RecalledMemory(
                     task="scope",
                     sections=[MemorySection(title=t, text=b) for t, b in scope_pf_sections],
-                )
-            )
-        if run_pf and run_pf.last_sections:
-            memories.append(
-                RecalledMemory(
-                    task="review",
-                    sections=[MemorySection(title=t, text=b) for t, b in run_pf.last_sections],
                 )
             )
 

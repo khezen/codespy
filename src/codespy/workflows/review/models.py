@@ -27,6 +27,10 @@ class RecalledMemory(BaseModel):
     sections: list[MemorySection] = Field(
         default_factory=list, description="Sections of the recalled memory"
     )
+    nested: bool = Field(
+        default=True,
+        description="False = sections render directly under the memories section, without a per-recall block",
+    )
 
 
 class SignatureStatsResult(BaseModel):
@@ -347,13 +351,26 @@ class ReviewResult(BaseModel):
     ) -> list[str]:
         """Build the collapsible memories section with nested per-recall and per-section details.
 
-        Structure:
+        Structure (flat run-level sections, nested scope recall):
           <details><summary>{summary}</summary>
-            <details><summary>{task}</summary>
-              <details><summary>{section_title}</summary>{body}</details>
-              ...
-            </details>
-            ...
+            <blockquote>
+
+              <!-- flat (nested=False): sections render directly -->
+              <details><summary>{section_title}</summary>
+                <blockquote>{body}</blockquote>
+              </details>
+
+              <!-- nested (nested=True): scope recall with own details wrapper -->
+              <details><summary>{task}</summary>
+                <blockquote>
+                  <details><summary>{section_title}</summary>
+                    <blockquote>{body}</blockquote>
+                  </details>
+                  ...
+                </blockquote>
+              </details>
+
+            </blockquote>
           </details>
 
         GitReporter passes ``max_chars`` to stay within GitHub's 65,536 char
@@ -375,25 +392,27 @@ class ReviewResult(BaseModel):
             return sum(len(line) + 1 for line in block_lines)
 
         def recall_head(task: str) -> list[str]:
-            return ["<details>", f"<summary>{task}</summary>", ""]
+            return ["<details>", f"<summary>{task}</summary>", "<blockquote>", ""]
 
         def recall_tail() -> list[str]:
-            return ["</details>", ""]
+            return ["</blockquote>", "</details>", ""]
 
         def section_block(title: str, body: str) -> list[str]:
             return [
                 "<details>",
                 f"<summary>{title}</summary>",
+                "<blockquote>",
                 "",
                 body,
                 "",
+                "</blockquote>",
                 "</details>",
                 "",
             ]
 
         # Reserve room for outer head/tail and per-recall tails
-        outer_head = ["<details>", f"<summary>{summary}</summary>", ""]
-        outer_tail = ["</details>", ""]
+        outer_head = ["<details>", f"<summary>{summary}</summary>", "<blockquote>", ""]
+        outer_tail = ["</blockquote>", "</details>", ""]
         outer_overhead = size(outer_head) + size(outer_tail)
 
         lines: list[str] = []
@@ -408,14 +427,19 @@ class ReviewResult(BaseModel):
             r_tail = recall_tail()
             recall_overhead = size(r_head) + size(r_tail)
 
-            # Budget check: need at least recall overhead + one section
-            if remaining is not None and remaining < recall_overhead:
-                break
+            # For flat (nested=False), no recall head/tail overhead
+            if memory.nested:
+                # Budget check: need at least recall overhead + one section
+                if remaining is not None and remaining < recall_overhead:
+                    break
 
-            if remaining is not None:
-                remaining -= recall_overhead
+                if remaining is not None:
+                    remaining -= recall_overhead
+            else:
+                # Flat: no recall overhead, sections go directly into lines
+                recall_overhead = 0
 
-            r_lines: list[str] = list(r_head)
+            r_lines: list[str] = list(r_head) if memory.nested else []
             has_section = False
             recall_stopped = False
 
@@ -444,10 +468,12 @@ class ReviewResult(BaseModel):
                     # Also stop the outer loop - no more recalls fit
                     outer_stopped = True
 
-            r_lines.extend(r_tail)
+            if memory.nested:
+                r_lines.extend(r_tail)
+
             if has_section:
                 lines.extend(r_lines)
-            elif remaining is not None:
+            elif memory.nested and remaining is not None:
                 # No section rendered for this recall: give back its overhead
                 remaining += recall_overhead
 
