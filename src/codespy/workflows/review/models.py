@@ -9,6 +9,16 @@ from pydantic import BaseModel, Field
 
 from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
 
+# Appended to a memory text cut to fit the review body size limit
+TRUNCATED_MARKER = "…(truncated)"
+
+
+class RecalledMemory(BaseModel):
+    """A recalled memory entry from Prefrontal."""
+
+    task: str = Field(description="Task name that loaded the memory (e.g., 'scope', 'review')")
+    text: str = Field(description="The recalled memory text (markdown formatted)")
+
 
 class SignatureStatsResult(BaseModel):
     """Statistics for a single signature's execution during review."""
@@ -24,8 +34,15 @@ class SignatureStatsResult(BaseModel):
     output_tokens: int = Field(default=0, description="Output/completion tokens used")
     input_cost: float = Field(default=0.0, description="Cost for input tokens")
     output_cost: float = Field(default=0.0, description="Cost for output tokens")
-    cache_read_tokens: int = Field(default=0, description="Cache read tokens from provider-side caching")
-    cache_write_tokens: int = Field(default=0, description="Cache write tokens from provider-side caching")
+    @property
+    def is_memory(self) -> bool:
+        """Check if this signature is a memory-related signature.
+
+        Memory signatures have names starting with MEMORY_UNIT_PREFIX ("memory_").
+        """
+        from codespy.config_memory import MEMORY_UNIT_PREFIX
+
+        return self.name.startswith(MEMORY_UNIT_PREFIX)
 
     @property
     def cost_per_call(self) -> float:
@@ -95,6 +112,10 @@ class ReviewResult(BaseModel):
     llm_calls: int = Field(default=0, description="Number of LLM calls made")
     signature_stats: list[SignatureStatsResult] = Field(
         default_factory=list, description="Per-signature statistics (cost, tokens, time)"
+    )
+    memories: list[RecalledMemory] = Field(
+        default_factory=list,
+        description="Prefrontal pre-call memory injected into agent inputs",
     )
 
     @property
@@ -181,23 +202,7 @@ class ReviewResult(BaseModel):
             )
 
             # Per-signature breakdown
-            if self.signature_stats:
-                lines.extend(
-                    [
-                        "### Per-Signature Breakdown",
-                        "",
-                        "| Signature | In Tokens | Out Tokens | Cache Read | Cache Write | In Cost | Out Cost | Calls | Duration |",
-                        "|-----------|-----------|------------|------------|-------------|---------|----------|-------|----------|",
-                    ]
-                )
-                for stats in sorted(self.signature_stats, key=lambda x: x.cost, reverse=True):
-                    duration_str = f"{stats.duration_seconds:.1f}s"
-                    lines.append(
-                        f"| {stats.name} | {stats.input_tokens:,} | {stats.output_tokens:,} | "
-                        f"{stats.cache_read_tokens:,} | {stats.cache_write_tokens:,} | "
-                        f"${stats.input_cost:.4f} | ${stats.output_cost:.4f} | {stats.call_count} | {duration_str} |"
-                    )
-                lines.append("")
+            lines.extend(self.cost_breakdown_markdown_lines("###"))
 
         # Issues by severity
         if self.issues:
@@ -270,7 +275,122 @@ class ReviewResult(BaseModel):
         if self.recommendation:
             lines.extend(["## Recommendation", "", self.recommendation, ""])
 
+        # Memories section (collapsible)
+        lines.extend(self.memories_markdown_lines())
+
         return "\n".join(lines)
+
+    def cost_breakdown_markdown_lines(self, heading: str = "###") -> list[str]:
+        """Build cost breakdown tables for Review and Memory groups.
+
+        Each non-empty group emits a table with columns:
+        Signature | In Tokens | Out Tokens | In Cost | Out Cost | Calls | Duration
+
+        Review signatures come first, then Memory. Each table has a subtotal line.
+        Groups with no rows are omitted. If signature_stats is empty, returns [].
+
+        Args:
+            heading: Heading prefix (e.g., "###" or "####")
+
+        Returns:
+            Markdown lines for the cost breakdown section.
+        """
+        if not self.signature_stats:
+            return []
+
+        review_stats = [s for s in self.signature_stats if not s.is_memory]
+        memory_stats = [s for s in self.signature_stats if s.is_memory]
+
+        def table_lines(label: str, stats: list[SignatureStatsResult]) -> list[str]:
+            if not stats:
+                return []
+            sorted_stats = sorted(stats, key=lambda x: x.cost, reverse=True)
+            subtotal_cost = sum(s.cost for s in sorted_stats)
+            subtotal_calls = sum(s.call_count for s in sorted_stats)
+            lines = [
+                f"{heading} {label}",
+                "",
+                "| Signature | In Tokens | Out Tokens | In Cost | Out Cost | Calls | Duration |",
+                "|-----------|-----------|------------|---------|----------|-------|----------|",
+            ]
+            for s in sorted_stats:
+                duration_str = f"{s.duration_seconds:.1f}s"
+                lines.append(
+                    f"| {s.name} | {s.input_tokens:,} | {s.output_tokens:,} | "
+                    f"${s.input_cost:.4f} | ${s.output_cost:.4f} | {s.call_count} | {duration_str} |"
+                )
+            lines.extend(["", f"**Subtotal:** ${subtotal_cost:.4f} | **LLM Calls:** {subtotal_calls}", ""])
+            return lines
+
+        result: list[str] = []
+        result.extend(table_lines("Review", review_stats))
+        result.extend(table_lines("Memory", memory_stats))
+        return result
+
+    def memories_markdown_lines(
+        self, summary: str = "memories", max_chars: int | None = None
+    ) -> list[str]:
+        """Build the collapsible memories section, optionally size-limited.
+
+        With a single memory, it is rendered under a ``### <task>`` heading.
+        With several, each one gets its own nested collapsible section.
+
+        GitReporter passes ``max_chars`` to stay within GitHub's 65,536 char
+        review body limit: memory texts are truncated in order, other sections
+        are never touched.
+
+        Args:
+            summary: Summary text of the outer collapsible section.
+            max_chars: Character budget for the whole section (None = unlimited).
+
+        Returns:
+            Markdown lines, or ``[]`` when there is no memory or nothing fits.
+        """
+        if not self.memories:
+            return []
+
+        nested = len(self.memories) > 1
+
+        def block(memory: RecalledMemory, text: str) -> list[str]:
+            if nested:
+                return [
+                    "<details>",
+                    f"<summary>{memory.task}</summary>",
+                    "",
+                    text,
+                    "",
+                    "</details>",
+                    "",
+                ]
+            return [f"### {memory.task}", "", text, ""]
+
+        def size(block_lines: list[str]) -> int:
+            # Lines are joined with "\n" by the caller
+            return sum(len(line) + 1 for line in block_lines)
+
+        head = ["<details>", f"<summary>{summary}</summary>", ""]
+        tail = ["</details>", ""]
+        lines = list(head)
+        remaining = None if max_chars is None else max_chars - size(head) - size(tail)
+
+        for memory in self.memories:
+            full = block(memory, memory.text)
+            if remaining is None or size(full) <= remaining:
+                lines.extend(full)
+                if remaining is not None:
+                    remaining -= size(full)
+                continue
+            # Truncate this memory to fit, then stop
+            overhead = size(block(memory, "")) + len(TRUNCATED_MARKER)
+            if remaining > overhead:
+                text = memory.text[: remaining - overhead] + TRUNCATED_MARKER
+                lines.extend(block(memory, text))
+            break
+
+        if len(lines) == len(head):
+            return []
+        lines.extend(tail)
+        return lines
 
     def to_json_dict(self) -> dict:
         """Convert to a JSON-serializable dictionary."""

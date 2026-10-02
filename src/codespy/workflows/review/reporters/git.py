@@ -25,6 +25,9 @@ class GitReporter(BaseReporter):
         IssueSeverity.INFO: "⚪",
     }
 
+    # Review body budget, below GitHub's 65,536 char limit
+    MAX_BODY_CHARS = 60000
+
     def __init__(
         self,
         url: str,
@@ -164,21 +167,7 @@ class GitReporter(BaseReporter):
                 ]
             )
 
-            if result.signature_stats:
-                lines.extend(
-                    [
-                        "| Signature | In Tokens | Out Tokens | Cache Read | Cache Write | In Cost | Out Cost | Calls | Duration |",
-                        "|-----------|-----------|------------|------------|-------------|---------|----------|-------|----------|",
-                    ]
-                )
-                for stats in sorted(result.signature_stats, key=lambda x: x.cost, reverse=True):
-                    duration_str = f"{stats.duration_seconds:.1f}s"
-                    lines.append(
-                        f"| {stats.name} | {stats.input_tokens:,} | {stats.output_tokens:,} | "
-                        f"{stats.cache_read_tokens:,} | {stats.cache_write_tokens:,} | "
-                        f"${stats.input_cost:.4f} | ${stats.output_cost:.4f} | {stats.call_count} | {duration_str} |"
-                    )
-                lines.append("")
+            lines.extend(result.cost_breakdown_markdown_lines("####"))
 
             lines.extend(
                 [
@@ -250,6 +239,15 @@ class GitReporter(BaseReporter):
                     "</details>",
                     "",
                 ]
+            )
+
+        # Memories section (collapsible, size-limited for GitHub's 65,536 char body limit)
+        if result.memories:
+            remaining_budget = self.MAX_BODY_CHARS - len("\n".join(lines)) - 1
+            lines.extend(
+                result.memories_markdown_lines(
+                    summary="🧠 memories", max_chars=max(0, remaining_budget)
+                )
             )
 
         return "\n".join(lines)

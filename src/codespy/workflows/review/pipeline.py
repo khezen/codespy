@@ -36,6 +36,7 @@ from codespy.tools.git.local_diff import build_pr_from_diff
 
 from codespy.workflows.review.models import (
     LocalReviewConfig,
+    RecalledMemory,
     RemoteReviewConfig,
     ReviewConfig,
     ReviewResult,
@@ -300,6 +301,15 @@ class ReviewPipeline(dspy.Module):
         self._consolidate_run(run_id)
         # Collect per-signature statistics (after all saves complete, includes consolidation costs)
         signature_stats_list = self._collect_signature_stats()
+
+        # Build memories list from scope and run-level Prefrontal loads
+        memories: list[RecalledMemory] = []
+        scope_memory_text = self.scope_resolver.prefrontal_memory
+        if scope_memory_text:
+            memories.append(RecalledMemory(task="scope", text=scope_memory_text))
+        if pf_text:
+            memories.append(RecalledMemory(task="review", text=pf_text))
+
         return ReviewResult(
             pr_number=pr.number,
             pr_title=pr.title,
@@ -315,6 +325,7 @@ class ReviewPipeline(dspy.Module):
             total_tokens=self.cost_tracker.total_tokens,
             llm_calls=self.cost_tracker.call_count,
             signature_stats=signature_stats_list,
+            memories=memories,
         )
 
     def _consolidate_run(self, run_id: str) -> None:
@@ -361,8 +372,6 @@ class ReviewPipeline(dspy.Module):
                     output_tokens=stats.output_tokens,
                     input_cost=stats.input_cost,
                     output_cost=stats.output_cost,
-                    cache_read_tokens=stats.cache_read_tokens,
-                    cache_write_tokens=stats.cache_write_tokens,
                 )
             )
 

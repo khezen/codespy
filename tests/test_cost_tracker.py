@@ -151,7 +151,7 @@ class TestCalculateCostsFromEntries:
         ]
         exclude = set()
 
-        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
 
         assert cost == 0.8
         assert tokens == 450
@@ -159,8 +159,6 @@ class TestCalculateCostsFromEntries:
         assert input_tokens == 300
         assert output_tokens == 150
         assert input_cost + output_cost == cost  # Costs should sum correctly
-        assert cache_read == 0
-        assert cache_write == 0
 
     def test_excludes_specified_uuids(self):
         entries = [
@@ -169,26 +167,22 @@ class TestCalculateCostsFromEntries:
         ]
         exclude = {"uuid-1"}
 
-        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
 
         assert cost == 0.3
         assert tokens == 200
         assert calls == 1
         assert input_tokens == 200  # Only uuid-2's tokens
         assert output_tokens == 0
-        assert cache_read == 0
-        assert cache_write == 0
 
     def test_handles_non_dict_entries(self):
         entries = ["not a dict", {"uuid": "uuid-1", "cost": 0.5, "usage": {}}]
         exclude = set()
 
-        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
 
         assert cost == 0.5
         assert calls == 1
-        assert cache_read == 0
-        assert cache_write == 0
 
     def test_handles_missing_usage(self):
         entries = [
@@ -196,15 +190,13 @@ class TestCalculateCostsFromEntries:
         ]
         exclude = set()
 
-        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
 
         assert cost == 0.5
         assert tokens == 0
         assert calls == 1
         assert input_tokens == 0
         assert output_tokens == 0
-        assert cache_read == 0
-        assert cache_write == 0
 
     def test_skips_cache_hit_entries(self):
         """Entries with cache_hit=True should be skipped."""
@@ -214,52 +206,12 @@ class TestCalculateCostsFromEntries:
         ]
         exclude = set()
 
-        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
 
         assert cost == 0.3
         assert tokens == 200
         assert calls == 1
         assert input_tokens == 200
-
-    def test_extracts_cache_tokens_bedrock_style(self):
-        """Test extraction of cache_read_input_tokens and cache_creation_input_tokens."""
-        entries = [
-            {
-                "uuid": "uuid-1",
-                "cost": 0.5,
-                "usage": {
-                    "prompt_tokens": 100,
-                    "cache_read_input_tokens": 50,
-                    "cache_creation_input_tokens": 25,
-                },
-            },
-        ]
-        exclude = set()
-
-        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
-
-        assert cache_read == 50
-        assert cache_write == 25
-
-    def test_extracts_cache_tokens_openai_style(self):
-        """Test extraction of cached_tokens from prompt_tokens_details."""
-        entries = [
-            {
-                "uuid": "uuid-1",
-                "cost": 0.5,
-                "usage": {
-                    "prompt_tokens": 100,
-                    "prompt_tokens_details": {"cached_tokens": 30},
-                },
-            },
-        ]
-        exclude = set()
-
-        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost, cache_read, cache_write = _calculate_costs_from_entries(entries, exclude)
-
-        assert cache_read == 30
-        assert cache_write == 0
-
 
 class TestCostTracker:
     """Tests for CostTracker class."""

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- **Review memories section**: The pre-call Prefrontal memory (run-level and scope-level) now appears in a collapsed `memories` section at the end of the review. When there are several recalls, each one is in its own nested collapsed section titled by task. This section is shown in both the GitHub/GitLab review body and the stdout/MCP markdown output.
 - **Cerebral structured output support**: Native structured output registration for Bedrock models (e.g., Nvidia Nemotron Super) that support it but lack the flag in litellm's model map. Two-step structured output fallback for memory models litellm cannot schema-enforce, using `llm.extraction_model`.
 - **Cerebral per-scope observation cap**: New `max_observations_per_scope` setting under `memory.cerebral.consolidation` (env `MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE`, default `100`). Limits observations per `[org:*, repo:*, project_scope:*]` scope; `-1` = unlimited, `0` = no new observations. Scopes that hit the cap only allow UPDATE/DELETE.
 
@@ -35,7 +36,7 @@
   - `reflect_search_observations_max_tokens=3000` (was 5000)
   - `reflect_search_observations_include_entities=false` (was `true`)
 - **Doc review CHANGELOG trim**: CHANGELOG files are now trimmed to preamble + 2 newest sections (keeps `[Unreleased]` + latest release). Saves ~25KB (21%) of the ~118KB doc payload in this repo. Non-CHANGELOG docs are unchanged.
-- **Cost table columns**: Added `Cache Read` and `Cache Write` columns to per-signature cost breakdown. Cache tokens are extracted from provider usage (Anthropic/Bedrock style or OpenAI style).
+- **Cost breakdown split**: The per-signature cost table is split into a Review table and a Memory table (memory_* buckets), each with its own subtotal.
 
 ### Added
 - **Cost tracking for extraction LM**: `TwoStepAdapter` extraction calls are now counted and attributed to the calling signature. Previously these were missing from cost tracking.

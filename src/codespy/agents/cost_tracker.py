@@ -35,8 +35,6 @@ class SignatureStats:
     input_cost: float = 0.0
     output_cost: float = 0.0
     external_duration_seconds: float = 0.0
-    cache_read_tokens: int = 0
-    cache_write_tokens: int = 0
 
     @property
     def duration_seconds(self) -> float:
@@ -66,8 +64,6 @@ class SignatureStats:
             "input_cost": self.input_cost,
             "output_cost": self.output_cost,
             "external_duration_seconds": self.external_duration_seconds,
-            "cache_read_tokens": self.cache_read_tokens,
-            "cache_write_tokens": self.cache_write_tokens,
         }
 
 
@@ -110,8 +106,6 @@ class CostTracker:
         output_tokens: int = 0,
         input_cost: float = 0.0,
         output_cost: float = 0.0,
-        cache_read_tokens: int = 0,
-        cache_write_tokens: int = 0,
     ) -> None:
         """Mark the end of a signature's execution with its costs.
 
@@ -124,8 +118,6 @@ class CostTracker:
             output_tokens: Output/completion tokens used
             input_cost: Cost for input tokens
             output_cost: Cost for output tokens
-            cache_read_tokens: Cache read tokens (from provider-side caching)
-            cache_write_tokens: Cache write tokens (from provider-side caching)
         """
         with self._lock:
             if signature_name not in self._signature_stats:
@@ -139,8 +131,6 @@ class CostTracker:
             stats.output_tokens += output_tokens
             stats.input_cost += input_cost
             stats.output_cost += output_cost
-            stats.cache_read_tokens += cache_read_tokens
-            stats.cache_write_tokens += cache_write_tokens
 
     def add_external_call(
         self,
@@ -235,8 +225,6 @@ class CostTracker:
                     input_cost=v.input_cost,
                     output_cost=v.output_cost,
                     external_duration_seconds=v.external_duration_seconds,
-                    cache_read_tokens=v.cache_read_tokens,
-                    cache_write_tokens=v.cache_write_tokens,
                 )
                 for k, v in self._signature_stats.items()
             }
@@ -274,42 +262,6 @@ def _get_history_uuids(lm: Any | None = None) -> set[str]:
     return {entry.get("uuid", "") for entry in entries if entry.get("uuid")}
 
 
-def _get_cache_tokens(entry: dict) -> tuple[int, int]:
-    """Extract cache read and write tokens from a history entry.
-
-    Handles multiple provider-specific usage shapes:
-    - Anthropic/Bedrock: cache_read_input_tokens, cache_creation_input_tokens
-    - OpenAI: prompt_tokens_details.cached_tokens (object or dict)
-
-    Args:
-        entry: History entry dict with usage information.
-
-    Returns:
-        Tuple of (cache_read_tokens, cache_write_tokens).
-    """
-    usage = entry.get("usage")
-    if not isinstance(usage, dict):
-        return 0, 0
-
-    # Anthropic/Bedrock style
-    cache_read = int(_as_number(usage.get("cache_read_input_tokens")))
-    cache_write = int(_as_number(usage.get("cache_creation_input_tokens")))
-    if cache_read or cache_write:
-        return cache_read, cache_write
-
-    # OpenAI style: prompt_tokens_details.cached_tokens
-    details = usage.get("prompt_tokens_details")
-    if isinstance(details, dict):
-        cached = int(_as_number(details.get("cached_tokens")))
-        return cached, 0
-    # Handle object-style access (some providers return objects)
-    if hasattr(details, "cached_tokens"):
-        cached = int(_as_number(getattr(details, "cached_tokens", 0)))
-        return cached, 0
-
-    return 0, 0
-
-
 def _as_number(value: object) -> float:
     """Coerce a history field to a number, yielding 0.0 for anything unusable.
 
@@ -335,7 +287,7 @@ def _as_number(value: object) -> float:
 
 def _calculate_costs_from_entries(
     entries: list[dict], exclude_uuids: set[str]
-) -> tuple[float, int, int, int, int, float, float, int, int]:
+) -> tuple[float, int, int, int, int, float, float]:
     """Calculate costs from history entries, excluding specific UUIDs.
 
     Every field is read defensively: cost accounting is observability, so a
@@ -348,7 +300,7 @@ def _calculate_costs_from_entries(
 
     Returns:
         Tuple of (total_cost, total_tokens, call_count, input_tokens, output_tokens,
-                  input_cost, output_cost, cache_read_tokens, cache_write_tokens)
+                  input_cost, output_cost)
     """
     total_cost = 0.0
     total_tokens = 0
@@ -357,8 +309,6 @@ def _calculate_costs_from_entries(
     output_tokens = 0
     input_cost = 0.0
     output_cost = 0.0
-    cache_read_tokens = 0
-    cache_write_tokens = 0
 
     for entry in entries:
         if not isinstance(entry, dict):
@@ -385,11 +335,6 @@ def _calculate_costs_from_entries(
                 output_tokens += entry_output_tokens
                 total_tokens += entry_input_tokens + entry_output_tokens
 
-            # Get cache tokens
-            entry_cache_read, entry_cache_write = _get_cache_tokens(entry)
-            cache_read_tokens += entry_cache_read
-            cache_write_tokens += entry_cache_write
-
             # Calculate split costs using litellm if model is available
             entry_input_cost, entry_output_cost = _calculate_split_cost(
                 entry, entry_input_tokens, entry_output_tokens, entry_cost
@@ -407,8 +352,6 @@ def _calculate_costs_from_entries(
         output_tokens,
         input_cost,
         output_cost,
-        cache_read_tokens,
-        cache_write_tokens,
     )
 
 
@@ -589,8 +532,6 @@ class SignatureContext:
             output_tokens = main_result[4] + extraction_result[4]
             input_cost = main_result[5] + extraction_result[5]
             output_cost = main_result[6] + extraction_result[6]
-            cache_read_tokens = main_result[7] + extraction_result[7]
-            cache_write_tokens = main_result[8] + extraction_result[8]
 
             self.tracker.end_signature(
                 self.signature_name,
@@ -601,8 +542,6 @@ class SignatureContext:
                 output_tokens=output_tokens,
                 input_cost=input_cost,
                 output_cost=output_cost,
-                cache_read_tokens=cache_read_tokens,
-                cache_write_tokens=cache_write_tokens,
             )
         except Exception as e:
             logger.warning("Cost calculation failed for %s: %s", self.signature_name, e)
