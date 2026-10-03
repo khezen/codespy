@@ -43,6 +43,7 @@
 - **Default `MEMORY_BANK_ID` changed from `codespy` to `codebase`** — set `MEMORY_BANK_ID=codespy` to keep using existing memory data
 
 ### Removed
+- **Per-signature memory overrides** — `review.<sig>.memory.enabled` (YAML), `REVIEW_<SIG>_MEMORY_ENABLED` (env), and action inputs `scope-memory-enabled`, `code-review-memory-enabled`, `doc-memory-enabled`, `supply-chain-memory-enabled`, `summary-memory-enabled`, `audit-memory-enabled` are removed. Memory is now controlled only by the global `memory.enabled` (`MEMORY_ENABLED`, `memory-enabled`).
 - Action input `memory-prefrontal-model` (was deprecated, never wired)
 - Action env vars: `SCOPE_MEMORY_ENABLED`, `CODE_REVIEW_MEMORY_ENABLED`, `DOC_MEMORY_ENABLED`, `SUPPLY_CHAIN_MEMORY_ENABLED`, `SUMMARY_MEMORY_ENABLED`, `AUDIT_MEMORY_ENABLED`, `OUTPUT_FORMAT`
 - Dead code: `Settings.sync_llm_settings()` and `LLMConfig.sync_from_flat()`

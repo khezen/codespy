@@ -37,6 +37,9 @@ if TYPE_CHECKING:
     from codespy.agents.memory.prefrontal import Prefrontal
     from codespy.config import Settings
 
+# Known signature names for memory gating checks
+from codespy.config_dspy import SIGNATURE_NAMES
+
 logger = logging.getLogger(__name__)
 
 
@@ -238,7 +241,7 @@ class MemoryConfig(BaseModel):
     """Global memory (Hippocampus + Cerebral) configuration.
 
     Controls where episodes are persisted and the memory knob applied to
-    every agent. Per-signature ``memory:`` blocks override ``enabled``.
+    every agent.
     """
 
     # PostgreSQL connection settings
@@ -246,7 +249,7 @@ class MemoryConfig(BaseModel):
     pg0: Pg0Config = Field(default_factory=Pg0Config)
     bank_id: str | None = None
 
-    # Master switch — overridable per-signature via review.<name>.memory.enabled
+    # Master switch
     enabled: bool = False
 
     # Hippocampus (episodic memory) configuration
@@ -395,12 +398,9 @@ def verify_memory_access(settings: Settings) -> tuple[bool, str]:
         Tuple of (success, message). Success is True when memory is disabled
         (no active signatures use it) or when the storage backend responds.
     """
-    from codespy.config_dspy import SIGNATURE_NAMES
-
-    # Skip if no enabled signature uses memory
-    if not any(
-        settings.is_signature_enabled(sig) and settings.get_memory_enabled(sig)
-        for sig in SIGNATURE_NAMES
+    # Skip if memory disabled or no enabled signature uses memory
+    if not settings.memory.enabled or not any(
+        settings.is_signature_enabled(sig) for sig in SIGNATURE_NAMES
     ):
         return True, "Memory disabled — skipping storage check"
 
@@ -481,7 +481,7 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
     """Return the cached Cerebral instance, or None if unavailable.
 
     Cerebral activates unconditionally (like ``get_episode_store``).
-    Agent-level ``get_memory_enabled(sig)`` handles per-signature gating.
+    Agent-level ``settings.memory.enabled`` handles gating.
     LLM parameters are auto-derived from the ``cerebral.retain``
     config model string and ``settings.llm`` credentials.
 
@@ -816,12 +816,12 @@ def get_prefrontal(
 ) -> Prefrontal | None:
     """Return a Prefrontal for one agent call, or None when inactive.
 
-    Active only when ``get_memory_enabled(task_name)`` is true, a repo is
+    Active only when ``settings.memory.enabled`` is true, a repo is
     known and ``get_cerebral`` returns a Cerebral. Otherwise the agent
     behaves exactly as without Prefrontal. Never raises.
     """
     try:
-        if not settings.get_memory_enabled(task_name) or not repo_full_name:
+        if not settings.memory.enabled or not repo_full_name:
             return None
         cerebral = get_cerebral(settings)
         if cerebral is None:
@@ -853,10 +853,11 @@ def get_run_prefrontal(
     """Return a Prefrontal for the shared run-level recall, or None when inactive.
 
     Active only when:
+    - Memory is enabled globally (settings.memory.enabled)
     - A repo is known
     - Cerebral is available
     - At least one consumer (summary, code_review, doc, supply_chain, audit)
-      has both is_signature_enabled and get_memory_enabled True
+      has is_signature_enabled True
 
     When active, returns a Prefrontal with task_name="review", include_repo=True,
     and all scope_topic_ids. The run-level recall is shared by all consumer agents.
@@ -864,16 +865,13 @@ def get_run_prefrontal(
     Never raises (same soft-fail behavior as get_prefrontal).
     """
     try:
-        if not repo_full_name:
+        if not settings.memory.enabled or not repo_full_name:
             return None
 
         # Check if any consumer has memory enabled
-        from codespy.config_dspy import SIGNATURE_NAMES
-
         has_memory_consumer = any(
-            settings.is_signature_enabled(sig) and settings.get_memory_enabled(sig)
-            for sig in SIGNATURE_NAMES
-            if sig in _RUN_PREFRONTAL_CONSUMERS
+            settings.is_signature_enabled(sig)
+            for sig in _RUN_PREFRONTAL_CONSUMERS
         )
         if not has_memory_consumer:
             return None

@@ -22,7 +22,7 @@ class TestSummarizerPrefrontalMemory:
         )
         mock_settings = MagicMock()
         mock_settings.is_signature_enabled.return_value = True
-        mock_settings.get_memory_enabled.return_value = False  # Disable memory to simplify
+        mock_settings.memory.enabled = False  # Disable memory to simplify
 
         captured_kwargs = {}
 
@@ -65,7 +65,7 @@ class TestSummarizerPrefrontalMemory:
         )
         mock_settings = MagicMock()
         mock_settings.is_signature_enabled.return_value = True
-        mock_settings.get_memory_enabled.return_value = False  # Disable memory to simplify
+        mock_settings.memory.enabled = False  # Disable memory to simplify
 
         captured_kwargs = {}
 
@@ -117,7 +117,7 @@ class TestAuditorPrefrontalMemory:
         review_context = ReviewContext(pr_context=pr_context, prefrontal_memory="")
         mock_settings = MagicMock()
         mock_settings.is_signature_enabled.return_value = True
-        mock_settings.get_memory_enabled.return_value = False  # Disable memory to simplify
+        mock_settings.memory.enabled = False  # Disable memory to simplify
 
         # Mock ContextSafe to return a callable that returns a Prediction with the right attrs
         def capture_ctxsafe(predictor, sig, **kwargs):
@@ -162,7 +162,7 @@ class TestAuditorPrefrontalMemory:
         review_context = ReviewContext(pr_context=pr_context, prefrontal_memory="some text")
         mock_settings = MagicMock()
         mock_settings.is_signature_enabled.return_value = True
-        mock_settings.get_memory_enabled.return_value = False  # Disable memory to simplify
+        mock_settings.memory.enabled = False  # Disable memory to simplify
 
         captured_kwargs = {}
 

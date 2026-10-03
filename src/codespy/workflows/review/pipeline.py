@@ -417,15 +417,15 @@ class ReviewPipeline(dspy.Module):
         """Trigger one consolidation per run after all episode saves complete.
 
         Consolidation runs only when:
+        - Memory is enabled globally
         - Cerebral is available
-        - At least one memory-enabled signature ran in this run
+        - At least one signature is enabled
         """
         from codespy.config_dspy import SIGNATURE_NAMES
 
-        # Check if any consumer has memory enabled (reuse the check from verify_memory_access)
-        if not any(
-            self.settings.is_signature_enabled(sig) and self.settings.get_memory_enabled(sig)
-            for sig in SIGNATURE_NAMES
+        # Check if memory is enabled and at least one signature is enabled
+        if not self.settings.memory.enabled or not any(
+            self.settings.is_signature_enabled(sig) for sig in SIGNATURE_NAMES
         ):
             return
 

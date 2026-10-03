@@ -278,7 +278,7 @@ class CodeReviewer(dspy.Module):
             # Get Prefrontal for tool calls only (prefrontal_memory is already loaded by pipeline)
             pf = get_prefrontal(
                 self._settings, "code_review", repo_full_name, scope_topic_ids=[scope_topic_id]
-            ) if self._settings.get_memory_enabled("code_review") else None
+            )
             sig = with_prefrontal_memory(CodeReviewSignature) if review_context.prefrontal_memory else CodeReviewSignature
             recall_tool = pf.recall_tool() if pf else None
             agent_tools = [*tools, recall_tool] if recall_tool else tools
@@ -309,18 +309,17 @@ class CodeReviewer(dspy.Module):
                 # Load own prior "code_review" episode for this scope
                 scope_initial_memory: ContextMemory | None = None
                 store = None
-                if self._settings.get_memory_enabled("code_review"):
+                if self._settings.memory.enabled:
                     store = get_episode_store(self._settings)
-                    if store is not None:
-                        scope_initial_memory = store.load_context(
-                            task="code_review",
-                            topic_ids=[scope_topic_id],
-                        )
-                        if scope_initial_memory:
-                            logger.info("Loaded prior code_review episode for scope %s", scope.subroot)
-                        else:
-                            logger.info("No prior code_review episode for scope %s", scope.subroot)
-                if self._settings.get_memory_enabled("code_review") and store is not None:
+                if store is not None:
+                    scope_initial_memory = store.load_context(
+                        task="code_review",
+                        topic_ids=[scope_topic_id],
+                    )
+                    if scope_initial_memory:
+                        logger.info("Loaded prior code_review episode for scope %s", scope.subroot)
+                    else:
+                        logger.info("No prior code_review episode for scope %s", scope.subroot)
                     question = (
                         f"review code change of {scope.repo}: {scope.subroot}: "
                         f"pull request {review_context.pr_context.pr_number} "
@@ -331,23 +330,24 @@ class CodeReviewer(dspy.Module):
                     topics = [scope.topic(pr_ctx.repo_full_name), pr_ctx.to_topic()] if pr else []
                     hippo = Hippocampus(
                         task_name="code_review",
-                        budget=self._settings.get_memory_budget("code_review"),
+                        budget=self._settings.get_memory_budget(),
                         question=question,
                         run_id=run_id,
                         initial_memory=scope_initial_memory,
                         topics=topics,
                     )
-                    result = await agent.acall(
-                        scope=scoped,
-                        categories=categories,
-                        **pf_kwargs,
-                    )
+                result = await agent.acall(
+                    scope=scoped,
+                    categories=categories,
+                    **pf_kwargs,
+                )
+                issues = [
+                    issue
+                    for issue in (result.issues or [])
+                    if issue.confidence >= self._settings.review.min_confidence
+                ]
+                if hippo is not None:
                     await hippo.aobserve(result)
-                    issues = [
-                        issue
-                        for issue in (result.issues or [])
-                        if issue.confidence >= self._settings.review.min_confidence
-                    ]
                     # Fire-and-forget background episode save
                     _artifacts = {"review": issues_to_markdown(issues)}
                     cerebral = get_cerebral(self._settings)
@@ -364,17 +364,6 @@ class CodeReviewer(dspy.Module):
                             except Exception:
                                 logger.warning("Background cerebral retain failed", exc_info=True)
                     submit_episode_save(_persist, name="code-review-episode-save")
-                else:
-                    result = await agent.acall(
-                        scope=scoped,
-                        categories=categories,
-                        **pf_kwargs,
-                    )
-                    issues = [
-                        issue
-                        for issue in (result.issues or [])
-                        if issue.confidence >= self._settings.review.min_confidence
-                    ]
             restore_repo_paths(issues, scope.subroot)
             logger.debug(f"  Scope {scope.subroot}: {len(issues)} code review issues")
             return issues

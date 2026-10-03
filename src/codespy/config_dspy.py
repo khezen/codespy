@@ -1,7 +1,7 @@
 """DSPy signatures configuration and environment variable handling."""
 
 import logging
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -31,16 +31,6 @@ class RLMFallbackConfig(BaseModel):
     predict_threshold: float = Field(default=0.50, ge=0.0, le=1.0)
 
 
-class MemorySignatureConfig(BaseModel):
-    """Per-signature Hippocampus memory overrides.
-
-    All fields are optional — ``None`` means "use the global memory default"
-    (see ``codespy.config_memory.MemoryConfig``).
-    """
-
-    enabled: bool | None = None  # <SIG>_MEMORY_ENABLED
-
-
 class SignatureConfig(BaseModel):
     """Configuration for a single signature."""
 
@@ -53,8 +43,6 @@ class SignatureConfig(BaseModel):
     max_tokens: int | None = None  # Output token budget (reasoning tokens included)
     scan_unchanged: bool | None = None  # For supply_chain: scan unmodified artifacts/manifests
     skip_refinement_when_clean: bool | None = None  # For scope: skip LLM refinement when 1 scope, 0 orphans
-
-    memory: MemorySignatureConfig = Field(default_factory=MemorySignatureConfig)
 
 
 class ReviewConfig(BaseModel):
@@ -117,24 +105,4 @@ SIGNATURE_NAMES = set(ReviewConfig.model_fields.keys()) - {
     "output_git",
     "cache_dir",
     "excluded_directories",
-}
-
-# Create uppercase prefixes for matching (e.g., "CODE_REVIEW_", "SUPPLY_CHAIN_")
-SIGNATURE_PREFIXES = {name.upper() + "_": name for name in SIGNATURE_NAMES}
-
-# Known signature settings for validation, derived from the models so the env
-# var routing can never drift from the declared fields. ``memory`` is excluded
-# because it is nested and routed via <SIG>_MEMORY_<SETTING> instead.
-SIGNATURE_SETTINGS = set(SignatureConfig.model_fields) - {"memory"}
-
-# Known per-signature memory settings, routed via <SIG>_MEMORY_<SETTING>
-MEMORY_SIGNATURE_SETTINGS = set(MemorySignatureConfig.model_fields)
-
-
-# Env var name (without RLM_FALLBACK_ prefix) -> RLMFallbackConfig field name.
-RLM_FALLBACK_ENV_SETTINGS = {
-    "ENABLED": "enabled",
-    "REACT_THRESHOLD": "react_threshold",
-    "CHAIN_OF_THOUGHT_THRESHOLD": "chain_of_thought_threshold",
-    "PREDICT_THRESHOLD": "predict_threshold",
 }

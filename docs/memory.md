@@ -462,24 +462,11 @@ LIMIT 50;
 
 Every default is non-null (Nemotron), so a fallback only applies when a value is explicitly set to `null`.
 
-### Per-Signature Memory Overrides
-
-Each signature's `memory:` block in YAML (or `REVIEW_<SIGNATURE>_MEMORY_*` env vars):
-
-| Setting | Env Var Suffix | Description |
-|---------|---------------|-------------|
-| `enabled` | `_MEMORY_ENABLED` | Enable/disable memory for this signature |
-
-Example: `REVIEW_CODE_REVIEW_MEMORY_ENABLED=true`
-
 ## Quick Start
 
-Enable memory for code review:
+Enable memory:
 ```bash
 MEMORY_ENABLED=true
-# Or per-signature:
-REVIEW_CODE_REVIEW_MEMORY_ENABLED=true
-REVIEW_SUMMARY_MEMORY_ENABLED=true
 ```
 
 Recommended mid-tier reflection model:

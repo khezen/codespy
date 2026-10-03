@@ -376,7 +376,7 @@ class SupplyChainAuditor(dspy.Module):
             # Get Prefrontal for tool calls only (prefrontal_memory is already loaded by pipeline)
             pf = get_prefrontal(
                 self._settings, "supply_chain", repo_full_name, scope_topic_ids=[scope_topic_id]
-            ) if self._settings.get_memory_enabled("supply_chain") else None
+            )
             sig = (
                 with_prefrontal_memory(SupplyChainSecuritySignature)
                 if review_context.prefrontal_memory
@@ -414,18 +414,17 @@ class SupplyChainAuditor(dspy.Module):
                 # Load own prior "supply_chain" episode for this scope
                 scope_initial_memory: ContextMemory | None = None
                 store = None
-                if self._settings.get_memory_enabled("supply_chain"):
+                if self._settings.memory.enabled:
                     store = get_episode_store(self._settings)
-                    if store is not None:
-                        scope_initial_memory = store.load_context(
-                            task="supply_chain",
-                            topic_ids=[scope_topic_id],
-                        )
-                        if scope_initial_memory:
-                            logger.info("Loaded prior supply_chain episode for scope %s", scope.subroot)
-                        else:
-                            logger.info("No prior supply_chain episode for scope %s", scope.subroot)
-                if self._settings.get_memory_enabled("supply_chain") and store is not None:
+                if store is not None:
+                    scope_initial_memory = store.load_context(
+                        task="supply_chain",
+                        topic_ids=[scope_topic_id],
+                    )
+                    if scope_initial_memory:
+                        logger.info("Loaded prior supply_chain episode for scope %s", scope.subroot)
+                    else:
+                        logger.info("No prior supply_chain episode for scope %s", scope.subroot)
                     question = (
                         f"review supply chain of {scope.repo}: {scope.subroot}: "
                         f"pull request {review_context.pr_context.pr_number} "
@@ -436,25 +435,26 @@ class SupplyChainAuditor(dspy.Module):
                     topics = [scope.topic(pr_ctx.repo_full_name), pr_ctx.to_topic()] if pr else []
                     hippo = Hippocampus(
                         task_name="supply_chain",
-                        budget=self._settings.get_memory_budget("supply_chain"),
+                        budget=self._settings.get_memory_budget(),
                         question=question,
                         run_id=run_id,
                         initial_memory=scope_initial_memory,
                         topics=topics,
                     )
-                    result = await supply_chain_agent.acall(
-                        manifest_path=manifest_path,
-                        lock_file_path=lock_file_path,
-                        package_manager=package_manager,
-                        category=IssueCategory.SECURITY,
-                        **pf_kwargs,
-                    )
+                result = await supply_chain_agent.acall(
+                    manifest_path=manifest_path,
+                    lock_file_path=lock_file_path,
+                    package_manager=package_manager,
+                    category=IssueCategory.SECURITY,
+                    **pf_kwargs,
+                )
+                issues = [
+                    issue
+                    for issue in result.issues
+                    if issue.confidence >= self._settings.review.min_confidence
+                ]
+                if hippo is not None:
                     await hippo.aobserve(result)
-                    issues = [
-                        issue
-                        for issue in result.issues
-                        if issue.confidence >= self._settings.review.min_confidence
-                    ]
                     # Fire-and-forget background episode save
                     _artifacts = {"review": issues_to_markdown(issues)}
                     cerebral = get_cerebral(self._settings)
@@ -471,19 +471,6 @@ class SupplyChainAuditor(dspy.Module):
                             except Exception:
                                 logger.warning("Background cerebral retain failed", exc_info=True)
                     submit_episode_save(_persist, name="supply-chain-episode-save")
-                else:
-                    result = await supply_chain_agent.acall(
-                        manifest_path=manifest_path,
-                        lock_file_path=lock_file_path,
-                        package_manager=package_manager,
-                        category=IssueCategory.SECURITY,
-                        **pf_kwargs,
-                    )
-                    issues = [
-                        issue
-                        for issue in result.issues
-                        if issue.confidence >= self._settings.review.min_confidence
-                    ]
             # Restore repo-root-relative paths in reported issues
             restore_repo_paths(issues, scope.subroot)
             logger.debug(

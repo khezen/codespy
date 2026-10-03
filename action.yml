@@ -144,10 +144,6 @@ inputs:
     description: 'Temperature for scope identification. Default from codespy.yaml: 1.0'
     required: false
 
-  scope-memory-enabled:
-    description: 'Enable memory for scope identification (overrides global memory-enabled). Default from codespy.yaml: null (use global)'
-    required: false
-
   # ==========================================
   # SIGNATURE: code_review
   # ==========================================
@@ -179,10 +175,6 @@ inputs:
     description: 'Temperature for code review. Default from codespy.yaml: 1.0'
     required: false
 
-  code-review-memory-enabled:
-    description: 'Enable memory for code review (overrides global memory-enabled). Default from codespy.yaml: null (use global)'
-    required: false
-
   # ==========================================
   # SIGNATURE: doc
   # ==========================================
@@ -212,10 +204,6 @@ inputs:
 
   doc-temperature:
     description: 'Temperature for doc review. Default from codespy.yaml: 1.0'
-    required: false
-
-  doc-memory-enabled:
-    description: 'Enable memory for doc review (overrides global memory-enabled). Default from codespy.yaml: null (use global)'
     required: false
 
   # ==========================================
@@ -253,10 +241,6 @@ inputs:
     description: 'Scan all artifacts/manifests even if not modified in the PR (default: only scan changed). Default from codespy.yaml: false'
     required: false
 
-  supply-chain-memory-enabled:
-    description: 'Enable memory for supply chain (overrides global memory-enabled). Default from codespy.yaml: null (use global)'
-    required: false
-
   # ==========================================
   # SIGNATURE: summary
   # ==========================================
@@ -288,10 +272,6 @@ inputs:
     description: 'Temperature for summary. Default from codespy.yaml: 1.0'
     required: false
 
-  summary-memory-enabled:
-    description: 'Enable memory for summary (overrides global memory-enabled). Default from codespy.yaml: null (use global)'
-    required: false
-
   # ==========================================
   # SIGNATURE: audit
   # ==========================================
@@ -321,10 +301,6 @@ inputs:
 
   audit-temperature:
     description: 'Temperature for audit. Default from codespy.yaml: 1.0'
-    required: false
-
-  audit-memory-enabled:
-    description: 'Enable memory for audit (overrides global memory-enabled). Default from codespy.yaml: null (use global)'
     required: false
 
   # ==========================================
@@ -581,7 +557,6 @@ runs:
         REVIEW_SCOPE_REASONING_EFFORT: ${{ inputs.scope-reasoning-effort }}
         REVIEW_SCOPE_TEMPERATURE: ${{ inputs.scope-temperature }}
         REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN: ${{ inputs.scope-skip-refinement-when-clean }}
-        REVIEW_SCOPE_MEMORY_ENABLED: ${{ inputs.scope-memory-enabled }}
 
         # Code review signature
         REVIEW_CODE_REVIEW_ENABLED: ${{ inputs.code-review-enabled }}
@@ -590,7 +565,6 @@ runs:
         REVIEW_CODE_REVIEW_MAX_LLM_CALLS: ${{ inputs.code-review-max-llm-calls }}
         REVIEW_CODE_REVIEW_REASONING_EFFORT: ${{ inputs.code-review-reasoning-effort }}
         REVIEW_CODE_REVIEW_TEMPERATURE: ${{ inputs.code-review-temperature }}
-        REVIEW_CODE_REVIEW_MEMORY_ENABLED: ${{ inputs.code-review-memory-enabled }}
 
         # Doc review signature
         REVIEW_DOC_ENABLED: ${{ inputs.doc-enabled }}
@@ -599,7 +573,6 @@ runs:
         REVIEW_DOC_MAX_LLM_CALLS: ${{ inputs.doc-max-llm-calls }}
         REVIEW_DOC_REASONING_EFFORT: ${{ inputs.doc-reasoning-effort }}
         REVIEW_DOC_TEMPERATURE: ${{ inputs.doc-temperature }}
-        REVIEW_DOC_MEMORY_ENABLED: ${{ inputs.doc-memory-enabled }}
 
         # Supply chain signature
         REVIEW_SUPPLY_CHAIN_ENABLED: ${{ inputs.supply-chain-enabled }}
@@ -609,7 +582,6 @@ runs:
         REVIEW_SUPPLY_CHAIN_REASONING_EFFORT: ${{ inputs.supply-chain-reasoning-effort }}
         REVIEW_SUPPLY_CHAIN_TEMPERATURE: ${{ inputs.supply-chain-temperature }}
         REVIEW_SUPPLY_CHAIN_SCAN_UNCHANGED: ${{ inputs.supply-chain-scan-unchanged }}
-        REVIEW_SUPPLY_CHAIN_MEMORY_ENABLED: ${{ inputs.supply-chain-memory-enabled }}
 
         # Summary signature
         REVIEW_SUMMARY_ENABLED: ${{ inputs.summary-enabled }}
@@ -618,7 +590,6 @@ runs:
         REVIEW_SUMMARY_MAX_LLM_CALLS: ${{ inputs.summary-max-llm-calls }}
         REVIEW_SUMMARY_REASONING_EFFORT: ${{ inputs.summary-reasoning-effort }}
         REVIEW_SUMMARY_TEMPERATURE: ${{ inputs.summary-temperature }}
-        REVIEW_SUMMARY_MEMORY_ENABLED: ${{ inputs.summary-memory-enabled }}
 
         # Audit signature
         REVIEW_AUDIT_ENABLED: ${{ inputs.audit-enabled }}
@@ -627,7 +598,6 @@ runs:
         REVIEW_AUDIT_MAX_LLM_CALLS: ${{ inputs.audit-max-llm-calls }}
         REVIEW_AUDIT_REASONING_EFFORT: ${{ inputs.audit-reasoning-effort }}
         REVIEW_AUDIT_TEMPERATURE: ${{ inputs.audit-temperature }}
-        REVIEW_AUDIT_MEMORY_ENABLED: ${{ inputs.audit-memory-enabled }}
 
         # Output settings (REVIEW_OUTPUT_FORMAT removed - only via CLI flag)
 
@@ -715,7 +685,6 @@ runs:
         [ -n "$REVIEW_SCOPE_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_REASONING_EFFORT"
         [ -n "$REVIEW_SCOPE_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_TEMPERATURE"
         [ -n "$REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN"
-        [ -n "$REVIEW_SCOPE_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_MEMORY_ENABLED"
 
         # Code review
         [ -n "$REVIEW_CODE_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_ENABLED"
@@ -724,7 +693,6 @@ runs:
         [ -n "$REVIEW_CODE_REVIEW_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_MAX_LLM_CALLS"
         [ -n "$REVIEW_CODE_REVIEW_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_REASONING_EFFORT"
         [ -n "$REVIEW_CODE_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_TEMPERATURE"
-        [ -n "$REVIEW_CODE_REVIEW_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_MEMORY_ENABLED"
 
         # Per-signature max_tokens
         [ -n "$REVIEW_SCOPE_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_MAX_TOKENS"
@@ -745,7 +713,6 @@ runs:
         [ -n "$REVIEW_DOC_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_DOC_MAX_LLM_CALLS"
         [ -n "$REVIEW_DOC_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_DOC_REASONING_EFFORT"
         [ -n "$REVIEW_DOC_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_DOC_TEMPERATURE"
-        [ -n "$REVIEW_DOC_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_DOC_MEMORY_ENABLED"
 
         # Supply chain
         [ -n "$REVIEW_SUPPLY_CHAIN_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUPPLY_CHAIN_ENABLED"
@@ -755,7 +722,6 @@ runs:
         [ -n "$REVIEW_SUPPLY_CHAIN_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUPPLY_CHAIN_REASONING_EFFORT"
         [ -n "$REVIEW_SUPPLY_CHAIN_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUPPLY_CHAIN_TEMPERATURE"
         [ -n "$REVIEW_SUPPLY_CHAIN_SCAN_UNCHANGED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUPPLY_CHAIN_SCAN_UNCHANGED"
-        [ -n "$REVIEW_SUPPLY_CHAIN_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUPPLY_CHAIN_MEMORY_ENABLED"
 
         # Summary
         [ -n "$REVIEW_SUMMARY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUMMARY_ENABLED"
@@ -764,7 +730,6 @@ runs:
         [ -n "$REVIEW_SUMMARY_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUMMARY_MAX_LLM_CALLS"
         [ -n "$REVIEW_SUMMARY_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUMMARY_REASONING_EFFORT"
         [ -n "$REVIEW_SUMMARY_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUMMARY_TEMPERATURE"
-        [ -n "$REVIEW_SUMMARY_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUMMARY_MEMORY_ENABLED"
 
         # Audit
         [ -n "$REVIEW_AUDIT_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_AUDIT_ENABLED"
@@ -773,7 +738,6 @@ runs:
         [ -n "$REVIEW_AUDIT_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_AUDIT_MAX_LLM_CALLS"
         [ -n "$REVIEW_AUDIT_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_AUDIT_REASONING_EFFORT"
         [ -n "$REVIEW_AUDIT_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_AUDIT_TEMPERATURE"
-        [ -n "$REVIEW_AUDIT_MEMORY_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_AUDIT_MEMORY_ENABLED"
 
         # Output settings (REVIEW_OUTPUT_FORMAT removed - only via CLI flag)
 

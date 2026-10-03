@@ -82,7 +82,8 @@ class Auditor(dspy.Module):
         initial_memory: ContextMemory | None = None
         topic_ids: list[str] | None = None
         store = None
-        if self._settings.get_memory_enabled("audit") and scopes:
+        hippo: Hippocampus | None = None
+        if self._settings.memory.enabled and scopes:
             store = get_episode_store(self._settings)
             if store is not None:
                 # Build topic_ids from scope topics
@@ -98,29 +99,28 @@ class Auditor(dspy.Module):
                     logger.info("Loaded prior audit episode(s) into auditor memory")
                 else:
                     logger.info("No prior audit episode found")
+                # Build topics list for Hippocampus
+                scope_topics: list[Topic] = []
+                for scope in scopes or []:
+                    scope_topic = scope.topic(review_context.pr_context.repo_full_name)
+                    if scope_topic:
+                        scope_topics.append(scope_topic)
 
-        if self._settings.get_memory_enabled("audit") and store is not None:
-            # Build topics list for Hippocampus
-            scope_topics: list[Topic] = []
-            for scope in scopes or []:
-                scope_topic = scope.topic(review_context.pr_context.repo_full_name)
-                if scope_topic:
-                    scope_topics.append(scope_topic)
-
-            hippo = Hippocampus(
-                task_name="audit",
-                budget=self._settings.get_memory_budget("audit"),
-                question=question,
-                run_id=run_id,
-                initial_memory=initial_memory,
-                topics=scope_topics if scope_topics else None,
-            )
-            result = auditor(
-                pr_title=review_context.pr_context.pr_title,
-                summary=review_context.pr_context.summary,
-                all_issues=all_issues,
-                **pf_kwargs,
-            )
+                hippo = Hippocampus(
+                    task_name="audit",
+                    budget=self._settings.get_memory_budget(),
+                    question=question,
+                    run_id=run_id,
+                    initial_memory=initial_memory,
+                    topics=scope_topics if scope_topics else None,
+                )
+        result = auditor(
+            pr_title=review_context.pr_context.pr_title,
+            summary=review_context.pr_context.summary,
+            all_issues=all_issues,
+            **pf_kwargs,
+        )
+        if hippo is not None:
             hippo.observe(result)
             _artifacts = {
                 "audit": (
@@ -130,12 +130,6 @@ class Auditor(dspy.Module):
             }
             return result, hippo, store, _artifacts
         else:
-            result = auditor(
-                pr_title=review_context.pr_context.pr_title,
-                summary=review_context.pr_context.summary,
-                all_issues=all_issues,
-                **pf_kwargs,
-            )
             return result, None, None, None
 
     def forward(
@@ -174,7 +168,7 @@ class Auditor(dspy.Module):
             "audit",
             repo_full_name,
             scope_topic_ids=None,
-        ) if self._settings.get_memory_enabled("audit") else None
+        )
         sig = with_prefrontal_memory(AuditSignature) if prefrontal_memory else AuditSignature
         auditor = ContextSafe(
             dspy.ChainOfThought(sig),
@@ -198,8 +192,8 @@ class Auditor(dspy.Module):
             )
 
         # Background episode save (after SignatureContext closes)
-        cerebral = get_cerebral(self._settings)
         if hippo is not None and store is not None:
+            cerebral = get_cerebral(self._settings)
             _cerebral = cerebral
             def _persist():
                 try:

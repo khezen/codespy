@@ -1075,6 +1075,7 @@ class ScopeResolver(dspy.Module):
                 rlm_threshold=self._settings.get_rlm_threshold("react"),
             )
             hippo: Hippocampus | None = None
+            store = None
 
             async with SignatureContext("scope", self._cost_tracker):
                 # Prefrontal: prior knowledge from Cerebral (never given to Hippocampus)
@@ -1093,7 +1094,10 @@ class ScopeResolver(dspy.Module):
                     pf_kwargs["prefrontal_memory"] = scope_pf_text
                     self.prefrontal_memory = scope_pf_text
                     self.prefrontal_sections = pf.last_sections
-                if self._settings.get_memory_enabled("scope"):
+                if self._settings.memory.enabled:
+                    store = get_episode_store(self._settings)
+                scope_initial_memory: ContextMemory | None = None
+                if store is not None:
                     question = (
                         f"refine scopes of {review_context.pr_context.repo_slug}: "
                         f"PR #{review_context.pr_context.pr_number} "
@@ -1101,45 +1105,34 @@ class ScopeResolver(dspy.Module):
                         f"{review_context.pr_context.summary}"
                     )
                     # Scope resolver loads its own prior episodes (no memory inheritance)
-                    store = get_episode_store(self._settings)
-                    scope_initial_memory: ContextMemory | None = None
-                    if store is not None:
-                        # Load by repo prefix — matches any scope-level topic
-                        # (e.g. 'khezen/codespy' matches 'khezen/codespy/codespy-ai')
-                        repo_topic_id = pr.repo_full_name
-                        scope_initial_memory = store.load_context(
-                            task="scope",
-                            topic_prefix=repo_topic_id,
-                        )
-                        if scope_initial_memory:
-                            logger.info("Loaded prior scope episode for %s", repo_topic_id)
-                        else:
-                            logger.info("No prior scope episode for %s", repo_topic_id)
+                    # Load by repo prefix — matches any scope-level topic
+                    # (e.g., 'khezen/codespy' matches 'khezen/codespy/codespy-ai')
+                    repo_topic_id = pr.repo_full_name
+                    scope_initial_memory = store.load_context(
+                        task="scope",
+                        topic_prefix=repo_topic_id,
+                    )
+                    if scope_initial_memory:
+                        logger.info("Loaded prior scope episode for %s", repo_topic_id)
+                    else:
+                        logger.info("No prior scope episode for %s", repo_topic_id)
                     hippo = Hippocampus(
                         task_name="scope",
-                        budget=self._settings.get_memory_budget("scope"),
+                        budget=self._settings.get_memory_budget(),
                         question=question,
                         run_id=run_id,
                         initial_memory=scope_initial_memory,
                     )
-                    result = await agent.acall(
-                        candidates=candidates_str,
-                        orphan_files=[f.filename for f in orphans],
-                        pr_title=pr.title or "No title",
-                        pr_description=pr.body or "No description",
-                        project_instructions=project_instructions,
-                        **pf_kwargs,
-                    )
+                result = await agent.acall(
+                    candidates=candidates_str,
+                    orphan_files=[f.filename for f in orphans],
+                    pr_title=pr.title or "No title",
+                    pr_description=pr.body or "No description",
+                    project_instructions=project_instructions,
+                    **pf_kwargs,
+                )
+                if hippo is not None:
                     await hippo.aobserve(result)
-                else:
-                    result = await agent.acall(
-                        candidates=candidates_str,
-                        orphan_files=[f.filename for f in orphans],
-                        pr_title=pr.title or "No title",
-                        pr_description=pr.body or "No description",
-                        project_instructions=project_instructions,
-                        **pf_kwargs,
-                    )
 
             # Collect all changed files (from scopes + orphans)
             all_files = [f for s in scopes for f in s.changed_files] + orphans

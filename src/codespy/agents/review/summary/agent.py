@@ -81,7 +81,7 @@ class Summarizer(dspy.Module):
         initial_memory: ContextMemory | None = None
         store = None
         topic_ids: list[str] | None = None
-        if self._settings.get_memory_enabled("summary") and scopes:
+        if self._settings.memory.enabled and scopes:
             store = get_episode_store(self._settings)
             if store is not None:
                 # Build topic_ids from scope topics
@@ -106,7 +106,7 @@ class Summarizer(dspy.Module):
             repo_full_name,
             scope_topic_ids=None,
             include_repo=False,
-        ) if self._settings.get_memory_enabled("summary") else None
+        )
         sig = with_prefrontal_memory(PRSummarySignature) if prefrontal_memory else PRSummarySignature
         summarizer = ContextSafe(
             dspy.ChainOfThought(sig),
@@ -126,7 +126,7 @@ class Summarizer(dspy.Module):
             pf_kwargs: dict[str, str] = {}
             if prefrontal_memory:
                 pf_kwargs["prefrontal_memory"] = prefrontal_memory
-            if self._settings.get_memory_enabled("summary") and store is not None:
+            if store is not None:
                 # Build topics list for Hippocampus
                 scope_topics: list[Topic] = []
                 for scope in scopes or []:
@@ -136,19 +136,20 @@ class Summarizer(dspy.Module):
 
                 hippo = Hippocampus(
                     task_name="summary",
-                    budget=self._settings.get_memory_budget("summary"),
+                    budget=self._settings.get_memory_budget(),
                     question=question,
                     run_id=run_id,
                     initial_memory=initial_memory,
                     topics=scope_topics if scope_topics else topics,
                 )
-                result = summarizer(
-                    pr_title=pr_context.pr_title,
-                    pr_description=pr_context.pr_description,
-                    changed_file_paths=changed_file_paths,
-                    patches=patches,
-                    **pf_kwargs,
-                )
+            result = summarizer(
+                pr_title=pr_context.pr_title,
+                pr_description=pr_context.pr_description,
+                changed_file_paths=changed_file_paths,
+                patches=patches,
+                **pf_kwargs,
+            )
+            if hippo is not None:
                 hippo.observe(result)
                 # Fire-and-forget episode save
                 _summary_text = result.summary
@@ -171,14 +172,6 @@ class Summarizer(dspy.Module):
                         except Exception:
                             logger.warning("Background summary cerebral retain failed", exc_info=True)
                 submit_episode_save(_persist, name="summary-episode-save")
-            else:
-                result = summarizer(
-                    pr_title=pr_context.pr_title,
-                    pr_description=pr_context.pr_description,
-                    changed_file_paths=changed_file_paths,
-                    patches=patches,
-                    **pf_kwargs,
-                )
 
         logger.info(f"PR summary: {result.summary[:80]}...")
         return result.summary

@@ -204,8 +204,6 @@ review:
     temperature: null                                             # REVIEW_SUPPLY_CHAIN_TEMPERATURE
     max_tokens: null                                              # REVIEW_SUPPLY_CHAIN_MAX_TOKENS
     scan_unchanged: false                                         # REVIEW_SUPPLY_CHAIN_SCAN_UNCHANGED
-    memory:
-      enabled: null                                               # REVIEW_SUPPLY_CHAIN_MEMORY_ENABLED
 
   # Code Review
   code_review:
@@ -216,8 +214,6 @@ review:
     reasoning_effort: null                                        # REVIEW_CODE_REVIEW_REASONING_EFFORT
     temperature: null                                             # REVIEW_CODE_REVIEW_TEMPERATURE
     max_tokens: null                                              # REVIEW_CODE_REVIEW_MAX_TOKENS
-    memory:
-      enabled: null                                               # REVIEW_CODE_REVIEW_MEMORY_ENABLED
 
   # Documentation Review
   doc:
@@ -228,8 +224,6 @@ review:
     reasoning_effort: null                                        # REVIEW_DOC_REASONING_EFFORT
     temperature: null                                             # REVIEW_DOC_TEMPERATURE
     max_tokens: null                                              # REVIEW_DOC_MAX_TOKENS
-    memory:
-      enabled: null                                               # REVIEW_DOC_MEMORY_ENABLED
 
   # Scope Identification
   scope:
@@ -241,8 +235,6 @@ review:
     temperature: null                                             # REVIEW_SCOPE_TEMPERATURE
     max_tokens: null                                              # REVIEW_SCOPE_MAX_TOKENS
     skip_refinement_when_clean: null                              # REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN
-    memory:
-      enabled: null                                               # REVIEW_SCOPE_MEMORY_ENABLED
 
   # Summary
   summary:
@@ -253,8 +245,6 @@ review:
     reasoning_effort: null                                        # REVIEW_SUMMARY_REASONING_EFFORT
     temperature: null                                             # REVIEW_SUMMARY_TEMPERATURE
     max_tokens: null                                              # REVIEW_SUMMARY_MAX_TOKENS
-    memory:
-      enabled: null                                               # REVIEW_SUMMARY_MEMORY_ENABLED
 
   # Audit
   audit:
@@ -265,5 +255,3 @@ review:
     reasoning_effort: null                                        # REVIEW_AUDIT_REASONING_EFFORT
     temperature: null                                             # REVIEW_AUDIT_TEMPERATURE
     max_tokens: null                                              # REVIEW_AUDIT_MAX_TOKENS
-    memory:
-      enabled: null                                               # REVIEW_AUDIT_MEMORY_ENABLED

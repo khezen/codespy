@@ -39,9 +39,6 @@ from codespy.config_utils import (
 )
 
 if TYPE_CHECKING:
-    # Imported lazily inside get_memory_budget(): importing this at module level
-    # pulls in codespy.agents, whose __init__ imports dspy_config, which imports
-    # this module — a circular import that breaks every entrypoint.
     from codespy.agents.memory.hippocampus.budget import MemoryBudget
 
 
@@ -260,20 +257,10 @@ class Settings(BaseSettings):
         config = self.get_signature_config(signature_name)
         return config.scan_unchanged if config.scan_unchanged is not None else False
 
-    # Helper methods for per-signature memory config (Hippocampus)
-    def get_memory_enabled(self, signature_name: str) -> bool:
-        """Whether Hippocampus memory is enabled for a signature.
+    def get_memory_budget(self) -> "MemoryBudget":
+        """Resolve the ``MemoryBudget`` for memory operations.
 
-        Per-signature ``memory.enabled`` overrides ``memory.enabled``.
-        """
-        config = self.get_signature_config(signature_name).memory
-        return config.enabled if config.enabled is not None else self.memory.enabled
-
-    def get_memory_budget(self, signature_name: str) -> "MemoryBudget":
-        """Resolve the ``MemoryBudget`` for a signature.
-
-        Token budgets are global (``memory.hippocampus.*``); only ``enabled``
-        supports per-signature overrides.
+        Token budgets are global (``memory.hippocampus.*``).
         """
         from codespy.agents.memory.hippocampus.budget import MemoryBudget
 

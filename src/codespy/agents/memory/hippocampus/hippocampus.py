@@ -109,7 +109,7 @@ class Hippocampus:
             budget: The four token budgets bounding memory, as a
                 :class:`MemoryBudget`. Defaults to ``MemoryBudget()`` — see that
                 class for per-field guidance. Resolve one from configuration with
-                ``Settings.get_memory_budget(signature_name)``.
+                ``Settings.get_memory_budget()``.
             question: Pre-computed question string for the reflection "question".
                 If set, this string is used directly as the Distiller question.
                 If None, uses empty string (callers typically pass question at init).
