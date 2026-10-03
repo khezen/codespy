@@ -1,3 +1,3 @@
 """codespy - Code review agent powered by DSPy."""
 
-__version__ = "1.2.4"
+__version__ = "2.0.0"

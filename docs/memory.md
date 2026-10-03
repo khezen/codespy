@@ -487,7 +487,7 @@ MEMORY_CARTOGRAPHER_MODEL=anthropic/claude-sonnet-4-5-20250929
 
 ```yaml
 - name: Run CodeSpy Review
-  uses: khezen/codespy@v1
+  uses: khezen/codespy@v2
   with:
     model: 'anthropic/claude-opus-4-6'
     anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}

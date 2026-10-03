@@ -162,7 +162,7 @@ jobs:
 
     steps:
       - name: Run CodeSpy Review
-        uses: khezen/codespy@v1
+        uses: khezen/codespy@v2
         with:
           model: 'anthropic/claude-opus-4-6'
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -187,7 +187,7 @@ jobs:
 
     steps:
       - name: Run CodeSpy Review
-        uses: khezen/codespy@v1
+        uses: khezen/codespy@v2
         with:
           model: 'anthropic/claude-opus-4-6'
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
