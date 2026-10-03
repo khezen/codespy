@@ -11,8 +11,9 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
+from codespy.agents.memory.prefrontal import with_prefrontal_memory
 from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
 from codespy.agents.review.scope.models import ScopeResult
 from codespy.agents.review.helpers import (
@@ -22,7 +23,7 @@ from codespy.agents.review.helpers import (
     strip_prefix,
 )
 from codespy.config import get_settings
-from codespy.config_memory import get_episode_store
+from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -369,14 +370,29 @@ class SupplyChainAuditor(dspy.Module):
         try:
             # Combine scoped filesystem tools with shared OSV tools
             all_tools = scoped_tools + osv_tools
+            repo_full_name = review_context.pr_context.repo_full_name
+            # Compute scope topic ID once, reused for Prefrontal and Hippocampus load
+            scope_topic_id = scope.topic(repo_full_name).id
+            # Get Prefrontal for tool calls only (prefrontal_memory is already loaded by pipeline)
+            pf = get_prefrontal(
+                self._settings, "supply_chain", repo_full_name, scope_topic_ids=[scope_topic_id]
+            )
+            sig = (
+                with_prefrontal_memory(SupplyChainSecuritySignature)
+                if review_context.prefrontal_memory
+                else SupplyChainSecuritySignature
+            )
+            recall_tool = pf.recall_tool() if pf else None
+            if recall_tool:
+                all_tools = [*all_tools, recall_tool]
             supply_chain_agent = ContextSafe(
                 dspy.RLM(
-                    SupplyChainSecuritySignature,
+                    sig,
                     tools=all_tools,
                     max_iters=supply_chain_max_iters,
                     max_llm_calls=self._settings.get_max_llm_calls("supply_chain"),
                 ),
-                SupplyChainSecuritySignature,
+                sig,
                 tools=all_tools,
                 name="supply_chain",
                 max_iters=supply_chain_max_iters,
@@ -391,22 +407,24 @@ class SupplyChainAuditor(dspy.Module):
             # Track supply_chain signature costs separately
             hippo: Hippocampus | None = None
             async with SignatureContext("supply_chain", self._cost_tracker):
+                # Prefrontal: use shared run-level recall (never given to Hippocampus)
+                pf_kwargs: dict[str, Any] = {}
+                if review_context.prefrontal_memory:
+                    pf_kwargs["prefrontal_memory"] = review_context.prefrontal_memory
                 # Load own prior "supply_chain" episode for this scope
                 scope_initial_memory: ContextMemory | None = None
                 store = None
-                if self._settings.get_memory_enabled("supply_chain"):
+                if self._settings.memory.enabled:
                     store = get_episode_store(self._settings)
-                    if store is not None:
-                        topic_ids = [scope.topic(review_context.pr_context.repo_full_name).id]
-                        scope_initial_memory = store.load_context(
-                            task="supply_chain",
-                            topic_ids=topic_ids,
-                        )
-                        if scope_initial_memory:
-                            logger.info("Loaded prior supply_chain episode for scope %s", scope.subroot)
-                        else:
-                            logger.info("No prior supply_chain episode for scope %s", scope.subroot)
-                if self._settings.get_memory_enabled("supply_chain") and store is not None:
+                if store is not None:
+                    scope_initial_memory = store.load_context(
+                        task="supply_chain",
+                        topic_ids=[scope_topic_id],
+                    )
+                    if scope_initial_memory:
+                        logger.info("Loaded prior supply_chain episode for scope %s", scope.subroot)
+                    else:
+                        logger.info("No prior supply_chain episode for scope %s", scope.subroot)
                     question = (
                         f"review supply chain of {scope.repo}: {scope.subroot}: "
                         f"pull request {review_context.pr_context.pr_number} "
@@ -414,49 +432,45 @@ class SupplyChainAuditor(dspy.Module):
                         f"{review_context.pr_context.summary}"
                     )
                     pr_ctx = review_context.pr_context
-                    topics = [scope.topic(pr.repo_full_name), pr_ctx.to_topic()] if pr else []
-                    inject_context_memory(supply_chain_agent)
+                    topics = [scope.topic(pr_ctx.repo_full_name), pr_ctx.to_topic()] if pr else []
                     hippo = Hippocampus(
                         task_name="supply_chain",
-                        budget=self._settings.get_memory_budget("supply_chain"),
+                        budget=self._settings.get_memory_budget(),
                         question=question,
                         run_id=run_id,
                         initial_memory=scope_initial_memory,
                         topics=topics,
                     )
-                    result = await supply_chain_agent.acall(
-                        context_memory=hippo.context_memory,
-                        manifest_path=manifest_path,
-                        lock_file_path=lock_file_path,
-                        package_manager=package_manager,
-                        category=IssueCategory.SECURITY,
-                    )
+                result = await supply_chain_agent.acall(
+                    manifest_path=manifest_path,
+                    lock_file_path=lock_file_path,
+                    package_manager=package_manager,
+                    category=IssueCategory.SECURITY,
+                    **pf_kwargs,
+                )
+                issues = [
+                    issue
+                    for issue in result.issues
+                    if issue.confidence >= self._settings.review.min_confidence
+                ]
+                if hippo is not None:
                     await hippo.aobserve(result)
-                    issues = [
-                        issue
-                        for issue in result.issues
-                        if issue.confidence >= self._settings.min_confidence
-                    ]
                     # Fire-and-forget background episode save
                     _artifacts = {"review": issues_to_markdown(issues)}
-                    def _persist(h=hippo, s=store, a=_artifacts):
+                    cerebral = get_cerebral(self._settings)
+                    def _persist(
+                        h=hippo, s=store, a=_artifacts, c=cerebral, r=repo_full_name, p=pf
+                    ):
                         try:
-                            h.end_episode(s, artifacts=a)
+                            h.end_episode(s, artifacts=a, recalls=p.recalls if p else None)
                         except Exception:
                             logger.warning("Background supply_chain episode save failed", exc_info=True)
+                        if c is not None and h.episode is not None:
+                            try:
+                                c.retain_episode(h.episode, repo_full_name=r)
+                            except Exception:
+                                logger.warning("Background cerebral retain failed", exc_info=True)
                     submit_episode_save(_persist, name="supply-chain-episode-save")
-                else:
-                    result = await supply_chain_agent.acall(
-                        manifest_path=manifest_path,
-                        lock_file_path=lock_file_path,
-                        package_manager=package_manager,
-                        category=IssueCategory.SECURITY,
-                    )
-                    issues = [
-                        issue
-                        for issue in result.issues
-                        if issue.confidence >= self._settings.min_confidence
-                    ]
             # Restore repo-root-relative paths in reported issues
             restore_repo_paths(issues, scope.subroot)
             logger.debug(

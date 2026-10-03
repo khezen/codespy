@@ -1,16 +1,98 @@
 """DSPy and LiteLLM configuration utilities."""
 
 import logging
+from dataclasses import dataclass
+from types import TracebackType
+from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 import litellm  # type: ignore[import-untyped]
 from dspy.adapters.two_step_adapter import TwoStepAdapter  # type: ignore[import-untyped]
 
 from codespy.config import Settings, get_settings
-from codespy.config_memory import REFLECTION_MODULES, LLMSettings
+from codespy.config_memory import MEMORY_CONSOLIDATION, MEMORY_MENTAL_MODELS, MEMORY_RECALL, MEMORY_RETAIN, REFLECTION_MODULES, LLMSettings
 from codespy.config_utils import secret_value
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LMScope:
+    """Container for LM context with both main and extraction LMs.
+
+    Returned by lm_context() to expose both the main LM (used by DSPy predictors)
+    and the extraction LM (used by TwoStepAdapter) for cost attribution.
+    The ctx is the actual dspy.context that must be exited to release resources.
+
+    Attributes:
+        ctx: The dspy.context manager (must call __exit__ to release).
+        lm: The main LM used for reasoning/generation.
+        extraction_lm: The extraction LM used for structured field extraction.
+    """
+
+    ctx: Any
+    lm: Any
+    extraction_lm: Any
+
+    def __enter__(self) -> "LMScope":
+        """Enter the context."""
+        self.ctx.__enter__()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Exit the context, releasing the LM."""
+        self.ctx.__exit__(exc_type, exc_val, exc_tb)
+
+    async def __aenter__(self) -> "LMScope":
+        """Async enter the context."""
+        return self.__enter__()
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Async exit the context."""
+        self.__exit__(exc_type, exc_val, exc_tb)
+
+
+def new_extraction_lm(settings: Settings) -> dspy.LM:
+    """Build a fresh extraction LM for per-context TwoStepAdapter use.
+
+    The extraction LM is used by TwoStepAdapter for the second stage:
+    deterministic field extraction from the main LM's free-form response.
+    A fresh instance per context ensures correct cost attribution and
+    thread isolation.
+
+    The extraction model is taken from the "default" LLMSettings via
+    ``settings.get_llm_config("default")``, using its ``extraction_model``
+    (which falls back to ``default_model``). This matches the global fallback
+    in ``configure_dspy()`` and does NOT use per-signature overrides.
+
+    Args:
+        settings: Application settings.
+
+    Returns:
+        A configured dspy.LM with temperature=0.0 and no reasoning.
+    """
+    defaults = settings.get_llm_config("default")
+    extraction_model = defaults.extraction_model
+    return new_lm(
+        settings,
+        defaults.model_copy(
+            update={
+                "model": extraction_model,
+                "reasoning_effort": None,
+                "temperature": 0.0,
+            }
+        ),
+    )
 
 
 def _resolve_max_tokens(model: str, max_tokens: int) -> int:
@@ -95,25 +177,25 @@ def new_lm(settings: Settings, config: LLMSettings) -> dspy.LM:
         "model": config.model,
         "temperature": config.temperature,
         "max_tokens": _resolve_max_tokens(config.model, config.max_tokens),
-        "timeout": settings.llm_timeout,
-        "num_retries": settings.llm_retries,
+        "timeout": settings.llm.timeout,
+        "num_retries": settings.llm.retries,
         "drop_params": True,
         "reasoning_effort": config.reasoning_effort,
     }
     # Cache system prompts via explicit Anthropic-style cache_control markers.
     # Only injected for providers that use explicit markers (Anthropic, Bedrock
     # Anthropic); OpenAI/Gemini have automatic caching that needs no markers.
-    if settings.enable_prompt_caching and _supports_cache_control(config.model):
+    if _supports_cache_control(config.model):
         lm_kwargs["cache_control_injection_points"] = [{"location": "message", "role": "system"}]
-    elif settings.enable_prompt_caching:
+    else:
         logger.debug(
-            f"Prompt caching enabled but model {config.model} does not use "
-            f"explicit cache_control markers — skipping injection"
+            f"Model {config.model} does not use explicit cache_control markers — "
+            f"using provider-automatic caching"
         )
     return dspy.LM(**lm_kwargs)
 
 
-def lm_context(name: str):
+def lm_context(name: str) -> LMScope:
     """Return a ``dspy.context`` applying the LM configured for ``name``.
 
     ``name`` is a signature or reflection module name — see
@@ -121,16 +203,21 @@ def lm_context(name: str):
     named unit of work runs on its own configured model, falling back to the
     top-level defaults when it declares no overrides.
 
+    Also creates a per-context extraction LM so that TwoStepAdapter's extraction
+    calls can be attributed correctly to the calling signature.
+
     Args:
         name: The signature or reflection module name.
 
     Returns:
-        A context manager that scopes the LM to the enclosed block.
+        An LMScope wrapping the context manager, main LM, and extraction LM.
     """
     settings = get_settings()
     llm_config = settings.get_llm_config(name)
     lm = new_lm(settings, llm_config)
-    return dspy.context(lm=lm)
+    extraction_lm = new_extraction_lm(settings)
+    ctx = dspy.context(lm=lm, adapter=TwoStepAdapter(extraction_lm))
+    return LMScope(ctx=ctx, lm=lm, extraction_lm=extraction_lm)
 
 
 def configure_dspy(settings: Settings) -> None:
@@ -150,24 +237,24 @@ def configure_dspy(settings: Settings) -> None:
     Args:
         settings: Application settings containing model and API key configuration.
     """
-    model = settings.default_model
+    model = settings.llm.default_model
 
     # Configure LiteLLM environment if needed
-    openai_key = secret_value(settings.openai_api_key)
+    openai_key = secret_value(settings.llm.openai_api_key)
     if openai_key:
         litellm.openai_key = openai_key
-    anthropic_key = secret_value(settings.anthropic_api_key)
+    anthropic_key = secret_value(settings.llm.anthropic_api_key)
     if anthropic_key:
         litellm.anthropic_key = anthropic_key
     # Set up AWS credentials for Bedrock if using Bedrock model
     if model.startswith("bedrock/"):
         import os
 
-        os.environ["AWS_REGION_NAME"] = settings.aws_region
-        aws_access = secret_value(settings.aws_access_key_id)
+        os.environ["AWS_REGION_NAME"] = settings.llm.aws_region
+        aws_access = secret_value(settings.llm.aws_access_key_id)
         if aws_access:
             os.environ["AWS_ACCESS_KEY_ID"] = aws_access
-        aws_secret = secret_value(settings.aws_secret_access_key)
+        aws_secret = secret_value(settings.llm.aws_secret_access_key)
         if aws_secret:
             os.environ["AWS_SECRET_ACCESS_KEY"] = aws_secret
 
@@ -179,17 +266,7 @@ def configure_dspy(settings: Settings) -> None:
     # Extraction LM for TwoStepAdapter's second stage: deterministic field extraction
     # from the main LM's free-form response. Never uses reasoning; temperature=0.0 for
     # deterministic output.
-    extraction_model = defaults.extraction_model
-    extraction_lm = new_lm(
-        settings,
-        defaults.model_copy(
-            update={
-                "model": extraction_model,
-                "reasoning_effort": None,
-                "temperature": 0.0,
-            }
-        ),
-    )
+    extraction_lm = new_extraction_lm(settings)
 
     dspy.settings.configure(
         lm=lm,
@@ -201,17 +278,16 @@ def configure_dspy(settings: Settings) -> None:
         enable_memory_cache=True, enable_disk_cache=False, memory_max_entries=10000
     )
 
-    if not settings.enable_prompt_caching:
-        prompt_cache_status = "disabled"
-    elif _supports_cache_control(model):
+    if _supports_cache_control(model):
         prompt_cache_status = "enabled (cache_control markers)"
     else:
         prompt_cache_status = "enabled (provider-automatic, no markers)"
+    extraction_model = defaults.extraction_model
     logger.info(
         f"Configured DSPy with model: {model} "
         f"(TwoStepAdapter with extraction_model={extraction_model}, "
         f"max_tokens={_resolve_max_tokens(defaults.model, defaults.max_tokens)}, "
-        f"timeout={settings.llm_timeout}s, retries={settings.llm_retries}, "
+        f"timeout={settings.llm.timeout}s, retries={settings.llm.retries}, "
         f"provider prompt caching {prompt_cache_status})"
     )
 
@@ -220,7 +296,7 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
     """Verify that all configured models are accessible.
 
     Checks the default model, all per-signature model overrides, and the
-    memory reflection models, so a typo in any of them fails fast at startup
+    memory reflection modules, so a typo in any of them fails fast at startup
     rather than mid-review.
 
     Args:
@@ -230,20 +306,37 @@ def verify_model_access(settings: Settings) -> tuple[bool, str]:
         Tuple of (success, message)
     """
     # Collect all unique models from config
-    models_to_check: set[str] = {settings.default_model}
+    models_to_check: set[str] = {settings.llm.default_model}
 
     # Check all signature-specific models
-    for _sig_name, sig_config in settings.signatures.items():
+    for _sig_name, sig_config in settings.review.signatures().items():
         if sig_config.model:
             models_to_check.add(sig_config.model)
 
     # Global extraction model (if different from default_model)
-    if settings.extraction_model:
-        models_to_check.add(settings.extraction_model)
+    if settings.llm.extraction_model:
+        models_to_check.add(settings.llm.extraction_model)
 
+    # Memory reflection modules
     for module in REFLECTION_MODULES:
         reflection = settings.get_llm_config(module)
         models_to_check.add(reflection.model)
+
+    # Cerebral retain model
+    cerebral = settings.get_llm_config(MEMORY_RETAIN)
+    models_to_check.add(cerebral.model)
+
+    # Cerebral consolidation model
+    consolidation = settings.get_llm_config(MEMORY_CONSOLIDATION)
+    models_to_check.add(consolidation.model)
+
+    # Prefrontal reflect model (only when reflects > 0, since with reflects=0 no LLM runs)
+    if settings.memory.prefrontal.reflects > 0:
+        prefrontal = settings.get_llm_config(MEMORY_RECALL)
+        models_to_check.add(prefrontal.model)
+        # Mental-models refresh model (only when reflects > 0)
+        mental_models = settings.get_llm_config(MEMORY_MENTAL_MODELS)
+        models_to_check.add(mental_models.model)
 
     # Check each model
     verified: list[str] = []
@@ -281,16 +374,5 @@ class _TaskDestroyedFilter(logging.Filter):
         return not ("Task was destroyed" in msg and "LoggingWorker" in msg)
 
 
-class _MCPRequestFilter(logging.Filter):
-    """Filter to suppress all noisy 'Processing request of type' MCP server messages."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        return "Processing request of type" not in record.getMessage()
-
-
 # Suppress LiteLLM's async logging worker warnings that occur during multi-threaded execution
 logging.getLogger("asyncio").addFilter(_TaskDestroyedFilter())
-
-# Suppress noisy MCP server "Processing request" messages
-logging.getLogger("mcp.server").addFilter(_MCPRequestFilter())
-logging.getLogger("mcp.server.lowlevel").addFilter(_MCPRequestFilter())

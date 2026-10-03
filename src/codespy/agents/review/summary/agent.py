@@ -7,12 +7,13 @@ import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.hippocampus.context_memory import Topic
+from codespy.agents.memory.prefrontal import with_prefrontal_memory
 from codespy.agents.review.helpers import deepest_common_folder
 from codespy.config import get_settings
-from codespy.config_memory import get_episode_store
+from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 
 if TYPE_CHECKING:
     from codespy.agents.review.models import PRContext
@@ -55,6 +56,7 @@ class Summarizer(dspy.Module):
         run_id: str | None = None,
         scopes: list["ScopeResult"] | None = None,
         topics: list[Topic] | None = None,
+        prefrontal_memory: str = "",
     ) -> str:
         """Generate a PR summary.
 
@@ -65,6 +67,7 @@ class Summarizer(dspy.Module):
             run_id: Pipeline run identifier
             scopes: List of resolved scopes for per-scope episode persistence
             topics: Optional list of Topic objects for auto-tagging
+            prefrontal_memory: Shared run-level Prefrontal recall text (already loaded by pipeline)
 
         Returns:
             Summary string
@@ -78,7 +81,7 @@ class Summarizer(dspy.Module):
         initial_memory: ContextMemory | None = None
         store = None
         topic_ids: list[str] | None = None
-        if self._settings.get_memory_enabled("summary") and scopes:
+        if self._settings.memory.enabled and scopes:
             store = get_episode_store(self._settings)
             if store is not None:
                 # Build topic_ids from scope topics
@@ -95,9 +98,19 @@ class Summarizer(dspy.Module):
                 else:
                     logger.info("No prior summary episode found")
 
+        repo_full_name = pr_context.repo_full_name
+        # Get Prefrontal for tool calls only (prefrontal_memory is already loaded)
+        pf = get_prefrontal(
+            self._settings,
+            "summary",
+            repo_full_name,
+            scope_topic_ids=None,
+            include_repo=False,
+        )
+        sig = with_prefrontal_memory(PRSummarySignature) if prefrontal_memory else PRSummarySignature
         summarizer = ContextSafe(
-            dspy.ChainOfThought(PRSummarySignature),
-            PRSummarySignature,
+            dspy.ChainOfThought(sig),
+            sig,
             name="summary",
             max_iters=self._settings.get_max_iters("summary"),
             max_llm_calls=self._settings.get_max_llm_calls("summary"),
@@ -109,7 +122,11 @@ class Summarizer(dspy.Module):
 
         hippo: Hippocampus | None = None
         with SignatureContext("summary", self._cost_tracker):
-            if self._settings.get_memory_enabled("summary") and store is not None:
+            # Prefrontal: use shared run-level recall (never given to Hippocampus)
+            pf_kwargs: dict[str, str] = {}
+            if prefrontal_memory:
+                pf_kwargs["prefrontal_memory"] = prefrontal_memory
+            if store is not None:
                 # Build topics list for Hippocampus
                 scope_topics: list[Topic] = []
                 for scope in scopes or []:
@@ -117,38 +134,44 @@ class Summarizer(dspy.Module):
                     if scope_topic:
                         scope_topics.append(scope_topic)
 
-                inject_context_memory(summarizer)
                 hippo = Hippocampus(
                     task_name="summary",
-                    budget=self._settings.get_memory_budget("summary"),
+                    budget=self._settings.get_memory_budget(),
                     question=question,
                     run_id=run_id,
                     initial_memory=initial_memory,
                     topics=scope_topics if scope_topics else topics,
                 )
-                result = summarizer(
-                    context_memory=hippo.context_memory,
-                    pr_title=pr_context.pr_title,
-                    pr_description=pr_context.pr_description,
-                    changed_file_paths=changed_file_paths,
-                    patches=patches,
-                )
+            result = summarizer(
+                pr_title=pr_context.pr_title,
+                pr_description=pr_context.pr_description,
+                changed_file_paths=changed_file_paths,
+                patches=patches,
+                **pf_kwargs,
+            )
+            if hippo is not None:
                 hippo.observe(result)
                 # Fire-and-forget episode save
                 _summary_text = result.summary
+                cerebral = get_cerebral(self._settings)
+                _cerebral = cerebral
+                # Get recalls from Prefrontal for tool calls only
+                _recalls = pf.recalls if pf else None
                 def _persist():
                     try:
-                        hippo.end_episode(store, artifacts={"summary": _summary_text})
+                        hippo.end_episode(
+                            store,
+                            artifacts={"summary": _summary_text},
+                            recalls=_recalls,
+                        )
                     except Exception:
                         logger.warning("Background summary episode save failed", exc_info=True)
+                    if _cerebral is not None and hippo.episode is not None:
+                        try:
+                            _cerebral.retain_episode(hippo.episode, repo_full_name=repo_full_name)
+                        except Exception:
+                            logger.warning("Background summary cerebral retain failed", exc_info=True)
                 submit_episode_save(_persist, name="summary-episode-save")
-            else:
-                result = summarizer(
-                    pr_title=pr_context.pr_title,
-                    pr_description=pr_context.pr_description,
-                    changed_file_paths=changed_file_paths,
-                    patches=patches,
-                )
 
         logger.info(f"PR summary: {result.summary[:80]}...")
         return result.summary

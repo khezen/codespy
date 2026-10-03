@@ -1,0 +1,490 @@
+"""Tests for the CostTracker module."""
+
+import threading
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from codespy.agents.cost_tracker import (
+    CostTracker,
+    SignatureContext,
+    SignatureStats,
+    _as_number,
+    _calculate_costs_from_entries,
+    _get_history_entries,
+    _get_history_uuids,
+    get_cost_tracker,
+)
+
+
+class TestSignatureStats:
+    """Tests for SignatureStats dataclass."""
+
+    def test_duration_seconds_returns_zero_if_no_start_time(self):
+        """Duration should be 0 if start_time is None."""
+        stats = SignatureStats(name="test")
+        assert stats.duration_seconds == 0.0
+
+    def test_duration_seconds_calculates_from_start_time(self):
+        """Duration should calculate from start_time to now."""
+        import time
+
+        stats = SignatureStats(name="test", start_time=time.time() - 1.0)
+        assert stats.duration_seconds >= 0.9
+
+    def test_duration_seconds_uses_end_time_if_set(self):
+        """Duration should use end_time if set."""
+        stats = SignatureStats(name="test", start_time=0.0, end_time=5.0)
+        assert stats.duration_seconds == 5.0
+
+    def test_duration_seconds_includes_external_duration(self):
+        """Duration should include external_duration_seconds."""
+        stats = SignatureStats(name="test", start_time=0.0, end_time=5.0, external_duration_seconds=2.0)
+        assert stats.duration_seconds == 7.0  # 5.0 wall + 2.0 external
+
+    def test_duration_seconds_external_only_when_no_start_time(self):
+        """Duration should be external_duration_seconds when start_time is None."""
+        stats = SignatureStats(name="test", external_duration_seconds=3.0)
+        assert stats.duration_seconds == 3.0
+
+    def test_to_dict_includes_all_fields(self):
+        """to_dict should include all relevant fields."""
+        stats = SignatureStats(
+            name="test", cost=0.5, tokens=1000, call_count=5, start_time=0.0, end_time=5.0
+        )
+        result = stats.to_dict()
+
+        assert result["name"] == "test"
+        assert result["cost"] == 0.5
+        assert result["tokens"] == 1000
+        assert result["call_count"] == 5
+        assert result["duration_seconds"] == 5.0
+        assert "external_duration_seconds" in result
+
+
+class TestAsNumber:
+    """Tests for _as_number helper."""
+
+    def test_none_returns_zero(self):
+        assert _as_number(None) == 0.0
+
+    def test_bool_returns_zero(self):
+        assert _as_number(True) == 0.0
+        assert _as_number(False) == 0.0
+
+    def test_int_returns_float(self):
+        assert _as_number(42) == 42.0
+
+    def test_float_returns_float(self):
+        assert _as_number(3.14) == 3.14
+
+    def test_numeric_string_returns_float(self):
+        assert _as_number("10.5") == 10.5
+
+    def test_invalid_string_returns_zero(self):
+        assert _as_number("not a number") == 0.0
+
+    def test_list_returns_zero(self):
+        assert _as_number([1, 2, 3]) == 0.0
+
+
+class TestGetHistoryEntries:
+    """Tests for _get_history_entries helper."""
+
+    def test_returns_empty_list_when_no_lm(self):
+        # When LM is None, _get_history_entries should return empty list
+        result = _get_history_entries(None)
+        assert result == []
+
+    def test_returns_empty_list_when_no_history_attr(self):
+        mock_lm = MagicMock()
+        del mock_lm.history
+        result = _get_history_entries(mock_lm)
+        assert result == []
+
+    def test_returns_history_for_provided_lm(self):
+        """Test _get_history_entries with explicitly provided LM."""
+        mock_history = [{"uuid": "test-uuid", "cost": 0.5}]
+        mock_lm = MagicMock()
+        mock_lm.history = mock_history
+        result = _get_history_entries(mock_lm)
+        assert result == mock_history
+
+    def test_returns_empty_list_for_provided_lm_no_history(self):
+        """Test _get_history_entries with LM that has no history attribute."""
+        mock_lm = MagicMock()
+        del mock_lm.history
+        result = _get_history_entries(mock_lm)
+        assert result == []
+
+
+class TestGetHistoryUuids:
+    """Tests for _get_history_uuids helper."""
+
+    def test_returns_set_of_uuids_for_provided_lm(self):
+        """Test _get_history_uuids with explicitly provided LM."""
+        mock_history = [
+            {"uuid": "uuid-1", "cost": 0.5},
+            {"uuid": "uuid-2", "cost": 0.3},
+        ]
+        mock_lm = MagicMock()
+        mock_lm.history = mock_history
+        result = _get_history_uuids(mock_lm)
+        assert result == {"uuid-1", "uuid-2"}
+
+
+class TestCalculateCostsFromEntries:
+    """Tests for _calculate_costs_from_entries helper."""
+
+    def test_calculates_costs_and_tokens(self):
+        entries = [
+            {
+                "uuid": "uuid-1",
+                "cost": 0.5,
+                "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+            },
+            {
+                "uuid": "uuid-2",
+                "cost": 0.3,
+                "usage": {"prompt_tokens": 200, "completion_tokens": 100},
+            },
+        ]
+        exclude = set()
+
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
+
+        assert cost == 0.8
+        assert tokens == 450
+        assert calls == 2
+        assert input_tokens == 300
+        assert output_tokens == 150
+        assert input_cost + output_cost == cost  # Costs should sum correctly
+
+    def test_excludes_specified_uuids(self):
+        entries = [
+            {"uuid": "uuid-1", "cost": 0.5, "usage": {"prompt_tokens": 100}},
+            {"uuid": "uuid-2", "cost": 0.3, "usage": {"prompt_tokens": 200}},
+        ]
+        exclude = {"uuid-1"}
+
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
+
+        assert cost == 0.3
+        assert tokens == 200
+        assert calls == 1
+        assert input_tokens == 200  # Only uuid-2's tokens
+        assert output_tokens == 0
+
+    def test_handles_non_dict_entries(self):
+        entries = ["not a dict", {"uuid": "uuid-1", "cost": 0.5, "usage": {}}]
+        exclude = set()
+
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
+
+        assert cost == 0.5
+        assert calls == 1
+
+    def test_handles_missing_usage(self):
+        entries = [
+            {"uuid": "uuid-1", "cost": 0.5},  # No usage
+        ]
+        exclude = set()
+
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
+
+        assert cost == 0.5
+        assert tokens == 0
+        assert calls == 1
+        assert input_tokens == 0
+        assert output_tokens == 0
+
+    def test_skips_cache_hit_entries(self):
+        """Entries with cache_hit=True should be skipped."""
+        entries = [
+            {"uuid": "uuid-1", "cost": 0.5, "usage": {"prompt_tokens": 100}, "response": {"cache_hit": True}},
+            {"uuid": "uuid-2", "cost": 0.3, "usage": {"prompt_tokens": 200}, "response": {"cache_hit": False}},
+        ]
+        exclude = set()
+
+        cost, tokens, calls, input_tokens, output_tokens, input_cost, output_cost = _calculate_costs_from_entries(entries, exclude)
+
+        assert cost == 0.3
+        assert tokens == 200
+        assert calls == 1
+        assert input_tokens == 200
+
+class TestCostTracker:
+    """Tests for CostTracker class."""
+
+    def test_reset_clears_all_stats(self):
+        tracker = CostTracker()
+        tracker.add_external_call("test", 1.0, 100)
+        tracker.reset()
+
+        assert tracker.total_cost == 0.0
+        assert tracker.total_tokens == 0
+        assert tracker.call_count == 0
+
+    def test_start_signature_creates_new_entry(self):
+        tracker = CostTracker()
+        tracker.start_signature("test_sig")
+
+        stats = tracker.get_signature_stats("test_sig")
+        assert stats is not None
+        assert stats.name == "test_sig"
+        assert stats.start_time is not None
+
+    def test_end_signature_updates_stats(self):
+        tracker = CostTracker()
+        tracker.start_signature("test_sig")
+        tracker.end_signature("test_sig", 0.5, 100, 2, input_tokens=80, output_tokens=20, input_cost=0.3, output_cost=0.2)
+
+        stats = tracker.get_signature_stats("test_sig")
+        assert stats.cost == 0.5
+        assert stats.tokens == 100
+        assert stats.call_count == 2
+        assert stats.end_time is not None
+        assert stats.input_tokens == 80
+        assert stats.output_tokens == 20
+        assert stats.input_cost == 0.3
+        assert stats.output_cost == 0.2
+
+    def test_end_signature_accumulates_multiple_calls(self):
+        tracker = CostTracker()
+        tracker.start_signature("test_sig")
+        tracker.end_signature("test_sig", 0.5, 100, 2, input_tokens=80, output_tokens=20, input_cost=0.3, output_cost=0.2)
+        tracker.end_signature("test_sig", 0.3, 50, 1, input_tokens=30, output_tokens=20, input_cost=0.2, output_cost=0.1)
+
+        stats = tracker.get_signature_stats("test_sig")
+        assert stats.cost == 0.8
+        assert stats.tokens == 150
+        assert stats.call_count == 3
+        assert stats.input_tokens == 110  # 80 + 30
+        assert stats.output_tokens == 40  # 20 + 20
+        assert stats.input_cost == pytest.approx(0.5)  # 0.3 + 0.2
+        assert stats.output_cost == pytest.approx(0.3)  # 0.2 + 0.1
+
+    def test_total_cost_sums_all_signatures(self):
+        tracker = CostTracker()
+        tracker.add_external_call("sig1", 0.5, 100)
+        tracker.add_external_call("sig2", 0.3, 50)
+
+        assert tracker.total_cost == 0.8
+
+    def test_total_tokens_sums_all_signatures(self):
+        tracker = CostTracker()
+        tracker.add_external_call("sig1", 0.5, 100)
+        tracker.add_external_call("sig2", 0.3, 50)
+
+        assert tracker.total_tokens == 150
+
+    def test_call_count_sums_all_signatures(self):
+        tracker = CostTracker()
+        tracker.add_external_call("sig1", 0.5, 100, 2)
+        tracker.add_external_call("sig2", 0.3, 50, 3)
+
+        assert tracker.call_count == 5
+
+    def test_get_signature_stats_returns_none_for_unknown(self):
+        tracker = CostTracker()
+        result = tracker.get_signature_stats("unknown")
+        assert result is None
+
+    def test_get_all_signature_stats_returns_copy(self):
+        tracker = CostTracker()
+        tracker.add_external_call("test", 0.5, 100)
+
+        stats1 = tracker.get_all_signature_stats()
+        tracker.add_external_call("test", 0.3, 50)  # Modify after copy
+        stats2 = tracker.get_all_signature_stats()
+
+        assert stats1["test"].cost == 0.5  # Original copy unchanged
+        assert stats2["test"].cost == 0.8  # New copy reflects updates
+
+
+class TestCostTrackerAddExternalCall:
+    """Tests for CostTracker.add_external_call method."""
+
+    def test_add_external_call_creates_new_entry(self):
+        tracker = CostTracker()
+        tracker.add_external_call("memory_retain", 0.5, 100, 1, input_tokens=100, output_tokens=0, input_cost=0.5, output_cost=0.0)
+
+        stats = tracker.get_signature_stats("memory_retain")
+        assert stats is not None
+        assert stats.name == "memory_retain"
+        assert stats.cost == 0.5
+        assert stats.tokens == 100
+        assert stats.call_count == 1
+        assert stats.input_tokens == 100
+        assert stats.output_tokens == 0
+        assert stats.input_cost == 0.5
+        assert stats.output_cost == 0.0
+
+    def test_add_external_call_accumulates_existing_entry(self):
+        tracker = CostTracker()
+        tracker.add_external_call("memory_retain", 0.5, 100, 1, input_tokens=100, output_tokens=0, input_cost=0.5, output_cost=0.0)
+        tracker.add_external_call("memory_retain", 0.3, 50, 2, input_tokens=30, output_tokens=20, input_cost=0.2, output_cost=0.1)
+
+        stats = tracker.get_signature_stats("memory_retain")
+        assert stats.cost == 0.8
+        assert stats.tokens == 150
+        assert stats.call_count == 3
+        assert stats.input_tokens == 130  # 100 + 30
+        assert stats.output_tokens == 20  # 0 + 20
+        assert stats.input_cost == 0.7  # 0.5 + 0.2
+        assert stats.output_cost == 0.1  # 0.0 + 0.1
+
+    def test_add_external_call_does_not_touch_start_end_time(self):
+        tracker = CostTracker()
+        tracker.add_external_call("memory_retain", 0.5, 100)
+
+        stats = tracker.get_signature_stats("memory_retain")
+        assert stats.start_time is None
+        assert stats.end_time is None
+
+    def test_add_external_call_default_calls_is_one(self):
+        tracker = CostTracker()
+        tracker.add_external_call("memory_retain", 0.5, 100)  # Uses defaults for new fields
+
+        stats = tracker.get_signature_stats("memory_retain")
+        assert stats.call_count == 1
+        # Default values for new fields
+        assert stats.input_tokens == 0
+        assert stats.output_tokens == 0
+        assert stats.input_cost == 0.0
+        assert stats.output_cost == 0.0
+
+    def test_add_external_call_is_thread_safe(self):
+        """Concurrent add_external_call calls should all be counted."""
+        tracker = CostTracker()
+        errors = []
+
+        def add_call(n):
+            try:
+                tracker.add_external_call("memory_retain", 0.1, 10, 1, input_tokens=8, output_tokens=2, input_cost=0.08, output_cost=0.02)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=add_call, args=(i,)) for i in range(100)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        stats = tracker.get_signature_stats("memory_retain")
+        assert stats.cost == pytest.approx(10.0, rel=0.01)
+        assert stats.tokens == 1000
+        assert stats.call_count == 100
+        assert stats.input_tokens == 800
+        assert stats.output_tokens == 200
+        assert stats.input_cost == pytest.approx(8.0, rel=0.01)
+        assert stats.output_cost == pytest.approx(2.0, rel=0.01)
+
+    def test_add_external_call_accumulates_duration(self):
+        """add_external_call with duration accumulates external_duration_seconds."""
+        tracker = CostTracker()
+        tracker.add_external_call("memory_retain", 0.5, 100, duration=1.5)
+        tracker.add_external_call("memory_retain", 0.3, 50, duration=2.5)
+
+        stats = tracker.get_signature_stats("memory_retain")
+        assert stats.external_duration_seconds == 4.0  # 1.5 + 2.5
+        assert stats.duration_seconds == 4.0  # No start_time, so just external
+        assert stats.start_time is None  # Should not touch start_time
+        assert stats.end_time is None  # Should not touch end_time
+
+    def test_add_external_call_duration_default_is_zero(self):
+        """add_external_call without duration defaults to 0.0."""
+        tracker = CostTracker()
+        tracker.add_external_call("memory_retain", 0.5, 100)
+
+        stats = tracker.get_signature_stats("memory_retain")
+        assert stats.external_duration_seconds == 0.0
+        assert stats.duration_seconds == 0.0
+
+    def test_get_all_signature_stats_preserves_external_duration(self):
+        """get_all_signature_stats copy preserves external_duration_seconds."""
+        tracker = CostTracker()
+        tracker.add_external_call("memory_retain", 0.5, 100, duration=2.0)
+
+        all_stats = tracker.get_all_signature_stats()
+        assert all_stats["memory_retain"].external_duration_seconds == 2.0
+        assert all_stats["memory_retain"].duration_seconds == 2.0
+
+
+class TestSignatureContext:
+    """Tests for SignatureContext context manager."""
+
+    @pytest.fixture
+    def mock_lm_scope(self):
+        """Create a mock LMScope with main and extraction LMs."""
+        with patch("codespy.agents.dspy_config.lm_context") as mock:
+            from codespy.agents.dspy_config import LMScope
+
+            mock_lm = MagicMock()
+            mock_lm.history = []
+            mock_extraction_lm = MagicMock()
+            mock_extraction_lm.history = []
+
+            scope = MagicMock()
+            scope.lm = mock_lm
+            scope.extraction_lm = mock_extraction_lm
+            scope.__enter__ = MagicMock(return_value=scope)
+            scope.__exit__ = MagicMock(return_value=None)
+            mock.return_value = scope
+            yield mock
+
+    def test_enter_applies_lm_and_starts_tracking(self, mock_lm_scope):
+        tracker = CostTracker()
+
+        with SignatureContext("test_sig", tracker):
+            pass
+
+        stats = tracker.get_signature_stats("test_sig")
+        assert stats is not None
+
+    def test_exit_calculates_costs(self, mock_lm_scope):
+        tracker = CostTracker()
+        mock_history = [
+            {"uuid": "new-uuid", "cost": 0.5, "usage": {"prompt_tokens": 100}},
+        ]
+
+        # Set history on both LMs
+        scope = mock_lm_scope.return_value
+        scope.lm.history = mock_history
+        scope.extraction_lm.history = []
+
+        with patch.object(tracker, "end_signature") as mock_end:
+            with SignatureContext("test_sig", tracker):
+                pass
+
+            mock_end.assert_called_once()
+            args = mock_end.call_args
+            assert args[0][0] == "test_sig"
+
+    def test_exit_always_releases_lm_context(self, mock_lm_scope):
+        tracker = CostTracker()
+
+        try:
+            with SignatureContext("test_sig", tracker):
+                raise ValueError("Test error")
+        except ValueError:
+            pass
+
+        # lm_context.__exit__ should have been called
+        assert mock_lm_scope.return_value.__exit__.called
+
+
+
+
+class TestGetCostTracker:
+    """Tests for get_cost_tracker function."""
+
+    def test_returns_same_instance(self):
+        tracker1 = get_cost_tracker()
+        tracker2 = get_cost_tracker()
+        assert tracker1 is tracker2
+
+    def test_returns_cost_tracker_instance(self):
+        tracker = get_cost_tracker()
+        assert isinstance(tracker, CostTracker)

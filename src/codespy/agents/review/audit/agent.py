@@ -7,13 +7,14 @@ import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
+from codespy.agents.memory.prefrontal import with_prefrontal_memory
 from codespy.agents.review.models import Issue, ReviewContext
 from codespy.agents.review.helpers import deepest_common_folder
 from codespy.config import get_settings
-from codespy.config_memory import get_episode_store
+from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 
 if TYPE_CHECKING:
     from codespy.agents.review.scope.models import ScopeResult
@@ -59,6 +60,7 @@ class Auditor(dspy.Module):
         run_id: str | None,
         scopes: list["ScopeResult"] | None,
         topics: list["ScopeResult"] | None = None,
+        prefrontal_memory: str | None = None,
     ) -> tuple[dspy.Prediction, Hippocampus | None, "EpisodeStore | None", dict[str, str] | None]:
         """Execute the auditor predictor (with or without Hippocampus memory).
 
@@ -66,6 +68,10 @@ class Auditor(dspy.Module):
             Tuple of (result, hippo, store, artifacts) where hippo/store/artifacts
             are None when memory is disabled.
         """
+        # Prefrontal context (None when inactive); never given to Hippocampus.
+        pf_kwargs: dict[str, str] = (
+            {"prefrontal_memory": prefrontal_memory} if prefrontal_memory is not None else {}
+        )
         question = (
             f"final audit of {review_context.pr_context.repo_slug}: "
             f"pull request {review_context.pr_context.pr_number} "
@@ -76,7 +82,8 @@ class Auditor(dspy.Module):
         initial_memory: ContextMemory | None = None
         topic_ids: list[str] | None = None
         store = None
-        if self._settings.get_memory_enabled("audit") and scopes:
+        hippo: Hippocampus | None = None
+        if self._settings.memory.enabled and scopes:
             store = get_episode_store(self._settings)
             if store is not None:
                 # Build topic_ids from scope topics
@@ -92,30 +99,28 @@ class Auditor(dspy.Module):
                     logger.info("Loaded prior audit episode(s) into auditor memory")
                 else:
                     logger.info("No prior audit episode found")
+                # Build topics list for Hippocampus
+                scope_topics: list[Topic] = []
+                for scope in scopes or []:
+                    scope_topic = scope.topic(review_context.pr_context.repo_full_name)
+                    if scope_topic:
+                        scope_topics.append(scope_topic)
 
-        if self._settings.get_memory_enabled("audit") and store is not None:
-            # Build topics list for Hippocampus
-            scope_topics: list[Topic] = []
-            for scope in scopes or []:
-                scope_topic = scope.topic(review_context.pr_context.repo_full_name)
-                if scope_topic:
-                    scope_topics.append(scope_topic)
-
-            inject_context_memory(auditor)
-            hippo = Hippocampus(
-                task_name="audit",
-                budget=self._settings.get_memory_budget("audit"),
-                question=question,
-                run_id=run_id,
-                initial_memory=initial_memory,
-                topics=scope_topics if scope_topics else None,
-            )
-            result = auditor(
-                context_memory=hippo.context_memory,
-                pr_title=review_context.pr_context.pr_title,
-                summary=review_context.pr_context.summary,
-                all_issues=all_issues,
-            )
+                hippo = Hippocampus(
+                    task_name="audit",
+                    budget=self._settings.get_memory_budget(),
+                    question=question,
+                    run_id=run_id,
+                    initial_memory=initial_memory,
+                    topics=scope_topics if scope_topics else None,
+                )
+        result = auditor(
+            pr_title=review_context.pr_context.pr_title,
+            summary=review_context.pr_context.summary,
+            all_issues=all_issues,
+            **pf_kwargs,
+        )
+        if hippo is not None:
             hippo.observe(result)
             _artifacts = {
                 "audit": (
@@ -125,11 +130,6 @@ class Auditor(dspy.Module):
             }
             return result, hippo, store, _artifacts
         else:
-            result = auditor(
-                pr_title=review_context.pr_context.pr_title,
-                summary=review_context.pr_context.summary,
-                all_issues=all_issues,
-            )
             return result, None, None, None
 
     def forward(
@@ -159,9 +159,20 @@ class Auditor(dspy.Module):
                 "NEEDS_DISCUSSION" if all_issues else "APPROVE",
             )
 
+        repo_full_name = review_context.pr_context.repo_full_name
+        # Use shared run-level recall (already loaded by pipeline)
+        prefrontal_memory = review_context.prefrontal_memory or None
+        # Get Prefrontal for tool calls only (prefrontal_memory is already loaded by pipeline)
+        pf = get_prefrontal(
+            self._settings,
+            "audit",
+            repo_full_name,
+            scope_topic_ids=None,
+        )
+        sig = with_prefrontal_memory(AuditSignature) if prefrontal_memory else AuditSignature
         auditor = ContextSafe(
-            dspy.ChainOfThought(AuditSignature),
-            AuditSignature,
+            dspy.ChainOfThought(sig),
+            sig,
             name="audit",
             max_iters=self._settings.get_max_iters("audit"),
             max_llm_calls=self._settings.get_max_llm_calls("audit"),
@@ -177,15 +188,27 @@ class Auditor(dspy.Module):
                 run_id,
                 scopes,
                 topics,
+                prefrontal_memory=prefrontal_memory,
             )
 
         # Background episode save (after SignatureContext closes)
         if hippo is not None and store is not None:
+            cerebral = get_cerebral(self._settings)
+            _cerebral = cerebral
             def _persist():
                 try:
-                    hippo.end_episode(store, artifacts=_artifacts)
+                    hippo.end_episode(
+                        store,
+                        artifacts=_artifacts,
+                        recalls=pf.recalls if pf else None,
+                    )
                 except Exception:
                     logger.warning("Audit episode save failed", exc_info=True)
+                if _cerebral is not None and hippo.episode is not None:
+                    try:
+                        _cerebral.retain_episode(hippo.episode, repo_full_name=repo_full_name)
+                    except Exception:
+                        logger.warning("Background cerebral retain failed", exc_info=True)
             submit_episode_save(_persist, name="audit-episode-save")
 
         return result.quality_assessment, result.recommendation

@@ -6,14 +6,14 @@ import sys
 from dataclasses import asdict
 from functools import lru_cache
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from codespy.tools.parsers.ripgrep.client import RipgrepSearch
 
 logger = logging.getLogger(__name__)
 _caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 
-mcp = FastMCP("ripgrep")
+mcp = MCPServer("ripgrep")
 _search: RipgrepSearch | None = None
 
 
@@ -184,10 +184,6 @@ def search_literal(
 
 
 if __name__ == "__main__":
-    # Suppress noisy MCP server "Processing request" logs
-    logging.getLogger("mcp.server").setLevel(logging.WARNING)
-    logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
-
     repo_path = sys.argv[1] if len(sys.argv) > 1 else "."
     _search = RipgrepSearch(repo_path)
     mcp.run()

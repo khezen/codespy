@@ -4,12 +4,15 @@ import asyncio
 import logging
 import uuid
 from pathlib import Path
+from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 
 from codespy.agents.memory.hippocampus.context_memory import Topic
+from codespy.agents.memory.prefrontal import build_facets
+from codespy.agents.memory.prefrontal.query import MAX_CONTEXT_PATHS, MAX_ENTITY_TERMS
 from codespy.agents.review.models import Issue, PRContext, ReviewContext, ReviewMetadata
 from codespy.agents.review import (
     Auditor,
@@ -19,16 +22,27 @@ from codespy.agents.review import (
     Summarizer,
     SupplyChainAuditor,
 )
-from codespy.agents.memory.hippocampus.episode import join_episode_saves
+from codespy.agents.memory.hippocampus.episode import (
+    defer_episode_saves,
+    join_episode_saves,
+    start_deferred_episode_saves,
+)
 from codespy.agents.review.helpers import build_patches
-from codespy.agents.review.scope import MANIFEST_FILES, MANIFEST_GLOBS
+from codespy.agents.review.scope import MANIFEST_FILES, MANIFEST_GLOBS, build_sparse_patterns
 from codespy.config import Settings, get_settings
-from codespy.config_memory import verify_memory_access
+from codespy.config_memory import (
+    get_cerebral,
+    get_episode_store,
+    get_run_prefrontal,
+    verify_memory_access,
+)
 from codespy.tools.git import ChangedFile, GitClient, PullRequest, get_client
 from codespy.tools.git.local_diff import build_pr_from_diff
-from codespy.tools.git.patch_utils import compact_patches
+
 from codespy.workflows.review.models import (
     LocalReviewConfig,
+    MemorySection,
+    RecalledMemory,
     RemoteReviewConfig,
     ReviewConfig,
     ReviewResult,
@@ -89,7 +103,7 @@ class ReviewPipeline(dspy.Module):
 
     def _get_repo_path(self, pr: PullRequest) -> Path:
         """Get the local repository path for a MR, creating directories if needed."""
-        cache_dir = self.settings.cache_dir
+        cache_dir = self.settings.review.cache_dir
         cache_dir.mkdir(parents=True, exist_ok=True)
         # Handle nested namespaces for GitLab
         owner_path = pr.repo_owner.replace("/", "_")
@@ -148,13 +162,16 @@ class ReviewPipeline(dspy.Module):
         )
 
     def forward(self, config: ReviewConfig) -> ReviewResult:
-        """Run the complete review pipeline.
+        """Run the complete review pipeline (review phase only).
+
+        The review phase includes scope identification, summarizer, review modules,
+        and audit. Episode saves are deferred until finish_memory() is called.
 
         Args:
             config: Review configuration (RemoteReviewConfig or LocalReviewConfig)
 
         Returns:
-            ReviewResult with issues, summary, costs, etc.
+            ReviewResult with issues, summary, costs, etc. (memory_pending=True)
         """
         self.cost_tracker.reset()
 
@@ -183,8 +200,37 @@ class ReviewPipeline(dspy.Module):
         else:
             raise ValueError(f"Invalid config type: {type(config)}")
 
-        # Step 1: Identify scopes FIRST
+        # Run the review phase with deferred episode saves
+        try:
+            with defer_episode_saves():
+                result = self._run_review_phase(config, pr, repo_path, run_id)
+                return result
+        except Exception:
+            # Ensure saves are started on exception before re-raising
+            start_deferred_episode_saves()
+            raise
+
+    def _run_review_phase(
+        self,
+        config: ReviewConfig,
+        pr: Any,
+        repo_path: Path,
+        run_id: str,
+    ) -> ReviewResult:
+        """Run the review phase (scope identification through audit).
+
+        Args:
+            config: Review configuration
+            pr: PullRequest object
+            repo_path: Path to the repository
+            run_id: Unique run identifier
+
+        Returns:
+            ReviewResult with memory_pending=True
+        """
         is_local = isinstance(config, LocalReviewConfig)
+
+        # Step 1: Identify scopes FIRST
         logger.info("Identifying code scopes...")
         pr_context = PRContext(
             repo_slug=pr.repo_slug,
@@ -209,20 +255,54 @@ class ReviewPipeline(dspy.Module):
                     logger.info(f"    Lock file: {manifest.lock_file_path}")
                 if manifest.dependencies_changed:
                     logger.info("    Dependencies changed: Yes")
+
         # Expand sparse checkout to cover full scope subtrees
-        if not is_local:
-            self._expand_sparse_for_scopes(scopes, repo_path)
         changed_file_paths = [f.filename for f in pr.changed_files]
+        if not is_local:
+            self._expand_sparse_for_scopes(scopes, repo_path, changed_file_paths)
         patches = build_patches(pr.changed_files)
-        if self.settings.compact_patches:
-            logger.info("Compacting patches to function boundaries...")
-            compact_patches(scopes, repo_path)
-        else:
-            logger.debug("Compact patches disabled, using original PR patches")
-        # Step 2: Run Summarizer (now receives scopes for per-scope episode persistence)
+
         # Build all scope topics (scope topics + PR topic)
         all_scope_topics = [s.topic(pr.repo_full_name) for s in scopes]
         all_scope_topics.append(pr_context.to_topic())
+
+        # Build scope topic IDs for Prefrontal
+        scope_topic_ids = [t.id for t in all_scope_topics if t.type == "project_scope"]
+
+        # Run-level Prefrontal recall: one load shared by all consumer agents
+        run_pf = get_run_prefrontal(self.settings, pr.repo_full_name, scope_topic_ids)
+        pf_text = ""
+        if run_pf:
+            # Build facets for the run-level load
+            all_paths = list({f.filename for s in scopes for f in s.changed_files})
+            all_packages = list({
+                s.package_manifest.package_name
+                for s in scopes
+                if s.package_manifest and s.package_manifest.package_name
+            })
+            facets = build_facets(
+                task="review",
+                target=pr.repo_full_name,
+                pr_title=pr.title,
+                summary=pr.body or "",
+                paths=all_paths[:MAX_CONTEXT_PATHS],
+                packages=all_packages[:MAX_ENTITY_TERMS],
+            )
+            pf_text = run_pf.load(facets)
+            # Persist run-level recalls
+            try:
+                store = get_episode_store(self.settings)
+                if store and run_pf.recalls:
+                    store.save_recalls(
+                        run_pf.recalls,
+                        run_id=run_id,
+                        episode_id=None,
+                        task="review",
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to save run-level recalls: {e}")
+
+        # Step 2: Run Summarizer
         pr_summary = self.summarizer(
             pr_context=pr_context,
             changed_file_paths=changed_file_paths,
@@ -230,10 +310,14 @@ class ReviewPipeline(dspy.Module):
             run_id=run_id,
             scopes=scopes,
             topics=all_scope_topics,
+            prefrontal_memory=pf_text,
         )
-        # Enrich review_ctx with actual summary
+        # Enrich review_ctx with actual summary and prefrontal_memory
         pr_context.summary = pr_summary
-        review_ctx = ReviewContext(pr_context=pr_context, memory=None, metadata=metadata)
+        review_ctx = ReviewContext(
+            pr_context=pr_context, memory=None, metadata=metadata, prefrontal_memory=pf_text
+        )
+
         # Step 3: Run review modules concurrently via asyncio.gather
         module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
@@ -241,7 +325,8 @@ class ReviewPipeline(dspy.Module):
             self._run_review_modules(scopes, module_names, review_context=review_ctx)
         )
         logger.info(f"Found {len(all_issues)} issues")
-        # Step 4: Run Audit (loads own prior episodes per scope, no memory inheritance from parallel modules)
+
+        # Step 4: Run Audit
         quality_assessment, recommendation = self.auditor(
             review_context=review_ctx,
             all_issues=all_issues,
@@ -249,18 +334,37 @@ class ReviewPipeline(dspy.Module):
             scopes=scopes,
             topics=all_scope_topics,
         )
-        # Ensure all background episode saves complete before stats collection
-        # (audit's episode save runs in background and contains distiller/cartographer calls)
-        join_episode_saves()
-        # Collect per-signature statistics (after all saves complete)
+
+        # Build memories list from scope and run-level Prefrontal loads
+        # Run-level first (flat), then scope (nested)
+        memories: list[RecalledMemory] = []
+        if run_pf and run_pf.last_sections:
+            memories.append(
+                RecalledMemory(
+                    task="review",
+                    nested=False,
+                    sections=[MemorySection(title=t, text=b) for t, b in run_pf.last_sections],
+                )
+            )
+        scope_pf_sections = self.scope_resolver.prefrontal_sections
+        if scope_pf_sections:
+            memories.append(
+                RecalledMemory(
+                    task="scope",
+                    sections=[MemorySection(title=t, text=b) for t, b in scope_pf_sections],
+                )
+            )
+
+        # Collect stats at end of review phase (before memory phase)
         signature_stats_list = self._collect_signature_stats()
+
         return ReviewResult(
             pr_number=pr.number,
             pr_title=pr.title,
             pr_url=pr.url,
             repo=pr.repo_full_name,
             run_id=run_id,
-            model_used=self.settings.default_model,
+            model_used=self.settings.llm.default_model,
             issues=all_issues,
             overall_summary=pr_summary,
             quality_assessment=quality_assessment,
@@ -269,7 +373,68 @@ class ReviewPipeline(dspy.Module):
             total_tokens=self.cost_tracker.total_tokens,
             llm_calls=self.cost_tracker.call_count,
             signature_stats=signature_stats_list,
+            memories=memories,
+            memory_pending=True,
         )
+
+    def finish_memory(self, result: ReviewResult) -> ReviewResult:
+        """Run the memory phase: start deferred saves, join them, consolidate.
+
+        Args:
+            result: ReviewResult from forward() with memory_pending=True
+
+        Returns:
+            ReviewResult with updated costs and memory_pending=False.
+            Never raises - errors are logged and the result is returned.
+        """
+        if not result.memory_pending:
+            return result
+
+        try:
+            # Start deferred saves (they were queued during review phase)
+            start_deferred_episode_saves()
+            # Wait for all saves to complete
+            join_episode_saves()
+            # Run consolidation and mental model update
+            self._consolidate_run(result.run_id)
+            # Recollect stats with memory costs
+            signature_stats_list = self._collect_signature_stats()
+
+            return result.model_copy(update={
+                "signature_stats": signature_stats_list,
+                "total_cost": self.cost_tracker.total_cost,
+                "total_tokens": self.cost_tracker.total_tokens,
+                "llm_calls": self.cost_tracker.call_count,
+                "memory_pending": False,
+            })
+        except Exception as e:
+            logger.warning("Memory phase failed: %s", e, exc_info=True)
+            # Return result as-is, but mark memory as no longer pending
+            # (we tried and failed, don't keep showing "pending")
+            return result.model_copy(update={"memory_pending": False})
+
+    def _consolidate_run(self, run_id: str) -> None:
+        """Trigger one consolidation per run after all episode saves complete.
+
+        Consolidation runs only when:
+        - Memory is enabled globally
+        - Cerebral is available
+        - At least one signature is enabled
+        """
+        from codespy.config_dspy import SIGNATURE_NAMES
+
+        # Check if memory is enabled and at least one signature is enabled
+        if not self.settings.memory.enabled or not any(
+            self.settings.is_signature_enabled(sig) for sig in SIGNATURE_NAMES
+        ):
+            return
+
+        try:
+            cerebral = get_cerebral(self.settings)
+            if cerebral:
+                cerebral.consolidate_run(run_id)
+        except Exception:
+            logger.warning("Consolidation failed for run %s", run_id, exc_info=True)
 
     def _collect_signature_stats(self) -> list[SignatureStatsResult]:
         """Collect statistics from all signatures that executed.
@@ -288,16 +453,29 @@ class ReviewPipeline(dspy.Module):
                     tokens=stats.tokens,
                     call_count=stats.call_count,
                     duration_seconds=stats.duration_seconds,
+                    input_tokens=stats.input_tokens,
+                    output_tokens=stats.output_tokens,
+                    input_cost=stats.input_cost,
+                    output_cost=stats.output_cost,
                 )
             )
 
         return stats_list
 
-    def _expand_sparse_for_scopes(self, scopes: list, repo_path: Path) -> None:
+    def _expand_sparse_for_scopes(self, scopes: list, repo_path: Path, changed_files: list[str] | None = None) -> None:
         """Expand sparse checkout to cover full subtree of each identified scope.
 
-        Called after scope identification, before compact_patches and review modules,
+        Called after scope identification and before review modules,
         to ensure read_file and patch compaction have full scope context available.
+
+        Uses the same sparse pattern builder as derive_sparse_paths to ensure
+        manifests and AI instruction files are consistently anchored to ancestor
+        dirs of changed files, avoiding repo-wide pattern matching.
+
+        Args:
+            scopes: List of identified scope results
+            repo_path: Path to the repository root
+            changed_files: Optional list of changed file paths (if None, extracts from scopes)
         """
         from git import Repo
         from git.exc import GitCommandError
@@ -306,26 +484,41 @@ class ReviewPipeline(dspy.Module):
         if not git_dir.exists():
             return
 
-        # Build scope-aware sparse paths
-        sparse_paths: set[str] = set()
-        for scope in scopes:
-            if scope.subroot == ".":
-                # Root scope — need everything; disable sparse checkout effectively
-                sparse_paths.add("/*")
-                sparse_paths.add("*/")
-                break
-            else:
-                sparse_paths.add(scope.subroot.rstrip("/") + "/")
+        # Check for root scope — disable sparse checkout entirely
+        has_root_scope = any(s.subroot == "." for s in scopes)
+        if has_root_scope:
+            try:
+                repo = Repo(repo_path)
+                repo.git.update_environment(GIT_TERMINAL_PROMPT="0")
+                # Disable sparse checkout to get full repo
+                repo.git.config("core.sparseCheckout", "false")
+                # Re-checkout to materialize everything
+                if repo.head.is_valid():
+                    repo.git.checkout()
+                    logger.info("Root scope: disabled sparse checkout, full repo checked out")
+                return
+            except (GitCommandError, ValueError, TypeError) as e:
+                logger.warning("Failed to disable sparse checkout for root scope: %s", e)
+                return
 
-        # Always include root-level files and manifests
-        sparse_paths.add("/*")
-        for manifest in MANIFEST_FILES:
-            sparse_paths.add(manifest)
-        for pattern in MANIFEST_GLOBS:
-            sparse_paths.add(pattern)
+        # Build sparse patterns using the canonical builder
+        if changed_files is None:
+            changed_files = []
+            for scope in scopes:
+                changed_files.extend(f.filename for f in scope.changed_files)
+
+        sparse_paths = build_sparse_patterns(changed_files)
+
+        # Add scope subtrees (full directories) for expanded scope context
+        for scope in scopes:
+            if scope.subroot != ".":
+                sparse_paths.append(f"/{scope.subroot.rstrip('/')}/")
+
+        # Deduplicate and sort
+        sparse_paths = sorted(set(sparse_paths))
 
         sparse_file = git_dir / "info" / "sparse-checkout"
-        sparse_file.write_text("\n".join(sorted(sparse_paths)) + "\n")
+        sparse_file.write_text("\n".join(sparse_paths) + "\n")
 
         # Re-checkout to materialize newly included paths
         try:
@@ -338,5 +531,6 @@ class ReviewPipeline(dspy.Module):
                 )
                 return
             repo.git.checkout()
+            logger.debug("Sparse checkout expanded for %d scope(s)", len(scopes))
         except (GitCommandError, ValueError, TypeError) as e:
             logger.warning("Sparse checkout expansion failed (non-fatal): %s", e)

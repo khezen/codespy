@@ -81,9 +81,9 @@ def review_local(
         raise typer.Exit(1) from None
 
     if model:
-        settings.default_model = model
+        settings.llm.default_model = model
     if output:
-        settings.output_format = output  # type: ignore
+        settings.review.output_format = output  # type: ignore
 
     repo = Path(repo_path if repo_path else os.getcwd()).resolve()
 
@@ -100,8 +100,8 @@ def review_local(
             f"[bold blue]Reviewing local changes[/bold blue]\n"
             f"[bold]Repository:[/bold] {repo}\n"
             f"[bold]Base ref:[/bold] {base_ref}\n"
-            f"[bold]Model:[/bold] {settings.default_model}\n"
-            f"[bold]Output:[/bold] {settings.output_format}",
+            f"[bold]Model:[/bold] {settings.llm.default_model}\n"
+            f"[bold]Output:[/bold] {settings.review.output_format}",
             title="codespy review-local",
         )
     )
@@ -109,6 +109,7 @@ def review_local(
     try:
         from codespy.workflows.review.models import LocalReviewConfig
         from codespy.workflows.review.pipeline import ReviewPipeline
+        from codespy.workflows.review.reporters import StdoutReporter
 
         pipeline = ReviewPipeline(settings)
 
@@ -116,22 +117,27 @@ def review_local(
         config = LocalReviewConfig(repo_path=repo, base_ref=base_ref, uncommitted=False)
 
         # Run review (model access always verified in pipeline)
-        result = pipeline(config)
+        # Episode saves are deferred; finish_memory runs them
+        result = pipeline.finish_memory(pipeline(config))
 
         if result.llm_calls > 0:
             cost_str = f"${result.total_cost:.4f}" if result.total_cost > 0 else "N/A"
+            # Calculate input/output totals from signature_stats
+            total_in_tokens = sum(s.input_tokens for s in result.signature_stats)
+            total_out_tokens = sum(s.output_tokens for s in result.signature_stats)
+            total_in_cost = sum(s.input_cost for s in result.signature_stats)
+            total_out_cost = sum(s.output_cost for s in result.signature_stats)
             console.print(
                 Panel(
                     f"[bold]LLM Calls:[/bold] {result.llm_calls}\n"
-                    f"[bold]Total Tokens:[/bold] {result.total_tokens:,}\n"
+                    f"[bold]In Tokens:[/bold] {total_in_tokens:,}  [bold]Out Tokens:[/bold] {total_out_tokens:,}\n"
+                    f"[bold]In Cost:[/bold] ${total_in_cost:.4f}  [bold]Out Cost:[/bold] ${total_out_cost:.4f}\n"
                     f"[bold]Total Cost:[/bold] {cost_str}",
                     title="Cost Summary",
                 )
             )
 
-        from codespy.workflows.review.reporters import StdoutReporter
-
-        stdout_reporter = StdoutReporter(format=settings.output_format, console=console)
+        stdout_reporter = StdoutReporter(format=settings.review.output_format, console=console)
         stdout_reporter.report(result)
 
     except Exception as e:
@@ -195,9 +201,9 @@ def review_uncommitted(
         raise typer.Exit(1) from None
 
     if model:
-        settings.default_model = model
+        settings.llm.default_model = model
     if output:
-        settings.output_format = output  # type: ignore
+        settings.review.output_format = output  # type: ignore
 
     repo = Path(repo_path if repo_path else os.getcwd()).resolve()
 
@@ -213,8 +219,8 @@ def review_uncommitted(
         Panel(
             f"[bold blue]Reviewing uncommitted changes[/bold blue]\n"
             f"[bold]Repository:[/bold] {repo}\n"
-            f"[bold]Model:[/bold] {settings.default_model}\n"
-            f"[bold]Output:[/bold] {settings.output_format}",
+            f"[bold]Model:[/bold] {settings.llm.default_model}\n"
+            f"[bold]Output:[/bold] {settings.review.output_format}",
             title="codespy review-uncommitted",
         )
     )
@@ -222,6 +228,7 @@ def review_uncommitted(
     try:
         from codespy.workflows.review.models import LocalReviewConfig
         from codespy.workflows.review.pipeline import ReviewPipeline
+        from codespy.workflows.review.reporters import StdoutReporter
 
         pipeline = ReviewPipeline(settings)
 
@@ -229,22 +236,27 @@ def review_uncommitted(
         config = LocalReviewConfig(repo_path=repo, uncommitted=True)
 
         # Run review (model access always verified in pipeline)
-        result = pipeline(config)
+        # Episode saves are deferred; finish_memory runs them
+        result = pipeline.finish_memory(pipeline(config))
 
         if result.llm_calls > 0:
             cost_str = f"${result.total_cost:.4f}" if result.total_cost > 0 else "N/A"
+            # Calculate input/output totals from signature_stats
+            total_in_tokens = sum(s.input_tokens for s in result.signature_stats)
+            total_out_tokens = sum(s.output_tokens for s in result.signature_stats)
+            total_in_cost = sum(s.input_cost for s in result.signature_stats)
+            total_out_cost = sum(s.output_cost for s in result.signature_stats)
             console.print(
                 Panel(
                     f"[bold]LLM Calls:[/bold] {result.llm_calls}\n"
-                    f"[bold]Total Tokens:[/bold] {result.total_tokens:,}\n"
+                    f"[bold]In Tokens:[/bold] {total_in_tokens:,}  [bold]Out Tokens:[/bold] {total_out_tokens:,}\n"
+                    f"[bold]In Cost:[/bold] ${total_in_cost:.4f}  [bold]Out Cost:[/bold] ${total_out_cost:.4f}\n"
                     f"[bold]Total Cost:[/bold] {cost_str}",
                     title="Cost Summary",
                 )
             )
 
-        from codespy.workflows.review.reporters import StdoutReporter
-
-        stdout_reporter = StdoutReporter(format=settings.output_format, console=console)
+        stdout_reporter = StdoutReporter(format=settings.review.output_format, console=console)
         stdout_reporter.report(result)
 
     except Exception as e:

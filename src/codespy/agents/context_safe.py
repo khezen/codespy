@@ -60,7 +60,7 @@ class ContextSafe(dspy.Module):
     - Try/catch: if the inner module raises a context overflow error (unknown
       models where pre-flight can't estimate), catches it and retries with RLM.
 
-    Transparent to inject_context_memory — delegates .signature to inner module.
+    Transparent to signature injection — delegates .signature to inner module.
     """
 
     def __init__(
@@ -186,7 +186,7 @@ class ContextSafe(dspy.Module):
             return False, ""
 
     def _get_current_signature(self):
-        """Get current signature (may include context_memory if inject_context_memory was called)."""
+        """Get current signature."""
         sig = getattr(self.module, "signature", None)
         if sig is not None:
             return sig

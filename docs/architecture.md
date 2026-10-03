@@ -108,12 +108,23 @@ RLM puts inputs into a sandboxed Python interpreter rather than the LLM prompt.
 The model writes code to access and process variables (e.g., chunking large
 patches via `llm_query()`), eliminating context window limits entirely.
 
-The composition order is: `Hippocampus(ContextSafe(Module))` — Hippocampus
-handles memory, ContextSafe handles context quality, each with single responsibility.
+The composition order is: `ContextSafe(Module)` — ContextSafe handles context quality.
+Hippocampus is a separate component that agents call explicitly.
 
-## Hippocampus Memory
+## Memory
 
-Episode-based memory that wraps DSPy agents with persistent context across reviews. Agents accumulate knowledge about a codebase scope over time — patterns, constants, parsing schemas, and reuse it in subsequent reviews of the same code area.
+CodeSpy's memory system has three independent components:
+
+- **Hippocampus**: Episode-based memory that learns from the current review. Agents call
+  `Hippocampus()` to create an episode, `aobserve()` to feed results, and `end_episode()`
+  to run the Distiller/Cartographer reflection pipeline. Agents never receive Hippocampus
+  context memory directly; prior knowledge reaches them only through Cerebral → Prefrontal.
+
+- **Cerebral**: Retains Hippocampus episodes into Hindsight semantic memory, consolidates
+  observations, and refreshes mental models (briefings).
+
+- **Prefrontal**: Reads Cerebral before agent calls and injects a read-only `prefrontal_memory`
+  input (briefings, recalled facts). RLM agents also get a `recall_memory` tool.
 
 See [Memory System](memory.md) for implementation details.
 

@@ -26,14 +26,14 @@ class MemoryBudget:
     once (see ``Settings.get_memory_budget``) and shared across instances.
 
     Attributes:
-        max_context_memory_tokens: Hard ceiling on the serialized ContextMemory,
+        max_hippocampus_tokens: Hard ceiling on the serialized ContextMemory,
             enforced by the Evictor after every reflection. This is the
             *persisted* artifact and it is prepended to every predictor of the
             wrapped agent, so it is re-sent on every agent iteration
             (~``max_iters`` times per run) plus once per reflection call — the
-            most cost-sensitive of the four. Divided by ``max_context_item_tokens`` it
+            most cost-sensitive of the four. Divided by ``max_hippocampus_item_tokens`` it
             gives the memory's approximate item capacity (16384 / 512 = 32 items).
-        max_context_item_tokens: Budget for a *single* context memory item, passed to the
+        max_hippocampus_item_tokens: Budget for a *single* context memory item, passed to the
             Distiller and the Cartographer as a prompt input so they keep each
             item compact rather than spending the whole memory budget on one
             verbose entry. Unlike the other three this is a **soft** budget:
@@ -65,8 +65,8 @@ class MemoryBudget:
             input exceeds the model's context window.
     """
 
-    max_context_memory_tokens: int = 16384
-    max_context_item_tokens: int = 512
+    max_hippocampus_tokens: int = 16384
+    max_hippocampus_item_tokens: int = 512
     max_trajectory_tokens: int | None = 16384
     max_question_tokens: int | None = 8192
     compact_trajectory: bool = True
@@ -98,7 +98,7 @@ def count_tokens(s: str) -> int:
 
 
 def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
-    """Serialize call inputs (excluding context_memory) for the Distiller question.
+    """Serialize call inputs for the Distiller question.
 
     All fields are included in full. If max_tokens is set, the joined result is
     head+tail bounded via _head_tail_text so both the instruction and any
@@ -107,8 +107,6 @@ def format_inputs(kwargs: dict, max_tokens: int | None = None) -> str:
     """
     parts: list[str] = []
     for k, v in kwargs.items():
-        if k == "context_memory":
-            continue
         parts.append(f"{k}: {v}")
     text = "\n".join(parts)
     if max_tokens is None:

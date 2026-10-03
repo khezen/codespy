@@ -20,7 +20,8 @@ class TestDeriveSparsePaths:
         """Test deriving sparse paths with single scope indicator."""
         changed_files = ["packages/auth/src/index.ts"]
         paths = derive_sparse_paths(changed_files)
-        assert "packages/auth/" in paths
+        # Anchored paths start with /
+        assert "/packages/auth/" in paths
         assert "/*" in paths
 
     def test_multiple_scope_indicators(self):
@@ -30,15 +31,17 @@ class TestDeriveSparsePaths:
             "packages/auth/src/index.ts",
         ]
         paths = derive_sparse_paths(changed_files)
-        assert "mono/svc/api/" in paths
-        assert "packages/auth/" in paths
+        # Anchored paths start with /
+        assert "/mono/svc/api/" in paths
+        assert "/packages/auth/" in paths
         assert "/*" in paths
 
     def test_no_scope_indicator_uses_depth_fallback(self):
         """Test fallback to depth-2 when no indicator found."""
         changed_files = ["backend/api/handler.go"]
         paths = derive_sparse_paths(changed_files)
-        assert "backend/api/" in paths
+        # Anchored paths start with /
+        assert "/backend/api/" in paths
 
     def test_root_level_file(self):
         """Test root-level files don't add extra paths."""
@@ -55,8 +58,8 @@ class TestDeriveSparsePaths:
             "packages/auth/tests/auth.test.ts",
         ]
         paths = derive_sparse_paths(changed_files)
-        # Should only have one packages/auth/
-        assert paths.count("packages/auth/") == 1
+        # Should only have one /packages/auth/ (anchored)
+        assert paths.count("/packages/auth/") == 1
 
 
 class TestScopeResolver:
@@ -204,8 +207,30 @@ class TestManifestScoping:
         """internal/ is not a scope indicator for sparse paths."""
         changed_files = ["backend/internal/cache/redis.go"]
         paths = derive_sparse_paths(changed_files)
-        # Should use depth-2 fallback, not scope indicator
-        assert "backend/internal/" in paths  # depth-2 prefix
+        # Should use depth-2 fallback, not scope indicator (anchored)
+        assert "/backend/internal/" in paths  # depth-2 prefix
+
+    def test_anchored_manifest_patterns(self):
+        """Manifest patterns are anchored to ancestor dirs, not repo-wide."""
+        changed_files = ["packages/auth/src/index.ts"]
+        paths = derive_sparse_paths(changed_files)
+        # Should have anchored manifest patterns, not bare manifest names
+        assert "/go.mod" in paths  # root manifest
+        assert "/packages/go.mod" in paths  # ancestor manifest
+        assert "/packages/auth/go.mod" in paths  # scope manifest
+        # Should NOT have bare repo-wide patterns
+        assert "go.mod" not in paths or paths.count("go.mod") == 0
+
+    def test_anchored_ai_file_patterns(self):
+        """AI instruction files are anchored to ancestor dirs."""
+        changed_files = ["packages/auth/src/index.ts"]
+        paths = derive_sparse_paths(changed_files)
+        # Should have anchored AI patterns
+        assert "/.kilo/" in paths  # root AI dir
+        assert "/packages/.kilo/" in paths  # ancestor AI dir
+        assert "/packages/auth/.kilo/" in paths  # scope AI dir
+        assert "/AGENTS.md" in paths  # root AI file
+        assert "/packages/AGENTS.md" in paths  # ancestor AI file
 
     def test_indicator_suppressed_under_manifest(self):
         """Indicator scopes not created when parent manifest covers file."""

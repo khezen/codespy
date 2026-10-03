@@ -2,6 +2,99 @@
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-03
+
+### Changed (Breaking)
+
+- **Configuration structure** — `Settings` is now `llm` / `github` / `gitlab` / `memory` / `review` with `extra="ignore"`. A 1.2.4 `codespy.yaml` is silently ignored for every moved key. Migration:
+  - Top-level `default_model`, `extraction_model`, `default_max_iters`, `default_max_llm_calls`, `default_reasoning_effort`, `default_temperature`, `default_max_tokens` → `llm.*`. `llm_retries`/`llm_timeout` → `llm.retries`/`llm.timeout`. `rlm_fallback` → `llm.rlm_fallback`.
+  - `signatures.<sig>` → `review.<sig>`. `min_confidence`, `output_format`, `output_stdout`, `output_git`, `cache_dir`, `excluded_directories` → `review.*`.
+  - `memory.default_enabled` → `memory.enabled`. `memory.{compact_trajectory,max_trajectory_tokens,max_question_tokens,distiller,cartographer}` → `memory.hippocampus.*`. `memory.max_context_memory_tokens`/`max_context_item_tokens` → `memory.hippocampus.max_hippocampus_tokens`/`max_hippocampus_item_tokens`.
+  - Env vars: `<SIG>_*` → `REVIEW_<SIG>_*`. `MIN_CONFIDENCE`, `OUTPUT_FORMAT`, `OUTPUT_STDOUT`, `OUTPUT_GIT`, `CACHE_DIR`, `EXCLUDED_DIRECTORIES` → `REVIEW_*`. `MEMORY_DEFAULT_ENABLED` → `MEMORY_ENABLED`. `MEMORY_MAX_CONTEXT_MEMORY_TOKENS`/`MEMORY_MAX_CONTEXT_ITEM_TOKENS` → `MEMORY_MAX_HIPPOCAMPUS_TOKENS`/`MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS`.
+  - Unchanged: `DEFAULT_*`, `EXTRACTION_MODEL`, `LLM_RETRIES`, `LLM_TIMEOUT`, `RLM_FALLBACK_*`, `MEMORY_DISTILLER_*`, `MEMORY_CARTOGRAPHER_*`, `MEMORY_POSTGRES_*` (except `SCHEMA`), `MEMORY_PG0_*`, `MEMORY_BANK_ID`, `MEMORY_COMPACT_TRAJECTORY`, `MEMORY_MAX_TRAJECTORY_TOKENS`, `MEMORY_MAX_QUESTION_TOKENS`, and provider keys.
+- **New default models and temperature** — out-of-the-box codespy now requires AWS Bedrock access to Opus 5.5 and both Nemotron models:
+  - `DEFAULT_MODEL`: `bedrock/converse/nvidia.nemotron-nano-3-30b`
+  - `EXTRACTION_MODEL`: `bedrock/converse/nvidia.nemotron-nano-3-30b`
+  - `REVIEW_SCOPE_MODEL`, `REVIEW_CODE_REVIEW_MODEL`, `REVIEW_DOC_MODEL`, `REVIEW_AUDIT_MODEL`: `bedrock/converse/global.anthropic.claude-opus-5-5`
+  - `REVIEW_SUPPLY_CHAIN_MODEL`, `REVIEW_SUMMARY_MODEL`: `bedrock/converse/nvidia.nemotron-super-3-120b`
+  - `MEMORY_*_MODEL` (distiller, cartographer, retain, consolidation, mental_models, recall): `bedrock/converse/nvidia.nemotron-super-3-120b`
+  - `MEMORY_EMBEDDINGS_MODEL`: `bedrock/cohere.embed-v4:0`
+  - `DEFAULT_TEMPERATURE`: `1.0`
+- **Embeddings model v4** changes the vector dimension — requires a semantic DB reset (`DROP SCHEMA semantic CASCADE`)
+- **Default `MEMORY_BANK_ID` changed from `codespy` to `codebase`** — set `MEMORY_BANK_ID=codespy` to keep using existing memory data
+- **Memory disabled by default** — `memory.enabled` now defaults to `false`. Previously `review.summary.memory.enabled: true` in main `codespy.yaml` caused summary episodes to save even with global memory off. Now only the global switch gates memory, so nothing is saved by default.
+- **Removed `memory.postgres.schema`** — episodic schema is now hard-coded to `episodic` (like `semantic`). The `MEMORY_POSTGRES_SCHEMA` env var is removed.
+- **Action `model` input is now optional** (was `required: true`); when unset, codespy.yaml default applies. Action inputs no longer carry `default:` values; codespy.yaml applies instead. Setting a pinned unit to `null` (YAML `model: null` or env `VAR=null`) re-enables the fallback chain. Migration note: upgrade the action ref and `codespy-version` together. An older action with the `latest` image, or the reverse, silently drops review settings.
+- **EVICT tombstones** — Hippocampus eviction writes `EVICT` mutation tombstones (`MutationType.EVICT`, separate from `DELETE`). `load_context` excludes both `DELETE` and `EVICT`. ROLLBACK NOTE: loaders older than this release only skip `DELETE` and fail to load a topic that has an `EVICT` row. Before rolling back, run `UPDATE observations SET op_type = 'DELETE' WHERE op_type = 'EVICT';` (both are content-NULL tombstones, so no data is lost).
+- **Dependencies**: `hindsight-api-slim >=0.10.1` (new); `mcp` upgraded from `>=1.29,<2` to `>=2.2,<3`
+
+### Added
+
+- **Cerebral (Semantic Memory)**: New `codespy/agents/memory/cerebral/` package with mutation-based retain (ADD/`supersedes`/`RETRACTED`), domain-agnostic missions, tags/scopes (`project_scope:`, `repo:`, `org:`, `task:`), once-per-run consolidation via `SyncTaskBackend`, `max_observations_per_scope`, mental-model briefings in delta mode with `memory.cerebral.mental_models.*`, embeddings + `max_input_chars`, structured-output support, read API (`arecall`/`recall`, `areflect`/`reflect`, `aget_mental_models`, `aget_observation_history`), and fixed `semantic` schema.
+- **Prefrontal (Semantic Recall)**: New `codespy/agents/memory/prefrontal/` package with run-level recall shared by summary, code_review, doc, supply_chain, and audit agents. Before each agent call it reads Cerebral and injects a read-only `prefrontal_memory` input (mental-model briefings, five question-shaped recall facets — context, seen before, decisions, recurring patterns, what changed — and facts from other repositories). Configured under `memory.prefrontal` (`MEMORY_PREFRONTAL_REFLECTS`, `MEMORY_RECALL_*`). The `recall_memory` tool is available to RLM agents (code_review, scope, supply_chain) but is off by default (`max_tool_calls: 0`). Prefrontal never writes to Cerebral and never feeds Hippocampus.
+- **Review memories section**: The pre-call Prefrontal memory (run-level and scope-level) now appears in a collapsed `memories` section **before** the Summary. Run-level sections (Briefings, Around this work, Seen before, Decisions, Recurring patterns, What changed, Other repositories) render directly under `memories`. Scope recall, when present, is nested in its own `scope` block. All levels are indented with `<blockquote>` so nesting is visible in GitHub/GitLab. This section is shown in both the GitHub/GitLab review body and the stdout/MCP markdown output.
+- **New action inputs** (no defaults, values taken from codespy.yaml when unset):
+  - `scope-max-tokens`, `code-review-max-tokens`, `doc-max-tokens`, `supply-chain-max-tokens`, `summary-max-tokens`, `audit-max-tokens`
+  - `memory-distiller-max-tokens`, `memory-cartographer-max-tokens`
+  - `memory-compact-trajectory`, `memory-max-hippocampus-tokens`, `memory-max-hippocampus-item-tokens`, `memory-max-trajectory-tokens`, `memory-max-question-tokens`
+  - `memory-retain-model`, `memory-retain-chunk-size`
+  - `memory-consolidation-model`, `memory-consolidation-max-observations-per-scope`
+  - `memory-mental-models-model`, `memory-mental-models-max-tokens`, `memory-mental-models-min-refresh-seconds`
+  - `memory-recall-model`, `memory-recall-reach`, `memory-recall-max-tokens`, `memory-recall-max-tool-tokens`, `memory-recall-max-tool-calls`
+  - `memory-prefrontal-reflects`, `memory-embeddings-model`, `memory-embeddings-max-input-chars`
+  - `scope-skip-refinement-when-clean`
+  - `openai-api-base`, `azure-api-key`, `azure-api-base`, `azure-api-version`
+- **AWS region forwarding**: AWS region is now forwarded independently of access key (was bundled with credentials)
+- **Cost buckets**: `memory_recall`, `memory_recall_embeddings`, `memory_consolidation`, `memory_mental_models`
+- **ReflectSummary monitoring**: `areflect` returns `(text, ReflectSummary)` with iterations, LLM calls, map calls, rewrite flag, tools used, usage, and empty flag. Stored in `RecallRecord.details["reflect"]` for monitoring.
+
+### Changed
+
+- **Review statistics matrix**: the GitHub/GitLab review Statistics table is now a severity × category matrix (Security, Bugs, Documentation, Smells + totals); Smells are now counted.
+- **Review publish order**: Episode saves, retain, consolidation and mental-model refresh run after audit. For remote reviews, the GitHub/GitLab review is posted first with "Memory: pending", then edited with full costs after the memory phase completes. Local CLI and MCP reviews run the memory phase before returning/printing.
+- **Cost breakdown split**: The per-signature cost table is split into a Review table and a Memory table (memory_* buckets), each with its own subtotal.
+- **Cost table rows renamed** (1.2.4 rows `distiller`/`cartographer` → `memory_distiller`/`memory_cartographer`)
+- **Cerebral tags**: Removed `episode:` and `run_id:` tags — they were not used for scoping or reach and bloated the tag set. `pull_request:` tags are also no longer added. Retained items now only carry `project_scope:`, `repo:`, `org:`, and `task:` tags.
+- **Cerebral fallback scope**: Episodes without a `project_scope` topic now consolidate into `[org:, repo:, project_scope:<owner/repo>]` (the repo-root project scope) instead of `[org:, repo:]`. This ensures every write scope matches the observation cap rule and creates/updates the repo-root briefing.
+- **Cerebral retain framing**: Moved from `context` to `metadata`. The `context` field is no longer set on retain items; instead `metadata` carries `task`, `repo` (when known), `kind` (`"observation changes"` / `"artifacts"`), and `question`. This reduces consolidation input size.
+- **Doc review CHANGELOG trim**: CHANGELOG files are now trimmed to preamble + 2 newest sections (keeps `[Unreleased]` + latest release). Saves ~25KB (21%) of the ~118KB doc payload in this repo.
+- **load_context semantics**: Now loads the latest version of every observation from ALL prior episodes (not just the latest episode), excluding tombstones (`DELETE`, `EVICT`) and any version with no content. Observations are returned oldest-first, so eviction drops the oldest facts first. Topic prefix matching now uses proper LIKE escaping so `owner/repo` no longer matches `owner/repo-other`.
+- **Cerebral DELETE vs EVICT handling**: DELETE produces a `RETRACTED` line marking facts as wrong; EVICT of unchanged prior facts sends nothing; content new this run (ADD→EVICT or REPLACE→EVICT) is retained to avoid losing newly learned facts.
+
+### Removed
+
+- **Per-signature memory overrides** — `review.<sig>.memory.enabled` (YAML), `REVIEW_<SIG>_MEMORY_ENABLED` (env), and action inputs `scope-memory-enabled`, `code-review-memory-enabled`, `doc-memory-enabled`, `supply-chain-memory-enabled`, `summary-memory-enabled`, `audit-memory-enabled` are removed. Memory is now controlled only by the global `memory.enabled` (`MEMORY_ENABLED`, `memory-enabled`).
+- Action input `memory-prefrontal-model` (was deprecated, never wired). The real input is `memory-recall-model`.
+- Action env vars: `SCOPE_MEMORY_ENABLED`, `CODE_REVIEW_MEMORY_ENABLED`, `DOC_MEMORY_ENABLED`, `SUPPLY_CHAIN_MEMORY_ENABLED`, `SUMMARY_MEMORY_ENABLED`, `AUDIT_MEMORY_ENABLED`, `OUTPUT_FORMAT`
+- Config settings: `enable_prompt_caching`/`ENABLE_PROMPT_CACHING`/`enable-prompt-caching`, `compact_patches`/`COMPACT_PATCHES`/`compact-patches`
+- Tree-sitter patch compaction (`tools/git/patch_utils.py` deleted)
+- Dead code: `Settings.sync_llm_settings()`, `LLMConfig.sync_from_flat()`, `Settings.get_memory_enabled()`, `get_memory_budget()` no longer takes an argument, `MemorySignatureConfig`, `SIGNATURE_PREFIXES`, `SIGNATURE_SETTINGS`, `MEMORY_SIGNATURE_SETTINGS`, `RLM_FALLBACK_ENV_SETTINGS`
+- Agents no longer receive memory input: `inject_context_memory` and the `context_memory=` argument have been removed from all six review agents (summary, scope, code_review, doc, supply_chain, audit). Memory is learned but not used directly; prior knowledge now reaches agents only through Prefrontal.
+
+### Fixed
+
+- `recall_memory` with `reach=local` returned nothing for code_review and supply_chain; the tool now searches the reviewed project scope
+- "too many values to unpack" error in review statistics matrix (line 345 was iterating `severities` as tuples instead of enums)
+- `GITLAB_URL` from the environment was ignored — now properly takes precedence over YAML `gitlab.url`
+- Token precedence now matches documentation: env/`.env` beats YAML (`github.token` / `gitlab.token`)
+- Removed action `llm-timeout` default (was `'120'`, now uses codespy.yaml's `240`)
+- Doc reviewer defaults now match codespy.yaml (`max_iters: 2`, `max_llm_calls: 4`)
+- Fixed workflow example input: `summarization-model` → `summary-model`
+- Prefrontal reads on a bank with nothing retained yet (a new `MEMORY_BANK_ID`) now return empty results instead of failing with `Bank '<id>' not found`
+- Retain no longer fails with "all N facts returned by the LLM were unusable" on Nemotron 3 Super (Bedrock) — Cerebral now registers the structured-output capability and strips JSON Schema keywords Bedrock's native structured output rejects
+- Briefing (mental model) delta refreshes no longer fail with "operations must be a list, got <class 'str'>" — Cerebral now decodes string-encoded operations before Hindsight validates them
+- `Missing required inputs: ['prefrontal_memory']` regression: Fixed a bug where agents failed when the Prefrontal instance existed but the shared run-level `prefrontal_memory` text was empty (fresh DB). The signature is now chosen based on whether there is text to pass
+- Cerebral consolidation and retain LLM calls now use `llm.timeout` / `llm.retries`. Previously only reflect did, so consolidation timed out at Hindsight's 120 s default.
+- Cerebral consolidation no longer logs `relation "webhooks" does not exist` — inline (`SyncTaskBackend`) tasks now carry the `semantic` schema
+- Cerebral consolidation no longer fails at exit with `cannot schedule new futures after shutdown` — background episode saves now finish before Python shuts down its thread pools
+- Briefings no longer stay stuck on "Generating content..." after a failed refresh
+- Embedding inputs are now capped for Bedrock Cohere v3 (2048 characters) to prevent `maxLength` errors
+- Cost calculation: `TwoStepAdapter` extraction calls are now included in signature cost tracking
+- Cost billing: DSPy cache hits (`response.cache_hit`) are now skipped in cost accounting
+- Cost split calculation: When `entry["cost"]` is available (billed cost), input cost is now calculated as `billed_cost - output_cost`
+- `DOC_MAX_ITERS`/`DOC_MAX_LLM_CALLS` env passthrough now works
+- `memory-enabled`→`MEMORY_ENABLED` mapping in action
+
 ## [1.2.4] - 2026-09-18
 
 ### Changed

@@ -8,7 +8,7 @@ import gitlab
 from git import Repo
 
 from codespy.config_utils import secret_value
-from codespy.tools.git.base import GitClient
+from codespy.tools.git.base import GitClient, SubmittedReview
 from codespy.tools.git.models import (
     ChangedFile,
     FileStatus,
@@ -223,7 +223,7 @@ class GitLabClient(GitClient):
         """
         # Determine target directory
         if target_path is None:
-            cache_dir = self.settings.cache_dir
+            cache_dir = self.settings.review.cache_dir
             cache_dir.mkdir(parents=True, exist_ok=True)
             # Handle nested namespaces
             repo_dir = cache_dir / owner.replace("/", "_") / repo_name
@@ -285,7 +285,7 @@ class GitLabClient(GitClient):
         body: str,
         comments: list[dict] | None = None,
         commit_sha: str | None = None,
-    ) -> None:
+    ) -> SubmittedReview | None:
         """Submit a review on a merge request.
 
         GitLab doesn't have a "review" concept like GitHub. Instead:
@@ -302,6 +302,9 @@ class GitLabClient(GitClient):
                 - line: Line number
                 - body: Comment text
             commit_sha: Commit SHA to review (defaults to head SHA)
+
+        Returns:
+            SubmittedReview with the note ID and body suffix, or None if no note was created.
         """
         project_path = self._get_project_path(url)
         _, _, pr_number = self.parse_url(url)
@@ -407,8 +410,12 @@ class GitLabClient(GitClient):
             logger.info(f"Moving {len(failed_comments)} comments to body (could not post inline)")
 
         # Post main review body as a note (with any failed comments appended)
+        note_id = 0
+        body_suffix = ""
         if final_body:
-            gl_mr.notes.create({"body": final_body})
+            note = gl_mr.notes.create({"body": final_body})
+            note_id = note.id
+            body_suffix = final_body[len(body):]
             logger.info(f"Posted review on {project_path}!{pr_number}")
 
         if comments:
@@ -416,6 +423,35 @@ class GitLabClient(GitClient):
                 f"Submitted {successful_count}/{len(comments)} "
                 f"inline comments on {project_path}!{pr_number}"
             )
+
+        if note_id:
+            return SubmittedReview(id=note_id, body_suffix=body_suffix)
+        return None
+
+    def update_review(
+        self,
+        url: str,
+        review: SubmittedReview,
+        body: str,
+    ) -> None:
+        """Update an existing GitLab MR note with a new body.
+
+        Args:
+            url: GitLab MR URL
+            review: The SubmittedReview returned by submit_review
+            body: New review body (replaces the original)
+        """
+        project_path = self._get_project_path(url)
+        _, _, pr_number = self.parse_url(url)
+
+        project = self.gitlab_client.projects.get(project_path)
+        gl_mr = project.mergerequests.get(pr_number)
+
+        # Get the note and update it
+        note = gl_mr.notes.get(review.id)
+        note.body = body
+        note.save()
+        logger.info(f"Updated note {review.id} on {project_path}!{pr_number}")
 
     def _append_comments_to_body(self, body: str, comments: list[dict]) -> str:
         """Append inline comments to the review body when they can't be posted inline.

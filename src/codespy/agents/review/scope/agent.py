@@ -19,13 +19,14 @@ from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
+from codespy.agents.memory.prefrontal import build_facets, with_prefrontal_memory
 from codespy.agents.review.models import ReviewContext
 from codespy.agents.review.scope.manifest_parser import extract_package_name
 from codespy.agents.review.scope.models import PackageManifest, ScopeResult, ScopeType
 from codespy.config import get_settings
-from codespy.config_memory import get_episode_store
+from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 from codespy.tools.git.client import get_client
 from codespy.tools.git.models import ChangedFile, PullRequest, should_review_file
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -373,27 +374,55 @@ class ScopeRefinementSignature(dspy.Signature):
     )
 
 
-def derive_sparse_paths(changed_files: list[str]) -> list[str]:
-    """Derive minimal sparse checkout paths from changed files.
+# AI instruction directories and files (used for sparse patterns)
+AI_DIRS: list[str] = [".claude/", ".kilo/", ".agent/", ".ai/", ".cursor/", ".codex/"]
+AI_FILES: list[str] = ["AGENTS.md", "CLAUDE.md", "SKILL.md"]
+
+
+def build_sparse_patterns(
+    changed_files: list[str],
+    include_scope_roots: bool = True,
+    include_manifests: bool = True,
+    include_ai_files: bool = True,
+) -> list[str]:
+    """Build anchored sparse checkout patterns from changed files.
+
+    In non-cone sparse-checkout mode (gitignore-style semantics):
+    - Patterns with a leading/middle slash are anchored to repo root
+    - Patterns without a slash match at any depth (expensive in treeless clones)
+    - Patterns ending with slash match directories at any depth
+
+    This function emits anchored patterns only: /<ancestor>/<pattern>
+    to limit materialization to ancestor dirs of changed files.
 
     Args:
-        changed_files: List of changed file paths
+        changed_files: List of changed file paths (relative to repo root)
+        include_scope_roots: Include scope subtree roots (e.g., /packages/auth/)
+        include_manifests: Include anchored manifest patterns
+        include_ai_files: Include anchored AI instruction dir/file patterns
 
     Returns:
-        List of sparse paths for git sparse-checkout
+        List of anchored sparse patterns for git sparse-checkout
     """
-    scope_roots: set[str] = set()
+    patterns: set[str] = set()
+    ancestor_dirs: set[str] = set()
 
+    # Build scope roots from changed files (for subtree checkout)
+    scope_roots: set[str] = set()
     for filepath in changed_files:
         parts = filepath.split("/")
         if len(parts) <= 1:
-            continue  # Root-level file, handled by "/*" below
+            continue  # Root-level file
+
+        # Collect all ancestor directories of this file
+        for depth in range(1, len(parts)):
+            ancestor_dirs.add("/".join(parts[:depth]))
 
         # Strategy A: Find scope indicator and take the next directory
         found_indicator = False
         for i, part in enumerate(parts[:-1]):  # Skip filename
             if part.lower() in SCOPE_INDICATOR_DIRS and i + 1 < len(parts) - 1:
-                scope_root = "/".join(parts[: i + 2]) + "/"
+                scope_root = "/".join(parts[: i + 2])
                 scope_roots.add(scope_root)
                 found_indicator = True
                 break
@@ -401,36 +430,65 @@ def derive_sparse_paths(changed_files: list[str]) -> list[str]:
         # Strategy B: No indicator found -- use depth-2 prefix
         if not found_indicator:
             depth = min(2, len(parts) - 1)
-            scope_roots.add("/".join(parts[:depth]) + "/")
+            scope_roots.add("/".join(parts[:depth]))
 
-    # Always include root-level files for root manifests
-    paths = sorted(scope_roots)
-    paths.append("/*")
+    # Always include root in ancestor dirs
+    ancestor_dirs.add(".")
 
-    # Explicitly add root manifest files to ensure they are checked out
-    # in sparse/treeless clones (/* pattern doesn't always work reliably)
-    for manifest in MANIFEST_FILES:
-        paths.append(manifest)
-    for manifest_pattern in MANIFEST_GLOBS:
-        # For glob patterns like *.csproj, we need to add the pattern itself
-        paths.append(manifest_pattern)
+    # Scope roots (for subtree checkout) - anchored as /<scope>/
+    if include_scope_roots:
+        for scope_root in scope_roots:
+            patterns.add(f"/{scope_root}/")
 
-    # Agent config directories — project instructions for ReAct agents
-    paths.extend(
-        [
-            ".claude/",
-            ".kilo/",
-            ".agent/",
-            ".ai/",
-            ".cursor/",
-            ".codex/",
-            "AGENTS.md",
-            "CLAUDE.md",
-            "SKILL.md",
-        ]
-    )
+    # Root-level files
+    patterns.add("/*")
 
-    return paths
+    # Manifest files - anchored to each ancestor dir to avoid repo-wide matching
+    if include_manifests:
+        for ancestor in ancestor_dirs:
+            for manifest in MANIFEST_FILES:
+                if ancestor == ".":
+                    patterns.add(f"/{manifest}")
+                else:
+                    patterns.add(f"/{ancestor}/{manifest}")
+        for ancestor in ancestor_dirs:
+            for manifest_pattern in MANIFEST_GLOBS:
+                if ancestor == ".":
+                    patterns.add(f"/{manifest_pattern}")
+                else:
+                    patterns.add(f"/{ancestor}/{manifest_pattern}")
+
+    # AI instruction directories and files - anchored to each ancestor dir
+    if include_ai_files:
+        for ancestor in ancestor_dirs:
+            for ai_dir in AI_DIRS:
+                if ancestor == ".":
+                    patterns.add(f"/{ai_dir}")
+                else:
+                    patterns.add(f"/{ancestor}/{ai_dir}")
+        for ancestor in ancestor_dirs:
+            for ai_file in AI_FILES:
+                if ancestor == ".":
+                    patterns.add(f"/{ai_file}")
+                else:
+                    patterns.add(f"/{ancestor}/{ai_file}")
+
+    return sorted(patterns)
+
+
+def derive_sparse_paths(changed_files: list[str]) -> list[str]:
+    """Derive minimal sparse checkout paths from changed files.
+
+    Deprecated: Use build_sparse_patterns() for new code.
+    This function is kept for backward compatibility.
+
+    Args:
+        changed_files: List of changed file paths
+
+    Returns:
+        List of sparse paths for git sparse-checkout
+    """
+    return build_sparse_patterns(changed_files)
 
 
 class ScopeResolver(dspy.Module):
@@ -441,6 +499,8 @@ class ScopeResolver(dspy.Module):
         super().__init__()
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
+        self.prefrontal_memory: str = ""
+        self.prefrontal_sections: list[tuple[str, str]] = []
 
     async def _create_tools(self, repo_path: Path) -> tuple[list[Any], list[Any]]:
         """Create tools for the scope agent: filesystem + ripgrep.
@@ -502,8 +562,6 @@ class ScopeResolver(dspy.Module):
             repo.git.update_environment(GIT_TERMINAL_PROMPT="0")
             repo.git.fetch("origin", pr.head_sha, "--depth", "1")
             repo.git.checkout(pr.head_sha)
-            # Ensure manifests at root + parent dirs
-            await self._ensure_manifests(repo_path, changed_file_paths)
             return
 
         changed_file_paths = [f.filename for f in pr.changed_files]
@@ -530,60 +588,6 @@ class ScopeResolver(dspy.Module):
         )
         logger.info("Clone complete: %s", repo_path)
 
-        # Ensure manifest files at root and parent directories are checked out
-        await self._ensure_manifests(repo_path, changed_file_paths)
-
-    async def _ensure_manifests(self, repo_path: Path, changed_files: list[str]) -> None:
-        """Ensure manifest files at root and parent directories are checked out.
-
-        Sparse/treeless clones may not materialize manifests at ancestor directories.
-        This explicitly checks out known manifest files at:
-        - Repository root
-        - Every ancestor directory of every changed file path
-
-        Args:
-            repo_path: Path to the repository root
-            changed_files: List of changed file paths
-        """
-        from git import Repo
-
-        # Collect all ancestor directories of changed files
-        parent_dirs: set[str] = set()
-        for filepath in changed_files:
-            parts = filepath.split("/")
-            for depth in range(1, len(parts)):  # skip filename, collect dirs
-                parent_dirs.add("/".join(parts[:depth]))
-
-        # Build list of manifest paths to check
-        manifest_paths: list[str] = []
-
-        # Root manifests
-        for manifest in MANIFEST_FILES:
-            manifest_paths.append(manifest)
-
-        # Parent manifests
-        for parent in parent_dirs:
-            for manifest in MANIFEST_FILES:
-                manifest_paths.append(f"{parent}/{manifest}")
-
-        # Checkout missing manifests
-        try:
-            from git import Repo
-            from git.exc import GitCommandError
-
-            repo = Repo(repo_path)
-            for path in manifest_paths:
-                if not (repo_path / path).exists():
-                    try:
-                        repo.git.checkout("HEAD", "--", path)
-                        logger.debug("Checked out manifest: %s", path)
-                    except GitCommandError:
-                        pass  # File doesn't exist in repo — expected
-                    except Exception as e:
-                        logger.warning("Unexpected error checking out manifest %s: %s", path, e)
-        except Exception as e:
-            logger.warning("Failed to ensure manifests: %s", e)
-
     def _resolve(
         self, repo_path: Path, changed_files: list[ChangedFile], repo: str
     ) -> tuple[list[ScopeResult], list[ChangedFile]]:
@@ -597,7 +601,7 @@ class ScopeResolver(dspy.Module):
         Returns:
             Tuple of (active scopes, orphan files)
         """
-        excluded_dirs = self._settings.excluded_directories
+        excluded_dirs = self._settings.review.excluded_directories
         manifests = self._discover_manifests(repo_path, changed_files, excluded_dirs)
         logger.info(
             "Manifest discovery at %s found %d manifest(s): %s",
@@ -1050,24 +1054,50 @@ class ScopeResolver(dspy.Module):
         max_iters = self._settings.get_max_iters("scope")
         tools, contexts = await self._create_tools(repo_path)
         try:
+            pf = get_prefrontal(self._settings, "scope", pr.repo_full_name, include_repo=True)
+            sig = (
+                with_prefrontal_memory(ScopeRefinementSignature) if pf else ScopeRefinementSignature
+            )
+            recall_tool = pf.recall_tool() if pf else None
+            agent_tools = [*tools, recall_tool] if recall_tool else tools
             agent = ContextSafe(
                 dspy.RLM(
-                    ScopeRefinementSignature,
-                    tools=tools,
+                    sig,
+                    tools=agent_tools,
                     max_iters=max_iters,
                     max_llm_calls=self._settings.get_max_llm_calls("scope"),
                 ),
-                ScopeRefinementSignature,
-                tools=tools,
+                sig,
+                tools=agent_tools,
                 name="scope",
                 max_iters=max_iters,
                 max_llm_calls=self._settings.get_max_llm_calls("scope"),
                 rlm_threshold=self._settings.get_rlm_threshold("react"),
             )
             hippo: Hippocampus | None = None
+            store = None
 
             async with SignatureContext("scope", self._cost_tracker):
-                if self._settings.get_memory_enabled("scope"):
+                # Prefrontal: prior knowledge from Cerebral (never given to Hippocampus)
+                pf_kwargs: dict[str, Any] = {}
+                if pf is not None:
+                    scope_pf_text = await pf.aload(
+                        build_facets(
+                            "scope",
+                            pr.repo_full_name,
+                            pr_title=pr.title or "",
+                            paths=[f.filename for s in scopes for f in s.changed_files]
+                            + [f.filename for f in orphans],
+                            summary=pr.body or "",
+                        )
+                    )
+                    pf_kwargs["prefrontal_memory"] = scope_pf_text
+                    self.prefrontal_memory = scope_pf_text
+                    self.prefrontal_sections = pf.last_sections
+                if self._settings.memory.enabled:
+                    store = get_episode_store(self._settings)
+                scope_initial_memory: ContextMemory | None = None
+                if store is not None:
                     question = (
                         f"refine scopes of {review_context.pr_context.repo_slug}: "
                         f"PR #{review_context.pr_context.pr_number} "
@@ -1075,45 +1105,34 @@ class ScopeResolver(dspy.Module):
                         f"{review_context.pr_context.summary}"
                     )
                     # Scope resolver loads its own prior episodes (no memory inheritance)
-                    store = get_episode_store(self._settings)
-                    scope_initial_memory: ContextMemory | None = None
-                    if store is not None:
-                        # Load by repo prefix — matches any scope-level topic
-                        # (e.g. 'khezen/codespy' matches 'khezen/codespy/codespy-ai')
-                        repo_topic_id = pr.repo_full_name
-                        scope_initial_memory = store.load_context(
-                            task="scope",
-                            topic_prefix=repo_topic_id,
-                        )
-                        if scope_initial_memory:
-                            logger.info("Loaded prior scope episode for %s", repo_topic_id)
-                        else:
-                            logger.info("No prior scope episode for %s", repo_topic_id)
-                    inject_context_memory(agent)
+                    # Load by repo prefix — matches any scope-level topic
+                    # (e.g., 'khezen/codespy' matches 'khezen/codespy/codespy-ai')
+                    repo_topic_id = pr.repo_full_name
+                    scope_initial_memory = store.load_context(
+                        task="scope",
+                        topic_prefix=repo_topic_id,
+                    )
+                    if scope_initial_memory:
+                        logger.info("Loaded prior scope episode for %s", repo_topic_id)
+                    else:
+                        logger.info("No prior scope episode for %s", repo_topic_id)
                     hippo = Hippocampus(
                         task_name="scope",
-                        budget=self._settings.get_memory_budget("scope"),
+                        budget=self._settings.get_memory_budget(),
                         question=question,
                         run_id=run_id,
                         initial_memory=scope_initial_memory,
                     )
-                    result = await agent.acall(
-                        context_memory=hippo.context_memory,
-                        candidates=candidates_str,
-                        orphan_files=[f.filename for f in orphans],
-                        pr_title=pr.title or "No title",
-                        pr_description=pr.body or "No description",
-                        project_instructions=project_instructions,
-                    )
+                result = await agent.acall(
+                    candidates=candidates_str,
+                    orphan_files=[f.filename for f in orphans],
+                    pr_title=pr.title or "No title",
+                    pr_description=pr.body or "No description",
+                    project_instructions=project_instructions,
+                    **pf_kwargs,
+                )
+                if hippo is not None:
                     await hippo.aobserve(result)
-                else:
-                    result = await agent.acall(
-                        candidates=candidates_str,
-                        orphan_files=[f.filename for f in orphans],
-                        pr_title=pr.title or "No title",
-                        pr_description=pr.body or "No description",
-                        project_instructions=project_instructions,
-                    )
 
             # Collect all changed files (from scopes + orphans)
             all_files = [f for s in scopes for f in s.changed_files] + orphans
@@ -1164,16 +1183,28 @@ class ScopeResolver(dspy.Module):
                 hippo.bind_topics(scope_topics, stamp_topic_ids)
 
             # Fire-and-forget background episode save
+            cerebral = get_cerebral(self._settings)
             if hippo is not None and store is not None:
                 scope_desc = "\n".join(
                     f"- {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"
                     for s in final_scopes
                 )
+                _cerebral = cerebral
+                _repo_full_name = pr.repo_full_name
                 def _persist():
                     try:
-                        hippo.end_episode(store, artifacts={"scopes": scope_desc})
+                        hippo.end_episode(
+                            store,
+                            artifacts={"scopes": scope_desc},
+                            recalls=pf.recalls if pf else None,
+                        )
                     except Exception:
                         logger.warning("Background scope episode save failed", exc_info=True)
+                    if _cerebral is not None and hippo.episode is not None:
+                        try:
+                            _cerebral.retain_episode(hippo.episode, repo_full_name=_repo_full_name)
+                        except Exception:
+                            logger.warning("Background cerebral retain failed", exc_info=True)
                 submit_episode_save(_persist, name="scope-episode-save")
 
             return final_scopes
@@ -1193,13 +1224,17 @@ class ScopeResolver(dspy.Module):
         Returns:
             List of ScopeResult
         """
+        # Reset prefrontal memory at start of each run
+        self.prefrontal_memory = ""
+        self.prefrontal_sections = []
+
         # Local bindings from review_context metadata
         pr = review_context.metadata.pr
         repo_path = review_context.metadata.repo_path
         is_local = review_context.metadata.is_local
         run_id = review_context.metadata.run_id
 
-        excluded_dirs = self._settings.excluded_directories
+        excluded_dirs = self._settings.review.excluded_directories
         reviewable_files = [f for f in pr.changed_files if should_review_file(f, excluded_dirs)]
         if not reviewable_files:
             return []

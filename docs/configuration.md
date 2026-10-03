@@ -106,13 +106,11 @@ AUTO_DISCOVER_GEMINI=false
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| Model | `DEFAULT_MODEL` | `anthropic/claude-opus-4-6` | Primary model for all signatures |
+| Model | `DEFAULT_MODEL` | `bedrock/converse/nvidia.nemotron-nano-3-30b` | Primary fallback model (most signatures have dedicated pins) |
 | Reasoning effort | `DEFAULT_REASONING_EFFORT` | `medium` | Provider reasoning budget: `minimal`, `low`, `medium`, `high` |
 | Max tokens | `DEFAULT_MAX_TOKENS` | `32000` | Output token budget per completion (reasoning tokens included) |
-| Temperature | `DEFAULT_TEMPERATURE` | `0.2` | Default temperature for LLM calls |
+| Temperature | `DEFAULT_TEMPERATURE` | `1.0` | Default temperature for LLM calls |
 | Max iterations | `DEFAULT_MAX_ITERS` | `5` | Maximum ReAct iterations for tool-using agents |
-| Prompt caching | `ENABLE_PROMPT_CACHING` | `true` | Provider-side prompt caching (Anthropic, OpenAI, Bedrock) |
-| Compact patches | `COMPACT_PATCHES` | `false` | Expand diff hunks to full function bodies using Tree-sitter |
 | RLM fallback | `RLM_FALLBACK_ENABLED` | `true` | Proactive RLM fallback for context rot prevention |
 | RLM react threshold | `RLM_FALLBACK_REACT_THRESHOLD` | `0.30` | Context ratio triggering RLM for ReAct modules |
 | RLM CoT threshold | `RLM_FALLBACK_CHAIN_OF_THOUGHT_THRESHOLD` | `0.40` | Context ratio triggering RLM for ChainOfThought modules |
@@ -120,16 +118,24 @@ AUTO_DISCOVER_GEMINI=false
 
 ## Recommended Model Strategy
 
-| Tier | Role | Env Var | Default | Recommended |
-|------|------|---------|---------|-------------|
-| Smart | Core analysis & reasoning | `DEFAULT_MODEL` | `anthropic/claude-opus-4-6` | Claude Opus / GPT-5 |
-| Mid-tier | Field extraction | `EXTRACTION_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
-| Cheap | PR summary | `SUMMARY_MODEL` | Falls back to DEFAULT_MODEL | Claude Haiku |
-| Mid-tier | Memory reflection | `MEMORY_DISTILLER_MODEL` / `MEMORY_CARTOGRAPHER_MODEL` | Falls back to DEFAULT_MODEL | Claude Sonnet |
+All models are now pinned in `codespy.yaml`. Setting a unit to `null` (YAML `model: null` or env `VAR=null`) re-enables the fallback chain.
+
+| Tier | Role | Env Var | Default | Fallback chain |
+|------|------|---------|---------|----------------|
+| Smart | Core analysis & reasoning | `REVIEW_*_MODEL` | `bedrock/converse/global.anthropic.claude-opus-5-5` | `model` → `DEFAULT_MODEL` |
+| Mid-tier | Field extraction | `EXTRACTION_MODEL` | `bedrock/converse/nvidia.nemotron-nano-3-30b` | `DEFAULT_MODEL` |
+| Cheap | PR summary | `REVIEW_SUMMARY_MODEL` | `bedrock/converse/nvidia.nemotron-super-3-120b` | `model` → `DEFAULT_MODEL` |
+| Mid-tier | Memory reflection | `MEMORY_DISTILLER_MODEL` / `MEMORY_CARTOGRAPHER_MODEL` | `bedrock/converse/nvidia.nemotron-super-3-120b` | `model` → `DEFAULT_MODEL` |
+| Mid-tier | Semantic memory (fact extraction) | `MEMORY_RETAIN_MODEL` | `bedrock/converse/nvidia.nemotron-super-3-120b` | `DEFAULT_MODEL` |
+| Mid-tier | Semantic consolidation | `MEMORY_CONSOLIDATION_MODEL` | `bedrock/converse/nvidia.nemotron-super-3-120b` | `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` |
+| Mid-tier | Mental-model refresh (briefings) | `MEMORY_MENTAL_MODELS_MODEL` | `bedrock/converse/nvidia.nemotron-super-3-120b` | `MEMORY_RECALL_MODEL` → `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` |
+| Mid-tier | Semantic recall (reflect) | `MEMORY_RECALL_MODEL` | `bedrock/converse/nvidia.nemotron-super-3-120b` | `MEMORY_RETAIN_MODEL` → `DEFAULT_MODEL` |
+
+**Precedence:** Environment variables (`.env` or shell) > `codespy.yaml` (`github.token` / `gitlab.token`) > auto-discovery.
 
 ## Per-Signature Configuration
 
-Each signature supports env var overrides: `<SIGNATURE>_<SETTING>`
+Each signature supports env var overrides: `REVIEW_<SIGNATURE>_<SETTING>`
 
 | Signature | Config Key | Available Settings |
 |-----------|------------|-------------------|
@@ -140,7 +146,7 @@ Each signature supports env var overrides: `<SIGNATURE>_<SETTING>`
 | Supply Chain | `supply_chain` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS, SCAN_UNCHANGED |
 | Auditor | `audit` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
 
-Example: `CODE_REVIEW_MODEL=anthropic/claude-sonnet-4-5-20250929`
+Example: `REVIEW_CODE_REVIEW_MODEL=anthropic/claude-sonnet-4-5-20250929`
 
 ## Advanced Configuration (YAML)
 
@@ -159,49 +165,54 @@ export DEFAULT_MODEL=anthropic/claude-opus-4-6
 export DEFAULT_MAX_ITERS=20
 
 # Per-signature settings (use signature name, not module name)
-export CODE_REVIEW_MODEL=anthropic/claude-sonnet-4-5-20250929
+export REVIEW_CODE_REVIEW_MODEL=anthropic/claude_sonnet-4-5-20250929
 
 # Output settings
-export OUTPUT_STDOUT=false
-export OUTPUT_GIT=true
+export REVIEW_OUTPUT_STDOUT=false
+export REVIEW_OUTPUT_GIT=true
 ```
 
 ## Memory Configuration
 
-Brief overview:
+The memory system has three components:
+
+- **Hippocampus**: Episodic memory (learns from the current review)
+- **Cerebral**: Semantic memory (retains episodes, consolidates, refreshes mental models)
+- **Prefrontal**: Reads Cerebral and injects prior knowledge into agents
+
+Master switch and connection:
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
+| Enabled | `MEMORY_ENABLED` | `false` | Enable memory globally |
+| Bank ID | `MEMORY_BANK_ID` | `codebase` | Scopes all memory data |
 | PostgreSQL host | `MEMORY_POSTGRES_HOST` | — | External PostgreSQL host |
-| PostgreSQL port | `MEMORY_POSTGRES_PORT` | `5432` | External PostgreSQL port |
-| PostgreSQL user | `MEMORY_POSTGRES_USER` | `postgres` | External PostgreSQL user |
-| PostgreSQL password | `MEMORY_POSTGRES_PASSWORD` | — | External PostgreSQL password |
-| PostgreSQL database | `MEMORY_POSTGRES_DATABASE` | `codespy` | External PostgreSQL database |
-| PostgreSQL schema | `MEMORY_POSTGRES_SCHEMA` | `episodic` | PostgreSQL schema / search_path per memory type |
-| Bank ID | `MEMORY_BANK_ID` | `codespy` | Scopes all memory data |
-| pg0 name | `MEMORY_PG0_NAME` | `codespy` | pg0-embedded database name (local dev) |
-| pg0 port | `MEMORY_PG0_PORT` | auto | pg0-embedded port (local dev) |
-| pg0 data dir | `MEMORY_PG0_DATA_DIR` | — | pg0-embedded data directory (local dev) |
-| Default enabled | `MEMORY_DEFAULT_ENABLED` | `false` | Enable memory globally |
-| Context memory tokens | `MEMORY_MAX_CONTEXT_MEMORY_TOKENS` | `16384` | Ceiling on persisted context memory |
-| Observation tokens | `MEMORY_MAX_CONTEXT_ITEM_TOKENS` | `512` | Soft per-observation token limit |
-| Trajectory tokens | `MEMORY_MAX_TRAJECTORY_TOKENS` | `16384` | Cap on trajectory fed to Distiller |
-| Question tokens | `MEMORY_MAX_QUESTION_TOKENS` | `8192` | Cap on serialized reflection inputs |
+| PostgreSQL port | `MEMORY_POSTGRES_PORT` | `5432` | PostgreSQL port |
+| PostgreSQL user | `MEMORY_POSTGRES_USER` | `postgres` | PostgreSQL user |
+| PostgreSQL password | `MEMORY_POSTGRES_PASSWORD` | — | PostgreSQL password |
+| PostgreSQL database | `MEMORY_POSTGRES_DATABASE` | `codespy` | PostgreSQL database |
+| pg0 name | `MEMORY_PG0_NAME` | `codespy` | pg0-embedded database name |
+| pg0 port | `MEMORY_PG0_PORT` | auto | pg0-embedded port |
+| pg0 data dir | `MEMORY_PG0_DATA_DIR` | — | pg0-embedded data directory |
 
-See [Memory System](memory.md) for full memory configuration details.
+See [Memory System](memory.md) for:
+- Full configuration tables (token budgets, models, per-signature overrides)
+- Database schema and SQL examples
+- Lifecycle, data flow, and monitoring
+- Prefrontal recall settings (reach, reflects, facets, `recall_memory` tool)
 
 ## Output Settings
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| Format | `OUTPUT_FORMAT` | `markdown` | `markdown` or `json` |
-| Stdout | `OUTPUT_STDOUT` | `true` | Enable stdout output |
-| Git | `OUTPUT_GIT` | `true` | Post review to GitHub/GitLab |
-| Cache dir | `CACHE_DIR` | `~/.cache/codespy` | Cache directory path |
+| Format | `REVIEW_OUTPUT_FORMAT` | `markdown` | `markdown` or `json` |
+| Stdout | `REVIEW_OUTPUT_STDOUT` | `true` | Enable stdout output |
+| Git | `REVIEW_OUTPUT_GIT` | `true` | Post review to GitHub/GitLab |
+| Cache dir | `REVIEW_CACHE_DIR` | `~/.cache/codespy` | Cache directory path |
 
 ## File Exclusions
 
-`EXCLUDED_DIRECTORIES` (JSON array in env) — Directories to skip during code review. Binary files, lock files, and minified files are always excluded automatically.
+`REVIEW_EXCLUDED_DIRECTORIES` (JSON array in env) — Directories to skip during code review. Binary files, lock files, and minified files are always excluded automatically.
 
 Default excluded directories:
 - Vendor/dependency: `vendor`, `node_modules`, `third_party`, `external`, `deps`, `_vendor`, `vendored`

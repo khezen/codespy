@@ -95,13 +95,13 @@ def review(
 
     # Override settings if provided via CLI (CLI > env > yaml > defaults)
     if model:
-        settings.default_model = model
+        settings.llm.default_model = model
     if output:
-        settings.output_format = output  # type: ignore
+        settings.review.output_format = output  # type: ignore
     if stdout is not None:
-        settings.output_stdout = stdout
+        settings.review.output_stdout = stdout
     if git_comment is not None:
-        settings.output_git = git_comment
+        settings.review.output_git = git_comment
 
     # Validate URL format
     if not is_supported_url(pr_url):
@@ -140,9 +140,9 @@ def review(
 
     # Build output destinations display
     output_destinations = []
-    if settings.output_stdout:
-        output_destinations.append(f"stdout ({settings.output_format})")
-    if settings.output_git:
+    if settings.review.output_stdout:
+        output_destinations.append(f"stdout ({settings.review.output_format})")
+    if settings.review.output_git:
         output_destinations.append(f"{platform.title()} comment")
     output_display = ", ".join(output_destinations) if output_destinations else "[red]none[/red]"
 
@@ -150,7 +150,7 @@ def review(
         Panel(
             f"[bold blue]Reviewing PR:[/bold blue] {pr_url}\n"
             f"[bold]Platform:[/bold] {platform.title()}\n"
-            f"[bold]Model:[/bold] {settings.default_model}\n"
+            f"[bold]Model:[/bold] {settings.llm.default_model}\n"
             f"[bold]Output:[/bold] {output_display}\n"
             f"[bold]{platform.title()} Token:[/bold] [green]found[/green] "
             f"[dim]({token_source})[/dim]",
@@ -161,39 +161,57 @@ def review(
     try:
         from codespy.workflows.review.models import RemoteReviewConfig
         from codespy.workflows.review.pipeline import ReviewPipeline
+        from codespy.workflows.review.reporters import GitReporter, StdoutReporter
 
         pipeline = ReviewPipeline(settings)
 
         # Create remote review config
         config = RemoteReviewConfig(url=pr_url)
 
-        # Run review (model access always verified in pipeline)
+        # Run review phase (model access always verified in pipeline)
+        # Episode saves are deferred until finish_memory is called
         result = pipeline(config)
 
-        # Show cost summary
+        handle = None
+        try:
+            # Publish to git platform after audit (before memory phase)
+            if settings.review.output_git:
+                console.print(f"[dim]Posting review to {platform.title()}...[/dim]")
+                git_reporter = GitReporter(url=pr_url, settings=settings)
+                handle = git_reporter.publish(result)
+                console.print(f"[green]✓[/green] {platform.title()} review posted successfully")
+        finally:
+            # Run memory phase (saves, retain, consolidation)
+            # This runs even if git publication failed
+            result = pipeline.finish_memory(result)
+
+        # Update the git review with full costs after memory phase
+        if handle and settings.review.output_git:
+            git_reporter = GitReporter(url=pr_url, settings=settings)
+            git_reporter.update(handle, result)
+
+        # Show cost summary with full costs (after memory phase)
         if result.llm_calls > 0:
             cost_str = f"${result.total_cost:.4f}" if result.total_cost > 0 else "N/A"
+            # Calculate input/output totals from signature_stats
+            total_in_tokens = sum(s.input_tokens for s in result.signature_stats)
+            total_out_tokens = sum(s.output_tokens for s in result.signature_stats)
+            total_in_cost = sum(s.input_cost for s in result.signature_stats)
+            total_out_cost = sum(s.output_cost for s in result.signature_stats)
             console.print(
                 Panel(
                     f"[bold]LLM Calls:[/bold] {result.llm_calls}\n"
-                    f"[bold]Total Tokens:[/bold] {result.total_tokens:,}\n"
+                    f"[bold]In Tokens:[/bold] {total_in_tokens:,}  [bold]Out Tokens:[/bold] {total_out_tokens:,}\n"
+                    f"[bold]In Cost:[/bold] ${total_in_cost:.4f}  [bold]Out Cost:[/bold] ${total_out_cost:.4f}\n"
                     f"[bold]Total Cost:[/bold] {cost_str}",
                     title="Cost Summary",
                 )
             )
 
-        # Output results using reporters
-        from codespy.workflows.review.reporters import GitReporter, StdoutReporter
-
-        if settings.output_stdout:
-            stdout_reporter = StdoutReporter(format=settings.output_format, console=console)
+        # Output results to stdout once at the end (after memory phase)
+        if settings.review.output_stdout:
+            stdout_reporter = StdoutReporter(format=settings.review.output_format, console=console)
             stdout_reporter.report(result)
-
-        if settings.output_git:
-            console.print(f"[dim]Posting review to {platform.title()}...[/dim]")
-            git_reporter = GitReporter(url=pr_url, settings=settings)
-            git_reporter.report(result)
-            console.print(f"[green]✓[/green] {platform.title()} review posted successfully")
 
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")

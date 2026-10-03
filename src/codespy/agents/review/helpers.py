@@ -6,7 +6,7 @@ import logging
 import os
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from codespy.agents.review.models import Issue
 from codespy.tools.git.models import ChangedFile
@@ -259,3 +259,11 @@ def issues_to_markdown(issues: list[Issue]) -> str:
         lines.append("---")
         lines.append("")
     return "\n".join(lines)
+
+
+def scope_package_names(scope: ScopeResult | Any) -> list[str]:
+    """Package identity of a scope, when its manifest declares one (Prefrontal queries)."""
+    manifest = getattr(scope, "package_manifest", None)
+    if manifest is not None and getattr(manifest, "package_name", None):
+        return [manifest.package_name]
+    return []

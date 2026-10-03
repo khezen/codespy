@@ -11,8 +11,9 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import ContextSafe
-from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus, inject_context_memory
+from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
+from codespy.agents.memory.prefrontal import with_prefrontal_memory
 from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
 from codespy.agents.review.scope.models import ScopeResult
 from codespy.agents.review.doc.doc_extractor import extract_documentation
@@ -24,7 +25,7 @@ from codespy.agents.review.helpers import (
     restore_repo_paths,
 )
 from codespy.config import get_settings
-from codespy.config_memory import get_episode_store
+from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 
 logger = logging.getLogger(__name__)
 
@@ -200,9 +201,15 @@ class DocReviewer(dspy.Module):
             logger.debug(f"  No patches in {scope.subroot}, skipping doc review")
             return []
         try:
+            repo_full_name = review_context.pr_context.repo_full_name
+            # Get Prefrontal for tool calls only (prefrontal_memory is already loaded by pipeline)
+            pf = get_prefrontal(
+                self._settings, "doc", repo_full_name, scope_topic_ids=None
+            )
+            sig = with_prefrontal_memory(DocReviewSignature) if review_context.prefrontal_memory else DocReviewSignature
             reviewer = ContextSafe(
-                dspy.ChainOfThought(DocReviewSignature),
-                DocReviewSignature,
+                dspy.ChainOfThought(sig),
+                sig,
                 name="doc",
                 max_iters=max_iters,
                 max_llm_calls=self._settings.get_max_llm_calls("doc"),
@@ -213,22 +220,25 @@ class DocReviewer(dspy.Module):
             )
             hippo: Hippocampus | None = None
             async with SignatureContext("doc", self._cost_tracker):
+                # Prefrontal: use shared run-level recall (never given to Hippocampus)
+                pf_kwargs: dict[str, Any] = {}
+                if review_context.prefrontal_memory:
+                    pf_kwargs["prefrontal_memory"] = review_context.prefrontal_memory
                 # Load own prior "doc" episode for this scope
                 scope_initial_memory: ContextMemory | None = None
                 store = None
-                if self._settings.get_memory_enabled("doc"):
+                if self._settings.memory.enabled:
                     store = get_episode_store(self._settings)
-                    if store is not None:
-                        topic_ids = [scope.topic(review_context.pr_context.repo_full_name).id]
-                        scope_initial_memory = store.load_context(
-                            task="doc",
-                            topic_ids=topic_ids,
-                        )
-                        if scope_initial_memory:
-                            logger.info("Loaded prior doc episode for scope %s", scope.subroot)
-                        else:
-                            logger.info("No prior doc episode for scope %s", scope.subroot)
-                if self._settings.get_memory_enabled("doc") and store is not None:
+                if store is not None:
+                    topic_ids = [scope.topic(review_context.pr_context.repo_full_name).id]
+                    scope_initial_memory = store.load_context(
+                        task="doc",
+                        topic_ids=topic_ids,
+                    )
+                    if scope_initial_memory:
+                        logger.info("Loaded prior doc episode for scope %s", scope.subroot)
+                    else:
+                        logger.info("No prior doc episode for scope %s", scope.subroot)
                     question = (
                         f"review documentation of {scope.repo}: {scope.subroot}: "
                         f"pull request {review_context.pr_context.pr_number} "
@@ -237,47 +247,43 @@ class DocReviewer(dspy.Module):
                     )
                     pr_ctx = review_context.pr_context
                     topics = [scope.topic(pr.repo_full_name), pr_ctx.to_topic()] if pr else []
-                    inject_context_memory(reviewer)
                     hippo = Hippocampus(
                         task_name="doc",
-                        budget=self._settings.get_memory_budget("doc"),
+                        budget=self._settings.get_memory_budget(),
                         question=question,
                         run_id=run_id,
                         initial_memory=scope_initial_memory,
                         topics=topics,
                     )
-                    result = await reviewer.aforward(
-                        context_memory=hippo.context_memory,
-                        patches=patches,
-                        documentation=documentation,
-                        categories=[IssueCategory.DOCUMENTATION],
-                    )
+                result = await reviewer.acall(
+                    patches=patches,
+                    documentation=documentation,
+                    categories=[IssueCategory.DOCUMENTATION],
+                    **pf_kwargs,
+                )
+                issues = [
+                    issue
+                    for issue in (result.issues or [])
+                    if issue.confidence >= self._settings.review.min_confidence
+                ]
+                if hippo is not None:
                     await hippo.aobserve(result)
-                    issues = [
-                        issue
-                        for issue in (result.issues or [])
-                        if issue.confidence >= self._settings.min_confidence
-                    ]
                     # Fire-and-forget background episode save
                     _artifacts = {"review": issues_to_markdown(issues)}
-                    def _persist(h=hippo, s=store, a=_artifacts):
+                    cerebral = get_cerebral(self._settings)
+                    def _persist(
+                        h=hippo, s=store, a=_artifacts, c=cerebral, r=repo_full_name, p=pf
+                    ):
                         try:
-                            h.end_episode(s, artifacts=a)
+                            h.end_episode(s, artifacts=a, recalls=p.recalls if p else None)
                         except Exception:
                             logger.warning("Background doc episode save failed", exc_info=True)
+                        if c is not None and h.episode is not None:
+                            try:
+                                c.retain_episode(h.episode, repo_full_name=r)
+                            except Exception:
+                                logger.warning("Background cerebral retain failed", exc_info=True)
                     submit_episode_save(_persist, name="doc-episode-save")
-                else:
-                    result = await asyncio.to_thread(
-                        reviewer,
-                        patches=patches,
-                        documentation=documentation,
-                        categories=[IssueCategory.DOCUMENTATION],
-                    )
-                    issues = [
-                        issue
-                        for issue in (result.issues or [])
-                        if issue.confidence >= self._settings.min_confidence
-                    ]
             restore_repo_paths(issues, scope.subroot)
             logger.debug(f"  Scope {scope.subroot}: {len(issues)} doc issues")
             return issues

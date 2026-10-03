@@ -1,11 +1,15 @@
 """Git reporter for posting review comments to GitHub/GitLab."""
 
 import logging
+import time
 from typing import TYPE_CHECKING
 
-from codespy.agents.review.models import Issue, IssueSeverity
+from collections import Counter
+
+from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
 from codespy.workflows.review.models import ReviewResult
 from codespy.workflows.review.reporters.base import BaseReporter
+from codespy.tools.git.base import SubmittedReview
 from codespy.tools.git.client import get_client
 
 if TYPE_CHECKING:
@@ -25,6 +29,12 @@ class GitReporter(BaseReporter):
         IssueSeverity.INFO: "⚪",
     }
 
+    # Review body budget, below GitHub's 65,536 char limit
+    MAX_BODY_CHARS = 60000
+
+    # Retry configuration for update
+    UPDATE_RETRY_DELAYS = [2.0, 4.0, 8.0]  # seconds
+
     def __init__(
         self,
         url: str,
@@ -40,10 +50,24 @@ class GitReporter(BaseReporter):
         self.client = get_client(url, settings)
 
     def report(self, result: ReviewResult) -> None:
-        """Post review result to the merge request.
+        """Post review result to the merge request (backward compatibility).
 
         Args:
             result: The review result to post.
+        """
+        self.publish(result)
+
+    def publish(self, result: ReviewResult) -> SubmittedReview | None:
+        """Publish the review to the merge request.
+
+        Posts the initial review after the audit phase (before memory phase).
+        The review will show "Memory: pending" in costs if memory_pending is True.
+
+        Args:
+            result: The review result to publish.
+
+        Returns:
+            SubmittedReview handle for later update, or None if publish failed.
         """
         # Separate issues with and without line numbers
         inline_issues: list[Issue] = []
@@ -62,27 +86,81 @@ class GitReporter(BaseReporter):
         comments = self._build_inline_comments(inline_issues)
 
         # Submit the review
-        self.client.submit_review(
+        handle = self.client.submit_review(
             url=self.url,
             body=body,
             comments=comments,
         )
 
-        logger.info(
-            f"Posted {self.client.platform_name} review with {len(comments)} inline comments "
-            f"and {len(body_issues)} issues in body"
+        if handle:
+            logger.info(
+                f"Posted {self.client.platform_name} review with {len(comments)} inline comments "
+                f"and {len(body_issues)} issues in body"
+            )
+        return handle
+
+    def update(self, handle: SubmittedReview, result: ReviewResult) -> None:
+        """Update an existing review with new costs after memory phase.
+
+        Rebuilds the body with full costs and edits the review.
+        Retries up to 3 times with exponential backoff on failure.
+
+        Args:
+            handle: The SubmittedReview returned by publish().
+            result: The updated review result with full costs.
+        """
+        # Separate issues with and without line numbers
+        inline_issues: list[Issue] = []
+        body_issues: list[Issue] = []
+
+        for issue in result.issues:
+            if issue.line_start is not None:
+                inline_issues.append(issue)
+            else:
+                body_issues.append(issue)
+
+        # Build review body, reserving space for the body suffix
+        body = self._build_review_body(result, body_issues, reserve=len(handle.body_suffix))
+
+        # Append the body suffix (fallback comments from original submission)
+        if handle.body_suffix:
+            body = body + handle.body_suffix
+
+        # Try to update with retries
+        last_error: Exception | None = None
+        for attempt, delay in enumerate(self.UPDATE_RETRY_DELAYS):
+            try:
+                self.client.update_review(self.url, handle, body)
+                logger.info(f"Updated {self.client.platform_name} review with full costs")
+                return
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"Update attempt {attempt + 1} failed: {e}. Retrying in {delay}s..."
+                )
+                time.sleep(delay)
+
+        # All retries exhausted
+        logger.warning(
+            f"Failed to update {self.client.platform_name} review after "
+            f"{len(self.UPDATE_RETRY_DELAYS)} attempts. Keeping original post."
         )
+        # Log the actual error at debug level
+        if last_error:
+            logger.debug("Final update error", exc_info=last_error)
 
     def _build_review_body(
         self,
         result: ReviewResult,
         body_issues: list[Issue],
+        reserve: int = 0,
     ) -> str:
         """Build the review body with collapsible sections.
 
         Args:
             result: The review result.
             body_issues: Issues without line numbers to include in body.
+            reserve: Number of characters to reserve for body suffix (e.g., appended comments).
 
         Returns:
             Formatted markdown string for review body.
@@ -99,6 +177,9 @@ class GitReporter(BaseReporter):
             f"**Medium:** {len([i for i in result.issues if i.severity == IssueSeverity.MEDIUM])}"
         )
         lines.append("")
+
+        # Record insertion point for memories section (after header)
+        insert_at = len(lines)
 
         # Summary section
         if result.overall_summary:
@@ -128,28 +209,8 @@ class GitReporter(BaseReporter):
                 ]
             )
 
-        # Statistics section
-        lines.extend(
-            [
-                "<details>",
-                "<summary>📊 Statistics</summary>",
-                "",
-                "| Metric | Count |",
-                "|--------|-------|",
-                f"| Total Issues | {result.total_issues} |",
-                f"| Critical | {len(result.critical_issues)} |",
-                f"| High | {sum(1 for i in result.issues if i.severity == IssueSeverity.HIGH)} |",
-                f"| Medium | {sum(1 for i in result.issues if i.severity == IssueSeverity.MEDIUM)} |",  # noqa: E501
-                f"| Low | {sum(1 for i in result.issues if i.severity == IssueSeverity.LOW)} |",
-                f"| Security | {len(result.security_issues)} |",
-                f"| Bugs | {len(result.bug_issues)} |",
-                f"| Documentation | {len(result.documentation_issues)} |",
-                f"| Info | {sum(1 for i in result.issues if i.severity == IssueSeverity.INFO)} |",  # noqa: E501
-                "",
-                "</details>",
-                "",
-            ]
-        )
+        # Statistics section (severity × category matrix)
+        lines.extend(self._build_statistics_section(result))
 
         # Cost section
         if result.total_cost > 0 or result.llm_calls > 0:
@@ -159,26 +220,14 @@ class GitReporter(BaseReporter):
                     "<summary>💰 Cost Summary</summary>",
                     "",
                     f"**Total:** ${result.total_cost:.4f} | "
-                    f"**Tokens:** {result.total_tokens:,} | "
                     f"**LLM Calls:** {result.llm_calls}",
-                    "",
                 ]
             )
+            if result.memory_pending:
+                lines.append("- **Memory:** pending (retain, consolidation, mental models)")
+            lines.append("")
 
-            if result.signature_stats:
-                lines.extend(
-                    [
-                        "| Signature | Cost | Tokens | Calls | Duration |",
-                        "|-----------|------|--------|-------|----------|",
-                    ]
-                )
-                for stats in sorted(result.signature_stats, key=lambda x: x.cost, reverse=True):
-                    duration_str = f"{stats.duration_seconds:.1f}s"
-                    lines.append(
-                        f"| {stats.name} | ${stats.cost:.4f} | {stats.tokens:,} | "
-                        f"{stats.call_count} | {duration_str} |"
-                    )
-                lines.append("")
+            lines.extend(result.cost_breakdown_markdown_lines("####"))
 
             lines.extend(
                 [
@@ -252,7 +301,86 @@ class GitReporter(BaseReporter):
                 ]
             )
 
+        # Memories section (collapsible, size-limited for GitHub's 65,536 char body limit)
+        # Insert after header, before Summary
+        if result.memories:
+            # Calculate budget after building all other sections, minus reserve
+            other_sections_len = len("\n".join(lines)) + 1  # +1 for trailing newline
+            budget = self.MAX_BODY_CHARS - reserve - other_sections_len - 1
+            memory_lines = result.memories_markdown_lines(
+                summary="🧠 memories", max_chars=max(0, budget)
+            )
+            if memory_lines:
+                lines[insert_at:insert_at] = memory_lines
+
         return "\n".join(lines)
+
+    def _build_statistics_section(self, result: ReviewResult) -> list[str]:
+        """Build the statistics section as a severity × category matrix.
+
+        Args:
+            result: The review result containing issues.
+
+        Returns:
+            Markdown lines for the statistics section.
+        """
+        severities = [
+            IssueSeverity.CRITICAL,
+            IssueSeverity.HIGH,
+            IssueSeverity.MEDIUM,
+            IssueSeverity.LOW,
+            IssueSeverity.INFO,
+        ]
+        categories = [
+            (IssueCategory.SECURITY, "Security"),
+            (IssueCategory.BUG, "Bugs"),
+            (IssueCategory.DOCUMENTATION, "Documentation"),
+            (IssueCategory.SMELL, "Smells"),
+        ]
+
+        # Build counts with one pass over issues
+        counts = Counter((issue.severity, issue.category) for issue in result.issues)
+
+        # Calculate row totals (per severity)
+        row_totals = {s: sum(counts[(s, c)] for c, _ in categories) for s in severities}
+
+        # Calculate column totals (per category)
+        col_totals = {c: sum(counts[(s, c)] for s in severities) for c, _ in categories}
+
+        # Grand total
+        grand_total = result.total_issues
+
+        # Build table lines
+        lines = [
+            "<details>",
+            "<summary>📊 Statistics</summary>",
+            "",
+            "| Severity | Security | Bugs | Documentation | Smells | Total |",
+            "|----------|----------|------|---------------|--------|-------|",
+        ]
+
+        # Data rows
+        for severity in severities:
+            cells = [severity.value.title()]
+            for cat, _ in categories:
+                cells.append(str(counts[(severity, cat)]))
+            cells.append(str(row_totals[severity]))
+            lines.append("| " + " | ".join(cells) + " |")
+
+        # Totals row (bold)
+        total_row = ["**Total**"]
+        for cat, _ in categories:
+            total_row.append(f"**{col_totals[cat]}**")
+        total_row.append(f"**{grand_total}**")
+        lines.append("| " + " | ".join(total_row) + " |")
+
+        lines.extend([
+            "",
+            "</details>",
+            "",
+        ])
+
+        return lines
 
     def _build_inline_comments(self, issues: list[Issue]) -> list[dict]:
         """Build inline comment dictionaries for the Git API.

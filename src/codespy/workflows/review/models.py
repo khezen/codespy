@@ -9,6 +9,29 @@ from pydantic import BaseModel, Field
 
 from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
 
+# Appended to a memory text cut to fit the review body size limit
+TRUNCATED_MARKER = "…(truncated)"
+
+
+class MemorySection(BaseModel):
+    """One section of a recalled memory (e.g., 'Briefing: ...', 'Around this work')."""
+
+    title: str = Field(description="Section title without markdown heading markers")
+    text: str = Field(description="Section body text")
+
+
+class RecalledMemory(BaseModel):
+    """A recalled memory entry from Prefrontal."""
+
+    task: str = Field(description="Task name that loaded the memory (e.g., 'scope', 'review')")
+    sections: list[MemorySection] = Field(
+        default_factory=list, description="Sections of the recalled memory"
+    )
+    nested: bool = Field(
+        default=True,
+        description="False = sections render directly under the memories section, without a per-recall block",
+    )
+
 
 class SignatureStatsResult(BaseModel):
     """Statistics for a single signature's execution during review."""
@@ -20,6 +43,19 @@ class SignatureStatsResult(BaseModel):
     tokens: int = Field(default=0, description="Tokens used by this signature")
     call_count: int = Field(default=0, description="Number of LLM calls made by this signature")
     duration_seconds: float = Field(default=0.0, description="Execution time in seconds")
+    input_tokens: int = Field(default=0, description="Input/prompt tokens used")
+    output_tokens: int = Field(default=0, description="Output/completion tokens used")
+    input_cost: float = Field(default=0.0, description="Cost for input tokens")
+    output_cost: float = Field(default=0.0, description="Cost for output tokens")
+    @property
+    def is_memory(self) -> bool:
+        """Check if this signature is a memory-related signature.
+
+        Memory signatures have names starting with MEMORY_UNIT_PREFIX ("memory_").
+        """
+        from codespy.config_memory import MEMORY_UNIT_PREFIX
+
+        return self.name.startswith(MEMORY_UNIT_PREFIX)
 
     @property
     def cost_per_call(self) -> float:
@@ -90,6 +126,14 @@ class ReviewResult(BaseModel):
     signature_stats: list[SignatureStatsResult] = Field(
         default_factory=list, description="Per-signature statistics (cost, tokens, time)"
     )
+    memories: list[RecalledMemory] = Field(
+        default_factory=list,
+        description="Prefrontal pre-call memory injected into agent inputs",
+    )
+    memory_pending: bool = Field(
+        default=False,
+        description="True when memory phase (saves, retain, consolidation) is still pending",
+    )
 
     @property
     def total_issues(self) -> int:
@@ -139,6 +183,9 @@ class ReviewResult(BaseModel):
             "",
         ]
 
+        # Memories section (collapsible) - placed before Summary
+        lines.extend(self.memories_markdown_lines())
+
         # Overall summary
         if self.overall_summary:
             lines.extend(["## Summary", "", self.overall_summary, ""])
@@ -169,29 +216,15 @@ class ReviewResult(BaseModel):
                     "## Cost",
                     "",
                     f"- **LLM Calls:** {self.llm_calls}",
-                    f"- **Total Tokens:** {self.total_tokens:,}",
                     f"- **Total Cost:** ${self.total_cost:.4f}",
-                    "",
                 ]
             )
+            if self.memory_pending:
+                lines.append("- **Memory:** pending (retain, consolidation, mental models)")
+            lines.append("")
 
             # Per-signature breakdown
-            if self.signature_stats:
-                lines.extend(
-                    [
-                        "### Per-Signature Breakdown",
-                        "",
-                        "| Signature | Cost | Tokens | Calls | Duration |",
-                        "|-----------|------|--------|-------|----------|",
-                    ]
-                )
-                for stats in sorted(self.signature_stats, key=lambda x: x.cost, reverse=True):
-                    duration_str = f"{stats.duration_seconds:.1f}s"
-                    lines.append(
-                        f"| {stats.name} | ${stats.cost:.4f} | {stats.tokens:,} | "
-                        f"{stats.call_count} | {duration_str} |"
-                    )
-                lines.append("")
+            lines.extend(self.cost_breakdown_markdown_lines("###"))
 
         # Issues by severity
         if self.issues:
@@ -265,6 +298,188 @@ class ReviewResult(BaseModel):
             lines.extend(["## Recommendation", "", self.recommendation, ""])
 
         return "\n".join(lines)
+
+    def cost_breakdown_markdown_lines(self, heading: str = "###") -> list[str]:
+        """Build cost breakdown tables for Review and Memory groups.
+
+        Each non-empty group emits a table with columns:
+        Signature | In Tokens | Out Tokens | In Cost | Out Cost | Calls | Duration
+
+        Review signatures come first, then Memory. Each table has a subtotal line.
+        Groups with no rows are omitted. If signature_stats is empty, returns [].
+
+        Args:
+            heading: Heading prefix (e.g., "###" or "####")
+
+        Returns:
+            Markdown lines for the cost breakdown section.
+        """
+        if not self.signature_stats:
+            return []
+
+        review_stats = [s for s in self.signature_stats if not s.is_memory]
+        memory_stats = [s for s in self.signature_stats if s.is_memory]
+
+        def table_lines(label: str, stats: list[SignatureStatsResult]) -> list[str]:
+            if not stats:
+                return []
+            sorted_stats = sorted(stats, key=lambda x: x.cost, reverse=True)
+            subtotal_cost = sum(s.cost for s in sorted_stats)
+            subtotal_calls = sum(s.call_count for s in sorted_stats)
+            lines = [
+                f"{heading} {label}",
+                "",
+                "| Signature | In Tokens | Out Tokens | In Cost | Out Cost | Calls | Duration |",
+                "|-----------|-----------|------------|---------|----------|-------|----------|",
+            ]
+            for s in sorted_stats:
+                duration_str = f"{s.duration_seconds:.1f}s"
+                lines.append(
+                    f"| {s.name} | {s.input_tokens:,} | {s.output_tokens:,} | "
+                    f"${s.input_cost:.4f} | ${s.output_cost:.4f} | {s.call_count} | {duration_str} |"
+                )
+            lines.extend(["", f"**Subtotal:** ${subtotal_cost:.4f} | **LLM Calls:** {subtotal_calls}", ""])
+            return lines
+
+        result: list[str] = []
+        result.extend(table_lines("Review", review_stats))
+        result.extend(table_lines("Memory", memory_stats))
+        return result
+
+    def memories_markdown_lines(
+        self, summary: str = "memories", max_chars: int | None = None
+    ) -> list[str]:
+        """Build the collapsible memories section with nested per-recall and per-section details.
+
+        Structure (flat run-level sections, nested scope recall):
+          <details><summary>{summary}</summary>
+            <blockquote>
+
+              <!-- flat (nested=False): sections render directly -->
+              <details><summary>{section_title}</summary>
+                <blockquote>{body}</blockquote>
+              </details>
+
+              <!-- nested (nested=True): scope recall with own details wrapper -->
+              <details><summary>{task}</summary>
+                <blockquote>
+                  <details><summary>{section_title}</summary>
+                    <blockquote>{body}</blockquote>
+                  </details>
+                  ...
+                </blockquote>
+              </details>
+
+            </blockquote>
+          </details>
+
+        GitReporter passes ``max_chars`` to stay within GitHub's 65,536 char
+        review body limit: memory texts are truncated in order, other sections
+        are never touched.
+
+        Args:
+            summary: Summary text of the outer collapsible section.
+            max_chars: Character budget for the whole section (None = unlimited).
+
+        Returns:
+            Markdown lines, or ``[]`` when there is no memory or nothing fits.
+        """
+        if not self.memories:
+            return []
+
+        def size(block_lines: list[str]) -> int:
+            # Lines are joined with "\n" by the caller
+            return sum(len(line) + 1 for line in block_lines)
+
+        def recall_head(task: str) -> list[str]:
+            return ["<details>", f"<summary>{task}</summary>", "<blockquote>", ""]
+
+        def recall_tail() -> list[str]:
+            return ["</blockquote>", "</details>", ""]
+
+        def section_block(title: str, body: str) -> list[str]:
+            return [
+                "<details>",
+                f"<summary>{title}</summary>",
+                "<blockquote>",
+                "",
+                body,
+                "",
+                "</blockquote>",
+                "</details>",
+                "",
+            ]
+
+        # Reserve room for outer head/tail and per-recall tails
+        outer_head = ["<details>", f"<summary>{summary}</summary>", "<blockquote>", ""]
+        outer_tail = ["</blockquote>", "</details>", ""]
+        outer_overhead = size(outer_head) + size(outer_tail)
+
+        lines: list[str] = []
+        remaining = None if max_chars is None else max_chars - outer_overhead
+        outer_stopped = False
+
+        for memory in self.memories:
+            if outer_stopped:
+                break
+
+            r_head = recall_head(memory.task)
+            r_tail = recall_tail()
+            recall_overhead = size(r_head) + size(r_tail)
+
+            # For flat (nested=False), no recall head/tail overhead
+            if memory.nested:
+                # Budget check: need at least recall overhead + one section
+                if remaining is not None and remaining < recall_overhead:
+                    break
+
+                if remaining is not None:
+                    remaining -= recall_overhead
+            else:
+                # Flat: no recall overhead, sections go directly into lines
+                recall_overhead = 0
+
+            r_lines: list[str] = list(r_head) if memory.nested else []
+            has_section = False
+            recall_stopped = False
+
+            for section in memory.sections:
+                if recall_stopped:
+                    break
+
+                s_block = section_block(section.title, section.text)
+                s_size = size(s_block)
+                if remaining is None or s_size <= remaining:
+                    r_lines.extend(s_block)
+                    has_section = True
+                    if remaining is not None:
+                        remaining -= s_size
+                else:
+                    # Try to truncate the section body
+                    overhead = size(section_block(section.title, "")) + len(TRUNCATED_MARKER)
+                    if remaining is not None and remaining > overhead:
+                        truncated_body = section.text[: remaining - overhead] + TRUNCATED_MARKER
+                        r_lines.extend(section_block(section.title, truncated_body))
+                        has_section = True
+                        # Account for the truncated section size
+                        remaining -= overhead + len(truncated_body)
+                    # Close this recall - stop processing sections for this recall
+                    recall_stopped = True
+                    # Also stop the outer loop - no more recalls fit
+                    outer_stopped = True
+
+            if memory.nested:
+                r_lines.extend(r_tail)
+
+            if has_section:
+                lines.extend(r_lines)
+            elif memory.nested and remaining is not None:
+                # No section rendered for this recall: give back its overhead
+                remaining += recall_overhead
+
+        if not lines:
+            return []
+        return outer_head + lines + outer_tail
 
     def to_json_dict(self) -> dict:
         """Convert to a JSON-serializable dictionary."""

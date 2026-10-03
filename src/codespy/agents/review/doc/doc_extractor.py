@@ -6,6 +6,9 @@ from pathlib import Path
 
 from codespy.tools.storage import EntryType, FileSystem, TreeNode
 
+# CHANGELOG heading pattern for trimming (3rd `## ` heading marks cutoff)
+_CHANGELOG_HEADING_RE = re.compile(r"^## ", re.MULTILINE)
+
 logger = logging.getLogger(__name__)
 
 # Filename patterns recognised as documentation (case-insensitive).
@@ -50,10 +53,35 @@ def _collect_doc_paths(node: TreeNode, prefix: str = "") -> list[str]:
     return paths
 
 
+def _trim_changelog(content: str) -> str:
+    """Trim CHANGELOG content to keep only preamble + 2 newest sections.
+
+    Keeps text before the 3rd line matching ``^## `` (preamble + 2 newest
+    sections, e.g. ``[Unreleased]`` + latest release). If fewer than 3 such
+    headings, keeps the file unchanged. Appends ``\n[older entries omitted]``
+    when trimmed.
+
+    Args:
+        content: The full CHANGELOG content.
+
+    Returns:
+        Trimmed content if 3+ headings found, else original content.
+    """
+    matches = list(_CHANGELOG_HEADING_RE.finditer(content))
+    if len(matches) < 3:
+        return content
+
+    # Keep everything up to the 3rd heading (exclusive)
+    cutoff_pos = matches[2].start()
+    trimmed = content[:cutoff_pos].rstrip()
+    return trimmed + "\n[older entries omitted]"
+
+
 def extract_documentation(scope_root: Path) -> str:
     """Extract documentation content from a scope directory.
 
     Single tree scan at depth 2, fast-fail if no doc files found.
+    CHANGELOG files are trimmed to preamble + 2 newest sections.
 
     Returns:
         Concatenated documentation with ``=== filename ===`` headers,
@@ -89,10 +117,15 @@ def extract_documentation(scope_root: Path) -> str:
             logger.debug(f"Skipping unreadable doc file {path}: {content.error}")
             continue
 
-        if not content.content.strip():
+        text = content.content
+        if not text.strip():
             logger.debug(f"Skipping empty doc file {path}")
             continue
 
-        parts.append(f"=== {path} ===\n{content.content}")
+        # Trim CHANGELOG files to reduce token volume
+        if path.lower().startswith("changelog"):
+            text = _trim_changelog(text)
+
+        parts.append(f"=== {path} ===\n{text}")
 
     return "\n\n".join(parts)

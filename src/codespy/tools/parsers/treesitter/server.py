@@ -8,14 +8,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from codespy.tools.parsers.treesitter.parser import TreeSitterParser
 
 logger = logging.getLogger(__name__)
 _caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 
-mcp = FastMCP("treesitter")
+mcp = MCPServer("treesitter")
 _parser: TreeSitterParser | None = None
 
 
@@ -342,10 +342,6 @@ def get_terraform_summary(file_path: str, content: str | None = None) -> dict[st
 
 
 if __name__ == "__main__":
-    # Suppress noisy MCP server "Processing request" logs
-    logging.getLogger("mcp.server").setLevel(logging.WARNING)
-    logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
-
     repo_path = sys.argv[1] if len(sys.argv) > 1 else "."
     _parser = TreeSitterParser(Path(repo_path))
     mcp.run()

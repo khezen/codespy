@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -21,6 +22,7 @@ from codespy.agents.memory.hippocampus.context_memory import (
     ContextMemory,
     ObservationTag,
     Mutation,
+    MutationType,
     Operation,
     OpType,
     Topic,
@@ -32,54 +34,18 @@ from codespy.agents.memory.hippocampus.cartographer import Cartographer
 
 if TYPE_CHECKING:
     from codespy.agents.memory.postgres import EpisodeStore
+    from codespy.agents.memory.recall import RecallRecord
 
 logger = logging.getLogger(__name__)
-
-
-def prepend_context_memory(sig):
-    """Prepend context_memory field to signature."""
-    return sig.prepend(
-        name="context_memory",
-        field=dspy.InputField(
-            desc="Current context memory. Use it before redundant tool calls."
-        ),
-        type_=ContextMemory,
-    )
-
-
-def inject_context_memory(module: dspy.Module) -> dspy.Module:
-    """Prepend context_memory input field to a dspy.Module's signatures.
-
-    Idempotent — skips predictors that already have context_memory.
-    Mutates the module in place and returns it for chaining.
-    Works through ContextSafe's signature delegation.
-    """
-    top_sig = getattr(module, "signature", None)
-    if top_sig is not None:
-        module_inputs = set(top_sig.input_fields)
-        if "context_memory" not in top_sig.input_fields:
-            module.signature = prepend_context_memory(top_sig)
-        for _, pred in module.named_predictors():
-            if (
-                set(pred.signature.input_fields) & module_inputs
-                and "context_memory" not in pred.signature.input_fields
-            ):
-                pred.signature = prepend_context_memory(pred.signature)
-    else:
-        for _, pred in module.named_predictors():
-            if "context_memory" not in pred.signature.input_fields:
-                pred.signature = prepend_context_memory(pred.signature)
-    return module
 
 
 class Hippocampus:
     """Memory component that evolves via LLM-driven reflection.
 
-    The context memory is provided to agents so they start each run
-    with accumulated orientation knowledge (structure, entities, constants) about
-    the external context. After calls, the Distiller extracts transferable
-    understanding and the Cartographer edits the memory — "caching understanding,
-    not answers."
+    The context memory accumulates orientation knowledge (structure, entities,
+    constants) about the external context. After calls, the Distiller extracts
+    transferable understanding and the Cartographer edits the memory —
+    "caching understanding, not answers."
 
     ## Lifecycle
 
@@ -88,11 +54,8 @@ class Hippocampus:
         # Construct Hippocampus with task name and optional memory budget
         hippo = Hippocampus(task_name="...")
 
-        # Inject context memory into agent
-        inject_context_memory(agent)
-
-        # Run agent with context_memory input
-        pred = agent(context_memory=hippo.context_memory, task="…")
+        # Run agent (no memory input; agents will receive memory via Prefrontal later)
+        pred = agent(task="…")
 
         # Observe the result (buffers trajectory)
         hippo.observe(pred)
@@ -104,7 +67,7 @@ class Hippocampus:
         hippo.end_episode(store, artifacts={"key": "value"})
 
         # Async variant (for callers running inside an event loop)
-        pred = await agent.acall(context_memory=hippo.context_memory, task="…")
+        pred = await agent.acall(task="…")
         await hippo.aobserve(pred)
         await hippo.aend_episode(store, artifacts={"key": "value"})
 
@@ -146,7 +109,7 @@ class Hippocampus:
             budget: The four token budgets bounding memory, as a
                 :class:`MemoryBudget`. Defaults to ``MemoryBudget()`` — see that
                 class for per-field guidance. Resolve one from configuration with
-                ``Settings.get_memory_budget(signature_name)``.
+                ``Settings.get_memory_budget()``.
             question: Pre-computed question string for the reflection "question".
                 If set, this string is used directly as the Distiller question.
                 If None, uses empty string (callers typically pass question at init).
@@ -277,13 +240,19 @@ class Hippocampus:
             )
         return combined
 
-    def _finalize_episode(self, artifacts: dict[str, str] | None = None) -> None:
+    def _finalize_episode(
+        self,
+        artifacts: dict[str, str] | None = None,
+        recalls: Sequence[RecallRecord] | None = None,
+    ) -> None:
         """Record the consolidated Episode snapshot and clear the buffer.
 
         Args:
             artifacts: Named output artifacts to attach to the recorded
                 episode (e.g. ``{"review": "<markdown>"}``). Defaults to an
                 empty dict when omitted.
+            recalls: Prefrontal recall records to attach (monitoring only;
+                never passed to the Distiller/Cartographer).
         """
         self.episode = Episode(
             id=uuid.uuid4(),
@@ -294,7 +263,8 @@ class Hippocampus:
             timestamp=datetime.now(UTC),
             artifacts=artifacts or {},
             run_id=self._run_id,
-            mutations=self._mutations,
+            mutations=list(self._mutations),
+            recalls=list(recalls or []),
         )
         self._episode_trajectories.clear()
         self._episode_question = None
@@ -305,6 +275,7 @@ class Hippocampus:
         self,
         store: EpisodeStore | None = None,
         artifacts: dict[str, str] | None = None,
+        recalls: Sequence[RecallRecord] | None = None,
     ) -> None:
         """Consolidate the buffered trajectories into the memory and record an Episode snapshot.
 
@@ -326,6 +297,9 @@ class Hippocampus:
                 episode (e.g. ``{"review": "<markdown>"}``). Agent-agnostic —
                 any caller can attach whatever markdown/text output it
                 produced under a key of its choosing.
+            recalls: Prefrontal recall records of this agent call, stored on
+                the Episode and persisted to the ``recalls`` table. Never
+                given to the Distiller/Cartographer.
 
         Raises:
             OSError: If persistence is requested and the write fails.
@@ -333,7 +307,7 @@ class Hippocampus:
         combined = self._consolidate()
         if combined is None:
             return
-        self._finalize_episode(artifacts)
+        self._finalize_episode(artifacts, recalls)
         if store is not None:
             store.save_episode(self.episode)
 
@@ -341,6 +315,7 @@ class Hippocampus:
         self,
         store: EpisodeStore | None = None,
         artifacts: dict[str, str] | None = None,
+        recalls: Sequence[RecallRecord] | None = None,
     ) -> None:
         """Async counterpart of :meth:`end_episode`.
 
@@ -352,11 +327,12 @@ class Hippocampus:
             store: Optional ``EpisodeStore`` to persist the episode after consolidation.
             artifacts: Named output artifacts to attach to the recorded
                 episode (e.g. ``{"review": "<markdown>"}``).
+            recalls: Prefrontal recall records (see :meth:`end_episode`).
         """
         combined = await asyncio.to_thread(self._consolidate)
         if combined is None:
             return
-        await asyncio.to_thread(self._finalize_episode, artifacts)
+        await asyncio.to_thread(self._finalize_episode, artifacts, recalls)
         if store is not None:
             await asyncio.to_thread(store.save_episode, self.episode)
 
@@ -398,7 +374,7 @@ class Hippocampus:
                     mutations.append(
                         Mutation(
                             step=self._distill_step,
-                            type=OpType.DELETE,
+                            type=MutationType.DELETE,
                             observation_id=op.observation_id,
                             section=section,
                             content=None,
@@ -413,7 +389,7 @@ class Hippocampus:
                     mutations.append(
                         Mutation(
                             step=self._distill_step,
-                            type=OpType.REPLACE,
+                            type=MutationType.REPLACE,
                             observation_id=op.observation_id,
                             section=section,
                             content=op.content,
@@ -429,7 +405,7 @@ class Hippocampus:
                     if section_name:
                         mut = Mutation(
                             step=self._distill_step,
-                            type=OpType.ADD,
+                            type=MutationType.ADD,
                             observation_id="",  # back-filled from new_ids
                             section=section_name,
                             content=op.content,
@@ -442,7 +418,7 @@ class Hippocampus:
             elif op.type == OpType.ADD and op.section and op.content:
                 mut = Mutation(
                     step=self._distill_step,
-                    type=OpType.ADD,
+                    type=MutationType.ADD,
                     observation_id="",
                     section=op.section,
                     content=op.content,
@@ -474,7 +450,7 @@ class Hippocampus:
             trajectory=trajectory,
             context_memory=self.cmem,
             question=question,
-            max_context_item_tokens=self.budget.max_context_item_tokens,
+            max_hippocampus_item_tokens=self.budget.max_hippocampus_item_tokens,
         )
 
         known = self.cmem.ids()
@@ -489,9 +465,9 @@ class Hippocampus:
             question=question,
             # The Cartographer's input field keeps the generic name: it is prompt
             # text, already scoped by its description, and pairs with current_tokens.
-            token_budget=self.budget.max_context_memory_tokens,
+            token_budget=self.budget.max_hippocampus_tokens,
             current_tokens=count_tokens(self.cmem.model_dump_json()),
-            max_context_item_tokens=self.budget.max_context_item_tokens,
+            max_hippocampus_item_tokens=self.budget.max_hippocampus_item_tokens,
         )
         ops = list(edits.operations or [])
 
@@ -503,8 +479,37 @@ class Hippocampus:
             for nid in new_ids:
                 self.scores[nid] = self.scores.get(nid, 0) + 1
 
+        pre_evict = self.cmem
+        self.cmem = evict(self.cmem, self.scores, self.budget.max_hippocampus_tokens)
+        self._record_evictions(pre_evict)
         self._distill_step += 1
-        self.cmem = evict(self.cmem, self.scores, self.budget.max_context_memory_tokens)
 
         live = self.cmem.ids()
         self.scores = {k: v for k, v in self.scores.items() if k in live}
+
+    def _record_evictions(self, pre_evict: ContextMemory) -> None:
+        """Record an EVICT mutation for every observation that eviction dropped.
+
+        Records an EVICT for every observation no longer in context_memory,
+        including ones added this run. The log then states every eviction
+        explicitly, so Cerebral never has to infer one.
+        """
+        post_ids = self.cmem.ids()
+        for obs in pre_evict.all_observations():
+            if obs.id in post_ids:
+                continue
+            found = pre_evict.find_observation(obs.id)
+            if found is None:
+                continue
+            section, _ = found
+            self._mutations.append(
+                Mutation(
+                    step=self._distill_step,
+                    type=MutationType.EVICT,
+                    observation_id=obs.id,
+                    section=section,
+                    content=None,
+                    previous_content=obs.content,
+                    topic_ids=list(obs.topic_ids),
+                )
+            )

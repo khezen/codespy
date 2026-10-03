@@ -151,7 +151,7 @@ codespy auto-discovers credentials from standard locations (`~/.aws/credentials`
 | **[Usage](docs/usage.md)** | CLI commands, Docker, GitHub Action, MCP server, output formats |
 | **[Configuration](docs/configuration.md)** | Environment variables, YAML config, model strategy, per-signature settings |
 | **[Architecture](docs/architecture.md)** | Pipeline design, DSPy signatures, supported languages |
-| **[Memory System](docs/memory.md)** | Hippocampus episodic memory for cross-review knowledge |
+| **[Memory System](docs/memory.md)** | Hippocampus (episodic), Cerebral (semantic store), Prefrontal (recall) |
 | **[Development](docs/development.md)** | Setup, build, test, lint |
 
 ---

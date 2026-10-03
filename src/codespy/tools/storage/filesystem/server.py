@@ -6,7 +6,7 @@ import sys
 from collections import OrderedDict
 from functools import lru_cache
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from codespy.tools.storage.filesystem.client import FileSystem
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Get caller module from environment (set by mcp_utils.py)
 _caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
 
-mcp = FastMCP("filesystem")
+mcp = MCPServer("filesystem")
 _fs: FileSystem | None = None
 
 # Manual cache for read_file to skip caching error results
@@ -157,10 +157,6 @@ def get_file_info(path: str = "") -> dict:
 
 
 if __name__ == "__main__":
-    # Suppress noisy MCP server "Processing request" logs
-    logging.getLogger("mcp.server").setLevel(logging.WARNING)
-    logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
-
     root = sys.argv[1] if len(sys.argv) > 1 else "."
     _fs = FileSystem(root)
     mcp.run()

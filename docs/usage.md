@@ -162,7 +162,7 @@ jobs:
 
     steps:
       - name: Run CodeSpy Review
-        uses: khezen/codespy@v1
+        uses: khezen/codespy@v2
         with:
           model: 'anthropic/claude-opus-4-6'
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -187,7 +187,7 @@ jobs:
 
     steps:
       - name: Run CodeSpy Review
-        uses: khezen/codespy@v1
+        uses: khezen/codespy@v2
         with:
           model: 'anthropic/claude-opus-4-6'
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -257,10 +257,11 @@ codespy review https://github.com/owner/repo/pull/123 --no-stdout --git-comment
 **Enable via configuration:**
 ```bash
 # Environment variable
-export OUTPUT_GIT=true
+export REVIEW_OUTPUT_GIT=true
 
 # Or in codespy.yaml
-output_git: true
+review:
+  output_git: true
 ```
 
 **Features:**
