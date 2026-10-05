@@ -375,8 +375,14 @@ class TestWriteRefusalDump:
 class TestContentFilterHandling:
     """Tests for content_filter finish_reason handling."""
 
-    def test_content_filter_raises_descriptive_error(self, caplog):
+    @patch("codespy.agents.diagnostic_adapter.get_settings")
+    def test_content_filter_raises_descriptive_error(self, mock_get_settings, caplog, tmp_path):
         """When finish_reason is content_filter, raise descriptive error."""
+        # Setup mock settings to use tmp_path for cache_dir
+        mock_settings = MagicMock()
+        mock_settings.review.cache_dir = str(tmp_path)
+        mock_get_settings.return_value = mock_settings
+
         extraction_lm = MagicMock(spec=dspy.BaseLM)
         adapter = DiagnosticTwoStepAdapter(extraction_lm)
 
@@ -458,9 +464,15 @@ class TestContentFilterHandling:
 class TestAcallHandling:
     """Tests for async acall handling."""
 
-    def test_acall_content_filter_raises_descriptive_error(self, caplog):
+    @patch("codespy.agents.diagnostic_adapter.get_settings")
+    def test_acall_content_filter_raises_descriptive_error(self, mock_get_settings, caplog, tmp_path):
         """Async acall raises descriptive error for content_filter."""
         import asyncio
+
+        # Setup mock settings to use tmp_path for cache_dir
+        mock_settings = MagicMock()
+        mock_settings.review.cache_dir = str(tmp_path)
+        mock_get_settings.return_value = mock_settings
 
         extraction_lm = MagicMock(spec=dspy.BaseLM)
         adapter = DiagnosticTwoStepAdapter(extraction_lm)
@@ -501,3 +513,4 @@ class TestAcallHandling:
         exc_info = asyncio.run(run_test())
         assert "model refused (content_filter)" in str(exc_info.value)
         assert "Empty LM response" in caplog.text
+

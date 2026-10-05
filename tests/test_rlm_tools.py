@@ -308,3 +308,54 @@ class TestDenoIntegration:
         Run manually when Deno is available.
         """
         pass
+
+
+class TestBridgedToolSignature:
+    """Bridged tools must keep their real signature inside the RLM sandbox."""
+
+    @staticmethod
+    async def get_tree(path: str = "", max_depth: int = 3) -> str:
+        return f"tree:{path}:{max_depth}"
+
+    @staticmethod
+    async def read_file(path: str, max_lines: int | None = None) -> str:
+        return f"file:{path}:{max_lines}"
+
+    def test_signature_matches_tool_args(self):
+        import inspect
+
+        async def run():
+            return bridge_tools_to_loop([self.get_tree, self.read_file], asyncio.get_running_loop(), 5)
+
+        tree, read = asyncio.run(run())
+        assert str(inspect.signature(tree.func)) == "(path: str = '', max_depth: int = 3)"
+        assert list(inspect.signature(read.func).parameters) == ["path", "max_lines"]
+        assert inspect.signature(read.func).parameters["path"].default is inspect.Parameter.empty
+
+    @pytest.mark.skipif(shutil.which("deno") is None, reason="needs deno")
+    def test_sandbox_calls_with_keyword_and_positional_args(self):
+        import dspy  # type: ignore[import-untyped]
+        from dspy.utils.dummies import DummyLM
+
+        from codespy.agents.context_safe import CodespyRLM
+
+        class Sig(dspy.Signature):
+            """Echo."""
+
+            q: str = dspy.InputField()
+            answer: str = dspy.OutputField()
+
+        code = "SUBMIT(answer=get_tree('.', max_depth=2) + '|' + read_file('a.txt'))"
+        lm = DummyLM([{"reasoning": "r", "code": code}])
+
+        async def run():
+            tools = bridge_tools_to_loop([self.get_tree, self.read_file], asyncio.get_running_loop(), 10)
+            rlm = CodespyRLM(Sig, tools=tools, max_iters=2)
+
+            def call():
+                with dspy.context(lm=lm, adapter=dspy.ChatAdapter()):
+                    return rlm(q="x")
+
+            return await asyncio.to_thread(call)
+
+        assert asyncio.run(run()).answer == "tree:.:2|file:a.txt:None"

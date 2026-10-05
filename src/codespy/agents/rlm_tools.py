@@ -15,7 +15,7 @@ from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 
-from codespy.agents.context_safe import ContextSafe
+from codespy.agents.context_safe import CodespyRLM, ContextSafe
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,33 @@ def _get_tool_arg_desc(tool: Any) -> dict[str, str] | None:
     if hasattr(tool, "arg_desc"):
         return tool.arg_desc  # type: ignore[return-value]
     return None
+
+
+def _signature_from_args(
+    args: dict[str, Any] | None, arg_types: dict[str, Any] | None
+) -> inspect.Signature:
+    """Build a real signature from dspy.Tool args (JSON schema per arg).
+
+    dspy.RLM copies `inspect.signature(tool.func)` into the sandbox wrapper. A bare
+    `sync_wrapper(**kwargs)` becomes `def tool(kwargs):` there, so keyword calls
+    fail ("unexpected keyword argument") and positional ones arrive as `kwargs=`.
+    """
+    required: list[inspect.Parameter] = []
+    optional: list[inspect.Parameter] = []
+    for name, schema in (args or {}).items():
+        annotation = (arg_types or {}).get(name, inspect.Parameter.empty)
+        if isinstance(schema, dict) and "default" in schema:
+            optional.append(
+                inspect.Parameter(
+                    name, inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    default=schema["default"], annotation=annotation,
+                )
+            )
+        else:
+            required.append(
+                inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=annotation)
+            )
+    return inspect.Signature(required + optional)
 
 
 def bridge_tools_to_loop(
@@ -160,6 +187,7 @@ def bridge_tools_to_loop(
             sync_func.__name__ = func.__name__
         if hasattr(func, "__doc__"):
             sync_func.__doc__ = func.__doc__
+        sync_func.__signature__ = _signature_from_args(tool_args, tool_arg_types)  # type: ignore[attr-defined]
 
         # Create new dspy.Tool with sync wrapper
         bridged_tool = dspy.Tool(
@@ -209,7 +237,7 @@ def build_rlm_agent(
     bridged_tools = bridge_tools_to_loop(tools, loop, timeout)
 
     # Build RLM with bridged tools
-    rlm = dspy.RLM(
+    rlm = CodespyRLM(
         signature,
         tools=bridged_tools,
         max_iters=max_iters,

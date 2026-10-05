@@ -4,6 +4,7 @@ Provides transparent fallback to RLM (Recursive Language Model) when inputs
 exceed the model's context window. Used to wrap all DSPy signature modules.
 """
 
+import enum
 import logging
 import re
 
@@ -18,6 +19,47 @@ _RE_CONTEXT_LENGTH = re.compile(r"maximum context length is \d+ tokens", re.IGNO
 # Minimum input tokens before proactive threshold applies.
 # Below this, context rot is not a concern regardless of ratio.
 _MIN_RLM_THRESHOLD_TOKENS = 8192
+
+# Replaces dspy.RLM's stock `reasoning` desc ("Think step-by-step: what do you
+# know? What remains? Plan your next action."), which on its own triggers Bedrock
+# content_filter on Claude Opus 5.5 (see scripts/replay_refusal.py).
+RLM_REASONING_DESC = "Short plan for the next step."
+
+
+def _plain(value):  # type: ignore[no-untyped-def]
+    """Replace Enum members with their values, recursively.
+
+    dspy's PythonInterpreter injects inputs as `name = repr(value)`; an Enum repr
+    (`<IssueCategory.BUG: 'bug'>`) is not valid Python, so every REPL execution
+    fails with an empty SyntaxError.
+    """
+    if isinstance(value, enum.Enum):
+        return value.value
+    if isinstance(value, (list, tuple, set)):
+        return [_plain(v) for v in value]
+    if isinstance(value, dict):
+        return {_plain(k): _plain(v) for k, v in value.items()}
+    return value
+
+
+class CodespyRLM(dspy.RLM):
+    """dspy.RLM adjusted for codespy.
+
+    - Neutral action-signature `reasoning` description (Bedrock content_filter).
+    - Enum inputs passed as plain values (REPL variable injection).
+    """
+
+    def forward(self, **kwargs):  # type: ignore[no-untyped-def]
+        return super().forward(**{k: _plain(v) for k, v in kwargs.items()})
+
+    async def aforward(self, **kwargs):  # type: ignore[no-untyped-def]
+        return await super().aforward(**{k: _plain(v) for k, v in kwargs.items()})
+
+    def _build_signatures(self):  # type: ignore[no-untyped-def]
+        action_sig, extract_sig = super()._build_signatures()
+        if "reasoning" in action_sig.output_fields:
+            action_sig = action_sig.with_updated_fields("reasoning", desc=RLM_REASONING_DESC)
+        return action_sig, extract_sig
 
 
 def estimate_context_overflow(model: str, max_tokens: int, input_text: str) -> bool:
@@ -197,7 +239,7 @@ class ContextSafe(dspy.Module):
 
     def _create_rlm_fallback(self) -> dspy.RLM:
         """Create RLM with current signature and tools."""
-        return dspy.RLM(
+        return CodespyRLM(
             self._get_current_signature(),
             tools=self._tools,
             max_iters=self._max_iters,

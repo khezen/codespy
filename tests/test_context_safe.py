@@ -3,10 +3,11 @@
 import os
 from unittest.mock import MagicMock, patch
 
+import dspy  # type: ignore[import-untyped]
 import pytest
 from pydantic import ValidationError
 
-from codespy.agents.context_safe import ContextSafe
+from codespy.agents.context_safe import RLM_REASONING_DESC, CodespyRLM, ContextSafe
 from codespy.config_dspy import RLMFallbackConfig
 from codespy.config_utils import apply_env_overrides, build_env_map
 
@@ -314,3 +315,65 @@ class TestContextSafeThreeLayerDefense:
         # 20k + 64k + 4k = 88k > 80k
         assert should_fallback is True
         assert "context overflow predicted" in reason
+
+
+class TestCodespyRLM:
+    """Stock RLM `reasoning` desc triggers Bedrock content_filter; ensure it is replaced."""
+
+    class _Sig(dspy.Signature):
+        """Do the thing."""
+
+        question: str = dspy.InputField()
+        answer: str = dspy.OutputField()
+
+    def _rlm(self):
+        return CodespyRLM(self._Sig, max_iters=2)
+
+    def test_action_reasoning_desc_replaced(self):
+        sig = self._rlm().generate_action.signature
+        assert sig.output_fields["reasoning"].json_schema_extra["desc"] == RLM_REASONING_DESC
+        # Other action fields and instructions are untouched
+        assert list(sig.output_fields) == ["reasoning", "code"]
+        assert "Do the thing." in sig.instructions
+
+    def test_rendered_prompt_has_no_stock_desc(self):
+        from codespy.agents.diagnostic_adapter import DiagnosticTwoStepAdapter
+        sig = self._rlm().generate_action.signature
+        text = DiagnosticTwoStepAdapter(dspy.LM("openai/gpt-4o-mini")).format_task_description(sig)
+        assert "Think step-by-step" not in text
+        assert "`reasoning` (str): Short plan for the next step." in text
+
+    def test_fallback_uses_codespy_rlm(self):
+        cs = ContextSafe(dspy.Predict(self._Sig), self._Sig, tools=[], name="t", max_iters=2, max_llm_calls=5)
+        assert isinstance(cs._create_rlm_fallback(), CodespyRLM)
+
+
+    def test_plain_converts_enums(self):
+        from enum import StrEnum
+
+        from codespy.agents.context_safe import _plain
+
+        class IssueCategory(StrEnum):
+            BUG = "bug"
+            SMELL = "smell"
+
+        assert _plain({"c": [IssueCategory.BUG, ("x", IssueCategory.SMELL)]}) == {"c": ["bug", ["x", "smell"]]}
+        assert _plain("bug") == "bug"
+
+    @pytest.mark.skipif(__import__("shutil").which("deno") is None, reason="needs deno")
+    def test_repl_runs_with_enum_inputs(self):
+        """Enum inputs must not break REPL variable injection (empty SyntaxError)."""
+        from dspy.utils.dummies import DummyLM
+
+        from codespy.agents.review.models import IssueCategory
+
+        class Sig(dspy.Signature):
+            """Echo."""
+
+            categories: list[IssueCategory] = dspy.InputField()
+            answer: str = dspy.OutputField()
+
+        lm = DummyLM([{"reasoning": "r", "code": "SUBMIT(answer=','.join(categories))"}])
+        with dspy.context(lm=lm, adapter=dspy.ChatAdapter()):
+            out = CodespyRLM(Sig, max_iters=2)(categories=[IssueCategory.BUG, IssueCategory.SMELL])
+        assert out.answer == "bug,smell"
