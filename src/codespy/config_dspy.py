@@ -52,7 +52,7 @@ class ReviewConfig(BaseModel):
     """
 
     # Minimum confidence threshold for reported issues
-    min_confidence: float = Field(default=0.81, ge=0.0, le=1.0)
+    min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
     # Output settings
     output_format: OutputFormat = "markdown"

@@ -162,7 +162,7 @@ memory:
 # REVIEW
 # ============================================================================
 review:
-  min_confidence: 0.81                    # REVIEW_MIN_CONFIDENCE
+  min_confidence: 0.5                     # REVIEW_MIN_CONFIDENCE
   output_format: markdown                 # REVIEW_OUTPUT_FORMAT
   output_stdout: true                     # REVIEW_OUTPUT_STDOUT
   output_git: true                        # REVIEW_OUTPUT_GIT

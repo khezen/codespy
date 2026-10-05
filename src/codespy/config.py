@@ -47,6 +47,9 @@ logger = logging.getLogger(__name__)
 # Custom config path (set via CLI --config flag)
 _custom_config_path: str | None = None
 
+# Module-level variable to track which config file was loaded
+_loaded_config_path: str | None = None
+
 # Re-export for convenience
 __all__ = [
     "Settings",
@@ -92,12 +95,15 @@ def _load_yaml_config() -> dict[str, Any]:
     exact path and raise FileNotFoundError if it doesn't exist.
     Otherwise, search the default locations.
     """
+    global _loaded_config_path
+
     if _custom_config_path is not None:
         path = Path(_custom_config_path)
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
         logger.debug(f"Loading config from {path} (via --config)")
         with open(path) as f:
+            _loaded_config_path = str(path)
             return yaml.safe_load(f) or {}
 
     config_paths = [
@@ -111,8 +117,10 @@ def _load_yaml_config() -> dict[str, Any]:
         if path.exists():
             logger.debug(f"Loading config from {path}")
             with open(path) as f:
+                _loaded_config_path = str(path)
                 return yaml.safe_load(f) or {}
 
+    _loaded_config_path = None
     return {}
 
 
@@ -520,6 +528,11 @@ def get_settings(config_file: str | None = None) -> Settings:
         _custom_config_path = config_file
         settings = Settings()
     return settings
+
+
+def get_loaded_config_path() -> str | None:
+    """Get the path to the loaded config file, or None if no file was found."""
+    return _loaded_config_path
 
 
 def reload_settings(config_file: str | None = None) -> Settings:

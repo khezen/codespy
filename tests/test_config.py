@@ -401,3 +401,20 @@ memory:
         assert llm_config.model == "openai/gpt-4o-mini"
 
         monkeypatch.delenv("CODESPY_CONFIG", raising=False)
+
+
+class TestMinConfidence:
+    """Tests for the min_confidence default value."""
+
+    def test_min_confidence_default_is_0_5(self):
+        """Test that min_confidence defaults to 0.5."""
+        settings = Settings()
+        assert settings.review.min_confidence == 0.5
+
+    def test_min_confidence_can_be_overridden_via_env(self, monkeypatch, tmp_path):
+        """Test that min_confidence can be overridden via env var."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("REVIEW_MIN_CONFIDENCE", "0.75")
+        settings = Settings()
+        assert settings.review.min_confidence == 0.75
+        monkeypatch.delenv("REVIEW_MIN_CONFIDENCE")
