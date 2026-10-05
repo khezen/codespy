@@ -22,7 +22,7 @@ _MIN_RLM_THRESHOLD_TOKENS = 8192
 
 # Replaces dspy.RLM's stock `reasoning` desc ("Think step-by-step: what do you
 # know? What remains? Plan your next action."), which on its own triggers Bedrock
-# content_filter on Claude Opus 5.5 (see scripts/replay_refusal.py).
+# content_filter on Claude Opus 5.5.
 RLM_REASONING_DESC = "Short plan for the next step."
 
 

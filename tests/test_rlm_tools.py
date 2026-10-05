@@ -16,13 +16,6 @@ from codespy.agents.rlm_tools import (
 )
 
 
-# Skip tests that require Deno if it's not installed
-requires_deno = pytest.mark.skipif(
-    shutil.which("deno") is None,
-    reason="Deno not installed"
-)
-
-
 class TestIsCoroutineFunction:
     """Test the _is_coroutine_function helper."""
 
@@ -290,24 +283,6 @@ class TestLogRlmOutcome:
             log_rlm_outcome(mock_result, "supply_chain", "scope2")
 
         assert "1 tool errors" in caplog.text
-
-
-@requires_deno
-class TestDenoIntegration:
-    """Integration tests that require Deno to be installed."""
-
-    @pytest.mark.skip(reason="Requires full DSPy + MCP setup - run manually")
-    def test_rlm_with_bridged_mcp_tool(self):
-        """Full integration: RLM agent with bridged MCP tool via Deno.
-
-        This test would require:
-        1. A running MCP server via Deno
-        2. DSPy RLM with bridged tools
-        3. Executing on the event loop thread
-
-        Run manually when Deno is available.
-        """
-        pass
 
 
 class TestBridgedToolSignature:

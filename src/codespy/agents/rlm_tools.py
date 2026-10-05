@@ -19,7 +19,7 @@ from codespy.agents.context_safe import CodespyRLM, ContextSafe
 
 logger = logging.getLogger(__name__)
 
-# Thread-local storage for the event loop at bridge time
+# Thread id of the event loop at bridge time
 _bridge_thread_id: int | None = None
 
 

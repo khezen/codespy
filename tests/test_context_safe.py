@@ -1,6 +1,7 @@
 """Tests for ContextSafe proactive RLM fallback thresholds."""
 
 import os
+import shutil
 from unittest.mock import MagicMock, patch
 
 import dspy  # type: ignore[import-untyped]
@@ -337,16 +338,15 @@ class TestCodespyRLM:
         assert "Do the thing." in sig.instructions
 
     def test_rendered_prompt_has_no_stock_desc(self):
-        from codespy.agents.diagnostic_adapter import DiagnosticTwoStepAdapter
+        from dspy.adapters.two_step_adapter import TwoStepAdapter
         sig = self._rlm().generate_action.signature
-        text = DiagnosticTwoStepAdapter(dspy.LM("openai/gpt-4o-mini")).format_task_description(sig)
+        text = TwoStepAdapter(dspy.LM("openai/gpt-4o-mini")).format_task_description(sig)
         assert "Think step-by-step" not in text
         assert "`reasoning` (str): Short plan for the next step." in text
 
     def test_fallback_uses_codespy_rlm(self):
         cs = ContextSafe(dspy.Predict(self._Sig), self._Sig, tools=[], name="t", max_iters=2, max_llm_calls=5)
         assert isinstance(cs._create_rlm_fallback(), CodespyRLM)
-
 
     def test_plain_converts_enums(self):
         from enum import StrEnum
@@ -360,7 +360,7 @@ class TestCodespyRLM:
         assert _plain({"c": [IssueCategory.BUG, ("x", IssueCategory.SMELL)]}) == {"c": ["bug", ["x", "smell"]]}
         assert _plain("bug") == "bug"
 
-    @pytest.mark.skipif(__import__("shutil").which("deno") is None, reason="needs deno")
+    @pytest.mark.skipif(shutil.which("deno") is None, reason="needs deno")
     def test_repl_runs_with_enum_inputs(self):
         """Enum inputs must not break REPL variable injection (empty SyntaxError)."""
         from dspy.utils.dummies import DummyLM
