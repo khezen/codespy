@@ -2,17 +2,25 @@
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-05
+
 ### Fixed
 
 - **code_review, supply_chain and scope refinement never found issues.** Every tool call (`read_file`, `search_literal`, `find_*`, `recall_memory`) failed inside the RLM sandbox with `This event loop is already running`. RLM agents now run off the event loop using `asyncio.to_thread()`, and tool calls are bridged back to the event loop via `asyncio.run_coroutine_threadsafe()`. New module `agents/rlm_tools.py` provides `build_rlm_agent()`, `run_rlm()`, and `log_rlm_outcome()`.
-- **Reviewers silently discarded issues without an explicit confidence**, because the `Issue.confidence` default (0.8) was below the `review.min_confidence` default (0.81). Prompts now request a confidence ("≥0.9 verified with tools; 0.7–0.9 strong evidence; <0.7 weak"), and `filter_by_confidence()` logs raw/kept counts.
+- **Reviewers silently discarded issues without an explicit confidence**, because the `Issue.confidence` default (0.8) was below the `review.min_confidence` default (0.81). The code_review, doc and supply_chain prompts and the `Issue.confidence` field description now request a confidence ("≥0.9 verified with tools; 0.7–0.9 strong evidence; <0.7 weak"). The new `filter_by_confidence()` helper (`agents/review/helpers.py`) is used by all three reviewers and logs raw and kept counts per scope.
 - **Opus 5.5 on Bedrock refused every RLM call with `content_filter`, so code_review returned nothing (`Empty LM response`).** The trigger was `dspy.RLM`'s stock `reasoning` field description ("Think step-by-step: what do you know? What remains? Plan your next action."). New `CodespyRLM` (`agents/context_safe.py`) replaces it with "Short plan for the next step." and is used by `build_rlm_agent()` and the `ContextSafe` RLM fallback.
 - **RLM REPL steps all failed with an empty `Invalid Python syntax`.** dspy's `PythonInterpreter` injects inputs as `name = repr(value)`, and an Enum repr (`<IssueCategory.BUG: 'bug'>`) is not valid Python, so every execution of code_review (`categories`) and supply_chain (`category`) failed before the model's code ran. `CodespyRLM` now passes Enum inputs as their plain values.
 - **RLM tool calls with arguments failed in the sandbox** (`get_tree() got an unexpected keyword argument 'max_depth'`, `Tool 'read_file' rejected arguments: ['path']`). dspy.RLM copies each tool's Python signature into the sandbox, and the async-to-sync bridge exposed `sync_wrapper(**kwargs)`, so the sandbox wrapper accepted only a literal `kwargs` argument. `bridge_tools_to_loop()` now sets the bridged function's signature from the tool's args.
 
+### Added
+
+- **Empty LM response diagnostics.** `DiagnosticTwoStepAdapter` (`agents/diagnostic_adapter.py`) is now the default adapter in `configure_dspy()` and `lm_context()`, replacing `TwoStepAdapter`. When a response is empty or null, it logs the model, `max_tokens`, `reasoning_effort`, usage, `finish_reason`, reasoning/thinking blocks, tool calls and request size. A `content_filter` refusal raises `AdapterParseError("model refused (content_filter)")` and writes a dump to `<review.cache_dir>/refusals/<timestamp>-<signature>.json`. Dumps contain the full prompt, including reviewed code. Only keys ending in `_key`, `_secret` or `_token` are redacted.
+- **Startup config log.** The review pipeline logs the loaded config file path (new `config.get_loaded_config_path()`), `min_confidence`, and `max_iters`/`max_llm_calls` for code_review, doc and supply_chain.
+- **RLM outcome logging.** `log_rlm_outcome()` warns when an RLM run ends in the "Extract forced final output" fallback after tool errors, with the error count and the first error. RLM `verbose` is enabled when the log level is DEBUG (`build_rlm_agent()` and the `ContextSafe` fallback).
+
 ### Changed
 
-- **Default `review.min_confidence` (`REVIEW_MIN_CONFIDENCE`) is now 0.5 (was 0.81).** This allows issues to be reported even when the LLM does not explicitly set a confidence score (the `Issue.confidence` default is 0.8, which now passes the threshold). Update your codespy.yaml or environment variable to override if needed.
+- **Default `review.min_confidence` (`REVIEW_MIN_CONFIDENCE`) is now 0.5 (was 0.81).** This allows issues to be reported even when the LLM does not explicitly set a confidence score (the `Issue.confidence` default is 0.8, which now passes the threshold). `codespy.yaml`, `.env.example` and the action `min-confidence` description are updated. Override it in codespy.yaml or with the environment variable if needed.
 
 ## [2.0.0] - 2026-10-03
 
