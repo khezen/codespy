@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **code_review, supply_chain and scope refinement never found issues.** Every tool call (`read_file`, `search_literal`, `find_*`, `recall_memory`) failed inside the RLM sandbox with `This event loop is already running`. RLM agents now run off the event loop using `asyncio.to_thread()`, and tool calls are bridged back to the event loop via `asyncio.run_coroutine_threadsafe()`. New module `agents/rlm_tools.py` provides `build_rlm_agent()`, `run_rlm()`, and `log_rlm_outcome()`.
+- **Reviewers silently discarded issues without an explicit confidence**, because the `Issue.confidence` default (0.8) was below the `review.min_confidence` default (0.81). Prompts now request a confidence ("≥0.9 verified with tools; 0.7–0.9 strong evidence; <0.7 weak"), and `filter_by_confidence()` logs raw/kept counts.
+
+### Changed
+
+- **Default `review.min_confidence` (`REVIEW_MIN_CONFIDENCE`) is now 0.5 (was 0.81).** This allows issues to be reported even when the LLM does not explicitly set a confidence score (the `Issue.confidence` default is 0.8, which now passes the threshold). Update your codespy.yaml or environment variable to override if needed.
+
 ## [2.0.0] - 2026-10-03
 
 ### Changed (Breaking)

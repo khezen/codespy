@@ -267,3 +267,36 @@ def scope_package_names(scope: ScopeResult | Any) -> list[str]:
     if manifest is not None and getattr(manifest, "package_name", None):
         return [manifest.package_name]
     return []
+
+
+def filter_by_confidence(
+    issues: list[Issue] | None,
+    min_confidence: float,
+    module: str,
+    scope_subroot: str,
+) -> list[Issue]:
+    """Filter issues by confidence threshold with logging.
+
+    Args:
+        issues: Raw issues list (may be None)
+        min_confidence: Minimum confidence threshold (0.0-1.0)
+        module: Module name for logging (e.g., 'code_review')
+        scope_subroot: Scope identifier for logging
+
+    Returns:
+        Filtered issues with confidence >= min_confidence
+    """
+    if issues is None:
+        logger.info("%s scope %s: 0 raw issues, 0 kept (min_confidence=%.2f)",
+                    module, scope_subroot, min_confidence)
+        return []
+
+    raw_count = len(issues)
+    kept = [issue for issue in issues if issue.confidence >= min_confidence]
+    kept_count = len(kept)
+
+    logger.info(
+        "%s scope %s: %d raw issues, %d kept (min_confidence=%.2f)",
+        module, scope_subroot, raw_count, kept_count, min_confidence
+    )
+    return kept

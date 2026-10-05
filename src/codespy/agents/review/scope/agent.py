@@ -18,13 +18,13 @@ import dspy  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.prefrontal import build_facets, with_prefrontal_memory
 from codespy.agents.review.models import ReviewContext
 from codespy.agents.review.scope.manifest_parser import extract_package_name
 from codespy.agents.review.scope.models import PackageManifest, ScopeResult, ScopeType
+from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 from codespy.tools.git.client import get_client
@@ -1060,15 +1060,9 @@ class ScopeResolver(dspy.Module):
             )
             recall_tool = pf.recall_tool() if pf else None
             agent_tools = [*tools, recall_tool] if recall_tool else tools
-            agent = ContextSafe(
-                dspy.RLM(
-                    sig,
-                    tools=agent_tools,
-                    max_iters=max_iters,
-                    max_llm_calls=self._settings.get_max_llm_calls("scope"),
-                ),
+            agent = build_rlm_agent(
                 sig,
-                tools=agent_tools,
+                agent_tools,
                 name="scope",
                 max_iters=max_iters,
                 max_llm_calls=self._settings.get_max_llm_calls("scope"),
@@ -1123,7 +1117,8 @@ class ScopeResolver(dspy.Module):
                         run_id=run_id,
                         initial_memory=scope_initial_memory,
                     )
-                result = await agent.acall(
+                result = await run_rlm(
+                    agent,
                     candidates=candidates_str,
                     orphan_files=[f.filename for f in orphans],
                     pr_title=pr.title or "No title",
@@ -1131,6 +1126,7 @@ class ScopeResolver(dspy.Module):
                     project_instructions=project_instructions,
                     **pf_kwargs,
                 )
+                log_rlm_outcome(result, "scope", pr.repo_full_name)
                 if hippo is not None:
                     await hippo.aobserve(result)
 

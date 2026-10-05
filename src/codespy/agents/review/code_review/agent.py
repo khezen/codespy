@@ -14,14 +14,16 @@ from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.prefrontal import with_prefrontal_memory
-from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
-from codespy.agents.review.scope.models import ScopeResult
 from codespy.agents.review.helpers import (
+    filter_by_confidence,
     issues_to_markdown,
     make_scope_relative,
     resolve_scope_root,
     restore_repo_paths,
 )
+from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
+from codespy.agents.review.scope.models import ScopeResult
+from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -129,6 +131,7 @@ class CodeReviewSignature(dspy.Signature):
     - description: ≤25 words, imperative tone, no filler ("Fix X", "Rename Y to Z")
     - No polite or conversational language
     - Do not populate code_snippet — use line numbers instead
+    - Always set confidence: ≥0.9 verified with tools; 0.7–0.9 strong evidence; <0.7 weak
     """
 
     scope: ScopeResult = dspy.InputField(
@@ -282,15 +285,9 @@ class CodeReviewer(dspy.Module):
             sig = with_prefrontal_memory(CodeReviewSignature) if review_context.prefrontal_memory else CodeReviewSignature
             recall_tool = pf.recall_tool() if pf else None
             agent_tools = [*tools, recall_tool] if recall_tool else tools
-            agent = ContextSafe(
-                dspy.RLM(
-                    sig,
-                    tools=agent_tools,
-                    max_iters=max_iters,
-                    max_llm_calls=self._settings.get_max_llm_calls("code_review"),
-                ),
+            agent = build_rlm_agent(
                 sig,
-                tools=agent_tools,
+                agent_tools,
                 name="code_review",
                 max_iters=max_iters,
                 max_llm_calls=self._settings.get_max_llm_calls("code_review"),
@@ -336,16 +333,11 @@ class CodeReviewer(dspy.Module):
                         initial_memory=scope_initial_memory,
                         topics=topics,
                     )
-                result = await agent.acall(
-                    scope=scoped,
-                    categories=categories,
-                    **pf_kwargs,
+                result = await run_rlm(agent, scope=scoped, categories=categories, **pf_kwargs)
+                log_rlm_outcome(result, "code_review", scope.subroot)
+                issues = filter_by_confidence(
+                    result.issues, self._settings.review.min_confidence, "code_review", scope.subroot
                 )
-                issues = [
-                    issue
-                    for issue in (result.issues or [])
-                    if issue.confidence >= self._settings.review.min_confidence
-                ]
                 if hippo is not None:
                     await hippo.aobserve(result)
                     # Fire-and-forget background episode save

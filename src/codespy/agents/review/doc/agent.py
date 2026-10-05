@@ -19,6 +19,7 @@ from codespy.agents.review.scope.models import ScopeResult
 from codespy.agents.review.doc.doc_extractor import extract_documentation
 from codespy.agents.review.helpers import (
     build_patches,
+    filter_by_confidence,
     issues_to_markdown,
     make_scope_relative,
     resolve_scope_root,
@@ -78,6 +79,7 @@ class DocReviewSignature(dspy.Signature):
     - description: ≤25 words, imperative tone ("Update X section", "Add Y to README")
     - Empty list if documentation is up to date. No approval text ("LGTM", "looks good")
     - No polite or conversational language
+    - Always set confidence: ≥0.9 verified with tools; 0.7–0.9 strong evidence; <0.7 weak
     """
 
     patches: str = dspy.InputField(
@@ -261,11 +263,9 @@ class DocReviewer(dspy.Module):
                     categories=[IssueCategory.DOCUMENTATION],
                     **pf_kwargs,
                 )
-                issues = [
-                    issue
-                    for issue in (result.issues or [])
-                    if issue.confidence >= self._settings.review.min_confidence
-                ]
+                issues = filter_by_confidence(
+                    result.issues, self._settings.review.min_confidence, "doc", scope.subroot
+                )
                 if hippo is not None:
                     await hippo.aobserve(result)
                     # Fire-and-forget background episode save

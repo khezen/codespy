@@ -202,4 +202,5 @@ class ContextSafe(dspy.Module):
             tools=self._tools,
             max_iters=self._max_iters,
             max_llm_calls=self._max_llm_calls,
+            verbose=logger.isEnabledFor(logging.DEBUG),
         )

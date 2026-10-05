@@ -7,8 +7,8 @@ from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 import litellm  # type: ignore[import-untyped]
-from dspy.adapters.two_step_adapter import TwoStepAdapter  # type: ignore[import-untyped]
 
+from codespy.agents.diagnostic_adapter import DiagnosticTwoStepAdapter
 from codespy.config import Settings, get_settings
 from codespy.config_memory import MEMORY_CONSOLIDATION, MEMORY_MENTAL_MODELS, MEMORY_RECALL, MEMORY_RETAIN, REFLECTION_MODULES, LLMSettings
 from codespy.config_utils import secret_value
@@ -216,7 +216,7 @@ def lm_context(name: str) -> LMScope:
     llm_config = settings.get_llm_config(name)
     lm = new_lm(settings, llm_config)
     extraction_lm = new_extraction_lm(settings)
-    ctx = dspy.context(lm=lm, adapter=TwoStepAdapter(extraction_lm))
+    ctx = dspy.context(lm=lm, adapter=DiagnosticTwoStepAdapter(extraction_lm))
     return LMScope(ctx=ctx, lm=lm, extraction_lm=extraction_lm)
 
 
@@ -270,7 +270,7 @@ def configure_dspy(settings: Settings) -> None:
 
     dspy.settings.configure(
         lm=lm,
-        adapter=TwoStepAdapter(extraction_lm),  # TwoStepAdapter solves ChatAdapter parsing failures
+        adapter=DiagnosticTwoStepAdapter(extraction_lm),  # TwoStepAdapter solves ChatAdapter parsing failures
     )
 
     # Enable memory-only caching for LLM calls (no disk caching)

@@ -106,7 +106,7 @@ inputs:
     required: false
 
   min-confidence:
-    description: 'Minimum confidence threshold (0.0-1.0) for reported issues. Default from codespy.yaml: 0.81'
+    description: 'Minimum confidence threshold (0.0-1.0) for reported issues. Default from codespy.yaml: 0.5'
     required: false
 
   # ==========================================

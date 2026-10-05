@@ -10,18 +10,19 @@ from typing import Any
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.prefrontal import with_prefrontal_memory
-from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
-from codespy.agents.review.scope.models import ScopeResult
 from codespy.agents.review.helpers import (
+    filter_by_confidence,
     issues_to_markdown,
     resolve_scope_root,
     restore_repo_paths,
     strip_prefix,
 )
+from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
+from codespy.agents.review.scope.models import ScopeResult
+from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -70,6 +71,7 @@ class SupplyChainSecuritySignature(dspy.Signature):
     - No polite or conversational language ("I suggest", "Please consider", "Great").
     - Do not populate code_snippet—use line numbers instead.
     - File paths in issues must be relative to scope root.
+    - Always set confidence: ≥0.9 verified with tools; 0.7–0.9 strong evidence; <0.7 weak
 
     ## 2. DEPENDENCY SECURITY (package manifests)
 
@@ -385,15 +387,9 @@ class SupplyChainAuditor(dspy.Module):
             recall_tool = pf.recall_tool() if pf else None
             if recall_tool:
                 all_tools = [*all_tools, recall_tool]
-            supply_chain_agent = ContextSafe(
-                dspy.RLM(
-                    sig,
-                    tools=all_tools,
-                    max_iters=supply_chain_max_iters,
-                    max_llm_calls=self._settings.get_max_llm_calls("supply_chain"),
-                ),
+            supply_chain_agent = build_rlm_agent(
                 sig,
-                tools=all_tools,
+                all_tools,
                 name="supply_chain",
                 max_iters=supply_chain_max_iters,
                 max_llm_calls=self._settings.get_max_llm_calls("supply_chain"),
@@ -441,18 +437,18 @@ class SupplyChainAuditor(dspy.Module):
                         initial_memory=scope_initial_memory,
                         topics=topics,
                     )
-                result = await supply_chain_agent.acall(
+                result = await run_rlm(
+                    supply_chain_agent,
                     manifest_path=manifest_path,
                     lock_file_path=lock_file_path,
                     package_manager=package_manager,
                     category=IssueCategory.SECURITY,
                     **pf_kwargs,
                 )
-                issues = [
-                    issue
-                    for issue in result.issues
-                    if issue.confidence >= self._settings.review.min_confidence
-                ]
+                log_rlm_outcome(result, "supply_chain", scope.subroot)
+                issues = filter_by_confidence(
+                    result.issues, self._settings.review.min_confidence, "supply_chain", scope.subroot
+                )
                 if hippo is not None:
                     await hippo.aobserve(result)
                     # Fire-and-forget background episode save

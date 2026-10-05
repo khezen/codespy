@@ -128,7 +128,12 @@ class Issue(BaseModel):
     cwe_id: str | None = Field(
         default=None, description="CWE ID for security issues (e.g., CWE-79)"
     )
-    confidence: float = Field(default=0.8, ge=0.0, le=1.0, description="Confidence score (0-1)")
+    confidence: float = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.0,
+        description="Confidence score (0-1). ≥0.9 verified with tools; 0.7–0.9 strong evidence; <0.7 weak"
+    )
 
     @property
     def location(self) -> str:

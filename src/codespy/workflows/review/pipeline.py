@@ -29,7 +29,7 @@ from codespy.agents.memory.hippocampus.episode import (
 )
 from codespy.agents.review.helpers import build_patches
 from codespy.agents.review.scope import MANIFEST_FILES, MANIFEST_GLOBS, build_sparse_patterns
-from codespy.config import Settings, get_settings
+from codespy.config import Settings, get_loaded_config_path, get_settings
 from codespy.config_memory import (
     get_cerebral,
     get_episode_store,
@@ -184,6 +184,16 @@ class ReviewPipeline(dspy.Module):
 
         # Verify memory storage access
         self._verify_memory_access()
+
+        # Log configuration details
+        config_path = get_loaded_config_path()
+        if config_path:
+            logger.info(f"Config loaded from: {config_path}")
+        logger.info(f"min_confidence={self.settings.review.min_confidence:.2f}")
+        for sig_name in ["code_review", "doc", "supply_chain"]:
+            max_iters = self.settings.get_max_iters(sig_name)
+            max_llm_calls = self.settings.get_max_llm_calls(sig_name)
+            logger.info(f"  {sig_name}: max_iters={max_iters}, max_llm_calls={max_llm_calls}")
 
         # Determine mode and fetch/build PR accordingly
         if isinstance(config, RemoteReviewConfig):
