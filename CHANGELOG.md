@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.3.1] - 2026-10-20
+
+### Fixed
+
+- Doc review failed on every scope after the move to RLM (`Unexpected inputs not declared in the signature: ['scope']`) and silently reported no documentation issues; it now passes `patches` and `documentation` again.
+
 ## [2.3.0] - 2026-10-20
 
 ### Changed

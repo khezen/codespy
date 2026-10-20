@@ -258,7 +258,13 @@ class DocReviewer(dspy.Module):
                         initial_memory=scope_initial_memory,
                         topics=topics,
                     )
-                result = await run_rlm(agent, scope=scoped, categories=[IssueCategory.DOCUMENTATION], **pf_kwargs)
+                result = await run_rlm(
+                    agent,
+                    patches=patches,
+                    documentation=documentation,
+                    categories=[IssueCategory.DOCUMENTATION],
+                    **pf_kwargs,
+                )
                 log_rlm_outcome(result, "doc", scope.subroot)
                 issues = filter_by_confidence(
                     result.issues, self._settings.review.min_confidence, "doc", scope.subroot
