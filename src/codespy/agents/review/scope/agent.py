@@ -1037,8 +1037,8 @@ class ScopeResolver(dspy.Module):
         from codespy.agents.memory.hippocampus import (
             ContextMemory,
             Topic,
-            compute_common_ancestor_topic_id,
         )
+        from codespy.agents.memory.prefrontal.reach import root_scope_id
 
         # Local bindings from review_context metadata
         pr = review_context.metadata.pr
@@ -1145,38 +1145,24 @@ class ScopeResolver(dspy.Module):
                 if scope.subroot in boundary_descriptions:
                     scope.description = boundary_descriptions[scope.subroot]
 
-            # Build Topics
-            scope_topics: list[Topic] = []
-            scope_topic_ids: dict[str, str] = {}
-            for scope in final_scopes:
-                t = scope.topic(pr.repo_full_name)
-                scope_topics.append(t)
-                scope_topic_ids[scope.subroot] = t.id
-
-            # Compute common ancestor topic if >1 scope
-            common_ancestor_topic_id = compute_common_ancestor_topic_id(
-                pr.repo_full_name, [s.subroot for s in final_scopes]
-            )
-            if common_ancestor_topic_id:
-                # Build description: "Common context for scopes: subroot1, subroot2, ..."
-                subroot_list = ", ".join(s.subroot for s in final_scopes)
-                common_desc = f"Common context for scopes: {subroot_list}"
-                scope_topics.append(Topic(id=common_ancestor_topic_id, type="project_scope", description=common_desc))
-                stamp_topic_ids = [common_ancestor_topic_id]
-            elif scope_topics:
-                # Single scope: stamp with its topic ID
-                stamp_topic_ids = [scope_topics[0].id]
-            else:
-                stamp_topic_ids = []
-            # Add PR URL topic (provides description; not a scope)
+            # Scope-agent knowledge (repo layout, scope boundaries) is repo-wide:
+            # bind it to the repo-root scope only. Binding every PR scope stamped
+            # layout facts onto each service's briefing.
+            root_topic_id = root_scope_id(pr.repo_full_name)
             pr_ctx = review_context.pr_context
-            scope_topics.append(pr_ctx.to_topic())
+            scope_topics: list[Topic] = [
+                Topic(
+                    id=root_topic_id,
+                    type="project_scope",
+                    description="Repository root: knowledge shared by every scope",
+                ),
+                pr_ctx.to_topic(),
+            ]
             # Finalize scopes with hierarchical skills
             self._finalize_scopes(final_scopes, review_context)
             # Bind topics to hippocampus cmem for episode persistence
-            if hippo is not None and stamp_topic_ids:
-                stamp_topic_ids.append(pr_ctx.pr_url)
-                hippo.bind_topics(scope_topics, stamp_topic_ids)
+            if hippo is not None and final_scopes:
+                hippo.bind_topics(scope_topics, [root_topic_id, pr_ctx.pr_url])
 
             # Fire-and-forget background episode save
             cerebral = get_cerebral(self._settings)

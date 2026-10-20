@@ -1,6 +1,17 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.2] - 2026-10-20
+
+### Fixed
+
+- **In monorepos, one repo-level briefing absorbed every service and pushed all other memory out of recall.** Cerebral kept a briefing tagged `[org:, repo:]`, which every fact carries. Delta refreshes only append, so it grew into a detailed description of every service. Recall then OR-ed `repo:<repo>` into the local pool, so every facet matched every fact in the repo. Changes:
+  - The bare repo briefing is no longer created, refreshed or read.
+  - Repo-wide knowledge lives only in the repo-root scope `project_scope:<repo>`. Its briefing is named `Briefing: <repo> (repo-wide)` and answers a new `ROOT_MENTAL_MODEL_SOURCE_QUERY` that leaves out any single service. Existing root briefings get the new query, so their next refresh is a full rewrite.
+  - `include_repo` recall now means "PR scopes + repo-root scope". It no longer means every `repo:` fact.
+  - Scope-agent episodes are bound to the repo-root scope only. Before, they were bound to every PR scope and their common ancestor.
+  - Episodes without a scope topic are tagged `project_scope:<repo>`.
+  - New size guard: after consolidation, any briefing over `1.5 × memory.cerebral.mental_models.max_tokens` gets one full refresh, then its delta trigger is restored.
+  - Nothing is deleted automatically.
 
 ## [2.0.1] - 2026-10-05
 

@@ -238,8 +238,10 @@ from codespy.agents.memory.prefrontal.reach import (
     TAG_ORG,
     TAG_PROJECT_SCOPE,
     TAG_REPO,
+    is_root_scope,
     mental_model_id,
     repo_tags,
+    root_scope_id,
     scope_tags,
 )
 
@@ -299,6 +301,26 @@ MENTAL_MODEL_SOURCE_QUERY = (
     "structure and where things live, conventions, invariants and constants, "
     "dependencies and integrations, pitfalls and recurring problems, facts shown to be wrong."
 )
+
+# Question the repo-root briefing answers. The root scope of a monorepo sees
+# facts from many scopes; this briefing must keep only what holds for all of them.
+ROOT_MENTAL_MODEL_SOURCE_QUERY = (
+    "What should an agent starting work anywhere in this repository know, that holds for "
+    "every scope of it: repository layout and naming conventions, how scopes and manifests "
+    "are organized, shared tooling, build, CI and deployment, cross-scope integrations and "
+    "contracts, and repository-wide pitfalls or facts shown to be wrong. "
+    "Do not describe individual services, packages or libraries, their files, pull requests "
+    "or review findings; omit anything that is true for only one scope."
+)
+
+# A delta refresh only adds content, so briefings grow past max_tokens. Past this
+# factor of max_tokens, consolidate_run forces one full refresh (rewrite from scratch).
+BRIEFING_FULL_REFRESH_FACTOR = 1.5
+
+
+def _estimate_tokens(text: str) -> int:
+    """Cheap token estimate (~4 chars per token), same heuristic as prefrontal.format."""
+    return (len(text or "") + 3) // 4
 
 OBSERVATIONS_MISSION = (
     "Merge facts about the same subject into one observation. Keep details that matter only "
@@ -823,16 +845,21 @@ class Cerebral:
             if topic.type == "project_scope"
         ]
         # Fallback to repo-root project scope instead of bare [org:, repo:]
-        return scopes or [scope_tags(repo_full_name, repo_full_name)]
+        return scopes or [scope_tags(repo_full_name, root_scope_id(repo_full_name))]
 
     @staticmethod
     def _mental_model_scopes(
         scopes: Sequence[Sequence[str]], repo_full_name: str
     ) -> list[list[str]]:
-        """Observation scopes plus the repo scope ``[org:, repo:]`` (always added, deduped)."""
+        """Observation scopes whose briefings are kept (deduped).
+
+        No bare ``[org:, repo:]`` scope: its briefing would read every fact of
+        the repo (all scopes of a monorepo). Repo-wide knowledge lives in the
+        repo-root scope ``[org:, repo:, project_scope:<repo>]`` instead.
+        """
         out: list[list[str]] = []
         seen: set[tuple[str, ...]] = set()
-        for sc in [*scopes, repo_tags(repo_full_name)]:
+        for sc in scopes:
             key = tuple(sorted(sc))
             if key not in seen:
                 seen.add(key)
@@ -840,14 +867,42 @@ class Cerebral:
         return out
 
     @staticmethod
-    def _mental_model_name(tags: Sequence[str]) -> str:
+    def _scope_id_of(tags: Sequence[str]) -> str | None:
         for tag in tags:
             if tag.startswith(TAG_PROJECT_SCOPE):
-                return f"Briefing: {tag[len(TAG_PROJECT_SCOPE):]}"
+                return tag[len(TAG_PROJECT_SCOPE):]
+        return None
+
+    @staticmethod
+    def _repo_of(tags: Sequence[str]) -> str | None:
         for tag in tags:
-            if tag.startswith("repo:"):
-                return f"Briefing: {tag[len('repo:'):]}"
+            if tag.startswith(TAG_REPO):
+                return tag[len(TAG_REPO):]
+        return None
+
+    @classmethod
+    def _is_root_briefing(cls, tags: Sequence[str]) -> bool:
+        scope_id = cls._scope_id_of(tags)
+        repo = cls._repo_of(tags)
+        return bool(scope_id and repo and is_root_scope(repo, scope_id))
+
+    @classmethod
+    def _mental_model_name(cls, tags: Sequence[str]) -> str:
+        scope_id = cls._scope_id_of(tags)
+        if scope_id:
+            if cls._is_root_briefing(tags):
+                return f"Briefing: {scope_id} (repo-wide)"
+            return f"Briefing: {scope_id}"
+        repo = cls._repo_of(tags)
+        if repo:
+            return f"Briefing: {repo}"
         return "Briefing"
+
+    @classmethod
+    def _mental_model_source_query(cls, tags: Sequence[str]) -> str:
+        if cls._is_root_briefing(tags):
+            return ROOT_MENTAL_MODEL_SOURCE_QUERY
+        return MENTAL_MODEL_SOURCE_QUERY
 
     def _sync_briefing_triggers(self, scopes: list[list[str]]) -> None:
         """Sync briefing triggers to match current settings before consolidation.
@@ -863,11 +918,7 @@ class Cerebral:
         if not scopes:
             return
 
-        desired_trigger = {
-            **_BRIEFING_TRIGGER_STATIC,
-            "refresh_after_consolidation": self._mental_models,
-            "min_refresh_interval_seconds": self._min_mental_model_refresh_seconds,
-        }
+        desired_trigger = self._desired_trigger()
 
         for tags in scopes:
             mm_id = mental_model_id(tags)
@@ -891,7 +942,7 @@ class Cerebral:
                             self._engine.create_mental_model(
                                 self._bank_id,
                                 self._mental_model_name(tags),
-                                MENTAL_MODEL_SOURCE_QUERY,
+                                self._mental_model_source_query(tags),
                                 MENTAL_MODEL_PLACEHOLDER,
                                 mental_model_id=mm_id,
                                 tags=sorted(tags),
@@ -919,6 +970,7 @@ class Cerebral:
                     needs_update = (
                         current_trigger.get("refresh_after_consolidation") != self._mental_models
                         or current_trigger.get("exclude_mental_models") is not True
+                        or current_trigger.get("mode", "delta") != "delta"
                     )
                     if needs_update:
                         self._run_async(
@@ -935,10 +987,102 @@ class Cerebral:
                             "on" if current_trigger.get("refresh_after_consolidation") else "off",
                             "on" if self._mental_models else "off",
                         )
+                    # Name / source query drift (e.g. the repo-root briefing moved to
+                    # its repo-wide question). A changed source query makes Hindsight's
+                    # next delta refresh fall back to a full rewrite.
+                    desired_name = self._mental_model_name(tags)
+                    desired_query = self._mental_model_source_query(tags)
+                    if (
+                        existing.get("name") != desired_name
+                        or existing.get("source_query") != desired_query
+                    ):
+                        self._run_async(
+                            self._engine.update_mental_model(
+                                self._bank_id,
+                                mm_id,
+                                name=desired_name,
+                                source_query=desired_query,
+                                request_context=ctx,
+                            )
+                        )
+                        logger.info(
+                            "cerebral: briefing %s renamed/re-queried as %r (next refresh is full)",
+                            mm_id,
+                            desired_name,
+                        )
 
                 self._ensured_mental_models.add(mm_id)
             except Exception:
                 logger.warning("cerebral: failed to sync briefing trigger for %s", mm_id, exc_info=True)
+
+    def _desired_trigger(self) -> dict[str, Any]:
+        """Briefing trigger for the current settings (delta mode)."""
+        return {
+            **_BRIEFING_TRIGGER_STATIC,
+            "refresh_after_consolidation": self._mental_models,
+            "min_refresh_interval_seconds": self._min_mental_model_refresh_seconds,
+        }
+
+    def _enforce_briefing_size(self, scopes: Sequence[Sequence[str]]) -> None:
+        """Force a full refresh of briefings grown past the size limit. Never raises.
+
+        Delta refreshes only add content, so a briefing drifts past
+        ``max_mental_model_tokens``. Above ``BRIEFING_FULL_REFRESH_FACTOR`` times
+        that budget, the briefing is rewritten from scratch once: the trigger is
+        switched to ``mode=full``, one explicit refresh runs inline (sync task
+        backend), then the delta trigger is restored. Never deletes anything.
+        """
+        if not self._mental_models or not scopes:
+            return
+        limit = int(self._max_mental_model_tokens * BRIEFING_FULL_REFRESH_FACTOR)
+        for tags in scopes:
+            mm_id = mental_model_id(tags)
+            try:
+                ctx = RequestContext()
+                mm = self._run_async(
+                    self._engine.get_mental_model(self._bank_id, mm_id, request_context=ctx)
+                )
+                if not mm:
+                    continue
+                before = _estimate_tokens((mm.get("content") or "").strip())
+                if before <= limit:
+                    continue
+                desired = self._desired_trigger()
+                self._run_async(
+                    self._engine.update_mental_model(
+                        self._bank_id,
+                        mm_id,
+                        trigger={**desired, "mode": "full"},
+                        request_context=ctx,
+                    )
+                )
+                try:
+                    self._run_async(
+                        self._engine.submit_async_refresh_mental_model(
+                            self._bank_id, mm_id, request_context=ctx
+                        )
+                    )
+                finally:
+                    self._run_async(
+                        self._engine.update_mental_model(
+                            self._bank_id, mm_id, trigger=desired, request_context=ctx
+                        )
+                    )
+                after_mm = self._run_async(
+                    self._engine.get_mental_model(self._bank_id, mm_id, request_context=ctx)
+                )
+                after = _estimate_tokens(((after_mm or {}).get("content") or "").strip())
+                logger.info(
+                    "cerebral: briefing %s (%s) over size (%d > %d tokens); "
+                    "full refresh -> %d tokens",
+                    mm_id,
+                    self._mental_model_name(tags),
+                    before,
+                    limit,
+                    after,
+                )
+            except Exception:
+                logger.warning("cerebral: briefing size guard failed for %s", mm_id, exc_info=True)
 
     def consolidate_run(self, run_id: str) -> None:
         """Trigger one consolidation for all scopes touched during a run.
@@ -986,6 +1130,8 @@ class Cerebral:
                         observation_scopes=scopes,
                     )
                 )
+                # Rewrite briefings that delta refreshes grew past their budget
+                self._enforce_briefing_size(scopes)
 
             delta = {b: _calls(b) - baseline[b] for b in buckets}
             logger.info(
@@ -1218,6 +1364,10 @@ class Cerebral:
             if topic.type == "project_scope":
                 tags.append(f"{topic.type}:{topic.id}")
         if repo_full_name:
+            # No scope topic: tag with the repo-root scope, matching the
+            # _observation_scopes fallback (recall reads project_scope:, not repo:).
+            if not tags:
+                tags.append(f"{TAG_PROJECT_SCOPE}{root_scope_id(repo_full_name)}")
             tags.extend(repo_tags(repo_full_name))
         tags.append(f"task:{episode.task}")
         return tags

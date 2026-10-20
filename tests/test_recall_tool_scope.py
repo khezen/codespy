@@ -34,6 +34,62 @@ class TestLocalTagsWithScope:
         assert result == []
 
 
+class TestRootScopeReach:
+    """include_repo means PR scopes + repo-root scope, never every repo: fact."""
+
+    def test_local_tags_include_repo_uses_root_scope(self):
+        from codespy.agents.memory.prefrontal.reach import local_tags
+
+        result = local_tags("o/r", ["o/r/svc"], True)
+        assert result == ["project_scope:o/r/svc", "project_scope:o/r"]
+        assert not any(t.startswith("repo:") for t in result)
+
+    def test_local_tags_root_deduped(self):
+        from codespy.agents.memory.prefrontal.reach import local_tags
+
+        assert local_tags("o/r", ["o/r", "o/r/svc"], True) == [
+            "project_scope:o/r",
+            "project_scope:o/r/svc",
+        ]
+
+    def test_local_tags_include_repo_without_scopes(self):
+        from codespy.agents.memory.prefrontal.reach import local_tags
+
+        assert local_tags("o/r", None, True) == ["project_scope:o/r"]
+
+    def test_mental_model_ids_never_include_bare_repo_briefing(self):
+        from codespy.agents.memory.prefrontal.reach import (
+            mental_model_id,
+            mental_model_ids,
+            repo_tags,
+            scope_tags,
+        )
+
+        ids = mental_model_ids("o/r", ["o/r/svc"], True)
+        assert ids == [
+            mental_model_id(scope_tags("o/r", "o/r/svc")),
+            mental_model_id(scope_tags("o/r", "o/r")),
+        ]
+        assert mental_model_id(repo_tags("o/r")) not in ids
+
+    def test_reflect_groups_org_reach_keeps_org_tag(self):
+        pytest.importorskip("hindsight_api")
+        from codespy.agents.memory.prefrontal.reach import build_reflect_groups
+
+        groups = build_reflect_groups("o/r", ["o/r/svc"], True, "org")
+        assert groups[0].tags == ["project_scope:o/r/svc", "project_scope:o/r", "org:o"]
+
+
+class TestScopeAgentRootTopic:
+    def test_scope_episode_bound_to_root_scope_only(self):
+        """The scope agent binds its episode to the repo-root topic, not every PR scope."""
+        with open("src/codespy/agents/review/scope/agent.py") as f:
+            source = f.read()
+        assert "root_topic_id = root_scope_id(pr.repo_full_name)" in source
+        assert "hippo.bind_topics(scope_topics, [root_topic_id, pr_ctx.pr_url])" in source
+        assert "compute_common_ancestor_topic_id" not in source
+
+
 class TestAgentSourceCode:
     """Verify agents pass scope_topic_ids to get_prefrontal by inspecting source.
 
