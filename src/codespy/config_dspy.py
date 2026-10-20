@@ -73,16 +73,16 @@ class ReviewConfig(BaseModel):
         default_factory=lambda: SignatureConfig(model="bedrock/converse/global.anthropic.claude-opus-5-5")
     )
     doc: SignatureConfig = Field(
-        default_factory=lambda: SignatureConfig(max_iters=2, max_llm_calls=8, model="bedrock/converse/global.anthropic.claude-opus-5-5")
+        default_factory=lambda: SignatureConfig(model="bedrock/converse/global.anthropic.claude-opus-5-5")
     )
     scope: SignatureConfig = Field(
         default_factory=lambda: SignatureConfig(max_iters=3, max_llm_calls=10, model="bedrock/converse/global.anthropic.claude-opus-5-5")
     )
     summary: SignatureConfig = Field(
-        default_factory=lambda: SignatureConfig(max_iters=1, max_llm_calls=4, model="bedrock/converse/nvidia.nemotron-super-3-120b")
+        default_factory=lambda: SignatureConfig(model="bedrock/converse/nvidia.nemotron-super-3-120b")
     )
     audit: SignatureConfig = Field(
-        default_factory=lambda: SignatureConfig(max_iters=1, max_llm_calls=4, model="bedrock/converse/global.anthropic.claude-opus-5-5")
+        default_factory=lambda: SignatureConfig(model="bedrock/converse/global.anthropic.claude-opus-5-5")
     )
 
     def signatures(self) -> dict[str, SignatureConfig]:

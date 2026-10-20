@@ -1,17 +1,17 @@
 """PR summarizer module — produces a concise summary before scope identification."""
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
 import dspy
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
-from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.hippocampus.context_memory import Topic
+from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.prefrontal import with_prefrontal_memory
-from codespy.agents.review.helpers import deepest_common_folder
+from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 
@@ -48,7 +48,7 @@ class Summarizer(dspy.Module):
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
 
-    def forward(
+    async def aforward(
         self,
         pr_context: "PRContext",
         changed_file_paths: list[str],
@@ -58,7 +58,7 @@ class Summarizer(dspy.Module):
         topics: list[Topic] | None = None,
         prefrontal_memory: str = "",
     ) -> str:
-        """Generate a PR summary.
+        """Generate a PR summary (async).
 
         Args:
             pr_context: PRContext with PR identity (repo_slug, pr_number, pr_title, pr_description, pr_url)
@@ -108,20 +108,22 @@ class Summarizer(dspy.Module):
             include_repo=False,
         )
         sig = with_prefrontal_memory(PRSummarySignature) if prefrontal_memory else PRSummarySignature
-        summarizer = ContextSafe(
-            dspy.ChainOfThought(sig),
+        recall_tool = pf.recall_tool() if pf else None
+        agent_tools = [recall_tool] if recall_tool else []
+        agent = build_rlm_agent(
             sig,
+            agent_tools,
             name="summary",
             max_iters=self._settings.get_max_iters("summary"),
             max_llm_calls=self._settings.get_max_llm_calls("summary"),
-            rlm_threshold=self._settings.get_rlm_threshold("chain_of_thought"),
+            rlm_threshold=self._settings.get_rlm_threshold("react"),
         )
         logger.info("Generating PR summary...")
 
         question = f"summarize {pr_context.repo_slug}: pull request {pr_context.pr_number} {pr_context.pr_title}"
 
         hippo: Hippocampus | None = None
-        with SignatureContext("summary", self._cost_tracker):
+        async with SignatureContext("summary", self._cost_tracker):
             # Prefrontal: use shared run-level recall (never given to Hippocampus)
             pf_kwargs: dict[str, str] = {}
             if prefrontal_memory:
@@ -142,15 +144,17 @@ class Summarizer(dspy.Module):
                     initial_memory=initial_memory,
                     topics=scope_topics if scope_topics else topics,
                 )
-            result = summarizer(
+            result = await run_rlm(
+                agent,
                 pr_title=pr_context.pr_title,
                 pr_description=pr_context.pr_description,
                 changed_file_paths=changed_file_paths,
                 patches=patches,
                 **pf_kwargs,
             )
+            log_rlm_outcome(result, "summary", repo_full_name)
             if hippo is not None:
-                hippo.observe(result)
+                await hippo.aobserve(result)
                 # Fire-and-forget episode save
                 _summary_text = result.summary
                 cerebral = get_cerebral(self._settings)
@@ -175,3 +179,39 @@ class Summarizer(dspy.Module):
 
         logger.info(f"PR summary: {result.summary[:80]}...")
         return result.summary
+
+    def forward(
+        self,
+        pr_context: "PRContext",
+        changed_file_paths: list[str],
+        patches: str,
+        run_id: str | None = None,
+        scopes: list["ScopeResult"] | None = None,
+        topics: list[Topic] | None = None,
+        prefrontal_memory: str = "",
+    ) -> str:
+        """Generate a PR summary (sync wrapper).
+
+        Args:
+            pr_context: PRContext with PR identity (repo_slug, pr_number, pr_title, pr_description, pr_url)
+            changed_file_paths: List of changed file paths
+            patches: Unified diff patches showing code changes
+            run_id: Pipeline run identifier
+            scopes: List of resolved scopes for per-scope episode persistence
+            topics: Optional list of Topic objects for auto-tagging
+            prefrontal_memory: Shared run-level Prefrontal recall text (already loaded by pipeline)
+
+        Returns:
+            Summary string
+        """
+        return asyncio.run(
+            self.aforward(
+                pr_context=pr_context,
+                changed_file_paths=changed_file_paths,
+                patches=patches,
+                run_id=run_id,
+                scopes=scopes,
+                topics=topics,
+                prefrontal_memory=prefrontal_memory,
+            )
+        )

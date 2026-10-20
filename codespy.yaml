@@ -219,8 +219,8 @@ review:
   # Documentation Review
   doc:
     enabled: true                                                 # REVIEW_DOC_ENABLED
-    max_iters: 2                                                  # REVIEW_DOC_MAX_ITERS
-    max_llm_calls: 8                                              # REVIEW_DOC_MAX_LLM_CALLS
+    max_iters: 5                                                  # REVIEW_DOC_MAX_ITERS
+    max_llm_calls: 16                                             # REVIEW_DOC_MAX_LLM_CALLS
     model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_DOC_MODEL
     reasoning_effort: null                                        # REVIEW_DOC_REASONING_EFFORT
     temperature: null                                             # REVIEW_DOC_TEMPERATURE
@@ -240,8 +240,8 @@ review:
   # Summary
   summary:
     enabled: true                                                 # REVIEW_SUMMARY_ENABLED
-    max_iters: 1                                                  # REVIEW_SUMMARY_MAX_ITERS
-    max_llm_calls: 4                                              # REVIEW_SUMMARY_MAX_LLM_CALLS
+    max_iters: 5                                                  # REVIEW_SUMMARY_MAX_ITERS
+    max_llm_calls: 16                                             # REVIEW_SUMMARY_MAX_LLM_CALLS
     model: bedrock/converse/nvidia.nemotron-super-3-120b         # REVIEW_SUMMARY_MODEL
     reasoning_effort: null                                        # REVIEW_SUMMARY_REASONING_EFFORT
     temperature: null                                             # REVIEW_SUMMARY_TEMPERATURE
@@ -250,8 +250,8 @@ review:
   # Audit
   audit:
     enabled: true                                                 # REVIEW_AUDIT_ENABLED
-    max_iters: 1                                                  # REVIEW_AUDIT_MAX_ITERS
-    max_llm_calls: 4                                              # REVIEW_AUDIT_MAX_LLM_CALLS
+    max_iters: 5                                                  # REVIEW_AUDIT_MAX_ITERS
+    max_llm_calls: 16                                             # REVIEW_AUDIT_MAX_LLM_CALLS
     model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_AUDIT_MODEL
     reasoning_effort: null                                        # REVIEW_AUDIT_REASONING_EFFORT
     temperature: null                                             # REVIEW_AUDIT_TEMPERATURE

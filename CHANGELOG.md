@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0] - 2026-10-20
+
+### Changed
+
+- **doc, summary and audit run on RLM** instead of ChainOfThought, wired like code_review: `build_rlm_agent` / `run_rlm` / `log_rlm_outcome`, `recall_memory` tool when enabled, and the `react` RLM fallback threshold (0.30). `Summarizer` and `Auditor` gain an async `aforward`; their sync `forward` wraps it with `asyncio.run`.
+- **doc, summary and audit budgets match code_review**: `max_iters` and `max_llm_calls` now inherit the defaults (5 / 16) instead of doc 2/8, summary 1/4, audit 1/4. Expect more LLM calls per run for these modules.
+
 ## [2.2.0] - 2026-10-20
 
 ### Changed

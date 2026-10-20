@@ -6,10 +6,10 @@
 
 CodeSpy's review pipeline follows a 4-step flow:
 
-1. **Scope Identifier** (ReAct + tools) — Identifies code scopes (frontend, backend, infra, microservice in monorepo, etc.)
-2. **PR Summary** (ChainOfThought) — Generates 2-3 sentence PR summary
+1. **Scope Identifier** (RLM + tools) — Identifies code scopes (frontend, backend, infra, microservice in monorepo, etc.)
+2. **PR Summary** (RLM) — Generates 2-3 sentence PR summary
 3. **Parallel Review Modules** — Supply Chain Auditor, Code Reviewer, and Doc Reviewer run simultaneously
-4. **Auditor** (ChainOfThought) — Generates quality assessment + recommendation (APPROVE / REQUEST_CHANGES / NEEDS_DISCUSSION)
+4. **Auditor** (RLM) — Generates quality assessment + recommendation (APPROVE / REQUEST_CHANGES / NEEDS_DISCUSSION)
 
 ## Architecture Diagram
 
@@ -30,13 +30,13 @@ CodeSpy's review pipeline follows a 4-step flow:
 │                   DSPy Review Pipeline                              │
 │                                                                     │
 │  ┌────────────────────────────────────────────────────────────┐     │
-│  │ 1. Scope Identifier (ReAct + tools)                        │     │
-│  │    Identifies code scopes: frontend, backend, infra, etc.  │     │
+│  │ 1. Scope Identifier (RLM + tools)                            │     │
+│  │    Identifies code scopes: frontend, backend, infra, etc.    │     │
 │  └──────────────────────────┬─────────────────────────────────┘     │
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
-│  │ 2. PR Summary (ChainOfThought)                             │     │
-│  │    Generates 2-3 sentence PR summary                       │     │
+│  │ 2. PR Summary (RLM)                                         │     │
+│  │    Generates 2-3 sentence PR summary                         │     │
 │  └──────────────────────────┬─────────────────────────────────┘     │
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
@@ -44,12 +44,12 @@ CodeSpy's review pipeline follows a 4-step flow:
 │  │  ┌──────────────┐ ┌──────────────┐ ┌───────────────┐       │     │
 │  │  │ Supply Chain │ │    Code      │ │     Doc       │       │     │
 │  │  │   Auditor    │ │  Reviewer    │ │   Reviewer    │       │     │
-│  │  │ (ReAct+tools)│ │ (ReAct+tools)│ │(ChainOfThought│       │     │
+│  │  │ (RLM+tools)  │ │ (RLM+tools)  │ │   (RLM)       │       │     │
 │  │  └──────────────┘ └──────────────┘ └───────────────┘       │     │
 │  └──────────────────────────┬─────────────────────────────────┘     │
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
-│  │ 4. Auditor (ChainOfThought)                                │     │
+│  │ 4. Auditor (RLM)                                             │     │
 │  │    Quality assessment + recommendation                     │     │
 │  │    (APPROVE / REQUEST_CHANGES / NEEDS_DISCUSSION)          │     │
 │  └────────────────────────────────────────────────────────────┘     │
@@ -79,12 +79,12 @@ CodeSpy's review pipeline follows a 4-step flow:
 
 | Signature | Config Key | Type | Description |
 |-----------|------------|------|-------------|
-| **ScopeRefinementSignature** | `scope` | ReAct | Identifies code scopes (frontend, backend, infra, microservice in monorepo, etc.) |
-| **PRSummarySignature** | `summary` | ChainOfThought | Generates PR summary |
-| **CodeReviewSignature** | `code_review` | ReAct | Detects verified bugs, security vulnerabilities, removed defensive code, and code smells |
-| **DocReviewSignature** | `doc` | ChainOfThought | Detects stale or wrong documentation caused by code changes |
-| **SupplyChainSecuritySignature** | `supply_chain` | ReAct | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
-| **AuditSignature** | `audit` | ChainOfThought | Generates quality assessment and recommendation |
+| **ScopeRefinementSignature** | `scope` | RLM | Identifies code scopes (frontend, backend, infra, microservice in monorepo, etc.) |
+| **PRSummarySignature** | `summary` | RLM | Generates PR summary |
+| **CodeReviewSignature** | `code_review` | RLM | Detects verified bugs, security vulnerabilities, removed defensive code, and code smells |
+| **DocReviewSignature** | `doc` | RLM | Detects stale or wrong documentation caused by code changes |
+| **SupplyChainSecuritySignature** | `supply_chain` | RLM | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
+| **AuditSignature** | `audit` | RLM | Generates quality assessment and recommendation |
 
 See [Configuration](configuration.md) for per-signature settings.
 
@@ -95,9 +95,9 @@ defense against context-related quality degradation:
 
 1. **Proactive threshold (context rot)**: Estimates input tokens and compares
    against a configurable ratio of `max_input_tokens`. When the threshold is
-   exceeded (and input >= 8192 tokens), skips the inner module and uses RLM
-   directly — preventing quality degradation that occurs well before the hard
-   context limit. Thresholds differ by module type: ReAct (0.30),
+   exceeded (and input >= 8192 tokens), skips the inner module and uses a fallback
+   RLM directly — preventing quality degradation that occurs well before the hard
+   context limit. Thresholds differ by module type: RLM/ReAct (0.30),
    ChainOfThought (0.40), Predict (0.50).
 2. **Pre-flight overflow**: For models in litellm's database, detects when
    input + output budget + safety margin would exceed the hard context limit.
