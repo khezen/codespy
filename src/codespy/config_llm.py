@@ -280,7 +280,7 @@ class LLMConfig(BaseModel):
     default_model: str = "bedrock/converse/nvidia.nemotron-nano-3-30b"
     extraction_model: str | None = "bedrock/converse/nvidia.nemotron-nano-3-30b"  # TwoStepAdapter extraction (falls back to default_model)
     default_max_iters: int = 5
-    default_max_llm_calls: int = 8
+    default_max_llm_calls: int = 16
     default_reasoning_effort: ReasoningEffort = "medium"
     default_temperature: float = 1.0
     default_max_tokens: int = 32000
