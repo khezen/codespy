@@ -48,6 +48,14 @@ def episode_store(pg0_uri):
     store.close()
 
 
+@pytest.fixture
+def recall_store(pg0_uri):
+    """EpisodeStore with recall persistence enabled."""
+    store = EpisodeStore(pg0_uri, bank_id="test_bank", persist_recalls=True)
+    yield store
+    store.close()
+
+
 class TestEpisodeStoreBasics:
     """Basic tests for EpisodeStore initialization and schema."""
 
@@ -1023,11 +1031,11 @@ class TestEpisodeStoreRecalls:
                 )
                 return cur.fetchall()
 
-    def test_save_writes_recall_rows(self, episode_store):
+    def test_save_writes_recall_rows(self, recall_store):
         episode = self._episode(_recall_records())
-        episode_store.save_episode(episode)
+        recall_store.save_episode(episode)
 
-        rows = self._rows(episode_store, episode.id)
+        rows = self._rows(recall_store, episode.id)
         assert len(rows) == 2
         load, tool = rows
         assert load["kind"] == "load" and load["status"] == "ok"
@@ -1046,18 +1054,18 @@ class TestEpisodeStoreRecalls:
         assert tool["status"] == "limit"
         assert tool["details"] == {"requested_reach": "bank", "mode": "reflect"}
 
-    def test_save_is_idempotent(self, episode_store):
+    def test_save_is_idempotent(self, recall_store):
         episode = self._episode(_recall_records())
-        episode_store.save_episode(episode)
-        episode_store.save_episode(episode)
-        assert len(self._rows(episode_store, episode.id)) == 2
+        recall_store.save_episode(episode)
+        recall_store.save_episode(episode)
+        assert len(self._rows(recall_store, episode.id)) == 2
 
-    def test_episode_without_recalls(self, episode_store):
+    def test_episode_without_recalls(self, recall_store):
         episode = self._episode([])
-        episode_store.save_episode(episode)
-        assert self._rows(episode_store, episode.id) == []
+        recall_store.save_episode(episode)
+        assert self._rows(recall_store, episode.id) == []
 
-    def test_save_recalls_with_null_episode_id(self, episode_store):
+    def test_save_recalls_with_null_episode_id(self, recall_store):
         """Run-level recalls have episode_id=NULL."""
         import uuid
         from codespy.agents.memory.recall import RecallRecord
@@ -1076,20 +1084,47 @@ class TestEpisodeStoreRecalls:
                 model="test-model",
             ),
         ]
-        episode_store.save_recalls(recalls, run_id="run-level-test", episode_id=None, task="review")
+        recall_store.save_recalls(recalls, run_id="run-level-test", episode_id=None, task="review")
         # Query by run_id
         from psycopg.rows import dict_row
-        with episode_store._pool.connection() as conn:
+        with recall_store._pool.connection() as conn:
             conn.row_factory = dict_row
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT * FROM recalls WHERE bank_id = %s AND run_id = %s",
-                    (episode_store.bank_id, "run-level-test"),
+                    (recall_store.bank_id, "run-level-test"),
                 )
                 rows = cur.fetchall()
         assert len(rows) == 1
         assert rows[0]["episode_id"] is None
         assert rows[0]["task"] == "review"
+
+    def test_disabled_by_default_skips_episode_recalls(self, episode_store):
+        """persist_recalls=False: episode is saved, its recalls are not."""
+        assert episode_store.persist_recalls is False
+        episode = self._episode(_recall_records())
+        episode_store.save_episode(episode)
+        assert self._rows(episode_store, episode.id) == []
+        with episode_store._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT count(*) AS n FROM episodes WHERE bank_id = %s AND id = %s",
+                    (episode_store.bank_id, str(episode.id)),
+                )
+                row = cur.fetchone()
+                assert (row["n"] if isinstance(row, dict) else row[0]) == 1
+
+    def test_disabled_by_default_save_recalls_is_noop(self, episode_store):
+        """persist_recalls=False: save_recalls writes nothing."""
+        episode_store.save_recalls(_recall_records(), run_id="run-off-test", episode_id=None, task="review")
+        with episode_store._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT count(*) AS n FROM recalls WHERE bank_id = %s AND run_id = %s",
+                    (episode_store.bank_id, "run-off-test"),
+                )
+                row = cur.fetchone()
+                assert (row["n"] if isinstance(row, dict) else row[0]) == 0
 
     def test_legacy_table_is_dropped_and_recreated(self, episode_store):
         """If recalls table exists without 'id' column, it should be dropped and recreated."""

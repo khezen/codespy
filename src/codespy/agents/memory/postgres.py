@@ -33,6 +33,7 @@ class EpisodeStore:
         schema: str | None = None,
         min_size: int = 1,
         max_size: int = 4,
+        persist_recalls: bool = False,
     ):
         """Create store with a psycopg ConnectionPool, scoped to a bank.
 
@@ -45,8 +46,12 @@ class EpisodeStore:
                     (e.g. "episodic", "semantic"). None = server default (public).
             min_size: Minimum connections in pool
             max_size: Maximum connections in pool
+            persist_recalls: Write Prefrontal recall records to the ``recalls``
+                    table. When False (default), ``save_episode`` skips them
+                    and ``save_recalls`` is a no-op. The table is still created.
         """
         self.bank_id = bank_id
+        self.persist_recalls = persist_recalls
         self._schema = schema
         # Inject search_path into the connection string so every pooled
         # connection targets the right schema automatically.
@@ -567,19 +572,20 @@ class EpisodeStore:
                         (self.bank_id, str(episode.id), name, content),
                     )
 
-                # 8. Insert recalls (Prefrontal monitoring) - now with episode_id set
-                self._insert_recalls(
-                    cur, episode.recalls or [], run_id=episode.run_id, episode_id=episode.id, task=episode.task
-                )
+                # 8. Insert recalls (Prefrontal monitoring, opt-in)
+                if self.persist_recalls:
+                    self._insert_recalls(
+                        cur, episode.recalls or [], run_id=episode.run_id, episode_id=episode.id, task=episode.task
+                    )
 
                 conn.commit()
 
         logger.info(
-            "save_episode: persisted episode %s (bank=%s, task=%s, topics=%d, observations=%d, recalls=%d)",
+            "save_episode: persisted episode %s (bank=%s, task=%s, topics=%d, observations=%d, recalls=%s)",
             episode.id, self.bank_id, episode.task,
             len(episode.context_memory.topics),
             len(episode.context_memory.all_observations()),
-            len(episode.recalls or []),
+            len(episode.recalls or []) if self.persist_recalls else "off",
         )
 
     def load_context(
@@ -836,8 +842,10 @@ class EpisodeStore:
             run_id: Run identifier
             episode_id: Optional episode UUID (None for run-level recalls)
             task: Task name (consumer task or "review" for run-level load)
+
+        No-op unless the store was built with ``persist_recalls=True``.
         """
-        if not records:
+        if not self.persist_recalls or not records:
             return
 
         with self._pool.connection() as conn:

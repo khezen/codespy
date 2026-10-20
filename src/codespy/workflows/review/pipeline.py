@@ -299,10 +299,10 @@ class ReviewPipeline(dspy.Module):
                 packages=all_packages[:MAX_ENTITY_TERMS],
             )
             pf_text = run_pf.load(facets)
-            # Persist run-level recalls
+            # Persist run-level recalls (opt-in: memory.hippocampus.persist_recalls)
             try:
                 store = get_episode_store(self.settings)
-                if store and run_pf.recalls:
+                if store and store.persist_recalls and run_pf.recalls:
                     store.save_recalls(
                         run_pf.recalls,
                         run_id=run_id,

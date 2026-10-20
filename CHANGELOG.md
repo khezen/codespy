@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.2.0] - 2026-10-20
+
+### Changed
+
+- **Recall persistence is opt-in** (`memory.hippocampus.persist_recalls` / `MEMORY_PERSIST_RECALLS`, default `false`). The episodic `recalls` table grew fast because every row stores the full recalled text. Recall log lines are unchanged. The table is still created; existing rows are kept (see the cleanup SQL in `docs/memory.md`).
+
 ## [2.1.0] - 2026-10-20
 
 ### Changed

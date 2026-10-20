@@ -81,6 +81,11 @@ class HippocampusConfig(BaseModel):
     # Whether to apply head+tail trajectory bounding before distillation.
     compact_trajectory: bool = True
 
+    # Store Prefrontal recalls in the episodic ``recalls`` table (monitoring
+    # only). Off by default: every row holds the full recalled text, so the
+    # table grows fast.
+    persist_recalls: bool = False
+
     # Token budgets
     max_hippocampus_tokens: int = Field(default=16384)
     max_hippocampus_item_tokens: int = Field(default=512)
@@ -343,13 +348,14 @@ def get_episode_store(settings: Settings) -> EpisodeStore | None:
     mem = settings.memory
     bank_id = mem.bank_id or DEFAULT_BANK_ID
     schema = EPISODIC_SCHEMA
+    persist_recalls = mem.hippocampus.persist_recalls
 
     # Try external PostgreSQL first
     uri = mem.postgres.build_uri()
     if uri:
         from codespy.agents.memory.postgres import EpisodeStore
 
-        _store = EpisodeStore(uri, bank_id, schema=schema)
+        _store = EpisodeStore(uri, bank_id, schema=schema, persist_recalls=persist_recalls)
         logger.info(f"EpisodeStore connected to external PostgreSQL (bank={bank_id}, schema={schema})")
     else:
         # Try pg0-embedded for local dev
@@ -359,7 +365,7 @@ def get_episode_store(settings: Settings) -> EpisodeStore | None:
             uri = get_pg0_uri(name=mem.pg0.name, port=mem.pg0.port, data_dir=mem.pg0.data_dir)
             from codespy.agents.memory.postgres import EpisodeStore
 
-            _store = EpisodeStore(uri, bank_id, schema=schema)
+            _store = EpisodeStore(uri, bank_id, schema=schema, persist_recalls=persist_recalls)
             logger.info(f"EpisodeStore connected to pg0-embedded PostgreSQL (bank={bank_id}, schema={schema})")
         except ImportError:
             logger.warning(
