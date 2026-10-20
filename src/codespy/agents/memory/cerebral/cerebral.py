@@ -33,7 +33,7 @@ HINDSIGHT_SCHEMA_DEFAULT = "semantic"
 # needs sentence-transformers and emits a misleading startup warning
 # (hindsight_api/config.py _validate). That config is built and cached at IMPORT
 # time — the `from hindsight_api import MemoryEngine` below pulls in
-# engine.llm_wrapper, whose module-level _get_raw_config() calls
+# engine.llm_wrapper, which builds Hindsight's cached config via
 # HindsightConfig.from_env(). So these env vars MUST be set before that import
 # line, not in Cerebral.__init__ (too late). We inject our own LiteLLM-SDK
 # embeddings and an RRF-passthrough cross-encoder in Cerebral.__init__, so the
@@ -61,20 +61,12 @@ from hindsight_api.extensions.builtin.tenant import DefaultTenantExtension
 from hindsight_api.models import RequestContext
 from hindsight_api.worker.exceptions import DeferOperation
 
-# Install delta operations coercion shim for string-encoded operations
-# (see delta_ops_compat.py for details)
-from codespy.agents.memory.cerebral.delta_ops_compat import install_delta_ops_coercion
-
-install_delta_ops_coercion()
-
-# Install native structured output support and Bedrock schema sanitizer
+# Register native structured output for Bedrock models litellm's map lacks the flag for
 from codespy.agents.memory.cerebral.structured_output import (
-    install_bedrock_schema_sanitizer,
     register_native_structured_output_overrides,
 )
 
 register_native_structured_output_overrides()
-install_bedrock_schema_sanitizer()
 
 
 class _SchemaSyncTaskBackend(SyncTaskBackend):
@@ -233,7 +225,6 @@ from codespy.agents.memory.cerebral.cost import (
     MeteredLiteLLMSDKEmbeddings,
     register_cerebral_cost_recorder,
 )
-from codespy.agents.memory.cerebral.routines import ensure_maintenance_routines
 from codespy.agents.memory.prefrontal.reach import (
     TAG_ORG,
     TAG_PROJECT_SCOPE,
@@ -283,17 +274,23 @@ HINDSIGHT_SCHEMA = HINDSIGHT_SCHEMA_DEFAULT
 # - include_chunks=False: Observation text only (no file chunks)
 # - reflect_search_observations_max_tokens=3000: Down from 5000 default
 # - reflect_search_observations_include_entities=False: Exclude entity metadata
+# - budget=low: a refresh gets reflect_max_iterations // 2 iterations, like Prefrontal
+#   reflect (Hindsight treats a null budget as MID for refreshes)
+# - keep_trace=True: store the refresh trace with the briefing
+# Key names must be exact: create_mental_model stores the dict without validating it.
 _BRIEFING_TRIGGER_STATIC = {
     "mode": "delta",
     "exclude_mental_models": True,
     "include_chunks": False,
     "reflect_search_observations_max_tokens": 3000,
     "reflect_search_observations_include_entities": False,
+    "budget": "low",
+    "keep_trace": True,
 }
 
-# Content Hindsight's HTTP API gives a mental model before its first refresh.
-# Prefrontal skips briefings that still hold it.
-MENTAL_MODEL_PLACEHOLDER = "Generating content..."
+# Content pre-1.0 Hindsight gave a mental model before its first refresh.
+# Only used to clear it from upgraded rows (see Cerebral._clear_legacy_placeholders).
+_LEGACY_PLACEHOLDER = "Generating content..."
 
 # Generic (not code-review specific) question each briefing answers.
 MENTAL_MODEL_SOURCE_QUERY = (
@@ -465,19 +462,19 @@ class Cerebral:
         # Install two-step structured output fallback when extraction model is configured
         if extraction_llm_model:
             try:
-                from hindsight_api.engine.llm_wrapper import LLMConfig
+                from hindsight_api.engine.llm_wrapper import LLMProvider
                 from codespy.agents.memory.cerebral.structured_output import (
                     install_two_step_structured_output,
                 )
 
-                extraction_cfg = LLMConfig(
+                extraction_llm = LLMProvider(
                     provider="litellm",
                     model=extraction_llm_model,
                     api_key=extraction_llm_api_key,
                     base_url=extraction_llm_base_url or "",
                     reasoning_effort=None,
                 )
-                extraction_impl = extraction_cfg._provider_impl
+                extraction_impl = extraction_llm._provider_impl
                 install_two_step_structured_output(self._engine, extraction_impl)
             except Exception:
                 logger.warning(
@@ -487,11 +484,6 @@ class Cerebral:
                 )
 
         self._run_async(self._engine.initialize())
-
-        # One-time repair: install maintenance routines if missing.
-        # This is idempotent and only needed for databases that were migrated
-        # before HINDSIGHT_API_DATABASE_SCHEMA was set to "semantic" (upstream #2638).
-        self._run_async(ensure_maintenance_routines(self._engine, HINDSIGHT_SCHEMA))
 
         # Repair orphaned pending operations left by inline SyncTaskBackend
         from codespy.agents.memory.cerebral.orphans import repair_orphaned_operations
@@ -596,14 +588,11 @@ class Cerebral:
                 # pending rows from blocking scoped submissions).
                 "enable_auto_consolidation": False,
             }
-            # Per-scope observation cap (not bank-wide; -1 means unlimited)
-            if self._max_observations_per_scope >= 0:
-                updates["observation_scope_limits"] = [
-                    {
-                        "scope": [f"{TAG_ORG}*", f"{TAG_REPO}*", f"{TAG_PROJECT_SCOPE}*"],
-                        "limit": self._max_observations_per_scope,
-                    }
-                ]
+            # Per-scope observation cap (never the bank-wide max_observations_per_scope).
+            # Sent unconditionally so -1 (unlimited) lifts a previously stored cap.
+            updates["consolidation_strategies"] = self._consolidation_strategies()
+            # Tombstone the deprecated key (bank config merges with `config || $1`).
+            updates["observation_scope_limits"] = None
             self._run_async(
                 self._engine.update_bank_config(
                     self._bank_id,
@@ -611,9 +600,57 @@ class Cerebral:
                     request_context=ctx,
                 )
             )
+            self._clear_legacy_placeholders(ctx)
         except Exception:
             logger.warning("cerebral: failed to configure bank %s", self._bank_id, exc_info=True)
         self._bank_ensured = True
+
+    def _consolidation_strategies(self) -> list[dict[str, Any]]:
+        """``consolidation_strategies`` payload carrying the per-scope observation cap."""
+        return [
+            {
+                "scopes": [
+                    {
+                        "tags": [f"{TAG_ORG}*", f"{TAG_REPO}*", f"{TAG_PROJECT_SCOPE}*"],
+                        "tags_match": "exact",
+                    }
+                ],
+                "max_observations_per_scope": self._max_observations_per_scope,
+            }
+        ]
+
+    def _clear_legacy_placeholders(self, ctx: RequestContext) -> int:
+        """Empty briefings that still hold the pre-1.0 placeholder. Returns the count.
+
+        Pages through every mental model of the bank and rewrites legacy rows
+        with ``content=""`` (what Hindsight 1.0 creates pages with).
+        """
+        cleared = 0
+        offset = 0
+        while True:
+            page = self._run_async(
+                self._engine.list_mental_models(
+                    self._bank_id,
+                    detail="full",
+                    limit=100,
+                    offset=offset,
+                    request_context=ctx,
+                )
+            )
+            for item in page.items:
+                if (item.get("content") or "").strip().startswith(_LEGACY_PLACEHOLDER):
+                    self._run_async(
+                        self._engine.update_mental_model(
+                            self._bank_id, item["id"], content="", request_context=ctx
+                        )
+                    )
+                    cleared += 1
+            offset += len(page.items)
+            if not page.items or offset >= page.total:
+                break
+        if cleared:
+            logger.info("cerebral: cleared legacy placeholder from %d briefing(s)", cleared)
+        return cleared
 
     @staticmethod
     def _mutation_lines(episode: Episode) -> list[str]:
@@ -943,7 +980,7 @@ class Cerebral:
                                 self._bank_id,
                                 self._mental_model_name(tags),
                                 self._mental_model_source_query(tags),
-                                MENTAL_MODEL_PLACEHOLDER,
+                                "",
                                 mental_model_id=mm_id,
                                 tags=sorted(tags),
                                 max_tokens=self._max_mental_model_tokens,
@@ -965,12 +1002,12 @@ class Cerebral:
                             self._engine.get_mental_model(self._bank_id, mm_id, request_context=ctx)
                         )
                 else:
-                    # Existing briefing: update trigger if it differs
+                    # Existing briefing: update trigger if it differs. Stored triggers
+                    # are merged supersets (update_mental_model patches), so compare
+                    # only the keys codespy sends.
                     current_trigger = existing.get("trigger") or {}
-                    needs_update = (
-                        current_trigger.get("refresh_after_consolidation") != self._mental_models
-                        or current_trigger.get("exclude_mental_models") is not True
-                        or current_trigger.get("mode", "delta") != "delta"
+                    needs_update = any(
+                        current_trigger.get(k) != v for k, v in desired_trigger.items()
                     )
                     if needs_update:
                         self._run_async(
@@ -1280,10 +1317,10 @@ class Cerebral:
                     summary.rewrite = True
 
         # Count iterations from agent_<n> scopes (excluding _err variants)
-        # +1 if there's any final scope (map, reduce, or rewrite)
+        # +1 if there's any final scope (map, reduce, rewrite, or Hindsight 1.0's closing_done)
         agent_scopes = {s for s in scope_names if s.startswith("agent_") and not s.endswith("_err")}
         summary.iterations = len(agent_scopes)
-        if any(s.startswith("final") for s in scope_names):
+        if any(s.startswith("final") or s == "closing_done" for s in scope_names):
             summary.iterations += 1
 
         # Tools from tool_trace (list of ToolCallTrace with output dict)

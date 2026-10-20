@@ -22,10 +22,6 @@ from codespy.agents.memory.prefrontal.reach import (
     tag_value,
 )
 
-# Content a mental model holds until its first refresh completes (kept in sync
-# with cerebral.MENTAL_MODEL_PLACEHOLDER; not imported to avoid loading Hindsight).
-MENTAL_MODEL_PLACEHOLDER = "Generating content..."
-
 SECTION_TITLES: dict[str, str] = {
     FACET_CONTEXT: "Around this work",
     FACET_SEEN_BEFORE: "Seen before",
@@ -158,7 +154,7 @@ def format_context_sections(
     # Briefing sections
     for mm in briefings or []:
         content = (mm.get("content") or "").strip()
-        if not content or content == MENTAL_MODEL_PLACEHOLDER:
+        if not content:
             continue
         name = (mm.get("name") or "Briefing").strip()
         if not name.startswith("Briefing"):

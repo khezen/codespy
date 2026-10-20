@@ -27,7 +27,6 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents.memory.prefrontal.facets import run_facets
 from codespy.agents.memory.prefrontal.format import (
-    MENTAL_MODEL_PLACEHOLDER,
     estimate_tokens,
     fget,
     format_context_sections,
@@ -423,7 +422,7 @@ class Prefrontal:
         n_briefings = sum(
             1
             for mm in briefings
-            if (mm.get("content") or "").strip() not in ("", MENTAL_MODEL_PLACEHOLDER)
+            if (mm.get("content") or "").strip()
         )
         facet_details: dict[str, dict[str, Any]] = {}
         for f in facets:

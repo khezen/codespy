@@ -3,7 +3,6 @@
 Provides:
 - Native structured output registration for Bedrock models that support it
   but lack the flag in litellm's model map.
-- JSON schema sanitization for Bedrock's structured output constraints.
 - Two-step structured output fallback for models that don't enforce schemas.
 
 See: .kilo/plans/1790926015516-retain-facts-string-coercion.md
@@ -11,7 +10,6 @@ See: .kilo/plans/1790926015516-retain-facts-string-coercion.md
 
 from __future__ import annotations
 
-import copy
 import logging
 from typing import Any, Callable
 
@@ -24,10 +22,6 @@ logger = logging.getLogger(__name__)
 _NATIVE_STRUCTURED_OUTPUT_OVERRIDES: dict[str, str] = {
     "nvidia.nemotron-super-3-120b": "bedrock_converse",
 }
-
-# Marker for idempotent wrapper installation
-_SCHEMA_SANITIZER_MARKER = "_codespy_schema_sanitizer"
-
 
 def register_native_structured_output_overrides() -> None:
     """Register native structured output capability for known-capable models.
@@ -87,198 +81,6 @@ def _verify_registration(model: str) -> None:
             )
     except Exception as e:
         logger.warning("Could not verify native structured output for %s: %s", model, e)
-
-
-def _strip_disallowed_keywords(schema: dict[str, Any]) -> dict[str, Any]:
-    """Recursively strip JSON Schema keywords disallowed by Bedrock.
-
-    Bedrock's structured output accepts a subset of Draft 2020-12.
-    Disallowed keywords are silently rejected with a 400.
-
-    Strips:
-    - minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf
-    - minLength, maxLength, pattern
-    - maxItems
-    - minItems with value > 1 (minItems: 0 or 1 is allowed)
-    - format values outside: date-time, time, date, duration, email,
-      hostname, uri, ipv4, ipv6, uuid
-    - additionalProperties values other than false (forced to false)
-
-    Recurses through: properties, items, $defs, definitions, anyOf, allOf, oneOf.
-    Keys under properties/$defs are names, not keywords - never stripped.
-
-    Returns a deep copy; input is never mutated.
-    """
-    if not isinstance(schema, dict):
-        return schema
-
-    # Deep copy to avoid mutating input
-    result = copy.deepcopy(schema)
-    return _strip_in_place(result)
-
-
-def _strip_in_place(schema: Any) -> Any:
-    """In-place recursive strip. Internal helper."""
-    if not isinstance(schema, dict):
-        return schema
-
-    allowed_formats = {
-        "date-time",
-        "time",
-        "date",
-        "duration",
-        "email",
-        "hostname",
-        "uri",
-        "ipv4",
-        "ipv6",
-        "uuid",
-    }
-
-    # Build list of keys to strip from this level
-    to_strip: list[str] = []
-    modified: list[str] = []
-
-    for key, value in schema.items():
-        if key in (
-            "minimum",
-            "maximum",
-            "exclusiveMinimum",
-            "exclusiveMaximum",
-            "multipleOf",
-            "minLength",
-            "maxLength",
-            "pattern",
-            "maxItems",
-        ):
-            to_strip.append(key)
-            modified.append(key)
-        elif key == "minItems":
-            # Only strip if value > 1
-            if isinstance(value, int) and value > 1:
-                to_strip.append(key)
-                modified.append(key)
-        elif key == "format":
-            if value not in allowed_formats:
-                to_strip.append(key)
-                modified.append(f"format:{value}")
-        elif key == "additionalProperties":
-            # Force to false if not already false
-            if value is not False:
-                schema[key] = False
-                modified.append(f"additionalProperties->{value}")
-
-    # Strip disallowed keys
-    for key in to_strip:
-        del schema[key]
-
-    # Log what was stripped at this level
-    if modified:
-        logger.debug("Bedrock schema sanitizer stripped: %s", modified)
-
-    # Recurse into sub-schemas
-    # Keys under properties/$defs are names, not keywords - preserve them
-    for key in ("properties", "$defs", "definitions"):
-        if key in schema and isinstance(schema[key], dict):
-            for sub_schema in schema[key].values():
-                _strip_in_place(sub_schema)
-
-    # Array items
-    if "items" in schema:
-        _strip_in_place(schema["items"])
-
-    # Combiners
-    for combiner in ("anyOf", "allOf", "oneOf"):
-        if combiner in schema and isinstance(schema[combiner], list):
-            for sub_schema in schema[combiner]:
-                _strip_in_place(sub_schema)
-
-    # AdditionalProperties (if it's a schema, not just false)
-    if isinstance(schema.get("additionalProperties"), dict):
-        _strip_in_place(schema["additionalProperties"])
-
-    # PropertyNames
-    if isinstance(schema.get("propertyNames"), dict):
-        _strip_in_place(schema["propertyNames"])
-
-    return schema
-
-
-def sanitize_bedrock_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Sanitize a JSON Schema for Bedrock's structured output constraints.
-
-    Args:
-        schema: The JSON Schema dict to sanitize.
-
-    Returns:
-        A deep copy with disallowed keywords stripped.
-    """
-    return _strip_disallowed_keywords(schema)
-
-
-def install_bedrock_schema_sanitizer() -> None:
-    """Install the Bedrock JSON schema sanitizer.
-
-    Patches litellm's AmazonConverseConfig._create_output_config_for_response_format
-    to sanitize schemas before Bedrock receives them.
-
-    Idempotent: calling multiple times has no additional effect.
-    """
-    import functools
-
-    try:
-        from litellm.llms.bedrock.chat.converse_transformation import (
-            AmazonConverseConfig,
-        )
-    except ImportError:
-        logger.debug("AmazonConverseConfig not found; skipping schema sanitizer")
-        return
-
-    # Get the raw descriptor from the class __dict__ to handle staticmethod correctly
-    raw_descriptor = AmazonConverseConfig.__dict__.get(
-        "_create_output_config_for_response_format"
-    )
-    if raw_descriptor is None:
-        logger.warning(
-            "AmazonConverseConfig._create_output_config_for_response_format not found"
-        )
-        return
-
-    # Unwrap staticmethod to get the actual function
-    if isinstance(raw_descriptor, staticmethod):
-        original = raw_descriptor.__func__
-    else:
-        original = raw_descriptor
-
-    # Check if already installed (check on the underlying function)
-    if getattr(original, _SCHEMA_SANITIZER_MARKER, False):
-        logger.debug("Bedrock schema sanitizer already installed")
-        return
-
-    # The original signature is: (json_schema=None, name=None, description=None)
-    @functools.wraps(original)
-    def wrapper(
-        json_schema: dict[str, Any] | None = None,
-        name: str | None = None,
-        description: str | None = None,
-    ) -> Any:
-        """Wrapped staticmethod that sanitizes schemas before passing to Bedrock."""
-        if json_schema is not None and isinstance(json_schema, dict):
-            # Deep copy and sanitize the json_schema
-            json_schema = _strip_disallowed_keywords(json_schema)
-
-        return original(json_schema=json_schema, name=name, description=description)
-
-    # Mark wrapper
-    setattr(wrapper, _SCHEMA_SANITIZER_MARKER, True)
-
-    # Install wrapper as staticmethod
-    setattr(
-        AmazonConverseConfig,
-        "_create_output_config_for_response_format",
-        staticmethod(wrapper),
-    )
-    logger.debug("Installed Bedrock JSON schema sanitizer")
 
 
 def enforces_schema(model: str | None) -> bool | None:
@@ -553,6 +355,12 @@ def install_two_step_structured_output(
             configs.add(id(cfg))
             llm_configs.append(cfg)
 
+    if not llm_configs:
+        logger.warning(
+            "Two-step structured output: no engine LLM config attribute resolved; "
+            "Hindsight internals may have changed"
+        )
+
     wrapped_count = 0
     for cfg in llm_configs:
         # Check if the config itself is a MultiLLMProvider (fix B2)
@@ -564,7 +372,7 @@ def install_two_step_structured_output(
         impl = getattr(cfg, "_provider_impl", None)
 
         if impl is None:
-            logger.debug("No _provider_impl found on config")
+            logger.warning("No _provider_impl found on config %s", type(cfg).__name__)
             continue
 
         # Skip if the impl is a MultiLLMProvider

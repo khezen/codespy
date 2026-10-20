@@ -257,6 +257,72 @@ class TestCerebralCostRecorder:
         stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_RETAIN)
         assert stats is None
 
+    def test_record_llm_call_bills_thoughts_tokens_as_output(self, mock_tracker, fresh_recorder):
+        """thoughts_tokens (reasoning, Hindsight >=0.10.2) are priced and tracked as output."""
+        with (
+            patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker),
+            patch("litellm.cost_per_token", return_value=(0.01, 0.02)) as mock_cost,
+        ):
+            CerebralCostRecorder().record_llm_call(
+                model="openai/gpt-4",
+                scope="retain_extract_facts",
+                input_tokens=100,
+                output_tokens=100,
+                thoughts_tokens=50,
+            )
+            mock_cost.assert_called_once_with(
+                model="openai/gpt-4", prompt_tokens=100, completion_tokens=150
+            )
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_RETAIN)
+        assert stats.output_tokens == 150
+        assert stats.tokens == 250
+
+    def test_record_llm_call_thoughts_tokens_in_recall_usage(self, mock_tracker, fresh_recorder):
+        with (
+            patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker),
+            patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.01, 0.02)),
+            track_recall_usage() as usage,
+        ):
+            CerebralCostRecorder().record_llm_call(
+                model="openai/gpt-4",
+                scope="reflect",
+                input_tokens=100,
+                output_tokens=100,
+                thoughts_tokens=50,
+            )
+        assert usage.output_tokens == 150
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_RECALL).output_tokens == 150
+
+    def test_record_llm_call_thoughts_tokens_none_is_zero(self, mock_tracker, fresh_recorder):
+        with (
+            patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker),
+            patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.01, 0.02)),
+        ):
+            CerebralCostRecorder().record_llm_call(
+                model="openai/gpt-4",
+                scope="retain_extract_facts",
+                input_tokens=100,
+                output_tokens=50,
+                thoughts_tokens=None,
+            )
+        assert mock_tracker.get_signature_stats(BUCKET_MEMORY_RETAIN).output_tokens == 50
+
+    def test_record_llm_call_only_thoughts_tokens_recorded(self, mock_tracker, fresh_recorder):
+        with (
+            patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker),
+            patch.object(CerebralCostRecorder, "_price_call_split", return_value=(0.0, 0.02)),
+        ):
+            CerebralCostRecorder().record_llm_call(
+                model="openai/gpt-4",
+                scope="retain_extract_facts",
+                input_tokens=0,
+                output_tokens=0,
+                thoughts_tokens=30,
+            )
+        stats = mock_tracker.get_signature_stats(BUCKET_MEMORY_RETAIN)
+        assert stats is not None
+        assert stats.output_tokens == 30
+
     def test_record_llm_call_prices_using_litellm(self, mock_tracker, fresh_recorder):
         """Verify pricing uses litellm.cost_per_token."""
         with patch("codespy.agents.cost_tracker.get_cost_tracker", return_value=mock_tracker):

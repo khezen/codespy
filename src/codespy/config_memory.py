@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Literal
+from collections.abc import Iterator, Sequence
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
@@ -109,8 +110,8 @@ class CerebralConsolidationConfig(BaseModel):
     """
 
     model: str | None = "bedrock/converse/nvidia.nemotron-super-3-120b"  # Falls back to cerebral.retain.model → llm.default_model
-    # Hindsight observation_scope_limits cap. -1 = unlimited, 0 = no new observations.
-    # Applied per scope as: scope=[org:*, repo:*, project_scope:*], limit=N
+    # consolidation_strategies cap. -1 = unlimited, 0 = no new observations.
+    # Applied per scope: tags=[org:*, repo:*, project_scope:*], tags_match=exact
     max_observations_per_scope: int = Field(default=100, ge=-1)
 
 
@@ -560,13 +561,6 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
             "consolidation_llm_base_url": cons_base_url,
         }
 
-    # Apply Hindsight LLM defaults BEFORE Cerebral construction (these are read
-    # during MemoryEngine.__init__). reflect_config is applied after construction.
-    _apply_hindsight_llm_call_defaults(settings)
-
-    # Apply mental-model refresh LLM config to Hindsight raw config BEFORE Cerebral construction
-    _apply_mental_model_refresh_llm(settings)
-
     # Extraction model for two-step structured output fallback
     extraction_model = settings.get_llm_config(MEMORY_RETAIN).extraction_model
     extraction_kwargs: dict[str, str | None] = {}
@@ -579,24 +573,26 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
         }
 
     try:
-        _cerebral = Cerebral(
-            database_url=pg_uri,
-            llm_provider="litellm",
-            llm_model=model,
-            llm_api_key=api_key,
-            llm_base_url=base_url,
-            bank_id=bank_id,
-            embeddings_model=embeddings_model,
-            retain_chunk_size=settings.memory.cerebral.retain.chunk_size,
-            mental_models=settings.memory.prefrontal.reflects > 0,
-            max_mental_model_tokens=settings.memory.cerebral.mental_models.max_tokens,
-            embeddings_max_input_chars=settings.memory.cerebral.embeddings.max_input_chars,
-            min_mental_model_refresh_seconds=settings.memory.cerebral.mental_models.min_refresh_seconds,
-            max_observations_per_scope=settings.memory.cerebral.consolidation.max_observations_per_scope,
-            **reflect_kwargs,
-            **consolidation_kwargs,
-            **extraction_kwargs,
-        )
+        # MemoryEngine.__init__ reads Hindsight's config, so build it inside the overlay.
+        with _hindsight_config(settings):
+            _cerebral = Cerebral(
+                database_url=pg_uri,
+                llm_provider="litellm",
+                llm_model=model,
+                llm_api_key=api_key,
+                llm_base_url=base_url,
+                bank_id=bank_id,
+                embeddings_model=embeddings_model,
+                retain_chunk_size=settings.memory.cerebral.retain.chunk_size,
+                mental_models=settings.memory.prefrontal.reflects > 0,
+                max_mental_model_tokens=settings.memory.cerebral.mental_models.max_tokens,
+                embeddings_max_input_chars=settings.memory.cerebral.embeddings.max_input_chars,
+                min_mental_model_refresh_seconds=settings.memory.cerebral.mental_models.min_refresh_seconds,
+                max_observations_per_scope=settings.memory.cerebral.consolidation.max_observations_per_scope,
+                **reflect_kwargs,
+                **consolidation_kwargs,
+                **extraction_kwargs,
+            )
     except Exception:
         logger.error(
             "Cerebral initialization FAILED (bank=%s, schema=semantic). "
@@ -627,184 +623,118 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
         consolidation_model_str,
         mental_models_model_str,
     )
-    # Apply reflect caps programmatically (after Cerebral construction, before first use)
-    _apply_reflect_config(settings.memory.prefrontal)
     _cerebral_built = True
     return _cerebral
 
 
-# Inverse of Hindsight's LOW budget multiplier (0.5) to double the raw
-# iteration cap so both Prefrontal and briefing refresh get exactly
-# ``reflects`` iterations: max(1, int(2*reflects * 0.5)) = reflects.
-# See memory_engine.py:15134-15138 for the multiplier logic.
-_LOW_BUDGET_MULTIPLIER_INVERSE = 2
+# Hindsight env keys codespy fills from its own settings (see _hindsight_env_overlay).
+_HINDSIGHT_LLM_TIMEOUT_ENV = "HINDSIGHT_API_LLM_TIMEOUT"
+_HINDSIGHT_LLM_MAX_RETRIES_ENV = "HINDSIGHT_API_LLM_MAX_RETRIES"
+_HINDSIGHT_REFLECT_LLM_TIMEOUT_ENV = "HINDSIGHT_API_REFLECT_LLM_TIMEOUT"
+_HINDSIGHT_REFLECT_LLM_MAX_RETRIES_ENV = "HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES"
+_HINDSIGHT_LLM_SUPPORTS_MAX_ITEMS_ENV = "HINDSIGHT_API_LLM_SUPPORTS_MAX_ITEMS"
+_HINDSIGHT_REFRESH_LLM_ENVS = (
+    "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_PROVIDER",
+    "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_MODEL",
+    "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_API_KEY",
+    "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_BASE_URL",
+)
 
 
-def _apply_hindsight_llm_call_defaults(settings: "Settings") -> None:
-    """Apply Hindsight LLM timeout and retry settings from codespy config.
+def _hindsight_env_overlay(settings: Settings) -> dict[str, str]:
+    """``HINDSIGHT_API_*`` values codespy derives from its settings.
 
-    Sets global ``llm_timeout`` and ``llm_max_retries`` so all Hindsight operations
-    (retain, consolidation, reflect, mental-model refresh) inherit codespy's
-    ``llm.timeout`` / ``llm.retries``. Per-operation env vars still win automatically
-    because Hindsight prefers non-None per-op values.
+    Keys the operator already set are omitted (operator env wins):
 
-    Also sets ``reflect_llm_timeout`` / ``reflect_llm_max_retries`` to override
-    Hindsight's 30s reflect default when no operator env is set.
-
-    Operator env (HINDSIGHT_API_LLM_TIMEOUT, HINDSIGHT_API_LLM_MAX_RETRIES,
-    HINDSIGHT_API_REFLECT_LLM_TIMEOUT, HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES) wins.
-
-    Called in get_cerebral() after Cerebral import but before Cerebral() construction.
-    This must run before Cerebral is built because the defaults are resolved in
-    MemoryEngine.__init__.
-
-    Args:
-        settings: Application settings.
+    - ``LLM_TIMEOUT`` / ``LLM_MAX_RETRIES`` from ``llm.timeout`` / ``llm.retries``, so
+      retain, consolidation, reflect and mental-model refresh all inherit them.
+    - ``REFLECT_LLM_TIMEOUT`` / ``REFLECT_LLM_MAX_RETRIES`` from the same settings, only
+      when neither the reflect nor the global env var is set (Hindsight lets reflect
+      inherit an explicit global value, and otherwise defaults reflect to 30s).
+    - ``REFLECT_MAX_ITERATIONS`` = ``2 × max(reflects, 1)``. Both Prefrontal reflect and
+      the briefing refresh (trigger ``budget: low``) run on Hindsight's LOW budget, which
+      halves the cap, so each gets exactly ``reflects`` iterations.
+    - ``MENTAL_MODEL_REFRESH_LLM_{PROVIDER,MODEL,API_KEY,BASE_URL}`` from
+      ``cerebral.mental_models.model`` when ``reflects > 0``. All-or-nothing: skipped
+      entirely when the operator set any of them. Base URL ``""`` when the model has
+      none, so the refresh does not inherit reflect's base URL.
+    - ``LLM_SUPPORTS_MAX_ITEMS=false`` when any memory model is on Bedrock, whose
+      structured output rejects ``maxItems``.
     """
-    try:
-        import hindsight_api.config as ha_cfg
+    env = os.environ
+    llm = settings.llm
+    overlay: dict[str, str] = {}
 
-        raw = ha_cfg._get_raw_config()
-    except Exception as e:
-        logger.warning("Could not access Hindsight raw config for LLM defaults: %s", e)
-        return
+    if not env.get(_HINDSIGHT_LLM_TIMEOUT_ENV):
+        overlay[_HINDSIGHT_LLM_TIMEOUT_ENV] = str(float(llm.timeout))
+    if not env.get(_HINDSIGHT_LLM_MAX_RETRIES_ENV):
+        overlay[_HINDSIGHT_LLM_MAX_RETRIES_ENV] = str(int(llm.retries))
+    if not env.get(_HINDSIGHT_REFLECT_LLM_TIMEOUT_ENV) and not env.get(_HINDSIGHT_LLM_TIMEOUT_ENV):
+        overlay[_HINDSIGHT_REFLECT_LLM_TIMEOUT_ENV] = str(float(llm.timeout))
+    if not env.get(_HINDSIGHT_REFLECT_LLM_MAX_RETRIES_ENV) and not env.get(
+        _HINDSIGHT_LLM_MAX_RETRIES_ENV
+    ):
+        overlay[_HINDSIGHT_REFLECT_LLM_MAX_RETRIES_ENV] = str(int(llm.retries))
 
-    # --- Global settings (retain, consolidation, reflect, mental-model refresh) ---
+    reflects = settings.memory.prefrontal.reflects
+    if not env.get(HINDSIGHT_REFLECT_MAX_ITERATIONS_ENV):
+        overlay[HINDSIGHT_REFLECT_MAX_ITERATIONS_ENV] = str(2 * max(reflects, 1))
 
-    # Determine global timeout: env wins, then settings.llm.timeout
-    global_timeout: float | None = None
-    global_env_timeout = os.environ.get("HINDSIGHT_API_LLM_TIMEOUT")
-    if global_env_timeout is not None:
-        try:
-            global_timeout = float(global_env_timeout)
-            logger.info("Using env HINDSIGHT_API_LLM_TIMEOUT=%s (operator override)", global_timeout)
-        except ValueError:
-            pass
-    if global_timeout is None and hasattr(raw, "llm_timeout"):
-        global_timeout = float(settings.llm.timeout)
-        raw.llm_timeout = global_timeout
+    mm_model = settings.memory.cerebral.mental_models.model
+    if reflects > 0 and mm_model and not any(env.get(v) for v in _HINDSIGHT_REFRESH_LLM_ENVS):
+        api_key, base_url = _litellm_credentials(settings, mm_model)
+        provider_env, model_env, api_key_env, base_url_env = _HINDSIGHT_REFRESH_LLM_ENVS
+        overlay[provider_env] = "litellm"
+        overlay[model_env] = mm_model
+        overlay[base_url_env] = base_url or ""
+        if api_key:
+            overlay[api_key_env] = api_key
 
-    # Determine global retries: env wins, then settings.llm.retries
-    global_retries: int | None = None
-    global_env_retries = os.environ.get("HINDSIGHT_API_LLM_MAX_RETRIES")
-    if global_env_retries is not None:
-        try:
-            global_retries = int(global_env_retries)
-            logger.info("Using env HINDSIGHT_API_LLM_MAX_RETRIES=%s (operator override)", global_retries)
-        except ValueError:
-            pass
-    if global_retries is None and hasattr(raw, "llm_max_retries"):
-        global_retries = int(settings.llm.retries)
-        raw.llm_max_retries = global_retries
-
-    # --- Reflect-specific settings (override Hindsight's 30s default) ---
-
-    # Determine reflect timeout: env wins, then settings.llm.timeout
-    reflect_timeout: float | None = None
-    reflect_env_timeout = os.environ.get("HINDSIGHT_API_REFLECT_LLM_TIMEOUT") or os.environ.get("HINDSIGHT_API_LLM_TIMEOUT")
-    if reflect_env_timeout is not None:
-        try:
-            reflect_timeout = float(reflect_env_timeout)
-            # Log the actual env var that was used
-            used_env = "HINDSIGHT_API_REFLECT_LLM_TIMEOUT" if os.environ.get("HINDSIGHT_API_REFLECT_LLM_TIMEOUT") else "HINDSIGHT_API_LLM_TIMEOUT"
-            logger.info("Using env %s=%s (operator override)", used_env, reflect_timeout)
-        except ValueError:
-            pass
-    if reflect_timeout is None and hasattr(raw, "reflect_llm_timeout"):
-        reflect_timeout = float(settings.llm.timeout)
-        raw.reflect_llm_timeout = reflect_timeout
-
-    # Determine reflect retries: env wins, then settings.llm.retries
-    reflect_retries: int | None = None
-    reflect_env_retries = os.environ.get("HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES") or os.environ.get("HINDSIGHT_API_LLM_MAX_RETRIES")
-    if reflect_env_retries is not None:
-        try:
-            reflect_retries = int(reflect_env_retries)
-            # Log the actual env var that was used
-            used_env = "HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES" if os.environ.get("HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES") else "HINDSIGHT_API_LLM_MAX_RETRIES"
-            logger.info("Using env %s=%s (operator override)", used_env, reflect_retries)
-        except ValueError:
-            pass
-    if reflect_retries is None and hasattr(raw, "reflect_llm_max_retries"):
-        reflect_retries = int(settings.llm.retries)
-        raw.reflect_llm_max_retries = reflect_retries
-
-    # Summary log
-    global_timeout_str = str(global_timeout) if global_timeout is not None else "-"
-    global_retries_str = str(global_retries) if global_retries is not None else "-"
-    reflect_timeout_str = str(reflect_timeout) if reflect_timeout is not None else "-"
-    reflect_retries_str = str(reflect_retries) if reflect_retries is not None else "-"
-
-    if global_timeout is not None or global_retries is not None:
-        logger.info(
-            "Hindsight LLM defaults: timeout=%s, max_retries=%s (reflect timeout=%s, max_retries=%s)",
-            global_timeout_str,
-            global_retries_str,
-            reflect_timeout_str,
-            reflect_retries_str,
+    if not env.get(_HINDSIGHT_LLM_SUPPORTS_MAX_ITEMS_ENV):
+        retain = settings.get_llm_config(MEMORY_RETAIN)
+        memory_models = (
+            retain.model,
+            retain.extraction_model,
+            settings.memory.cerebral.consolidation.model,
+            settings.memory.prefrontal.recall.model,
+            mm_model,
         )
+        if any(isinstance(m, str) and m.startswith("bedrock/") for m in memory_models):
+            overlay[_HINDSIGHT_LLM_SUPPORTS_MAX_ITEMS_ENV] = "false"
+
+    return overlay
 
 
-def _apply_reflect_config(cfg: PrefrontalConfig) -> dict[str, Any]:
-    """Apply reflect caps to Hindsight config programmatically.
+@contextlib.contextmanager
+def _hindsight_config(settings: Settings) -> Iterator[None]:
+    """Build Hindsight's cached config from a temporary ``HINDSIGHT_API_*`` env overlay.
 
-    Called in get_cerebral() after Cerebral import. Hindsight re-reads
-    reflect_max_iterations at call time (not in _CONFIGURABLE_FIELDS), so
-    setting it on _get_raw_config() after import takes effect.
-
-    The global cap is set to 2 × reflects (when reflects > 0) so that with
-    Hindsight's LOW budget multiplier (0.5×), both Prefrontal and briefing
-    refresh get exactly ``reflects`` iterations.
-
-    Args:
-        cfg: PrefrontalConfig with reflects.
-
-    Returns:
-        Dict of effective values applied (iterations). Empty dict when reflects == 0.
+    Sets the overlay keys, rebuilds the config cache (``clear_config_cache()`` then
+    ``get_config()``), yields so ``MemoryEngine.__init__`` reads the same config, then
+    removes exactly the keys it added: no codespy values (API keys included) stay in
+    ``os.environ`` for subprocesses. The cached config keeps them.
     """
-    # Set a minimal cap of 2 even when reflects == 0 to bound any Hindsight reflect
-    raw_cap = max(2 * max(cfg.reflects, 1), 1)
+    import hindsight_api.config as ha_cfg
 
+    added: list[str] = []
     try:
-        import hindsight_api.config as ha_cfg
-
-        raw = ha_cfg._get_raw_config()
-    except Exception as e:
-        logger.warning("Could not access Hindsight raw config: %s", e)
-        return {}
-
-    applied: dict[str, Any] = {}
-
-    # Apply iteration cap: env wins as-is (operator raw cap), else double reflects
-    env_iters = os.environ.get(HINDSIGHT_REFLECT_MAX_ITERATIONS_ENV)
-    if env_iters is not None:
-        try:
-            applied["iterations"] = int(env_iters)
-            applied["budget"] = "low"
-            logger.info("Using env %s=%s (operator override)", HINDSIGHT_REFLECT_MAX_ITERATIONS_ENV, env_iters)
-        except ValueError:
-            pass
-    elif cfg.reflects > 0:
-        if hasattr(raw, "reflect_max_iterations"):
-            raw.reflect_max_iterations = raw_cap
-            applied["iterations"] = raw_cap
-            applied["budget"] = "low"
-
-    # Hindsight's reflect_max_context_tokens default is 100000; we no longer
-    # override it. The default is used which allows full context without
-    # triggering split synthesis.
-
-    if applied:
-        effective_iters = applied.get("iterations", 0)
-        # With LOW budget (0.5×), iterations = max(1, int(cap * 0.5))
-        effective_reflects = max(1, int(effective_iters * 0.5))
+        for key, value in _hindsight_env_overlay(settings).items():
+            if key not in os.environ:
+                os.environ[key] = value
+                added.append(key)
+        ha_cfg.clear_config_cache()
+        ha_cfg.get_config()
         logger.info(
-            "Prefrontal reflect caps: iterations=%d (hindsight cap=%d, budget=low) context_tokens=100000",
-            effective_reflects,
-            effective_iters,
+            "Hindsight config from codespy settings: %s",
+            ", ".join(
+                f"{k}={'***' if k.endswith('_API_KEY') else os.environ[k]}" for k in added
+            )
+            or "none (operator env)",
         )
-
-    return applied
+        yield
+    finally:
+        for key in added:
+            os.environ.pop(key, None)
 
 
 def get_prefrontal(
@@ -895,94 +825,14 @@ def get_run_prefrontal(
         return None
 
 
-# Snapshot of raw config mental_model_refresh fields before mutation,
-# restored by reset_cerebral() to avoid leaking settings across rebuilds.
-_mental_model_refresh_snapshot: dict[str, Any] | None = None
-
-
-def _apply_mental_model_refresh_llm(settings: "Settings") -> None:
-    """Apply mental-model refresh LLM config to Hindsight raw config programmatically.
-
-    Hindsight reads mental_model_refresh_llm_* from raw config (populated from
-    HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_* env vars). This function sets those
-    fields when codespy's config has an explicit mental_models.model and no env
-    override is present.
-
-    The snapshot is stored in _mental_model_refresh_snapshot so reset_cerebral()
-    can restore the original values.
-
-    Args:
-        settings: Application settings.
-    """
-    global _mental_model_refresh_snapshot
-
-    # Only apply when reflects > 0 and a mental_models model is configured
-    # reflects gates mental models; the model itself lives in cerebral.mental_models
-    if settings.memory.prefrontal.reflects == 0:
-        return
-    mm_cfg = settings.memory.cerebral.mental_models
-    if not mm_cfg.model:
-        return
-
-    # Operator env wins - if any HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_* is set,
-    # do not touch the raw config (the env values are already there)
-    env_vars = [
-        "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_PROVIDER",
-        "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_MODEL",
-        "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_API_KEY",
-        "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_BASE_URL",
-    ]
-    if any(os.environ.get(v) for v in env_vars):
-        logger.info("Using HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_* env vars (operator override)")
-        return
-
-    try:
-        import hindsight_api.config as ha_cfg
-
-        raw = ha_cfg._get_raw_config()
-    except Exception as e:
-        logger.warning("Could not access Hindsight raw config for mental-model refresh: %s", e)
-        return
-
-    # Snapshot current values before mutation
-    _mental_model_refresh_snapshot = {}
-    for field in ("mental_model_refresh_llm_provider", "mental_model_refresh_llm_model",
-                  "mental_model_refresh_llm_api_key", "mental_model_refresh_llm_base_url"):
-        if hasattr(raw, field):
-            _mental_model_refresh_snapshot[field] = getattr(raw, field)
-
-    # Get credentials for the configured model
-    model = mm_cfg.model
-    api_key, base_url = _litellm_credentials(settings, model)
-
-    try:
-        # Set the raw config fields (guarded by hasattr for forward compatibility)
-        if hasattr(raw, "mental_model_refresh_llm_provider"):
-            raw.mental_model_refresh_llm_provider = "litellm"
-        if hasattr(raw, "mental_model_refresh_llm_model"):
-            raw.mental_model_refresh_llm_model = model
-        if hasattr(raw, "mental_model_refresh_llm_api_key"):
-            raw.mental_model_refresh_llm_api_key = api_key
-        if hasattr(raw, "mental_model_refresh_llm_base_url"):
-            # Use "" for no base URL (not None), so Hindsight doesn't inherit reflect's base URL
-            raw.mental_model_refresh_llm_base_url = base_url or ""
-
-        logger.info("Mental-model refresh LLM: model=%s", model)
-    except Exception as e:
-        logger.warning("Failed to set mental-model refresh LLM config: %s", e)
-
-
 def reset_cerebral() -> None:
     """Clear the cached Cerebral instance so it is rebuilt on next access.
 
     Call this after reloading settings (e.g. ``reload_settings()``) so a
-    changed ``memory`` configuration takes effect.
-
-    Also restores the Hindsight raw config mental_model_refresh fields from
-    the snapshot taken by _apply_mental_model_refresh_llm to avoid leaking
-    settings across rebuilds.
+    changed ``memory`` configuration takes effect. Also clears Hindsight's
+    config cache, so the next build reads the new settings.
     """
-    global _cerebral, _cerebral_built, _mental_model_refresh_snapshot
+    global _cerebral, _cerebral_built
 
     if _cerebral is not None:
         try:
@@ -992,15 +842,9 @@ def reset_cerebral() -> None:
     _cerebral = None
     _cerebral_built = False
 
-    # Restore raw config snapshot if present
-    if _mental_model_refresh_snapshot:
-        try:
-            import hindsight_api.config as ha_cfg
+    try:
+        import hindsight_api.config as ha_cfg
 
-            raw = ha_cfg._get_raw_config()
-            for field, value in _mental_model_refresh_snapshot.items():
-                if hasattr(raw, field):
-                    setattr(raw, field, value)
-        except Exception:
-            pass
-        _mental_model_refresh_snapshot = None
+        ha_cfg.clear_config_cache()
+    except ImportError:
+        pass
