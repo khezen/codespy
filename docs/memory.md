@@ -179,14 +179,6 @@ Briefing triggers are configured automatically with these settings:
 
 Monitor briefing quality in the `memories` section of the review output and the `mental_models` content.
 
-#### Upgrading: manual cleanup
-
-Older versions kept a repo briefing and bound scope-agent episodes to every PR scope. codespy never deletes anything itself. To clean up, run these steps manually:
-
-1. Delete the legacy repo briefing `mental_model_id(["org:<owner>", "repo:<owner/repo>"])` (`mm-` + `sha1("org:<owner>|repo:<owner/repo>")[:32]`). It is no longer read or refreshed.
-2. Optional: delete scope-agent documents. These are memory units tagged `task:scope` and `repo:<owner/repo>`, document `episode-<id>`. They carry every service's scope tag and keep leaking into service briefings until removed.
-3. Optional: run a full refresh on the remaining briefings. The size guard eventually does this on its own.
-
 ### Hindsight maintenance
 
 - Orphaned pending operations are repaired by `orphans.py`

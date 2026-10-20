@@ -11,7 +11,7 @@
   - Scope-agent episodes are bound to the repo-root scope only. Before, they were bound to every PR scope and their common ancestor.
   - Episodes without a scope topic are tagged `project_scope:<repo>`.
   - New size guard: after consolidation, any briefing over `1.5 × memory.cerebral.mental_models.max_tokens` gets one full refresh, then its delta trigger is restored.
-  - Nothing is deleted automatically. See `docs/memory.md` → *Upgrading: manual cleanup*.
+  - Nothing is deleted automatically.
 
 ## [2.0.1] - 2026-10-05
 
