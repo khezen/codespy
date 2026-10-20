@@ -377,3 +377,39 @@ class TestCodespyRLM:
         with dspy.context(lm=lm, adapter=dspy.ChatAdapter()):
             out = CodespyRLM(Sig, max_iters=2)(categories=[IssueCategory.BUG, IssueCategory.SMELL])
         assert out.answer == "bug,smell"
+
+    def test_reasoning_override_not_applied_when_description_changed(self):
+        """When dspy changes the reasoning desc (e.g., PR #10643), don't override it."""
+        from codespy.agents.context_safe import _STOCK_RLM_REASONING_DESC
+
+        class ModifiedRLM(dspy.RLM):
+            """Simulate dspy PR #10643: different reasoning description."""
+
+            def _build_signatures(self):
+                action_sig, extract_sig = super()._build_signatures()
+                if "reasoning" in action_sig.output_fields:
+                    # Simulate dspy #10643: native reasoning with different desc
+                    action_sig = action_sig.with_updated_fields(
+                        "reasoning", desc="A short plan for the next action."
+                    )
+                return action_sig, extract_sig
+
+        rlm = ModifiedRLM(self._Sig, max_iters=2)
+        # The signature should keep dspy's new description, not be overridden
+        sig = rlm.generate_action.signature
+        desc = sig.output_fields["reasoning"].json_schema_extra.get("desc", "")
+        assert _STOCK_RLM_REASONING_DESC not in desc
+        # Should be the new desc, not the codespy override
+        assert desc == "A short plan for the next action."
+
+    def test_sub_agent_instructions_present(self):
+        """Verify RLM action instructions include sub-agent guidance."""
+        rlm = CodespyRLM(self._Sig, max_iters=2)
+        sig = rlm.generate_action.signature
+        # The sub-agent instructions should be in the signature instructions
+        assert "Sub-agents (dspy):" in sig.instructions
+        # Check key phrases from SUB_AGENT_INSTRUCTIONS are present
+        assert "import dspy" in sig.instructions
+        assert "dspy.Predict" in sig.instructions
+        assert "dspy.ChainOfThought" in sig.instructions
+        assert "dspy.ReActV2" in sig.instructions

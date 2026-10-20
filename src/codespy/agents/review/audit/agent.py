@@ -1,5 +1,6 @@
 """Auditor module — assesses code quality and provides recommendation after reviews."""
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -12,13 +13,13 @@ from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.prefrontal import with_prefrontal_memory
 from codespy.agents.review.models import Issue, ReviewContext
-from codespy.agents.review.helpers import deepest_common_folder
+from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 
 if TYPE_CHECKING:
-    from codespy.agents.review.scope.models import ScopeResult
     from codespy.agents.memory.hippocampus.episode import EpisodeStore
+    from codespy.agents.review.scope.models import ScopeResult
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +53,9 @@ class Auditor(dspy.Module):
         self._cost_tracker = get_cost_tracker()
         self._settings = get_settings()
 
-    def _call_auditor(
+    async def _acall_auditor(
         self,
-        auditor: dspy.Module,
+        agent: ContextSafe,
         review_context: ReviewContext,
         all_issues: list[Issue],
         run_id: str | None,
@@ -62,7 +63,7 @@ class Auditor(dspy.Module):
         topics: list["ScopeResult"] | None = None,
         prefrontal_memory: str | None = None,
     ) -> tuple[dspy.Prediction, Hippocampus | None, "EpisodeStore | None", dict[str, str] | None]:
-        """Execute the auditor predictor (with or without Hippocampus memory).
+        """Execute the auditor agent (with or without Hippocampus memory).
 
         Returns:
             Tuple of (result, hippo, store, artifacts) where hippo/store/artifacts
@@ -75,7 +76,8 @@ class Auditor(dspy.Module):
         question = (
             f"final audit of {review_context.pr_context.repo_slug}: "
             f"pull request {review_context.pr_context.pr_number} "
-            f"{review_context.pr_context.pr_title}: {review_context.pr_context.summary}"
+            f"{review_context.pr_context.pr_title}: "
+            f"{review_context.pr_context.summary}"
         )
 
         # Load prior "audit" episodes per scope
@@ -114,14 +116,16 @@ class Auditor(dspy.Module):
                     initial_memory=initial_memory,
                     topics=scope_topics if scope_topics else None,
                 )
-        result = auditor(
+        result = await run_rlm(
+            agent,
             pr_title=review_context.pr_context.pr_title,
             summary=review_context.pr_context.summary,
             all_issues=all_issues,
             **pf_kwargs,
         )
+        log_rlm_outcome(result, "audit", review_context.pr_context.repo_full_name)
         if hippo is not None:
-            hippo.observe(result)
+            await hippo.aobserve(result)
             _artifacts = {
                 "audit": (
                     f"## Quality Assessment\n\n{result.quality_assessment}\n\n"
@@ -132,7 +136,7 @@ class Auditor(dspy.Module):
         else:
             return result, None, None, None
 
-    def forward(
+    async def aforward(
         self,
         review_context: ReviewContext,
         all_issues: list[Issue],
@@ -140,7 +144,7 @@ class Auditor(dspy.Module):
         scopes: list["ScopeResult"] | None = None,
         topics: list["ScopeResult"] | None = None,
     ) -> tuple[str, str]:
-        """Assess quality and recommend action.
+        """Assess quality and recommend action (async).
 
         Args:
             review_context: ReviewContext containing PR identity (memory loaded per-scope from prior audit episodes)
@@ -170,19 +174,21 @@ class Auditor(dspy.Module):
             scope_topic_ids=None,
         )
         sig = with_prefrontal_memory(AuditSignature) if prefrontal_memory else AuditSignature
-        auditor = ContextSafe(
-            dspy.ChainOfThought(sig),
+        recall_tool = pf.recall_tool() if pf else None
+        agent_tools = [recall_tool] if recall_tool else []
+        auditor_agent = build_rlm_agent(
             sig,
+            agent_tools,
             name="audit",
             max_iters=self._settings.get_max_iters("audit"),
             max_llm_calls=self._settings.get_max_llm_calls("audit"),
-            rlm_threshold=self._settings.get_rlm_threshold("chain_of_thought"),
+            rlm_threshold=self._settings.get_rlm_threshold("react"),
         )
         logger.info("Running audit...")
 
-        with SignatureContext("audit", self._cost_tracker):
-            result, hippo, store, _artifacts = self._call_auditor(
-                auditor,
+        async with SignatureContext("audit", self._cost_tracker):
+            result, hippo, store, _artifacts = await self._acall_auditor(
+                auditor_agent,
                 review_context,
                 all_issues,
                 run_id,
@@ -212,3 +218,33 @@ class Auditor(dspy.Module):
             submit_episode_save(_persist, name="audit-episode-save")
 
         return result.quality_assessment, result.recommendation
+
+    def forward(
+        self,
+        review_context: ReviewContext,
+        all_issues: list[Issue],
+        run_id: str | None = None,
+        scopes: list["ScopeResult"] | None = None,
+        topics: list["ScopeResult"] | None = None,
+    ) -> tuple[str, str]:
+        """Assess quality and recommend action (sync wrapper).
+
+        Args:
+            review_context: ReviewContext containing PR identity (memory loaded per-scope from prior audit episodes)
+            all_issues: All issues found during review
+            run_id: Pipeline run identifier
+            scopes: List of resolved scopes for per-scope episode persistence
+            topics: Optional list of Topic objects for auto-tagging
+
+        Returns:
+            Tuple of (quality_assessment, recommendation)
+        """
+        return asyncio.run(
+            self.aforward(
+                review_context=review_context,
+                all_issues=all_issues,
+                run_id=run_id,
+                scopes=scopes,
+                topics=topics,
+            )
+        )

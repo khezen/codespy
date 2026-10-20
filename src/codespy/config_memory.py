@@ -72,7 +72,7 @@ class ReflectionModuleConfig(BaseModel):
     temperature: float | None = None
     max_tokens: int | None = None
     max_iters: int | None = 1
-    max_llm_calls: int | None = 2
+    max_llm_calls: int | None = 4
 
 
 class HippocampusConfig(BaseModel):

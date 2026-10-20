@@ -160,7 +160,7 @@ inputs:
     required: false
 
   code-review-max-llm-calls:
-    description: 'Max LLM calls for code review RLM fallback. Default from codespy.yaml: 8'
+    description: 'Max LLM calls for code review RLM fallback. Default from codespy.yaml: 16'
     required: false
 
   code-review-max-tokens:
@@ -187,11 +187,11 @@ inputs:
     required: false
 
   doc-max-iters:
-    description: 'Max iterations for doc review. Default from codespy.yaml: 2'
+    description: 'Max iterations for doc review. Default from codespy.yaml: 5'
     required: false
 
   doc-max-llm-calls:
-    description: 'Max LLM calls for doc review RLM fallback. Default from codespy.yaml: 4'
+    description: 'Max LLM calls for doc review RLM fallback. Default from codespy.yaml: 16'
     required: false
 
   doc-max-tokens:
@@ -249,7 +249,7 @@ inputs:
     required: false
 
   summary-max-iters:
-    description: 'Max iterations for summary. Default from codespy.yaml: 1'
+    description: 'Max iterations for summary. Default from codespy.yaml: 5'
     required: false
 
   summary-model:
@@ -257,7 +257,7 @@ inputs:
     required: false
 
   summary-max-llm-calls:
-    description: 'Max LLM calls for summary RLM fallback. Default from codespy.yaml: 2'
+    description: 'Max LLM calls for summary RLM fallback. Default from codespy.yaml: 16'
     required: false
 
   summary-max-tokens:
@@ -284,11 +284,11 @@ inputs:
     required: false
 
   audit-max-iters:
-    description: 'Max iterations for audit. Default from codespy.yaml: 1'
+    description: 'Max iterations for audit. Default from codespy.yaml: 5'
     required: false
 
   audit-max-llm-calls:
-    description: 'Max LLM calls for audit RLM fallback. Default from codespy.yaml: 2'
+    description: 'Max LLM calls for audit RLM fallback. Default from codespy.yaml: 16'
     required: false
 
   audit-max-tokens:

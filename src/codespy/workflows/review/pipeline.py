@@ -190,7 +190,7 @@ class ReviewPipeline(dspy.Module):
         if config_path:
             logger.info(f"Config loaded from: {config_path}")
         logger.info(f"min_confidence={self.settings.review.min_confidence:.2f}")
-        for sig_name in ["code_review", "doc", "supply_chain"]:
+        for sig_name in ["code_review", "doc", "supply_chain", "summary", "audit"]:
             max_iters = self.settings.get_max_iters(sig_name)
             max_llm_calls = self.settings.get_max_llm_calls(sig_name)
             logger.info(f"  {sig_name}: max_iters={max_iters}, max_llm_calls={max_llm_calls}")

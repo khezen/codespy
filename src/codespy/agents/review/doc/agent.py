@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -10,12 +9,9 @@ from typing import Any
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.context_safe import ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.prefrontal import with_prefrontal_memory
-from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
-from codespy.agents.review.scope.models import ScopeResult
 from codespy.agents.review.doc.doc_extractor import extract_documentation
 from codespy.agents.review.helpers import (
     build_patches,
@@ -25,6 +21,9 @@ from codespy.agents.review.helpers import (
     resolve_scope_root,
     restore_repo_paths,
 )
+from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
+from codespy.agents.review.scope.models import ScopeResult
+from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 
@@ -107,7 +106,7 @@ class DocReviewer(dspy.Module):
 
     Two-step approach per scope:
     1. Deterministic extraction (single tree scan + file reads, no LLM)
-    2. DocReview (ChainOfThought, no tools): compares patches vs doc content
+    2. DocReview (RLM): compares patches vs doc content
     """
 
     def __init__(self) -> None:
@@ -196,7 +195,7 @@ class DocReviewer(dspy.Module):
         if not documentation.strip():
             logger.debug(f"  No documentation found in {scope.subroot}, skipping doc review")
             return []
-        # Step 2: Review docs vs patches (ChainOfThought, no tools)
+        # Step 2: Review docs vs patches (RLM)
         scoped = make_scope_relative(scope)
         patches = self._build_patches(scoped)
         if not patches:
@@ -209,13 +208,15 @@ class DocReviewer(dspy.Module):
                 self._settings, "doc", repo_full_name, scope_topic_ids=None
             )
             sig = with_prefrontal_memory(DocReviewSignature) if review_context.prefrontal_memory else DocReviewSignature
-            reviewer = ContextSafe(
-                dspy.ChainOfThought(sig),
+            recall_tool = pf.recall_tool() if pf else None
+            agent_tools = [recall_tool] if recall_tool else []
+            agent = build_rlm_agent(
                 sig,
+                agent_tools,
                 name="doc",
                 max_iters=max_iters,
                 max_llm_calls=self._settings.get_max_llm_calls("doc"),
-                rlm_threshold=self._settings.get_rlm_threshold("chain_of_thought"),
+                rlm_threshold=self._settings.get_rlm_threshold("react"),
             )
             logger.info(
                 f"  Doc review: scope {scope.subroot} ({len(scope.changed_files)} files)"
@@ -257,12 +258,8 @@ class DocReviewer(dspy.Module):
                         initial_memory=scope_initial_memory,
                         topics=topics,
                     )
-                result = await reviewer.acall(
-                    patches=patches,
-                    documentation=documentation,
-                    categories=[IssueCategory.DOCUMENTATION],
-                    **pf_kwargs,
-                )
+                result = await run_rlm(agent, scope=scoped, categories=[IssueCategory.DOCUMENTATION], **pf_kwargs)
+                log_rlm_outcome(result, "doc", scope.subroot)
                 issues = filter_by_confidence(
                     result.issues, self._settings.review.min_confidence, "doc", scope.subroot
                 )

@@ -23,7 +23,14 @@ _MIN_RLM_THRESHOLD_TOKENS = 8192
 # Replaces dspy.RLM's stock `reasoning` desc ("Think step-by-step: what do you
 # know? What remains? Plan your next action."), which on its own triggers Bedrock
 # content_filter on Claude Opus 5.5.
+# NOTE: This override retires itself once dspy ships PR #10643 (expected 3.4.2 or 3.5),
+# which changes the field to `dspy.Reasoning` with a safer fallback plan. Once the
+# minimum dspy includes that fix, delete this override and its tests.
 RLM_REASONING_DESC = "Short plan for the next step."
+
+# Stock dspy RLM reasoning description that triggers Bedrock content_filter.
+# See dspy PR #10643 for the upstream fix.
+_STOCK_RLM_REASONING_DESC = "Think step-by-step: what do you know? What remains? Plan your next action."
 
 
 def _plain(value):  # type: ignore[no-untyped-def]
@@ -58,7 +65,12 @@ class CodespyRLM(dspy.RLM):
     def _build_signatures(self):  # type: ignore[no-untyped-def]
         action_sig, extract_sig = super()._build_signatures()
         if "reasoning" in action_sig.output_fields:
-            action_sig = action_sig.with_updated_fields("reasoning", desc=RLM_REASONING_DESC)
+            # Only override the stock description that triggers Bedrock content_filter.
+            # Once dspy PR #10643 ships (native reasoning with fallback), this check
+            # becomes a no-op and the override can be removed.
+            current_desc = action_sig.output_fields["reasoning"].json_schema_extra.get("desc", "")
+            if _STOCK_RLM_REASONING_DESC in current_desc:
+                action_sig = action_sig.with_updated_fields("reasoning", desc=RLM_REASONING_DESC)
         return action_sig, extract_sig
 
 

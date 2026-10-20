@@ -1,5 +1,32 @@
 # Changelog
 
+## [2.3.0] - 2026-10-20
+
+### Changed
+
+- **doc, summary and audit run on RLM** instead of ChainOfThought, wired like code_review: `build_rlm_agent` / `run_rlm` / `log_rlm_outcome`, `recall_memory` tool when enabled, and the `react` RLM fallback threshold (0.30). `Summarizer` and `Auditor` gain an async `aforward`; their sync `forward` wraps it with `asyncio.run`.
+- **doc, summary and audit budgets match code_review**: `max_iters` and `max_llm_calls` now inherit the defaults (5 / 16) instead of doc 2/8, summary 1/4, audit 1/4. Expect more LLM calls per run for these modules.
+
+## [2.2.0] - 2026-10-20
+
+### Changed
+
+- **dspy 3.4.1.** Upgraded from 3.4.0. New transitive deps: `pyyaml>=6.0.1`, `jsonschema>=4.0.0`.
+- **RLM sub-agents adopted.** dspy 3.4.1 adds a "Sub-agents (dspy)" block to every RLM action prompt, letting the REPL build `Predict`, `ChainOfThought`, `ReActV2` or nested `RLM` agents. Sub-agent calls share the signature's LM and count toward `max_llm_calls`. This change keeps the block; the old 3.4.0 prompts are invalidated.
+- **max_llm_calls defaults doubled** to leave room for sub-agents:
+  - Default: 8 → 16
+  - doc: 4 → 8
+  - scope: 5 → 10
+  - summary: 2 → 4
+  - audit: 2 → 4
+  - memory distiller/cartographer: 2 → 4
+  - code_review and supply_chain keep inheriting the default (now 16).
+- **RLM reasoning override now self-retiring.** `CodespyRLM._build_signatures` only replaces the stock "Think step-by-step" description when it is still present. Once dspy ships PR #10643 (native `dspy.Reasoning` with a fallback plan), the override becomes a no-op and can be removed.
+
+### Note
+
+- The Bedrock `content_filter` fix for RLM reasoning is in dspy PR #10643 (merged to main, unreleased). Until a dspy release includes it, codespy's override remains active for 3.4.1.
+
 ## [2.1.1] - 2026-10-20
 
 ### Changed
