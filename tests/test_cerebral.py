@@ -901,9 +901,11 @@ from hindsight_api.engine.task_backend import SyncTaskBackend  # noqa: E402
 from hindsight_api.extensions import OperationValidationError  # noqa: E402
 
 from codespy.agents.memory.cerebral.cerebral import (  # noqa: E402
+    BRIEFING_FULL_REFRESH_FACTOR,
     MENTAL_MODEL_PLACEHOLDER,
     MENTAL_MODEL_SOURCE_QUERY,
     OBSERVATIONS_MISSION,
+    ROOT_MENTAL_MODEL_SOURCE_QUERY,
 )
 from codespy.agents.memory.prefrontal.reach import mental_model_id  # noqa: E402
 
@@ -921,6 +923,7 @@ def async_engine():
         "reflect_async",
         "get_mental_model",
         "create_mental_model",
+        "update_mental_model",
         "submit_async_refresh_mental_model",
         "get_observation_history",
         "get_bank_profile",
@@ -1233,6 +1236,20 @@ class TestCerebralRetainScopes:
             ["org:o", "repo:o/r", "project_scope:o/r"]
         ]
 
+    def test_tags_without_project_scope_use_root_scope(self):
+        """No scope topic: tagged with the repo-root scope so root recall reaches it."""
+        ep = Episode(
+            id=uuid.uuid4(), run_id="r", timestamp=datetime.now(UTC), task="summary",
+            module="m", question="q", artifacts={}, context_memory=ContextMemory(),
+        )
+        tags = Cerebral._build_tags(ep, "o/r")
+        assert "project_scope:o/r" in tags
+        assert "repo:o/r" in tags and "org:o" in tags
+
+    def test_tags_with_project_scope_do_not_add_root(self, episode):
+        tags = Cerebral._build_tags(episode, "test/repo")
+        assert "project_scope:test/repo" not in tags
+
     def test_observation_scopes_none_without_repo(self, episode):
         assert Cerebral._observation_scopes(episode, None) is None
 
@@ -1305,10 +1322,10 @@ class TestConsolidateRun:
 
         engine.submit_async_consolidation.assert_awaited_once()
         scopes = engine.submit_async_consolidation.await_args.kwargs["observation_scopes"]
+        # No bare [org:, repo:] scope: it would cover every scope of a monorepo
         assert sorted(map(sorted, scopes)) == sorted(
             map(sorted, [
                 ["org:test", "repo:test/repo", "project_scope:test/repo/package"],
-                ["org:test", "repo:test/repo"],
             ])
         )
         assert episode.run_id not in cerebral_async._pending_scopes
@@ -1328,6 +1345,49 @@ class TestConsolidateRun:
         assert episode.run_id not in cerebral_async._pending_scopes
 
 
+class TestBriefingSizeGuard:
+    SCOPE = ["org:o", "repo:o/r", "project_scope:o/r/svc"]
+
+    def _content(self, cerebral, factor):
+        # chars/4 token heuristic
+        return "x" * int(cerebral._max_mental_model_tokens * factor * 4)
+
+    def test_oversized_gets_one_full_refresh_then_delta_restored(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.return_value = {
+            "content": self._content(cerebral_async, BRIEFING_FULL_REFRESH_FACTOR + 1)
+        }
+        cerebral_async._enforce_briefing_size([self.SCOPE])
+        async_engine.submit_async_refresh_mental_model.assert_awaited_once()
+        assert async_engine.submit_async_refresh_mental_model.await_args.args[1] == mental_model_id(self.SCOPE)
+        triggers = [c.kwargs["trigger"]["mode"] for c in async_engine.update_mental_model.await_args_list]
+        assert triggers == ["full", "delta"]
+
+    def test_under_limit_untouched(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.return_value = {"content": self._content(cerebral_async, 1.0)}
+        cerebral_async._enforce_briefing_size([self.SCOPE])
+        async_engine.submit_async_refresh_mental_model.assert_not_awaited()
+        async_engine.update_mental_model.assert_not_awaited()
+
+    def test_refresh_failure_swallowed_and_delta_restored(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.return_value = {"content": self._content(cerebral_async, 3)}
+        async_engine.submit_async_refresh_mental_model.side_effect = RuntimeError("boom")
+        cerebral_async._enforce_briefing_size([self.SCOPE])  # no raise
+        assert async_engine.update_mental_model.await_args.kwargs["trigger"]["mode"] == "delta"
+
+    def test_disabled_without_mental_models(self, cerebral_async, async_engine):
+        cerebral_async._mental_models = False
+        cerebral_async._enforce_briefing_size([self.SCOPE])
+        async_engine.get_mental_model.assert_not_awaited()
+
+    def test_runs_after_consolidation(self, cerebral_async, async_engine, episode):
+        async_engine.submit_async_consolidation = AsyncMock(return_value={})
+        with patch.object(cerebral_async, "_enforce_briefing_size") as guard:
+            cerebral_async.retain_episode(episode, repo_full_name="test/repo")
+            cerebral_async.consolidate_run(episode.run_id)
+        guard.assert_called_once()
+        assert guard.call_args.args[0] == [["org:test", "repo:test/repo", "project_scope:test/repo/package"]]
+
+
 class TestEnsureMentalModels:
     def test_ids_are_deterministic(self):
         a = mental_model_id(["repo:o/r", "org:o"])
@@ -1336,22 +1396,66 @@ class TestEnsureMentalModels:
         assert a.startswith("mm-") and len(a) == 3 + 32
         assert a != mental_model_id(["org:o", "repo:o/other"])
 
-    def test_retain_ensures_scope_and_repo_models(self, cerebral_async, async_engine, episode):
+    def test_retain_ensures_scope_model_only(self, cerebral_async, async_engine, episode):
         cerebral_async.retain_episode(episode, repo_full_name="test/repo")
         created = [c.kwargs["mental_model_id"] for c in async_engine.create_mental_model.await_args_list]
+        # Only the scope briefing; the bare repo briefing [org:, repo:] is never created
         assert created == [
             mental_model_id(["org:test", "repo:test/repo", "project_scope:test/repo/package"]),
-            mental_model_id(["org:test", "repo:test/repo"]),
         ]
+        assert mental_model_id(["org:test", "repo:test/repo"]) not in created
         first = async_engine.create_mental_model.await_args_list[0]
         assert first.args[1] == "Briefing: test/repo/package"
         assert first.args[2] == MENTAL_MODEL_SOURCE_QUERY
         assert first.args[3] == MENTAL_MODEL_PLACEHOLDER
-        assert first.kwargs["trigger"] == {"refresh_after_consolidation": True, "exclude_mental_models": True}
+        trigger = first.kwargs["trigger"]
+        assert trigger["refresh_after_consolidation"] is True
+        assert trigger["exclude_mental_models"] is True
+        assert trigger["mode"] == "delta"
         assert first.kwargs["max_tokens"] == 2048
-        second = async_engine.create_mental_model.await_args_list[1]
-        assert second.args[1] == "Briefing: test/repo"
-        # No longer calls submit_async_refresh_mental_model - consolidation handles refresh
+
+    def test_root_briefing_created_with_repo_wide_query(self, cerebral_async, async_engine):
+        root = ["org:o", "repo:o/r", "project_scope:o/r"]
+        cerebral_async._sync_briefing_triggers([root])
+        call = async_engine.create_mental_model.await_args
+        assert call.kwargs["mental_model_id"] == mental_model_id(root)
+        assert call.args[1] == "Briefing: o/r (repo-wide)"
+        assert call.args[2] == ROOT_MENTAL_MODEL_SOURCE_QUERY
+        assert "omit anything that is true for only one scope" in ROOT_MENTAL_MODEL_SOURCE_QUERY
+
+    def test_existing_root_briefing_requeried_not_deleted(self, cerebral_async, async_engine):
+        root = ["org:o", "repo:o/r", "project_scope:o/r"]
+        async_engine.get_mental_model.return_value = {
+            "id": mental_model_id(root),
+            "name": "Briefing: o/r",
+            "source_query": MENTAL_MODEL_SOURCE_QUERY,
+            "content": "huge",
+            "trigger": {"refresh_after_consolidation": True, "exclude_mental_models": True, "mode": "delta"},
+        }
+        cerebral_async._sync_briefing_triggers([root])
+        async_engine.create_mental_model.assert_not_awaited()
+        kwargs = async_engine.update_mental_model.await_args.kwargs
+        assert kwargs["name"] == "Briefing: o/r (repo-wide)"
+        assert kwargs["source_query"] == ROOT_MENTAL_MODEL_SOURCE_QUERY
+
+    def test_existing_scope_briefing_up_to_date_untouched(self, cerebral_async, async_engine):
+        scope = ["org:o", "repo:o/r", "project_scope:o/r/svc"]
+        async_engine.get_mental_model.return_value = {
+            "name": "Briefing: o/r/svc",
+            "source_query": MENTAL_MODEL_SOURCE_QUERY,
+            "content": "c",
+            "trigger": {"refresh_after_consolidation": True, "exclude_mental_models": True, "mode": "delta"},
+        }
+        cerebral_async._sync_briefing_triggers([scope])
+        async_engine.update_mental_model.assert_not_awaited()
+
+    def test_never_deletes(self, cerebral_async, async_engine, episode):
+        async_engine.submit_async_consolidation = AsyncMock(return_value={})
+        async_engine.get_mental_model.return_value = {"content": "x" * 100_000, "trigger": {}}
+        cerebral_async.retain_episode(episode, repo_full_name="test/repo")
+        cerebral_async.consolidate_run(episode.run_id)
+        for name in ("delete_mental_model", "delete_document", "delete_memory_unit"):
+            getattr(async_engine, name).assert_not_called()
 
     def test_existing_model_not_created(self, cerebral_async, async_engine):
         async_engine.get_mental_model.return_value = {"id": "x", "content": "c"}

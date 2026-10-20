@@ -145,12 +145,18 @@ Consolidation uses an explicit `observation_scopes` list: one `[org:, repo:, pro
 
 ### Mental models (briefings)
 
-Mental models are the abstraction layer ("when X happens, consider Y because Z"). Cerebral keeps one per observation scope of each episode, plus one per repo (`[org:, repo:]`), when `memory.prefrontal.reflects > 0`:
+Mental models are the abstraction layer ("when X happens, consider Y because Z"). Cerebral keeps one per observation scope of each episode, when `memory.prefrontal.reflects > 0`. There is **no** bare repo briefing (`[org:, repo:]`). Every fact carries those tags, so that briefing would cover every scope of a monorepo.
 
 - id: `mm-` + first 32 hex chars of `sha1("|".join(sorted(tags)))`
-- name: `Briefing: <project_scope id | repo>`
-- source query: *"What should an agent starting work here know so it does not rediscover it..."*
+- name: `Briefing: <project_scope id>`. The repo-root scope (`project_scope:<owner/repo>`) is named `Briefing: <owner/repo> (repo-wide)`.
+- source query: *"What should an agent starting work here know so it does not rediscover it..."*. The repo-root briefing uses `ROOT_MENTAL_MODEL_SOURCE_QUERY` instead, which keeps only knowledge that holds for every scope (layout, conventions, shared tooling/CI, cross-scope contracts, repo-wide pitfalls) and leaves out individual services.
 - `max_tokens = cerebral.mental_models.max_tokens`, trigger `refresh_after_consolidation`
+
+**Repo-root scope**: fed by scope-agent episodes (always bound to the root topic only, never to the PR's scopes), root-level PRs (`subroot="."`), and episodes without a `project_scope` topic.
+
+**Size guard**: delta refreshes only add content. After each `consolidate_run`, any touched briefing larger than `BRIEFING_FULL_REFRESH_FACTOR` (1.5) × `max_tokens` gets one full refresh: its trigger switches to `mode=full`, an explicit refresh runs inline, and the delta trigger is restored.
+
+When an existing briefing's name or source query differs from the expected one, codespy updates it (never deletes it). Hindsight falls back to a full refresh when the source query changed.
 
 codespy creates a missing briefing with placeholder content `"Generating content..."` in `_sync_briefing_triggers`, before retain. The content comes from Hindsight's `refresh_after_consolidation` trigger, which fires during `consolidate_run` at the end of the same run. It also updates the trigger of an existing briefing when settings changed.
 
@@ -173,6 +179,14 @@ Briefing triggers are configured automatically with these settings:
 
 Monitor briefing quality in the `memories` section of the review output and the `mental_models` content.
 
+#### Upgrading: manual cleanup
+
+Older versions kept a repo briefing and bound scope-agent episodes to every PR scope. codespy never deletes anything itself. To clean up, run these steps manually:
+
+1. Delete the legacy repo briefing `mental_model_id(["org:<owner>", "repo:<owner/repo>"])` (`mm-` + `sha1("org:<owner>|repo:<owner/repo>")[:32]`). It is no longer read or refreshed.
+2. Optional: delete scope-agent documents. These are memory units tagged `task:scope` and `repo:<owner/repo>`, document `episode-<id>`. They carry every service's scope tag and keep leaking into service briefings until removed.
+3. Optional: run a full refresh on the remaining briefings. The size guard eventually does this on its own.
+
 ### Hindsight maintenance
 
 - Orphaned pending operations are repaired by `orphans.py`
@@ -184,7 +198,7 @@ Prefrontal reads Cerebral and injects prior knowledge into agents.
 
 ### Run-level load vs scope load
 
-**One run-level load** (`task="review"`, all project scopes + repo) shared by summary, code_review, doc, supply_chain, audit. Only the **scope** agent does its own load when model refinement runs. The other agents create a per-agent Prefrontal only for the `recall_memory` tool.
+**One run-level load** (`task="review"`, all project scopes + the repo-root scope) shared by summary, code_review, doc, supply_chain, audit. Only the **scope** agent does its own load when model refinement runs. The other agents create a per-agent Prefrontal only for the `recall_memory` tool.
 
 ### Facets
 
@@ -204,7 +218,7 @@ Only the `context` facet runs the reflect loop; the others stay raw recall at MI
 
 `memory.prefrontal.recall.reach` (`local` | `org` | `bank`, default `org`):
 
-- **Local pool** (always): `project_scope:<scope id>` for code_review and supply_chain; `repo:<owner/repo>` for scope, summary and audit (summary and audit also OR in their scopes' `project_scope:` ids)
+- **Local pool** (always): `project_scope:<scope id>` for code_review and supply_chain. Agents with `include_repo` (scope, run-level load) also get the repo-root scope `project_scope:<owner/repo>`. The run-level load includes all PR scopes plus the root. `repo:<owner/repo>` is never part of the local pool, because it matches every fact in the repo.
 - **Remote pool** (`org`: `org:<owner>` AND NOT `repo:<own>`; `bank`: NOT `repo:<own>`): always raw facts, labelled with their source repo. Takes a fixed 25% share of `max_tokens` (and of `max_tool_tokens` for the tool); local facets split the rest. With `local` reach the local pool gets the whole budget.
 
 ### `recall_memory` tool

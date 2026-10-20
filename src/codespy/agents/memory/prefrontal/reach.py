@@ -41,6 +41,32 @@ def scope_tags(repo_full_name: str, scope_topic_id: str) -> list[str]:
     return [*repo_tags(repo_full_name), f"{TAG_PROJECT_SCOPE}{scope_topic_id}"]
 
 
+def root_scope_id(repo_full_name: str) -> str:
+    """Topic id of the repo-root scope (same as ``make_topic_id(repo, '.')``).
+
+    The root scope holds repo-wide knowledge only (layout, conventions, shared
+    tooling); it is never a container of every scope's facts.
+    """
+    return repo_full_name
+
+
+def is_root_scope(repo_full_name: str, scope_topic_id: str) -> bool:
+    """True when ``scope_topic_id`` is the repo-root scope of ``repo_full_name``."""
+    return bool(repo_full_name) and scope_topic_id == root_scope_id(repo_full_name)
+
+
+def _with_root(
+    repo_full_name: str, scope_topic_ids: Sequence[str] | None, include_repo: bool
+) -> list[str]:
+    """Scope ids, plus the repo-root scope id when ``include_repo`` (deduped, order kept)."""
+    ids = [sid for sid in (scope_topic_ids or []) if sid]
+    if include_repo and repo_full_name:
+        root = root_scope_id(repo_full_name)
+        if root not in ids:
+            ids.append(root)
+    return ids
+
+
 def mental_model_id(tags: Iterable[str]) -> str:
     """Deterministic mental-model id for a tag scope.
 
@@ -55,11 +81,16 @@ def mental_model_scopes(
     scope_topic_ids: Sequence[str] | None,
     include_repo: bool,
 ) -> list[list[str]]:
-    """Tag scopes whose briefings an agent reads: its scopes first, then the repo."""
-    scopes = [scope_tags(repo_full_name, sid) for sid in (scope_topic_ids or [])]
-    if include_repo:
-        scopes.append(repo_tags(repo_full_name))
-    return scopes
+    """Tag scopes whose briefings an agent reads: its scopes, then the repo-root scope.
+
+    ``include_repo`` adds the repo-root scope ``[org:, repo:, project_scope:<repo>]``
+    (repo-wide knowledge), never the bare ``[org:, repo:]`` scope, which would
+    cover every scope of a monorepo.
+    """
+    return [
+        scope_tags(repo_full_name, sid)
+        for sid in _with_root(repo_full_name, scope_topic_ids, include_repo)
+    ]
 
 
 def mental_model_ids(
@@ -88,11 +119,16 @@ def local_tags(
     scope_topic_ids: Sequence[str] | None,
     include_repo: bool,
 ) -> list[str]:
-    """Tags of the local pool (OR-ed): ``project_scope:`` ids, plus ``repo:`` if requested."""
-    tags = [f"{TAG_PROJECT_SCOPE}{sid}" for sid in (scope_topic_ids or [])]
-    if include_repo:
-        tags.insert(0, f"{TAG_REPO}{repo_full_name}")
-    return tags
+    """Tags of the local pool (OR-ed): ``project_scope:`` ids, plus the repo-root
+    scope ``project_scope:<repo>`` if ``include_repo``.
+
+    Never ``repo:<repo>``: every fact of the repo carries it, so OR-ing it in
+    would pull every scope of a monorepo into the local pool.
+    """
+    return [
+        f"{TAG_PROJECT_SCOPE}{sid}"
+        for sid in _with_root(repo_full_name, scope_topic_ids, include_repo)
+    ]
 
 
 def build_local_groups(

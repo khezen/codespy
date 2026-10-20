@@ -122,7 +122,8 @@ class Prefrontal:
         task_name: Agent task (e.g. ``code_review``).
         repo_full_name: ``owner/repo``.
         scope_topic_ids: ``project_scope`` topic ids of the agent's scope(s).
-        include_repo: Also read repo-level facts (``repo:<owner/repo>``) and briefing.
+        include_repo: Also read the repo-root scope (``project_scope:<owner/repo>``):
+            repo-wide facts and the repo-wide briefing. Never every ``repo:`` fact.
     """
 
     def __init__(
