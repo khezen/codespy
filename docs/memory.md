@@ -6,7 +6,7 @@ CodeSpy's memory system has three independent components:
 
 | Component | Role | Storage | Schema |
 |-----------|------|---------|--------|
-| **Hippocampus** | Learns from the current episode | PostgreSQL (`episodic`) | Episodic: episodes, observations, recalls |
+| **Hippocampus** | Learns from the current episode | PostgreSQL (`episodic`) | Episodic: episodes, observations, recalls (opt-in) |
 | **Cerebral** | Retains episodes into semantic memory, consolidates, refreshes mental models | Hindsight bank | Semantic: observations, mental models |
 | **Prefrontal** | Reads Cerebral and injects prior knowledge into agents | — | Read-only |
 
@@ -75,7 +75,7 @@ An Episode captures one agent's run:
 - `context_memory`: six sections of observations
 - `mutations`: ADD/REPLACE/DELETE operations produced by Cartographer
 - `artifacts`: named outputs (e.g., review markdown)
-- `recalls`: Prefrontal loads and tool calls
+- `recalls`: Prefrontal loads and tool calls (persisted only when `persist_recalls: true`)
 - `timestamp`: episode timestamp
 - `topics`: list of Topic objects for this episode
 
@@ -260,6 +260,14 @@ Prefrontal[code_review]: recall_memory reach=local status=ok mode=reflect model=
 
 One `recalls` row per recall, with PK `(bank_id, id UUID)`, `run_id`, `task`, and nullable `episode_id` (NULL for run-level loads). Index: `idx_recalls_run (bank_id, run_id)`.
 
+Rows are written only when `memory.hippocampus.persist_recalls: true` (`MEMORY_PERSIST_RECALLS`, default `false`). Each row stores the full recalled text, so the table grows fast. The table is always created, so the flag can be turned on without a migration. Turning it off does not remove existing rows; clean them up manually:
+
+```sql
+DELETE FROM episodic.recalls WHERE bank_id = 'codebase';
+-- or, for every bank:
+TRUNCATE episodic.recalls;
+```
+
 ### Cost buckets
 
 | Bucket | Description |
@@ -392,7 +400,7 @@ erDiagram
 ### SQL example
 
 ```sql
--- Run-level recalls (task='review', episode_id IS NULL)
+-- Run-level recalls (task='review', episode_id IS NULL); requires persist_recalls: true
 SELECT r.task, r.run_id, r.kind, r.status, r.model, r.llm_calls,
        r.input_tokens, r.output_tokens, r.input_cost + r.output_cost AS cost,
        r.latency_ms, r.query, r.text
@@ -424,6 +432,7 @@ LIMIT 50;
 | Env Var | YAML Path | Default | Description |
 |---------|-----------|---------|-------------|
 | `MEMORY_COMPACT_TRAJECTORY` | `memory.hippocampus.compact_trajectory` | `true` | Apply head+tail trajectory bounding before distillation |
+| `MEMORY_PERSIST_RECALLS` | `memory.hippocampus.persist_recalls` | `false` | Store Prefrontal recalls in the episodic `recalls` table (monitoring only; grows fast) |
 | `MEMORY_MAX_HIPPOCAMPUS_TOKENS` | `memory.hippocampus.max_hippocampus_tokens` | `16384` | Ceiling on persisted ContextMemory |
 | `MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS` | `memory.hippocampus.max_hippocampus_item_tokens` | `512` | Soft per-observation token limit |
 | `MEMORY_MAX_TRAJECTORY_TOKENS` | `memory.hippocampus.max_trajectory_tokens` | `16384` | Cap on trajectory fed to Distiller |

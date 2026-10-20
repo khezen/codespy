@@ -338,6 +338,10 @@ inputs:
     description: 'Apply head+tail trajectory bounding before distillation. Default from codespy.yaml: true'
     required: false
 
+  memory-persist-recalls:
+    description: 'Persist Prefrontal recalls to the episodic recalls table (grows fast). Default from codespy.yaml: false'
+    required: false
+
   memory-max-hippocampus-tokens:
     description: 'Ceiling on persisted context memory. Default from codespy.yaml: 16384'
     required: false
@@ -623,6 +627,7 @@ runs:
         MEMORY_CONSOLIDATION_MODEL: ${{ inputs.memory-consolidation-model }}
         MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE: ${{ inputs.memory-consolidation-max-observations-per-scope }}
         MEMORY_COMPACT_TRAJECTORY: ${{ inputs.memory-compact-trajectory }}
+        MEMORY_PERSIST_RECALLS: ${{ inputs.memory-persist-recalls }}
         MEMORY_MAX_HIPPOCAMPUS_TOKENS: ${{ inputs.memory-max-hippocampus-tokens }}
         MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS: ${{ inputs.memory-max-hippocampus-item-tokens }}
         MEMORY_MAX_TRAJECTORY_TOKENS: ${{ inputs.memory-max-trajectory-tokens }}
@@ -763,6 +768,7 @@ runs:
         [ -n "$MEMORY_CONSOLIDATION_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CONSOLIDATION_MODEL"
         [ -n "$MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE"
         [ -n "$MEMORY_COMPACT_TRAJECTORY" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_COMPACT_TRAJECTORY"
+        [ -n "$MEMORY_PERSIST_RECALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_PERSIST_RECALLS"
         [ -n "$MEMORY_MAX_HIPPOCAMPUS_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MAX_HIPPOCAMPUS_TOKENS"
         [ -n "$MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MAX_HIPPOCAMPUS_ITEM_TOKENS"
         [ -n "$MEMORY_MAX_TRAJECTORY_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MAX_TRAJECTORY_TOKENS"

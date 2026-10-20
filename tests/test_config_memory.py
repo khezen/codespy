@@ -258,6 +258,25 @@ class TestCerebralRetainChunkSizeEnvOverride:
         assert result["memory"]["cerebral"]["retain"]["chunk_size"] == "5000"
 
 
+class TestPersistRecallsConfig:
+    """memory.hippocampus.persist_recalls: off by default, env-overridable."""
+
+    def test_default_off(self):
+        from codespy.config_memory import MemoryConfig
+
+        assert MemoryConfig().hippocampus.persist_recalls is False
+
+    def test_env_mapping(self, monkeypatch):
+        from codespy.config import _ENV_MAP
+        from codespy.config_memory import HippocampusConfig
+        from codespy.config_utils import apply_env_overrides
+
+        assert _ENV_MAP["MEMORY_PERSIST_RECALLS"] == ("memory", "hippocampus", "persist_recalls")
+        monkeypatch.setenv("MEMORY_PERSIST_RECALLS", "true")
+        result = apply_env_overrides({}, _ENV_MAP)["memory"]["hippocampus"]
+        assert HippocampusConfig(**result).persist_recalls is True
+
+
 class TestPrefrontalConfig:
     """Tests for memory.prefrontal config, env mapping and get_cerebral wiring."""
 
