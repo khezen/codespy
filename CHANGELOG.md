@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.1.0] - 2026-10-20
+
+### Changed
+
+- **Hindsight ≥1.0.0** (`hindsight-api-slim >=1.0.0,<2`). Hindsight's new DB migrations run on the first start and cannot be undone: back up the `semantic` schema before upgrading.
+- **Observation cap via `consolidation_strategies`.** `max_observations_per_scope` is now sent as one strategy (`tags: [org:*, repo:*, project_scope:*]`, `tags_match: exact`). The deprecated `observation_scope_limits` key is cleared.
+- **Hindsight settings applied through `HINDSIGHT_API_*` config.** When Cerebral is built, codespy sets its values (LLM timeout/retries, reflect iteration cap, mental-model refresh LLM, and `LLM_SUPPORTS_MAX_ITEMS=false` when a memory model is on Bedrock) as env vars, rebuilds Hindsight's cached config, then removes them again. Operator env still wins. Codespy no longer mutates Hindsight's internal config object.
+- **Briefing refresh traces are kept** (`keep_trace: true` in the briefing trigger).
+
+### Removed
+
+- **Delta-ops coercion shim** (`delta_ops_compat.py`). Hindsight validates delta operations strictly and retries a refused reply, and Nemotron uses native structured output.
+- **Bedrock JSON Schema sanitizer.** litellm and Hindsight now produce schemas Bedrock accepts; `maxItems` is turned off through `HINDSIGHT_API_LLM_SUPPORTS_MAX_ITEMS`.
+- **Maintenance-routine repair** (`routines.py`). It only repaired pre-release databases; released databases get the routines from the normal migrations.
+- **The `"Generating content..."` placeholder.** Briefings are created empty. Existing briefings that still hold the placeholder are emptied on bank setup.
+
+### Fixed
+
+- **Memory cost now includes reasoning tokens.** Hindsight reports them as `thoughts_tokens`, apart from `output_tokens`; they are now billed as output.
+- **Briefing refreshes are pinned to the LOW budget** (`budget: low`). Hindsight treats an unset budget as MID for a refresh, which doubled its iteration cap.
+- **Reflect summaries count Hindsight 1.0's `closing_done` scope** as the final iteration.
+- **`max_observations_per_scope: -1` now lifts a previously stored cap.** Before, -1 sent nothing, so an earlier cap stayed in the bank config.
+
 ## [2.0.2] - 2026-10-20
 
 ### Fixed

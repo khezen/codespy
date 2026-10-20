@@ -117,6 +117,7 @@ class CerebralCostRecorder:
         scope: str = "",
         input_tokens: int = 0,
         output_tokens: int = 0,
+        thoughts_tokens: int | None = 0,
         error: Exception | None = None,
         duration: float = 0.0,
         **_: Any,
@@ -127,7 +128,10 @@ class CerebralCostRecorder:
             model: Full litellm model string (e.g., "bedrock/converse/moonshotai.kimi-k2.5")
             scope: Hindsight scope (e.g., "retain_extract_facts", "consolidation")
             input_tokens: Input/prompt token count
-            output_tokens: Output/completion token count
+            output_tokens: Visible output/completion token count
+            thoughts_tokens: Reasoning tokens. Hindsight >=0.10.2 reports them apart
+                from ``output_tokens``; they are billed as output, so they are
+                folded into the output count used for pricing and tracking.
             error: Exception if the call failed
             duration: Duration of the call in seconds
             **_: Ignored extra kwargs for forward compatibility
@@ -137,21 +141,23 @@ class CerebralCostRecorder:
             and errored calls that reached the provider (with billed usage).
         """
         try:
+            billed_output = output_tokens + (thoughts_tokens or 0)
+
             # Skip calls with no tokens (includes failed calls that never reached provider)
-            if input_tokens == 0 and output_tokens == 0:
+            if input_tokens == 0 and billed_output == 0:
                 return
 
             # Price the call using litellm
-            prompt_cost, completion_cost = self._price_call_split(model, input_tokens, output_tokens)
+            prompt_cost, completion_cost = self._price_call_split(model, input_tokens, billed_output)
             cost = prompt_cost + completion_cost
-            tokens = input_tokens + output_tokens
+            tokens = input_tokens + billed_output
 
             # Determine bucket: an active recall wins over the scope/task tag,
             # because Hindsight scopes cannot tell a reflect apart
             # from a mental-model refresh.
             usage = current_recall_usage.get()
             if usage is not None:
-                usage.add_llm(model, input_tokens, output_tokens, prompt_cost, completion_cost)
+                usage.add_llm(model, input_tokens, billed_output, prompt_cost, completion_cost)
                 bucket = BUCKET_MEMORY_RECALL
             else:
                 bucket = _llm_bucket(scope)
@@ -166,7 +172,7 @@ class CerebralCostRecorder:
                 tokens=tokens,
                 calls=1,
                 input_tokens=input_tokens,
-                output_tokens=output_tokens,
+                output_tokens=billed_output,
                 input_cost=prompt_cost,
                 output_cost=completion_cost,
                 duration=duration,

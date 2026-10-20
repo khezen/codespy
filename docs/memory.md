@@ -139,7 +139,7 @@ Every retained item carries its `project_scope:<id>` topic tags, `task:`, and `r
 
 Consolidation uses an explicit `observation_scopes` list: one `[org:, repo:, project_scope:]` scope per `project_scope` topic of the episode, or `[org:, repo:, project_scope:<owner/repo>]` (the repo-root scope) when there is none.
 
-**Per-scope observation cap**: Hindsight supports `observation_scope_limits` to cap observations per scope. codespy sets one rule: `[org:*, repo:*, project_scope:*]` with limit `max_observations_per_scope` (default 100, -1 = unlimited, 0 = no new observations). Scopes that hit the cap only allow UPDATE/DELETE; nothing is trimmed.
+**Per-scope observation cap**: codespy sends one Hindsight `consolidation_strategies` entry: scope rule `tags: [org:*, repo:*, project_scope:*]` with `tags_match: exact`, and `max_observations_per_scope` (default 100, -1 = unlimited, 0 = no new observations). It is sent on every bank setup, so -1 lifts a previously stored cap. The deprecated `observation_scope_limits` key is cleared (set to `null`), and the bank-wide `max_observations_per_scope` is never set. Scopes that hit the cap only allow UPDATE/DELETE; nothing is trimmed.
 
 **Consolidation**: Runs once per run, over the union of touched scopes, on the pipeline thread after `join_episode_saves()`. Not inline in `retain_episode`.
 
@@ -158,7 +158,7 @@ Mental models are the abstraction layer ("when X happens, consider Y because Z")
 
 When an existing briefing's name or source query differs from the expected one, codespy updates it (never deletes it). Hindsight falls back to a full refresh when the source query changed.
 
-codespy creates a missing briefing with placeholder content `"Generating content..."` in `_sync_briefing_triggers`, before retain. The content comes from Hindsight's `refresh_after_consolidation` trigger, which fires during `consolidate_run` at the end of the same run. It also updates the trigger of an existing briefing when settings changed.
+codespy creates a missing briefing with empty content in `_sync_briefing_triggers`, before retain. Briefings that still hold the pre-1.0 placeholder `"Generating content..."` are emptied once on bank setup. The content comes from Hindsight's `refresh_after_consolidation` trigger, which fires during `consolidate_run` at the end of the same run. It also updates the trigger of an existing briefing when any key codespy sets differs (stored triggers may hold extra keys; those are ignored).
 
 #### Trigger configuration
 
@@ -171,9 +171,11 @@ Briefing triggers are configured automatically with these settings:
 | `include_chunks` | `false` | Observation text only (no file chunks) |
 | `reflect_search_observations_max_tokens` | `3000` | Down from 5000 default |
 | `reflect_search_observations_include_entities` | `false` | Exclude entity metadata |
+| `budget` | `low` | Refresh gets `HINDSIGHT_API_REFLECT_MAX_ITERATIONS // 2` iterations (Hindsight treats a null budget as `mid`) |
+| `keep_trace` | `true` | The refresh trace is stored with the briefing |
 | `min_refresh_interval_seconds` | `0` | Configurable via `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS` |
 
-**Delta mode**: After the first full refresh, subsequent refreshes only process new facts since `last_memory_seen_at`. Falls back to full refresh when content is the placeholder or when the source query changed.
+**Delta mode**: After the first full refresh, subsequent refreshes only process new facts since `last_memory_seen_at`. Falls back to full refresh when the content is empty or when the source query changed.
 
 **Deferral**: When `min_refresh_interval_seconds > 0`, automatic refreshes inside the window are deferred (operation marked `cancelled`, not `failed`). The next consolidation after the interval expires covers everything since `last_memory_seen_at`.
 
@@ -182,7 +184,7 @@ Monitor briefing quality in the `memories` section of the review output and the 
 ### Hindsight maintenance
 
 - Orphaned pending operations are repaired by `orphans.py`
-- Maintenance routines are repaired by `routines.py`
+- Hindsight's own Alembic migrations run on `initialize()`. Moving to Hindsight 1.0 applies new migrations on first start; they cannot be undone, so back up the `semantic` schema before upgrading.
 
 ## Prefrontal (recall)
 
@@ -227,6 +229,8 @@ RLM agents (code_review, scope, supply_chain) get `async recall_memory(query: st
 - `N > 0`: both Prefrontal and briefing refreshes run at Hindsight's LOW budget (0.5× multiplier), with a doubled global cap (2 × N), so each gets exactly N iterations
 
 **Environment override**: if `HINDSIGHT_API_REFLECT_MAX_ITERATIONS` is set, it is used as-is (not doubled).
+
+**How settings reach Hindsight**: when Cerebral is built, codespy sets its values as `HINDSIGHT_API_*` env vars (only those the operator did not set), rebuilds Hindsight's cached config, then removes them from the environment again. Covered: `LLM_TIMEOUT`, `LLM_MAX_RETRIES`, `REFLECT_LLM_TIMEOUT`, `REFLECT_LLM_MAX_RETRIES`, `REFLECT_MAX_ITERATIONS`, `MENTAL_MODEL_REFRESH_LLM_{PROVIDER,MODEL,API_KEY,BASE_URL}` (all four, or none when the operator set any), and `LLM_SUPPORTS_MAX_ITEMS=false` when any memory model is on Bedrock.
 
 **Hindsight LLM timeout/retry**: `llm.timeout` / `llm.retries` apply to all Hindsight calls. Operator overrides (precedence: env > codespy settings):
 

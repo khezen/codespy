@@ -12,8 +12,8 @@ from codespy.config_memory import (
     CerebralRetainConfig,
     MentalModelsConfig,
     PostgresConfig,
-    _apply_hindsight_llm_call_defaults,
     _cerebral_litellm_params,
+    _hindsight_env_overlay,
     get_episode_store,
 )
 
@@ -318,184 +318,6 @@ class TestPrefrontalConfig:
 
         assert REFLECTION_MODULES == ("memory_distiller", "memory_cartographer")
 
-    def test_apply_reflect_config_returns_empty_when_reflects_zero(self):
-        from codespy.config_memory import PrefrontalConfig, _apply_reflect_config
-
-        cfg = PrefrontalConfig(reflects=0)
-        result = _apply_reflect_config(cfg)
-        assert result == {}
-
-    def test_apply_reflect_config_applies_values(self, monkeypatch):
-        pytest = __import__("pytest")
-        ha = pytest.importorskip("hindsight_api")
-        from codespy.config_memory import PrefrontalConfig, _apply_reflect_config
-
-        cfg = PrefrontalConfig(reflects=3)
-        # Clear env vars to ensure config values are applied
-        monkeypatch.delenv("HINDSIGHT_API_REFLECT_MAX_ITERATIONS", raising=False)
-
-        result = _apply_reflect_config(cfg)
-
-        # With reflects=3, the cap is set to 2*3=6 (doubled for LOW budget)
-        assert result["iterations"] == 6
-        assert result["budget"] == "low"
-
-    def test_apply_reflect_config_env_wins_over_config(self, monkeypatch):
-        pytest = __import__("pytest")
-        pytest.importorskip("hindsight_api")
-        from codespy.config_memory import (
-            HINDSIGHT_REFLECT_MAX_ITERATIONS_ENV,
-            HINDSIGHT_REFLECT_MAX_CONTEXT_TOKENS_ENV,
-            PrefrontalConfig,
-            _apply_reflect_config,
-        )
-
-        monkeypatch.setenv(HINDSIGHT_REFLECT_MAX_ITERATIONS_ENV, "10")
-        monkeypatch.setenv(HINDSIGHT_REFLECT_MAX_CONTEXT_TOKENS_ENV, "20000")
-
-        cfg = PrefrontalConfig(reflects=3)
-        result = _apply_reflect_config(cfg)
-
-        assert result["iterations"] == 10  # env wins (used as-is, not doubled)
-        assert result["budget"] == "low"
-
-    def test_apply_hindsight_llm_call_defaults(self, monkeypatch):
-        """Test _apply_hindsight_llm_call_defaults sets global/reflect timeout/retries."""
-        pytest = __import__("pytest")
-        pytest.importorskip("hindsight_api")
-        import hindsight_api.config as ha_cfg
-
-        # Clear all relevant env vars
-        for env in [
-            "HINDSIGHT_API_LLM_TIMEOUT",
-            "HINDSIGHT_API_LLM_MAX_RETRIES",
-            "HINDSIGHT_API_REFLECT_LLM_TIMEOUT",
-            "HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES",
-        ]:
-            monkeypatch.delenv(env, raising=False)
-
-        raw = ha_cfg._get_raw_config()
-
-        # Save original values to restore after test
-        orig_llm_timeout = raw.llm_timeout
-        orig_llm_max_retries = raw.llm_max_retries
-        orig_reflect_llm_timeout = raw.reflect_llm_timeout
-        orig_reflect_llm_max_retries = raw.reflect_llm_max_retries
-
-        try:
-            raw.llm_timeout = 120.0
-            raw.llm_max_retries = 3
-            raw.reflect_llm_timeout = 30.0
-            raw.reflect_llm_max_retries = 3
-
-            settings = MagicMock()
-            settings.llm.timeout = 240.0
-            settings.llm.retries = 2
-
-            _apply_hindsight_llm_call_defaults(settings)
-
-            # Verify global and reflect settings were updated
-            assert raw.llm_timeout == 240.0
-            assert raw.llm_max_retries == 2
-            assert raw.reflect_llm_timeout == 240.0
-            assert raw.reflect_llm_max_retries == 2
-        finally:
-            # Restore original values
-            raw.llm_timeout = orig_llm_timeout
-            raw.llm_max_retries = orig_llm_max_retries
-            raw.reflect_llm_timeout = orig_reflect_llm_timeout
-            raw.reflect_llm_max_retries = orig_reflect_llm_max_retries
-
-    def test_apply_hindsight_llm_call_defaults_with_env_vars(self, monkeypatch):
-        """Test that when env vars are set, function uses those values and does not overwrite.
-
-        Note: Hindsight loads env vars at import time and caches the config.
-        This test verifies that when env vars are present, the function
-        correctly identifies them and does not overwrite the values.
-        """
-        pytest = __import__("pytest")
-        pytest.importorskip("hindsight_api")
-        import hindsight_api.config as ha_cfg
-
-        raw = ha_cfg._get_raw_config()
-
-        # Save original values
-        orig_llm_timeout = raw.llm_timeout
-        orig_llm_max_retries = raw.llm_max_retries
-        orig_reflect_llm_timeout = raw.reflect_llm_timeout
-        orig_reflect_llm_max_retries = raw.reflect_llm_max_retries
-
-        try:
-            # Set up values that would be overwritten if env is not checked
-            raw.llm_timeout = 120.0
-            raw.llm_max_retries = 3
-            raw.reflect_llm_timeout = 30.0
-            raw.reflect_llm_max_retries = 3
-
-            settings = MagicMock()
-            settings.llm.timeout = 240.0
-            settings.llm.retries = 3
-
-            _apply_hindsight_llm_call_defaults(settings)
-
-            # Verify the function logic based on env state
-            if os.environ.get("HINDSIGHT_API_REFLECT_LLM_TIMEOUT"):
-                # If env is set, function should not overwrite
-                assert raw.reflect_llm_timeout == 30.0  # unchanged
-            else:
-                # If env is not set, function should set from settings
-                assert raw.reflect_llm_timeout == 240.0
-
-            if os.environ.get("HINDSIGHT_API_LLM_TIMEOUT"):
-                # If global env is set, function should not overwrite
-                assert raw.llm_timeout == 120.0  # unchanged
-            else:
-                # If env is not set, function should set from settings
-                assert raw.llm_timeout == 240.0
-        finally:
-            # Restore original values
-            raw.llm_timeout = orig_llm_timeout
-            raw.llm_max_retries = orig_llm_max_retries
-            raw.reflect_llm_timeout = orig_reflect_llm_timeout
-            raw.reflect_llm_max_retries = orig_reflect_llm_max_retries
-
-    def test_consolidation_inherits_global_llm_timeout(self, monkeypatch):
-        """Test that consolidation inherits global llm_timeout when per-op value is None."""
-        pytest = __import__("pytest")
-        pytest.importorskip("hindsight_api")
-        import hindsight_api.config as ha_cfg
-
-        # Clear all env vars
-        for env in [
-            "HINDSIGHT_API_LLM_TIMEOUT",
-            "HINDSIGHT_API_LLM_MAX_RETRIES",
-            "HINDSIGHT_API_CONSOLIDATION_LLM_TIMEOUT",
-            "HINDSIGHT_API_REFLECT_LLM_TIMEOUT",
-        ]:
-            monkeypatch.delenv(env, raising=False)
-
-        raw = ha_cfg._get_raw_config()
-
-        # Save original values
-        orig_llm_timeout = raw.llm_timeout
-        orig_consolidation_llm_timeout = raw.consolidation_llm_timeout
-
-        try:
-            # Simulate Hindsight's behavior: per-op is None, falls back to global
-            # Set consolidation_llm_timeout to None (as Hindsight would when env is unset)
-            raw.consolidation_llm_timeout = None
-            raw.llm_timeout = 240.0
-
-            # Hindsight's _op_defaults returns: per-op if non-None, else global
-            # This is what MemoryEngine does for consolidation
-            per_op = raw.consolidation_llm_timeout
-            effective = per_op if per_op is not None else raw.llm_timeout
-            assert effective == 240.0
-        finally:
-            # Restore original values
-            raw.llm_timeout = orig_llm_timeout
-            raw.consolidation_llm_timeout = orig_consolidation_llm_timeout
-
     def _settings(self, reflects):
         from codespy.config_memory import MemoryConfig
 
@@ -507,9 +329,6 @@ class TestPrefrontalConfig:
         settings.llm.openai_api_key = None
         settings.llm.openai_api_base = None
         return settings
-
-    # Note: Removed old test_get_cerebral_sets_env_before_import - now using programmatic
-    # config via _apply_reflect_config instead of env vars. See tests for _apply_reflect_config.
 
     def _capture_cerebral_kwargs(self, monkeypatch, settings) -> dict:
         import codespy.config_memory as cm
@@ -637,7 +456,6 @@ class TestPrefrontalModelResolution:
         s = self._settings()
         assert s.get_llm_config(MEMORY_RECALL).model == s.llm.default_model
 
-    # Note: _warn_reflect_mismatch removed - now using programmatic _apply_reflect_config
     # which sets values directly instead of warning about mismatches
 
 
@@ -823,3 +641,153 @@ class TestMentalModelsConfig:
 
         assert "MEMORY_MAX_MENTAL_MODEL_TOKENS" not in _ENV_MAP
         assert "MEMORY_MIN_MENTAL_MODEL_REFRESH_SECONDS" not in _ENV_MAP
+
+
+_OVERLAY_ENVS = (
+    "HINDSIGHT_API_LLM_TIMEOUT",
+    "HINDSIGHT_API_LLM_MAX_RETRIES",
+    "HINDSIGHT_API_REFLECT_LLM_TIMEOUT",
+    "HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES",
+    "HINDSIGHT_API_REFLECT_MAX_ITERATIONS",
+    "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_PROVIDER",
+    "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_MODEL",
+    "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_API_KEY",
+    "HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_BASE_URL",
+    "HINDSIGHT_API_LLM_SUPPORTS_MAX_ITEMS",
+)
+
+
+class TestHindsightEnvOverlay:
+    """codespy settings reach Hindsight through a temporary HINDSIGHT_API_* env overlay."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        for env in _OVERLAY_ENVS:
+            monkeypatch.delenv(env, raising=False)
+
+    def _settings(self, *, reflects=3, model="openai/gpt-4o", mm_model="openai/gpt-4o-mini"):
+        from pydantic import SecretStr
+
+        from codespy.config import Settings
+        from codespy.config_llm import LLMConfig
+        from codespy.config_memory import (
+            CerebralConfig,
+            CerebralConsolidationConfig,
+            CerebralRetainConfig,
+            MemoryConfig,
+            MentalModelsConfig,
+            PrefrontalConfig,
+            RecallConfig,
+        )
+
+        return Settings(
+            llm=LLMConfig(
+                default_model=model,
+                extraction_model=model,
+                timeout=200,
+                retries=4,
+                openai_api_key=SecretStr("sk-openai"),
+            ),
+            memory=MemoryConfig(
+                postgres=PostgresConfig(host="db"),
+                cerebral=CerebralConfig(
+                    retain=CerebralRetainConfig(model=model),
+                    consolidation=CerebralConsolidationConfig(model=model),
+                    mental_models=MentalModelsConfig(model=mm_model),
+                ),
+                prefrontal=PrefrontalConfig(reflects=reflects, recall=RecallConfig(model=model)),
+            ),
+        )
+
+    def test_values_from_settings(self):
+        overlay = _hindsight_env_overlay(self._settings(reflects=3))
+        assert overlay["HINDSIGHT_API_LLM_TIMEOUT"] == "200.0"
+        assert overlay["HINDSIGHT_API_LLM_MAX_RETRIES"] == "4"
+        assert overlay["HINDSIGHT_API_REFLECT_LLM_TIMEOUT"] == "200.0"
+        assert overlay["HINDSIGHT_API_REFLECT_LLM_MAX_RETRIES"] == "4"
+        # LOW budget halves the cap, so 2 x reflects gives exactly reflects iterations
+        assert overlay["HINDSIGHT_API_REFLECT_MAX_ITERATIONS"] == "6"
+        assert overlay["HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_PROVIDER"] == "litellm"
+        assert overlay["HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_MODEL"] == "openai/gpt-4o-mini"
+        assert overlay["HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_API_KEY"] == "sk-openai"
+        assert overlay["HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_BASE_URL"] == ""
+        assert "HINDSIGHT_API_LLM_SUPPORTS_MAX_ITEMS" not in overlay
+
+    def test_reflects_zero_keeps_minimal_cap_and_no_refresh_llm(self):
+        overlay = _hindsight_env_overlay(self._settings(reflects=0))
+        assert overlay["HINDSIGHT_API_REFLECT_MAX_ITERATIONS"] == "2"
+        assert not any("MENTAL_MODEL_REFRESH" in k for k in overlay)
+
+    def test_operator_env_wins(self, monkeypatch):
+        monkeypatch.setenv("HINDSIGHT_API_LLM_TIMEOUT", "99")
+        monkeypatch.setenv("HINDSIGHT_API_REFLECT_MAX_ITERATIONS", "10")
+        overlay = _hindsight_env_overlay(self._settings())
+        assert "HINDSIGHT_API_LLM_TIMEOUT" not in overlay
+        assert "HINDSIGHT_API_REFLECT_MAX_ITERATIONS" not in overlay
+        # Reflect inherits the operator's explicit global timeout inside Hindsight
+        assert "HINDSIGHT_API_REFLECT_LLM_TIMEOUT" not in overlay
+        assert overlay["HINDSIGHT_API_LLM_MAX_RETRIES"] == "4"
+
+    def test_refresh_group_all_or_nothing(self, monkeypatch):
+        monkeypatch.setenv("HINDSIGHT_API_MENTAL_MODEL_REFRESH_LLM_MODEL", "openai/other")
+        overlay = _hindsight_env_overlay(self._settings())
+        assert not any("MENTAL_MODEL_REFRESH" in k for k in overlay)
+
+    def test_bedrock_disables_max_items(self):
+        overlay = _hindsight_env_overlay(
+            self._settings(model="bedrock/converse/nvidia.nemotron-super-3-120b")
+        )
+        assert overlay["HINDSIGHT_API_LLM_SUPPORTS_MAX_ITEMS"] == "false"
+
+    def test_bedrock_refresh_model_alone_disables_max_items(self):
+        overlay = _hindsight_env_overlay(
+            self._settings(mm_model="bedrock/converse/nvidia.nemotron-super-3-120b")
+        )
+        assert overlay["HINDSIGHT_API_LLM_SUPPORTS_MAX_ITEMS"] == "false"
+
+    def test_get_cerebral_builds_config_and_restores_env(self, monkeypatch):
+        pytest.importorskip("hindsight_api")
+        import hindsight_api.config as ha_cfg
+
+        import codespy.config_memory as cm
+        from codespy.agents.memory import cerebral as cerebral_module
+
+        settings = self._settings(reflects=3)
+        seen_env: dict[str, str | None] = {}
+
+        def fake_cerebral(**kwargs):
+            # MemoryEngine.__init__ runs here: the overlay must be visible
+            seen_env.update({k: os.environ.get(k) for k in _OVERLAY_ENVS})
+            return MagicMock()
+
+        monkeypatch.setattr(cm, "_cerebral", None)
+        monkeypatch.setattr(cm, "_cerebral_built", False)
+        monkeypatch.setattr(cerebral_module, "Cerebral", fake_cerebral)
+        try:
+            assert cm.get_cerebral(settings) is not None
+            assert seen_env["HINDSIGHT_API_LLM_TIMEOUT"] == "200.0"
+
+            config = ha_cfg.get_config()
+            assert config.llm_timeout == settings.llm.timeout
+            assert config.llm_max_retries == settings.llm.retries
+            assert config.reflect_llm_timeout == settings.llm.timeout
+            assert config.reflect_max_iterations == 2 * settings.memory.prefrontal.reflects
+            assert config.mental_model_refresh_llm_model == "openai/gpt-4o-mini"
+            # Nothing is left behind for subprocesses
+            assert not any(k in os.environ for k in _OVERLAY_ENVS)
+        finally:
+            monkeypatch.setattr(cm, "_cerebral", None)
+            monkeypatch.setattr(cm, "_cerebral_built", False)
+            ha_cfg.clear_config_cache()
+
+    def test_reset_cerebral_clears_config_cache(self, monkeypatch):
+        pytest.importorskip("hindsight_api")
+        import hindsight_api.config as ha_cfg
+
+        import codespy.config_memory as cm
+
+        ha_cfg.get_config()
+        assert ha_cfg._config_cache is not None
+        monkeypatch.setattr(cm, "_cerebral", None)
+        cm.reset_cerebral()
+        assert ha_cfg._config_cache is None
