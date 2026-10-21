@@ -11,6 +11,7 @@ from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.prefrontal import with_prefrontal_memory
+from codespy.agents.review.feedback.signature import apply_pr_context
 from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
@@ -107,7 +108,13 @@ class Summarizer(dspy.Module):
             scope_topic_ids=None,
             include_repo=False,
         )
-        sig = with_prefrontal_memory(PRSummarySignature) if prefrontal_memory else PRSummarySignature
+        base_sig, pc_kwargs = apply_pr_context(
+            PRSummarySignature,
+            pr_context,
+            ("commit_messages", "pr_discussion"),
+            self._settings,
+        )
+        sig = with_prefrontal_memory(base_sig) if prefrontal_memory else base_sig
         recall_tool = pf.recall_tool() if pf else None
         agent_tools = [recall_tool] if recall_tool else []
         agent = build_rlm_agent(
@@ -150,6 +157,7 @@ class Summarizer(dspy.Module):
                 pr_description=pr_context.pr_description,
                 changed_file_paths=changed_file_paths,
                 patches=patches,
+                **pc_kwargs,
                 **pf_kwargs,
             )
             log_rlm_outcome(result, "summary", repo_full_name)

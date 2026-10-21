@@ -11,7 +11,7 @@ from codespy.cli_local import review_local, review_uncommitted
 from codespy.cli_mcp_server import serve
 
 # Import command functions from submodules
-from codespy.cli_remote import review
+from codespy.cli_remote import learn, review
 from codespy.config import get_settings
 from codespy.config_git import get_github_token_source, get_gitlab_token_source
 from codespy.config_utils import secret_value
@@ -26,6 +26,7 @@ console = Console()
 
 # Register commands from submodules
 app.command(name="review")(review)
+app.command(name="learn")(learn)
 app.command(name="review-local")(review_local)
 app.command(name="review-uncommitted")(review_uncommitted)
 app.command(name="serve")(serve)

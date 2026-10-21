@@ -418,3 +418,36 @@ class TestMinConfidence:
         settings = Settings()
         assert settings.review.min_confidence == 0.75
         monkeypatch.delenv("REVIEW_MIN_CONFIDENCE")
+
+
+class TestPRContextConfig:
+    """Tests for review.pr_context size caps."""
+
+    def test_defaults(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        caps = Settings().review.pr_context
+        assert (caps.max_commits, caps.max_comments) == (50, 100)
+        assert (caps.max_comment_chars, caps.max_block_chars) == (1000, 12000)
+
+    def test_not_a_signature(self):
+        from codespy.config_dspy import SIGNATURE_NAMES
+
+        assert SIGNATURE_NAMES == {"audit", "code_review", "doc", "scope", "summary", "supply_chain"}
+
+    def test_env_override(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("REVIEW_PR_CONTEXT_MAX_COMMITS", "7")
+        assert Settings().review.pr_context.max_commits == 7
+
+    def test_yaml_override(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        config_file = tmp_path / "codespy.yaml"
+        config_file.write_text("review:\n  pr_context:\n    max_comments: 5\n")
+        monkeypatch.setenv("CODESPY_CONFIG", str(config_file))
+        assert Settings().review.pr_context.max_comments == 5
+
+    def test_feedback_toggle(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        assert Settings().review.pr_context.feedback is True
+        monkeypatch.setenv("REVIEW_PR_CONTEXT_FEEDBACK", "false")
+        assert Settings().review.pr_context.feedback is False

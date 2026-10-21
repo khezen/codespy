@@ -28,6 +28,13 @@ from codespy.agents.memory.hippocampus.episode import (
     start_deferred_episode_saves,
 )
 from codespy.agents.review.helpers import build_patches
+from codespy.agents.review.feedback import (
+    drop_rejected,
+    extract_feedback,
+    record_feedback,
+    render_commits,
+    render_discussion,
+)
 from codespy.agents.review.scope import MANIFEST_FILES, MANIFEST_GLOBS, build_sparse_patterns
 from codespy.config import Settings, get_loaded_config_path, get_settings
 from codespy.config_memory import (
@@ -159,6 +166,7 @@ class ReviewPipeline(dspy.Module):
             repo_path=config.repo_path,
             base_ref=config.base_ref,
             include_uncommitted=config.uncommitted,
+            max_commits=self.settings.review.pr_context.max_commits,
         )
 
     def forward(self, config: ReviewConfig) -> ReviewResult:
@@ -250,6 +258,7 @@ class ReviewPipeline(dspy.Module):
             pr_description=pr.body or "",
             summary=pr.title,  # Use title as placeholder since summary hasn't run
         )
+        self._fill_conversation_context(pr_context, pr)
         metadata = ReviewMetadata(repo_path=repo_path, run_id=run_id, pr=pr, is_local=is_local)
         review_ctx = ReviewContext(pr_context=pr_context, memory=None, metadata=metadata)
         scopes = self.scope_resolver(review_context=review_ctx)
@@ -265,6 +274,10 @@ class ReviewPipeline(dspy.Module):
                     logger.info(f"    Lock file: {manifest.lock_file_path}")
                 if manifest.dependencies_changed:
                     logger.info("    Dependencies changed: Yes")
+
+        # Retain human feedback on earlier codespy reviews (deferred episode saves)
+        if pr_context.review_feedback:
+            record_feedback(self.settings, pr_context, scopes, run_id)
 
         # Expand sparse checkout to cover full scope subtrees
         changed_file_paths = [f.filename for f in pr.changed_files]
@@ -334,6 +347,8 @@ class ReviewPipeline(dspy.Module):
         all_issues = asyncio.run(
             self._run_review_modules(scopes, module_names, review_context=review_ctx)
         )
+        # Drop findings humans already rejected on this PR
+        all_issues = drop_rejected(all_issues, pr_context.review_feedback)
         logger.info(f"Found {len(all_issues)} issues")
 
         # Step 4: Run Audit
@@ -386,6 +401,80 @@ class ReviewPipeline(dspy.Module):
             memories=memories,
             memory_pending=True,
         )
+
+    def _fill_conversation_context(self, pr_context: PRContext, pr: Any) -> None:
+        """Render commits, human discussion and review feedback into ``pr_context``.
+
+        codespy's own comments are excluded (classified at fetch time).
+        Never raises: conversation context is best-effort.
+        """
+        caps = self.settings.review.pr_context
+        try:
+            pr_context.commit_messages = render_commits(
+                pr.commits, caps.max_comment_chars, caps.max_block_chars
+            )
+            pr_context.pr_discussion = render_discussion(
+                pr, caps.max_comment_chars, caps.max_block_chars
+            )
+            if caps.feedback:
+                pr_context.review_feedback = extract_feedback(pr)
+            else:
+                logger.info("Review feedback disabled (review.pr_context.feedback=false)")
+        except Exception:
+            logger.warning("Failed to build PR conversation context", exc_info=True)
+        logger.info(
+            "PR context: %d commits, %d comments, %d feedback items",
+            len(pr.commits or []), len(pr.comments or []), len(pr_context.review_feedback),
+        )
+
+    def learn(self, url: str) -> int:
+        """Harvest human feedback on codespy's reviews of a PR and retain it to memory.
+
+        Posts nothing. Intended for CI on PR merge/close so feedback given after
+        the last review is not lost. Unchanged feedback is skipped (hash check).
+
+        Returns:
+            Number of feedback episodes retained (0 when memory is disabled or
+            there is no new feedback).
+        """
+        self.cost_tracker.reset()
+        if not self.settings.memory.enabled:
+            logger.info("Memory is disabled (memory.enabled=false); nothing to learn")
+            return 0
+        if not self.settings.review.pr_context.feedback:
+            logger.info("Review feedback is disabled (review.pr_context.feedback=false)")
+            return 0
+        run_id = uuid.uuid4().hex
+        self._verify_memory_access()
+        pr = self._fetch_pr(url)
+        pr_context = PRContext(
+            repo_slug=pr.repo_slug,
+            pr_number=pr.number,
+            pr_title=pr.title,
+            pr_url=pr.url,
+            pr_description=pr.body or "",
+            summary=pr.title,
+        )
+        self._fill_conversation_context(pr_context, pr)
+        if not pr_context.review_feedback:
+            logger.info("No human feedback on codespy reviews of this PR")
+            return 0
+
+        # Distiller needs the LLM; scopes must match the review run's topics.
+        self._verify_model_access()
+        repo_path = self._get_repo_path(pr)
+        metadata = ReviewMetadata(repo_path=repo_path, run_id=run_id, pr=pr, is_local=False)
+        review_ctx = ReviewContext(pr_context=pr_context, memory=None, metadata=metadata)
+        try:
+            with defer_episode_saves():
+                scopes = self.scope_resolver(review_context=review_ctx)
+                count = record_feedback(self.settings, pr_context, scopes, run_id)
+        finally:
+            start_deferred_episode_saves()
+        join_episode_saves()
+        if count:
+            self._consolidate_run(run_id)
+        return count
 
     def finish_memory(self, result: ReviewResult) -> ReviewResult:
         """Run the memory phase: start deferred saves, join them, consolidate.

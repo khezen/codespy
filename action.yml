@@ -23,6 +23,11 @@ inputs:
     description: 'URL of the pull request to review. Defaults to the current PR context.'
     required: false
     default: ''
+
+  command:
+    description: 'codespy command: "review" (default) or "learn" (retain human feedback on earlier codespy reviews into memory, posts nothing; run on pull_request closed, needs memory-enabled)'
+    required: false
+    default: 'review'
   
   post-comment:
     description: 'Post review as a Git platform PR/MR comment'
@@ -107,6 +112,29 @@ inputs:
 
   min-confidence:
     description: 'Minimum confidence threshold (0.0-1.0) for reported issues. Default from codespy.yaml: 0.5'
+    required: false
+
+  # ==========================================
+  # PR CONVERSATION CONTEXT (review.pr_context)
+  # ==========================================
+  pr-context-feedback:
+    description: 'Learn from human reactions/replies to codespy findings (suppress rejected findings, feedback memory). Set false on open source projects where anyone can react. Default from codespy.yaml: true'
+    required: false
+
+  pr-context-max-commits:
+    description: 'Most recent PR commits fetched for context. Default from codespy.yaml: 50'
+    required: false
+
+  pr-context-max-comments:
+    description: 'Max human/bot PR comments fetched (codespy comments and replies to them are prioritized). Default from codespy.yaml: 100'
+    required: false
+
+  pr-context-max-comment-chars:
+    description: 'Per comment / commit message / reply character cap. Default from codespy.yaml: 1000'
+    required: false
+
+  pr-context-max-block-chars:
+    description: 'Per rendered context block character cap (oldest dropped first). Default from codespy.yaml: 12000'
     required: false
 
   # ==========================================
@@ -546,6 +574,13 @@ runs:
         REVIEW_MIN_CONFIDENCE: ${{ inputs.min-confidence }}
         REVIEW_EXCLUDED_DIRECTORIES: ${{ inputs.excluded-directories }}
 
+        # PR conversation context
+        REVIEW_PR_CONTEXT_FEEDBACK: ${{ inputs.pr-context-feedback }}
+        REVIEW_PR_CONTEXT_MAX_COMMITS: ${{ inputs.pr-context-max-commits }}
+        REVIEW_PR_CONTEXT_MAX_COMMENTS: ${{ inputs.pr-context-max-comments }}
+        REVIEW_PR_CONTEXT_MAX_COMMENT_CHARS: ${{ inputs.pr-context-max-comment-chars }}
+        REVIEW_PR_CONTEXT_MAX_BLOCK_CHARS: ${{ inputs.pr-context-max-block-chars }}
+
         # RLM fallback
         RLM_FALLBACK_ENABLED: ${{ inputs.rlm-fallback-enabled }}
         RLM_FALLBACK_REACT_THRESHOLD: ${{ inputs.rlm-fallback-react-threshold }}
@@ -675,6 +710,13 @@ runs:
         [ -n "$REVIEW_MIN_CONFIDENCE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_MIN_CONFIDENCE"
         [ -n "$REVIEW_EXCLUDED_DIRECTORIES" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_EXCLUDED_DIRECTORIES"
 
+        # PR conversation context
+        [ -n "$REVIEW_PR_CONTEXT_FEEDBACK" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_PR_CONTEXT_FEEDBACK"
+        [ -n "$REVIEW_PR_CONTEXT_MAX_COMMITS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_PR_CONTEXT_MAX_COMMITS"
+        [ -n "$REVIEW_PR_CONTEXT_MAX_COMMENTS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_PR_CONTEXT_MAX_COMMENTS"
+        [ -n "$REVIEW_PR_CONTEXT_MAX_COMMENT_CHARS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_PR_CONTEXT_MAX_COMMENT_CHARS"
+        [ -n "$REVIEW_PR_CONTEXT_MAX_BLOCK_CHARS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_PR_CONTEXT_MAX_BLOCK_CHARS"
+
         # RLM fallback
         [ -n "$RLM_FALLBACK_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e RLM_FALLBACK_ENABLED"
         [ -n "$RLM_FALLBACK_REACT_THRESHOLD" ] && DOCKER_ARGS="$DOCKER_ARGS -e RLM_FALLBACK_REACT_THRESHOLD"
@@ -789,14 +831,22 @@ runs:
         [ -n "$MEMORY_RETAIN_CHUNK_SIZE" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_RETAIN_CHUNK_SIZE"
 
         # Build codespy command arguments
-        CMD_ARGS="review ${{ steps.pr-url.outputs.url }}"
-        CMD_ARGS="$CMD_ARGS --output ${{ inputs.output-format }}"
-        
-        # Add git comment flag
-        if [ "${{ inputs.post-comment }}" = "true" ]; then
-          CMD_ARGS="$CMD_ARGS --git-comment"
+        if [ "${{ inputs.command }}" = "learn" ]; then
+          # Retain human feedback on earlier codespy reviews; posts nothing
+          CMD_ARGS="learn ${{ steps.pr-url.outputs.url }}"
+        elif [ "${{ inputs.command }}" = "review" ] || [ -z "${{ inputs.command }}" ]; then
+          CMD_ARGS="review ${{ steps.pr-url.outputs.url }}"
+          CMD_ARGS="$CMD_ARGS --output ${{ inputs.output-format }}"
+
+          # Add git comment flag
+          if [ "${{ inputs.post-comment }}" = "true" ]; then
+            CMD_ARGS="$CMD_ARGS --git-comment"
+          else
+            CMD_ARGS="$CMD_ARGS --no-git-comment"
+          fi
         else
-          CMD_ARGS="$CMD_ARGS --no-git-comment"
+          echo "::error::Unsupported command '${{ inputs.command }}' (expected 'review' or 'learn')"
+          exit 1
         fi
         
         # Create output file for capturing review

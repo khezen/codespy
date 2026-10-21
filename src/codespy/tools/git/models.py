@@ -3,6 +3,7 @@
 import re
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -266,6 +267,53 @@ def should_review_file(file: ChangedFile, excluded_directories: list[str]) -> bo
     return not file.is_in_excluded_directory(excluded_directories)
 
 
+CommentOrigin = Literal["codespy", "bot", "human"]
+CommentKind = Literal["issue", "review", "inline"]
+
+
+class PRCommit(BaseModel):
+    """A commit belonging to a pull request."""
+
+    sha: str = Field(description="Commit SHA")
+    author: str = Field(default="", description="Commit author name/login")
+    message: str = Field(default="", description="Full commit message")
+
+
+class PRComment(BaseModel):
+    """A comment on a pull request (general, review body, or inline).
+
+    ``origin`` is classified once at fetch time (see
+    ``codespy.agents.review.feedback.origin.classify_author``) so that
+    codespy's own comments never reach the LLM context as human input.
+    """
+
+    id: int | str = Field(description="Platform comment/note ID")
+    kind: CommentKind = Field(description="issue (general), review (review body), inline")
+    author: str = Field(default="", description="Author login/username")
+    body: str = Field(default="", description="Comment body (markdown)")
+    created_at: datetime | None = Field(default=None, description="Creation timestamp")
+    path: str | None = Field(default=None, description="File path for inline comments")
+    line: int | None = Field(default=None, description="Line for inline comments")
+    review_id: int | None = Field(
+        default=None, description="GitHub review the inline comment belongs to"
+    )
+    thread_id: str | None = Field(default=None, description="GitLab discussion ID")
+    in_reply_to_id: int | str | None = Field(default=None, description="Parent comment ID (GitHub)")
+    reactions: dict[str, int] = Field(
+        default_factory=dict, description="Human reaction counts by canonical name (+1, -1, ...)"
+    )
+    resolved: bool | None = Field(default=None, description="Thread resolved state (GitLab)")
+    origin: CommentOrigin = Field(default="human", description="codespy, bot, or human")
+    authored_by_self: bool = Field(
+        default=False,
+        description=(
+            "Platform-verified: posted by the account of the token codespy runs with. "
+            "Required (with a codespy marker/header) before a comment is trusted as a "
+            "codespy finding for feedback; markers alone can be forged."
+        ),
+    )
+
+
 class PullRequest(BaseModel):
     """Represents a pull request (GitHub PR or GitLab MR)."""
 
@@ -294,6 +342,13 @@ class PullRequest(BaseModel):
     )
     labels: list[str] = Field(default_factory=list, description="PR labels")
     platform: GitPlatform = Field(description="Git platform (github, gitlab)")
+    commits: list[PRCommit] = Field(default_factory=list, description="PR commits (oldest first)")
+    comments: list[PRComment] = Field(
+        default_factory=list, description="PR comments (general, review bodies, inline)"
+    )
+    reactions: dict[str, int] = Field(
+        default_factory=dict, description="Reaction counts on the PR description"
+    )
 
     @property
     def repo_full_name(self) -> str:

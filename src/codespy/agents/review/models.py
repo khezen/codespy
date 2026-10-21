@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
@@ -34,6 +34,29 @@ class IssueCategory(StrEnum):
     SMELL = "smell"
 
 
+FeedbackVerdict = Literal["accepted", "rejected", "discussed", "resolved"]
+
+
+class IssueFeedback(BaseModel):
+    """Human feedback on one issue codespy posted in an earlier review of this PR.
+
+    Holds only the codespy issue IDENTITY (never its description/suggestion)
+    plus the human verdict, reactions and (sanitized) human replies.
+    """
+
+    fingerprint: str = Field(description="Stable issue fingerprint (file|category|title)")
+    filename: str = Field(description="Repo-relative file path")
+    line: int | None = Field(default=None, description="Line the comment was attached to")
+    category: str = Field(default="", description="Issue category")
+    severity: str = Field(default="", description="Issue severity")
+    title: str = Field(default="", description="Issue title")
+    verdict: FeedbackVerdict = Field(description="accepted, rejected, discussed, or resolved")
+    reactions: dict[str, int] = Field(default_factory=dict, description="Human reaction counts")
+    replies: list[str] = Field(
+        default_factory=list, description="Sanitized human replies ('@user: text')"
+    )
+
+
 class PRContext(BaseModel):
     """Shared PR identity passed to all review modules after summarization.
 
@@ -50,6 +73,16 @@ class PRContext(BaseModel):
     pr_url: str = Field(description="Full PR URL (e.g. https://github.com/owner/repo/pull/123)")
     pr_description: str = Field(default="", description="PR body/description")
     summary: str = Field(description="2-3 sentence PR summary produced by Summarizer")
+    commit_messages: str = Field(
+        default="", description="Rendered PR commit messages (untrusted human text)"
+    )
+    pr_discussion: str = Field(
+        default="", description="Rendered human PR comments with reactions (untrusted human text)"
+    )
+    review_feedback: list[IssueFeedback] = Field(
+        default_factory=list,
+        description="Human feedback on codespy's earlier review comments of this PR",
+    )
 
     @property
     def repo_full_name(self) -> str:

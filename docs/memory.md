@@ -44,6 +44,7 @@ If `forward()` raises, deferred saves still start but consolidation does not run
 | doc | Run-level | No | Yes |
 | supply_chain | Run-level | Yes | Yes |
 | audit | Run-level | No | Yes |
+| feedback | n/a (no LLM call of its own; the Distiller reads human reactions to codespy's comments) | No | Yes, one per scope with new feedback. Cerebral retains only the observations; the `feedback` and `feedback_hash` artifacts stay episodic |
 
 The run-level recall (`task="review"`, `episode_id=NULL`) covers all project scopes plus the repo. Only the scope agent loads its own memory when model refinement runs; all other agents share the run-level recall.
 

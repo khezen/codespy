@@ -5,7 +5,7 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-from codespy.tools.git.models import ChangedFile, FileStatus, GitPlatform, PullRequest
+from codespy.tools.git.models import ChangedFile, FileStatus, GitPlatform, PRCommit, PullRequest
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,34 @@ def _run_git(repo_path: Path, *args: str) -> str:
     if result.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
     return result.stdout.strip()
+
+
+def _get_commits(repo_path: Path, diff_ref: str, max_commits: int) -> list[PRCommit]:
+    """Commits in ``diff_ref..HEAD`` (oldest first, most recent ``max_commits``)."""
+    if max_commits <= 0:
+        return []
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(repo_path), "log", "--reverse",
+             "--format=%H%x1f%an%x1f%B%x1e", f"{diff_ref}..HEAD"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to read local commits: {e}")
+        return []
+    if out.returncode != 0:
+        logger.warning(f"Failed to read local commits: {out.stderr.strip()}")
+        return []
+    commits: list[PRCommit] = []
+    for rec in out.stdout.split("\x1e"):
+        rec = rec.strip("\n")
+        if not rec.strip():
+            continue
+        parts = rec.split("\x1f", 2)
+        if len(parts) < 3:
+            continue
+        commits.append(PRCommit(sha=parts[0].strip(), author=parts[1], message=parts[2].strip()))
+    return commits[-max_commits:]
 
 
 def _parse_status_char(char: str) -> FileStatus:
@@ -104,6 +132,7 @@ def build_pr_from_diff(
     repo_path: Path,
     base_ref: str = "main",
     include_uncommitted: bool = False,
+    max_commits: int = 50,
 ) -> PullRequest:
     """Build a PullRequest from local git diff.
 
@@ -112,6 +141,8 @@ def build_pr_from_diff(
         base_ref: Base branch/ref to diff against (e.g., "main", "develop", "HEAD~3")
         include_uncommitted: If True, include staged + unstaged changes (diff against HEAD).
                            If False, diff current branch against base_ref.
+        max_commits: Maximum commits (most recent) to include. Commits are
+                     only collected for branch reviews, not uncommitted ones.
 
     Returns:
         A PullRequest object representing the local changes
@@ -149,6 +180,8 @@ def build_pr_from_diff(
     except RuntimeError:
         base_sha = "0" * 40
 
+    commits = [] if include_uncommitted else _get_commits(repo_path, diff_ref, max_commits)
+
     # Get changed files with status
     name_status_output = _run_git(repo_path, "diff", "--name-status", diff_ref)
     if not name_status_output:
@@ -169,6 +202,7 @@ def build_pr_from_diff(
             repo_name=repo_name,
             host=host,
             changed_files=[],
+            commits=commits,
             platform=GitPlatform.GITHUB,  # Doesn't matter for local review
         )
 
@@ -225,5 +259,6 @@ def build_pr_from_diff(
         repo_name=repo_name,
         host=host,
         changed_files=changed_files,
+        commits=commits,
         platform=GitPlatform.GITHUB,  # Doesn't matter for local review
     )

@@ -60,7 +60,58 @@ codespy review-uncommitted /path/to/repo
 codespy review-uncommitted --output json
 codespy review-uncommitted --model anthropic/claude-sonnet-4-5-20250929
 codespy review-uncommitted --config staging.yaml
+
+# Learn from human reactions to codespy's reviews of a PR (posts nothing; needs memory)
+codespy learn https://github.com/owner/repo/pull/123
 ```
+
+## PR Conversation and Human Feedback
+
+For remote reviews, codespy also reads the PR conversation and gives it to the agents:
+
+- **Commit messages** go to summary, scope refinement, code review, doc review and audit. Local `review-local` runs include them too.
+- **Human PR comments** (general, review and inline), with their emoji reaction counts (👍2 👎1 …), go to summary, code review, doc review and audit.
+- **Human feedback on codespy's earlier comments on the same PR** goes to code review, doc review, supply chain and audit. Each finding gets a verdict:
+  - `rejected`: more 👎/😕 than 👍/❤️/🎉/🚀
+  - `accepted`: more positive reactions than negative ones
+  - `discussed`: a human replied
+  - `resolved`: the GitLab thread was resolved with no reactions or replies
+
+  A finding with the same fingerprint (file, category and title) as a `rejected` one is not reported again on that PR.
+
+codespy never reads its own output back as human input. Every comment it posts carries a hidden `<!-- codespy:... -->` marker, and older reviews are still recognized by their header. Other bots' comments and reactions are ignored, and quoted codespy text in human replies is removed. For its own findings, codespy keeps only the identity (file, title, category, severity), never the description or suggestion.
+
+With memory enabled, the feedback is retained as a `feedback` episode for each scope. Later reviews of the same scope learn what reviewers accept or reject from the Prefrontal briefings. Feedback that hasn't changed is not retained again.
+
+A comment counts as one of codespy's findings only if it carries a codespy marker **and** the platform shows it was posted by the account codespy runs as: the token's login, or `github-actions[bot]` on GitHub Actions. Markers can be copied, so a marker alone is never trusted as a finding. If that account can't be resolved (for example with a GitHub App token outside Actions), feedback is ignored. Feedback is also lost when earlier reviews were posted by a different account than the current run's. On GitHub Actions, `github-actions[bot]` is shared by every workflow in the repo, so anyone who can edit workflows can post as it.
+
+Feedback left after the last review would otherwise be lost, so run `codespy learn` when the PR closes:
+
+```yaml
+# .github/workflows/codespy-learn.yml
+name: CodeSpy Learn
+on:
+  pull_request:
+    types: [closed]
+jobs:
+  learn:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: khezen/codespy@v2
+        with:
+          command: 'learn'   # posts nothing
+          model: 'anthropic/claude-haiku-4-5-20251001'
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          memory-enabled: 'true'
+          # plus the same memory storage settings as your review job
+```
+
+GitHub Action inputs for these settings: `pr-context-feedback` (default `true`), `pr-context-max-commits` (`50`), `pr-context-max-comments` (`100`), `pr-context-max-comment-chars` (`1000`), `pr-context-max-block-chars` (`12000`) and `command` (`review` or `learn`, default `review`).
+
+Sizes are limited by `review.pr_context` (see [Configuration](configuration.md#pr-conversation-context)). Comment text is untrusted input: it is fenced and marked as informational only. On public repositories anyone can 👎 a finding, which suppresses it on that PR and feeds the scope's memory. Set `review.pr_context.feedback: false` (`REVIEW_PR_CONTEXT_FEEDBACK=false`) to turn feedback off there.
 
 ## IDE Integration (MCP Server)
 
