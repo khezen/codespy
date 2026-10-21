@@ -195,6 +195,17 @@ review:
     - .mypy_cache
     - .ruff_cache
 
+  # PR conversation context (commit messages, PR comments, reactions, and
+  # human feedback on previous codespy reviews). Commits and comments are
+  # always on for remote reviews.
+  pr_context:
+    feedback: true                        # REVIEW_PR_CONTEXT_FEEDBACK (false: ignore reactions/replies to codespy findings; recommended for open source)
+    trusted_authors: ["github-actions[bot]"]  # REVIEW_PR_CONTEXT_TRUSTED_AUTHORS (JSON array in env): accounts besides the token's own trusted as codespy when verifying findings
+    max_commits: 50                       # REVIEW_PR_CONTEXT_MAX_COMMITS
+    max_comments: 100                     # REVIEW_PR_CONTEXT_MAX_COMMENTS
+    max_comment_chars: 1000               # REVIEW_PR_CONTEXT_MAX_COMMENT_CHARS
+    max_block_chars: 12000                # REVIEW_PR_CONTEXT_MAX_BLOCK_CHARS
+
   # Supply Chain Security
   supply_chain:
     enabled: true                                                 # REVIEW_SUPPLY_CHAIN_ENABLED

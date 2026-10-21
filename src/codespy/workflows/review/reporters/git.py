@@ -11,6 +11,7 @@ from codespy.workflows.review.models import ReviewResult
 from codespy.workflows.review.reporters.base import BaseReporter
 from codespy.tools.git.base import SubmittedReview
 from codespy.tools.git.client import get_client
+from codespy.tools.git.conversation import fingerprint, issue_marker, review_marker
 
 if TYPE_CHECKING:
     from codespy.config import Settings
@@ -83,7 +84,7 @@ class GitReporter(BaseReporter):
         body = self._build_review_body(result, body_issues)
 
         # Build inline comments
-        comments = self._build_inline_comments(inline_issues)
+        comments = self._build_inline_comments(inline_issues, run_id=result.run_id)
 
         # Submit the review
         handle = self.client.submit_review(
@@ -169,6 +170,8 @@ class GitReporter(BaseReporter):
 
         # Header with stats - link to CodeSpy repo
         lines.append("# 🔍 Code[Spy](https://github.com/khezen/codespy) Review")
+        # Hidden marker: lets later runs recognize (and exclude) codespy's own review
+        lines.append(review_marker(result.run_id or ""))
         lines.append("")
         lines.append(
             f"**Issues Found:** {result.total_issues} | "
@@ -252,6 +255,7 @@ class GitReporter(BaseReporter):
                 lines.extend(
                     [
                         f"### {emoji} [{issue.severity.value.title()}] {issue.title}",
+                        self._issue_marker(issue, result.run_id),
                         "",
                         f"**File:** `{issue.filename}`",
                         f"**Category:** {issue.category.value} | **Confidence:** {confidence_pct}%",
@@ -382,11 +386,22 @@ class GitReporter(BaseReporter):
 
         return lines
 
-    def _build_inline_comments(self, issues: list[Issue]) -> list[dict]:
+    @staticmethod
+    def _issue_marker(issue: Issue, run_id: str | None) -> str:
+        """Hidden per-issue marker (fingerprint, category, severity)."""
+        return issue_marker(
+            run_id or "",
+            fingerprint(issue.filename, issue.category.value, issue.title),
+            issue.category.value,
+            issue.severity.value,
+        )
+
+    def _build_inline_comments(self, issues: list[Issue], run_id: str | None = None) -> list[dict]:
         """Build inline comment dictionaries for the Git API.
 
         Args:
             issues: Issues with line numbers.
+            run_id: Pipeline run ID embedded in the hidden issue marker.
 
         Returns:
             List of comment dicts for Git API.
@@ -445,6 +460,9 @@ class GitReporter(BaseReporter):
                         f"**Reference:** [{issue.cwe_id}](https://cwe.mitre.org/data/definitions/{cwe_number}.html)",
                     ]
                 )
+
+            # Hidden marker last: the first line keeps the legacy header shape
+            body_lines.extend(["", self._issue_marker(issue, run_id)])
 
             comment = {
                 "path": issue.filename,

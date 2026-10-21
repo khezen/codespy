@@ -21,6 +21,7 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.prefrontal import build_facets, with_prefrontal_memory
+from codespy.agents.review.feedback.signature import apply_pr_context
 from codespy.agents.review.models import ReviewContext
 from codespy.agents.review.scope.manifest_parser import extract_package_name
 from codespy.agents.review.scope.models import PackageManifest, ScopeResult, ScopeType
@@ -1055,9 +1056,13 @@ class ScopeResolver(dspy.Module):
         tools, contexts = await self._create_tools(repo_path)
         try:
             pf = get_prefrontal(self._settings, "scope", pr.repo_full_name, include_repo=True)
-            sig = (
-                with_prefrontal_memory(ScopeRefinementSignature) if pf else ScopeRefinementSignature
+            base_sig, pc_kwargs = apply_pr_context(
+                ScopeRefinementSignature,
+                review_context.pr_context,
+                ("commit_messages",),
+                self._settings,
             )
+            sig = with_prefrontal_memory(base_sig) if pf else base_sig
             recall_tool = pf.recall_tool() if pf else None
             agent_tools = [*tools, recall_tool] if recall_tool else tools
             agent = build_rlm_agent(
@@ -1124,6 +1129,7 @@ class ScopeResolver(dspy.Module):
                     pr_title=pr.title or "No title",
                     pr_description=pr.body or "No description",
                     project_instructions=project_instructions,
+                    **pc_kwargs,
                     **pf_kwargs,
                 )
                 log_rlm_outcome(result, "scope", pr.repo_full_name)

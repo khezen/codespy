@@ -13,6 +13,7 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.prefrontal import with_prefrontal_memory
+from codespy.agents.review.feedback.signature import apply_pr_context
 from codespy.agents.review.helpers import (
     filter_by_confidence,
     issues_to_markdown,
@@ -379,10 +380,17 @@ class SupplyChainAuditor(dspy.Module):
             pf = get_prefrontal(
                 self._settings, "supply_chain", repo_full_name, scope_topic_ids=[scope_topic_id]
             )
+            base_sig, pc_kwargs = apply_pr_context(
+                SupplyChainSecuritySignature,
+                review_context.pr_context,
+                ("review_feedback",),
+                self._settings,
+                subroot=scope.subroot,
+            )
             sig = (
-                with_prefrontal_memory(SupplyChainSecuritySignature)
+                with_prefrontal_memory(base_sig)
                 if review_context.prefrontal_memory
-                else SupplyChainSecuritySignature
+                else base_sig
             )
             recall_tool = pf.recall_tool() if pf else None
             if recall_tool:
@@ -443,6 +451,7 @@ class SupplyChainAuditor(dspy.Module):
                     lock_file_path=lock_file_path,
                     package_manager=package_manager,
                     category=IssueCategory.SECURITY,
+                    **pc_kwargs,
                     **pf_kwargs,
                 )
                 log_rlm_outcome(result, "supply_chain", scope.subroot)

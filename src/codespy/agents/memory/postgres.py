@@ -770,6 +770,44 @@ class EpisodeStore:
             )
             return None
 
+    def latest_artifact(self, task: str, topic_ids: list[str], name: str) -> str | None:
+        """Content of artifact ``name`` on the latest ``task`` episode bound to ALL ``topic_ids``.
+
+        Used to skip re-retaining unchanged content (e.g. the feedback hash).
+
+        Returns:
+            Artifact content, or None if not found or on error.
+        """
+        if not topic_ids:
+            return None
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT a.content
+                        FROM artifacts a
+                        JOIN episodes e ON e.bank_id = a.bank_id AND e.id = a.episode_id
+                        WHERE a.bank_id = %s AND e.task = %s AND a.name = %s
+                          AND (
+                            SELECT COUNT(DISTINCT et.topic_id) FROM episode_topics et
+                            WHERE et.bank_id = e.bank_id AND et.episode_id = e.id
+                              AND et.topic_id = ANY(%s)
+                          ) = %s
+                        ORDER BY e.timestamp DESC
+                        LIMIT 1
+                        """,
+                        (self.bank_id, task, name, list(topic_ids), len(set(topic_ids))),
+                    )
+                    row = cur.fetchone()
+                    return row[0] if row else None
+        except Exception:
+            logger.warning(
+                "latest_artifact failed (bank=%s, task=%s, name=%s)",
+                self.bank_id, task, name, exc_info=True,
+            )
+            return None
+
     def _insert_recalls(
         self,
         cur,

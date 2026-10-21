@@ -45,6 +45,29 @@ class SignatureConfig(BaseModel):
     skip_refinement_when_clean: bool | None = None  # For scope: skip LLM refinement when 1 scope, 0 orphans
 
 
+class PRContextConfig(BaseModel):
+    """PR conversation context (commits, comments, feedback on earlier reviews).
+
+    Commits and comments are always on for remote reviews. ``feedback`` turns off
+    learning from human reactions to codespy's findings (no suppression, no
+    feedback input, no feedback memory, ``learn`` is a no-op): useful on open
+    source projects where anyone can react.
+    ``max_commits``/``max_comments`` are applied at fetch time,
+    ``max_comment_chars``/``max_block_chars`` at render time.
+    """
+
+    feedback: bool = True
+    # Accounts trusted as codespy when verifying who posted a finding, in addition
+    # to the account of the token codespy runs with. Default covers reviews posted
+    # from GitHub Actions while `learn` runs elsewhere (e.g. a personal token).
+    trusted_authors: list[str] = Field(default_factory=lambda: ["github-actions[bot]"])
+
+    max_commits: int = Field(default=50, ge=0)
+    max_comments: int = Field(default=100, ge=0)
+    max_comment_chars: int = Field(default=1000, ge=0)
+    max_block_chars: int = Field(default=12000, ge=0)
+
+
 class ReviewConfig(BaseModel):
     """Configuration for the review subsystem.
 
@@ -64,6 +87,9 @@ class ReviewConfig(BaseModel):
 
     # File exclusion settings
     excluded_directories: list[str] = Field(default=DEFAULT_EXCLUDED_DIRECTORIES)
+
+    # PR conversation context size caps
+    pr_context: PRContextConfig = Field(default_factory=PRContextConfig)
 
     # Per-signature configs
     supply_chain: SignatureConfig = Field(
@@ -105,4 +131,5 @@ SIGNATURE_NAMES = set(ReviewConfig.model_fields.keys()) - {
     "output_git",
     "cache_dir",
     "excluded_directories",
+    "pr_context",
 }

@@ -103,40 +103,7 @@ def review(
     if git_comment is not None:
         settings.review.output_git = git_comment
 
-    # Validate URL format
-    if not is_supported_url(pr_url):
-        console.print(
-            "[red]Error:[/red] Unsupported URL format.\n\n"
-            "Supported formats:\n"
-            "  • GitHub: https://github.com/owner/repo/pull/123\n"
-            "  • GitLab: https://gitlab.com/namespace/project/-/merge_requests/123"
-        )
-        raise typer.Exit(1)
-
-    # Detect platform and validate token
-    platform = detect_platform(pr_url)
-
-    if platform == "github":
-        token = secret_value(settings.github_token)
-        token_source = get_github_token_source()
-        token_env_hint = "GITHUB_TOKEN / GH_TOKEN"
-        cli_hint = "gh auth login"
-    else:  # gitlab
-        token = secret_value(settings.gitlab_token)
-        token_source = get_gitlab_token_source()
-        token_env_hint = "GITLAB_TOKEN / GITLAB_PRIVATE_TOKEN"
-        cli_hint = "glab auth login"
-
-    if not token:  # Works: secret_value returns "" for unconfigured, which is falsy
-        console.print(
-            f"[red]Error:[/red] {platform.title()} token not found. Tried:\n"
-            f"  • {token_env_hint} environment variables\n"
-            f"  • {platform.title()} CLI ({cli_hint.split()[0]} auth token)\n"
-            "  • Git credential helper\n"
-            "  • ~/.netrc file\n\n"
-            f"Please authenticate with {platform.title()} CLI: [bold]{cli_hint}[/bold]"
-        )
-        raise typer.Exit(1)
+    platform, token_source = _validate_url_and_token(pr_url, settings)
 
     # Build output destinations display
     output_destinations = []
@@ -220,3 +187,110 @@ def review(
         console.print(f"[red]Error during review:[/red] {e}")
         logging.exception("Review failed")
         raise typer.Exit(1) from None
+
+
+def _validate_url_and_token(pr_url: str, settings) -> tuple[str, str]:
+    """Validate the PR URL and platform token; exit(1) with guidance on failure.
+
+    Returns:
+        Tuple of (platform, token_source).
+    """
+    # Validate URL format
+    if not is_supported_url(pr_url):
+        console.print(
+            "[red]Error:[/red] Unsupported URL format.\n\n"
+            "Supported formats:\n"
+            "  • GitHub: https://github.com/owner/repo/pull/123\n"
+            "  • GitLab: https://gitlab.com/namespace/project/-/merge_requests/123"
+        )
+        raise typer.Exit(1)
+
+    # Detect platform and validate token
+    platform = detect_platform(pr_url)
+
+    if platform == "github":
+        token = secret_value(settings.github_token)
+        token_source = get_github_token_source()
+        token_env_hint = "GITHUB_TOKEN / GH_TOKEN"
+        cli_hint = "gh auth login"
+    else:  # gitlab
+        token = secret_value(settings.gitlab_token)
+        token_source = get_gitlab_token_source()
+        token_env_hint = "GITLAB_TOKEN / GITLAB_PRIVATE_TOKEN"
+        cli_hint = "glab auth login"
+
+    if not token:  # Works: secret_value returns "" for unconfigured, which is falsy
+        console.print(
+            f"[red]Error:[/red] {platform.title()} token not found. Tried:\n"
+            f"  • {token_env_hint} environment variables\n"
+            f"  • {platform.title()} CLI ({cli_hint.split()[0]} auth token)\n"
+            "  • Git credential helper\n"
+            "  • ~/.netrc file\n\n"
+            f"Please authenticate with {platform.title()} CLI: [bold]{cli_hint}[/bold]"
+        )
+        raise typer.Exit(1)
+
+    return platform, token_source
+
+
+def learn(
+    pr_url: Annotated[
+        str,
+        typer.Argument(help="Pull request URL (GitHub PR or GitLab MR)"),
+    ],
+    config_file: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            "-f",
+            help="Path to a YAML config file (overrides default config locations).",
+        ),
+    ] = None,
+) -> None:
+    """Learn from human reactions to codespy's reviews of a PR (posts nothing).
+
+    Reads emoji reactions and replies on codespy's earlier review comments and
+    retains them to memory, so future reviews of the same scopes adapt.
+    Run it when a PR is merged or closed so late feedback is not lost.
+
+    Examples:
+        codespy learn https://github.com/owner/repo/pull/123
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        handlers=[RichHandler(console=console, show_time=True, show_path=False)],
+    )
+    try:
+        settings = get_settings(config_file=config_file)
+    except FileNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1) from None
+
+    platform, _ = _validate_url_and_token(pr_url, settings)
+    if not settings.memory.enabled:
+        console.print("[yellow]Memory is disabled (memory.enabled=false); nothing to learn.[/]")
+        return
+    if not settings.review.pr_context.feedback:
+        console.print("[yellow]Feedback is disabled (review.pr_context.feedback=false).[/]")
+        return
+
+    try:
+        from codespy.workflows.review.pipeline import ReviewPipeline
+
+        pipeline = ReviewPipeline(settings)
+        count = pipeline.learn(pr_url)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1) from None
+    except Exception as e:
+        console.print(f"[red]Error during learn:[/red] {e}")
+        logging.exception("Learn failed")
+        raise typer.Exit(1) from None
+
+    if count:
+        console.print(
+            f"[green]✓[/green] Retained feedback for {count} scope(s) from {platform.title()}"
+        )
+    else:
+        console.print("[dim]No new human feedback on codespy reviews to learn from.[/dim]")

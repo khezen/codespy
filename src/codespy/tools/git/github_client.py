@@ -1,6 +1,8 @@
 """GitHub API client for fetching PR data."""
 
+import contextlib
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -10,10 +12,19 @@ from github.PullRequest import PullRequest as GHPullRequest
 
 from codespy.config_utils import secret_value
 from codespy.tools.git.base import GitClient, SubmittedReview
+from codespy.tools.git.conversation import (
+    cap_comments,
+    classify_author,
+    count_reactions,
+    is_codespy_account,
+    rollup_reactions,
+)
 from codespy.tools.git.models import (
     ChangedFile,
     FileStatus,
     GitPlatform,
+    PRComment,
+    PRCommit,
     PullRequest,
 )
 
@@ -31,6 +42,8 @@ class GitHubClient(GitClient):
         """Initialize the GitHub client."""
         super().__init__(settings)
         self._github: Github | None = None
+        # "" = resolved but unknown; None = not resolved yet
+        self._self_login_cache: str | None = None
 
     @property
     def platform_name(self) -> str:
@@ -104,7 +117,7 @@ class GitHubClient(GitClient):
                 )
             )
 
-        return PullRequest(
+        pr = PullRequest(
             number=gh_pr.number,
             title=gh_pr.title,
             body=gh_pr.body,
@@ -123,6 +136,139 @@ class GitHubClient(GitClient):
             labels=[label.name for label in gh_pr.labels],
             platform=GitPlatform.GITHUB,
         )
+        self._fetch_conversation(gh_pr, pr)
+        return pr
+
+    # ------------------------------------------------------------------
+    # Conversation (commits, comments, reactions)
+    # ------------------------------------------------------------------
+
+    def _self_login(self) -> str | None:
+        """Login of the authenticated user, cached. None when unresolvable."""
+        if self._self_login_cache is not None:
+            return self._self_login_cache or None
+        login = ""
+        try:
+            login = self.github.get_user().login or ""
+        except Exception:
+            # GitHub App / Actions tokens cannot call /user.
+            if os.environ.get("GITHUB_ACTIONS") == "true":
+                login = "github-actions[bot]"
+        self._self_login_cache = login
+        return login or None
+
+    def _fetch_conversation(self, gh_pr: GHPullRequest, pr: PullRequest) -> None:
+        """Populate commits, comments and PR reactions. Soft-fails per part."""
+        caps = self.settings.review.pr_context
+        try:
+            pr.commits = self._fetch_commits(gh_pr, caps.max_commits)
+        except Exception as e:
+            logger.warning(f"Failed to fetch PR commits: {e}")
+        try:
+            pr.comments = self._fetch_comments(gh_pr, caps.max_comments)
+        except Exception as e:
+            logger.warning(f"Failed to fetch PR comments: {e}")
+        try:
+            pr.reactions = rollup_reactions(gh_pr.as_issue().raw_data.get("reactions"))
+        except Exception as e:
+            logger.debug(f"Failed to fetch PR reactions: {e}")
+
+    @staticmethod
+    def _fetch_commits(gh_pr: GHPullRequest, max_commits: int) -> list[PRCommit]:
+        if max_commits <= 0:
+            return []
+        commits: list[PRCommit] = []
+        for c in gh_pr.get_commits():
+            author = ""
+            with contextlib.suppress(Exception):
+                author = c.author.login if c.author else (c.commit.author.name or "")
+            commits.append(PRCommit(sha=c.sha, author=author, message=c.commit.message or ""))
+        # Keep the most recent commits (oldest-first order preserved)
+        return commits[-max_commits:]
+
+    def _fetch_comments(self, gh_pr: GHPullRequest, max_comments: int) -> list[PRComment]:
+        self_login = self._self_login()
+        trusted = list(getattr(self.settings.review.pr_context, "trusted_authors", []) or [])
+        if not self_login and not trusted:
+            logger.warning(
+                "Cannot resolve the token's GitHub login and no "
+                "review.pr_context.trusted_authors; feedback on earlier codespy "
+                "reviews will be ignored (findings cannot be author-verified)"
+            )
+        comments: list[PRComment] = []
+
+        # Review bodies first: needed to link inline comments to codespy reviews.
+        codespy_review_ids: set[int] = set()
+        for r in gh_pr.get_reviews():
+            body = r.body or ""
+            login = r.user.login if r.user else ""
+            origin = classify_author(body, login, self_login=self_login)
+            if origin == "codespy":
+                codespy_review_ids.add(r.id)
+            if not body.strip():
+                continue
+            comments.append(
+                PRComment(
+                    id=r.id, kind="review", author=login, body=body,
+                    created_at=r.submitted_at, review_id=r.id, origin=origin,
+                    authored_by_self=is_codespy_account(login, self_login, trusted),
+                )
+            )
+
+        for c in gh_pr.get_issue_comments():
+            body = c.body or ""
+            login = c.user.login if c.user else ""
+            comments.append(
+                PRComment(
+                    id=c.id, kind="issue", author=login, body=body, created_at=c.created_at,
+                    reactions=rollup_reactions(c.raw_data.get("reactions")),
+                    origin=classify_author(body, login, self_login=self_login),
+                    authored_by_self=is_codespy_account(login, self_login, trusted),
+                )
+            )
+
+        for c in gh_pr.get_review_comments():
+            body = c.body or ""
+            login = c.user.login if c.user else ""
+            raw = c.raw_data
+            review_id = raw.get("pull_request_review_id")
+            origin = classify_author(
+                body, login, self_login=self_login,
+                in_codespy_review=review_id in codespy_review_ids and not raw.get("in_reply_to_id"),
+            )
+            comments.append(
+                PRComment(
+                    id=c.id, kind="inline", author=login, body=body, created_at=c.created_at,
+                    path=c.path, line=raw.get("line") or raw.get("original_line"),
+                    review_id=review_id, in_reply_to_id=raw.get("in_reply_to_id"),
+                    reactions=rollup_reactions(raw.get("reactions")),
+                    origin=origin,
+                    authored_by_self=is_codespy_account(login, self_login, trusted),
+                )
+            )
+
+        comments = cap_comments(comments, max_comments)
+
+        # Exact reactions (bots excluded) for the most recent codespy comments.
+        budget = max_comments
+        for pc in reversed(comments):
+            if budget <= 0:
+                break
+            if pc.origin != "codespy" or pc.kind == "review" or not pc.reactions:
+                continue
+            budget -= 1
+            try:
+                if pc.kind == "inline":
+                    src = gh_pr.get_review_comment(int(pc.id))
+                else:
+                    src = gh_pr.as_issue().get_comment(int(pc.id))
+                pc.reactions = count_reactions(
+                    (r.content, r.user.login if r.user else None, False)
+                    for r in src.get_reactions()
+                )
+            except Exception as e:
+                logger.debug(f"Failed to fetch reactions for comment {pc.id}: {e}")
+        return comments
 
     def clone_repository(
         self,

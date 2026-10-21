@@ -12,6 +12,7 @@ from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.prefrontal import with_prefrontal_memory
+from codespy.agents.review.feedback.signature import apply_pr_context
 from codespy.agents.review.models import Issue, ReviewContext
 from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm
 from codespy.config import get_settings
@@ -62,6 +63,7 @@ class Auditor(dspy.Module):
         scopes: list["ScopeResult"] | None,
         topics: list["ScopeResult"] | None = None,
         prefrontal_memory: str | None = None,
+        pr_context_kwargs: dict[str, str] | None = None,
     ) -> tuple[dspy.Prediction, Hippocampus | None, "EpisodeStore | None", dict[str, str] | None]:
         """Execute the auditor agent (with or without Hippocampus memory).
 
@@ -121,6 +123,7 @@ class Auditor(dspy.Module):
             pr_title=review_context.pr_context.pr_title,
             summary=review_context.pr_context.summary,
             all_issues=all_issues,
+            **(pr_context_kwargs or {}),
             **pf_kwargs,
         )
         log_rlm_outcome(result, "audit", review_context.pr_context.repo_full_name)
@@ -173,7 +176,13 @@ class Auditor(dspy.Module):
             repo_full_name,
             scope_topic_ids=None,
         )
-        sig = with_prefrontal_memory(AuditSignature) if prefrontal_memory else AuditSignature
+        base_sig, pc_kwargs = apply_pr_context(
+            AuditSignature,
+            review_context.pr_context,
+            ("commit_messages", "pr_discussion", "review_feedback"),
+            self._settings,
+        )
+        sig = with_prefrontal_memory(base_sig) if prefrontal_memory else base_sig
         recall_tool = pf.recall_tool() if pf else None
         agent_tools = [recall_tool] if recall_tool else []
         auditor_agent = build_rlm_agent(
@@ -195,6 +204,7 @@ class Auditor(dspy.Module):
                 scopes,
                 topics,
                 prefrontal_memory=prefrontal_memory,
+                pr_context_kwargs=pc_kwargs,
             )
 
         # Background episode save (after SignatureContext closes)

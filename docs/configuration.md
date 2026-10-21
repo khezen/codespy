@@ -210,6 +210,19 @@ See [Memory System](memory.md) for:
 | Git | `REVIEW_OUTPUT_GIT` | `true` | Post review to GitHub/GitLab |
 | Cache dir | `REVIEW_CACHE_DIR` | `~/.cache/codespy` | Cache directory path |
 
+## PR Conversation Context
+
+These settings control the commit messages, PR comments and feedback on earlier reviews that are given to the agents (see [Usage](usage.md#pr-conversation-and-human-feedback)). Commits and comments are always on for remote reviews.
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `review.pr_context.feedback` | `REVIEW_PR_CONTEXT_FEEDBACK` | `true` | Learn from human reactions and replies to codespy's findings. Set to `false` on open source projects where anyone can react: nothing is suppressed, no feedback reaches the prompt or memory, and `codespy learn` does nothing |
+| `review.pr_context.trusted_authors` | `REVIEW_PR_CONTEXT_TRUSTED_AUTHORS` | `["github-actions[bot]"]` | Accounts trusted as codespy when verifying who posted a finding, besides the token's own account (JSON array in env). Lets `learn` run with a personal token on reviews that CI posted. Add your GitHub App bot here (e.g. `my-app[bot]`) |
+| `review.pr_context.max_commits` | `REVIEW_PR_CONTEXT_MAX_COMMITS` | `50` | Most recent commits fetched |
+| `review.pr_context.max_comments` | `REVIEW_PR_CONTEXT_MAX_COMMENTS` | `100` | Human/bot comments fetched, newest first. codespy's own comments, and the replies to them, come first |
+| `review.pr_context.max_comment_chars` | `REVIEW_PR_CONTEXT_MAX_COMMENT_CHARS` | `1000` | Size limit for each comment, commit message or reply |
+| `review.pr_context.max_block_chars` | `REVIEW_PR_CONTEXT_MAX_BLOCK_CHARS` | `12000` | Size limit for each rendered block. The oldest items are dropped first |
+
 ## File Exclusions
 
 `REVIEW_EXCLUDED_DIRECTORIES` (JSON array in env) — Directories to skip during code review. Binary files, lock files, and minified files are always excluded automatically.

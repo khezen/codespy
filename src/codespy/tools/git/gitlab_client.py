@@ -9,10 +9,19 @@ from git import Repo
 
 from codespy.config_utils import secret_value
 from codespy.tools.git.base import GitClient, SubmittedReview
+from codespy.tools.git.conversation import (
+    cap_comments,
+    classify_author,
+    count_reactions,
+    has_self_signature,
+    is_codespy_account,
+)
 from codespy.tools.git.models import (
     ChangedFile,
     FileStatus,
     GitPlatform,
+    PRComment,
+    PRCommit,
     PullRequest,
 )
 
@@ -179,7 +188,7 @@ class GitLabClient(GitClient):
         state_map = {"opened": "open", "closed": "closed", "merged": "merged"}
         state = state_map.get(gl_mr.state, gl_mr.state)
 
-        return PullRequest(
+        pr = PullRequest(
             number=gl_mr.iid,
             title=gl_mr.title,
             body=gl_mr.description,
@@ -198,6 +207,130 @@ class GitLabClient(GitClient):
             labels=gl_mr.labels,
             platform=GitPlatform.GITLAB,
         )
+        self._fetch_conversation(gl_mr, pr)
+        return pr
+
+    # ------------------------------------------------------------------
+    # Conversation (commits, discussions, award emojis)
+    # ------------------------------------------------------------------
+
+    def _self_login(self) -> str | None:
+        """Username of the authenticated user, or None."""
+        try:
+            user = self.gitlab_client.user
+            return getattr(user, "username", None) if user else None
+        except Exception:
+            return None
+
+    def _fetch_conversation(self, gl_mr, pr: PullRequest) -> None:
+        """Populate commits, comments and MR reactions. Soft-fails per part."""
+        caps = self.settings.review.pr_context
+        try:
+            pr.commits = self._fetch_commits(gl_mr, caps.max_commits)
+        except Exception as e:
+            logger.warning(f"Failed to fetch MR commits: {e}")
+        try:
+            pr.comments = self._fetch_comments(gl_mr, caps.max_comments)
+        except Exception as e:
+            logger.warning(f"Failed to fetch MR discussions: {e}")
+        try:
+            pr.reactions = self._awards(gl_mr)
+        except Exception as e:
+            logger.debug(f"Failed to fetch MR award emojis: {e}")
+
+    @staticmethod
+    def _awards(obj) -> dict[str, int]:
+        return count_reactions(
+            (
+                a.name,
+                (a.user or {}).get("username"),
+                bool((a.user or {}).get("bot")),
+            )
+            for a in obj.awardemojis.list(get_all=True)
+        )
+
+    @staticmethod
+    def _fetch_commits(gl_mr, max_commits: int) -> list[PRCommit]:
+        if max_commits <= 0:
+            return []
+        commits = [
+            PRCommit(
+                sha=getattr(c, "id", ""),
+                author=getattr(c, "author_name", "") or "",
+                message=getattr(c, "message", "") or "",
+            )
+            for c in gl_mr.commits()
+        ]
+        commits.reverse()  # GitLab returns newest first
+        return commits[-max_commits:]
+
+    def _fetch_comments(self, gl_mr, max_comments: int) -> list[PRComment]:
+        self_login = self._self_login()
+        trusted = list(getattr(self.settings.review.pr_context, "trusted_authors", []) or [])
+        if not self_login and not trusted:
+            logger.warning(
+                "Cannot resolve the token's GitLab username and no "
+                "review.pr_context.trusted_authors; feedback on earlier codespy "
+                "reviews will be ignored (findings cannot be author-verified)"
+            )
+        comments: list[PRComment] = []
+        for d in gl_mr.discussions.list(get_all=True):
+            notes = [n for n in (d.attributes.get("notes") or []) if not n.get("system")]
+            if not notes:
+                continue
+            root = notes[0]
+            root_author = (root.get("author") or {}).get("username", "")
+            root_origin = classify_author(
+                root.get("body", ""), root_author, self_login=self_login,
+                bot=bool((root.get("author") or {}).get("bot")),
+            )
+            thread_codespy = root_origin == "codespy"
+            for i, n in enumerate(notes):
+                author = n.get("author") or {}
+                login = author.get("username", "")
+                body = n.get("body", "") or ""
+                origin = root_origin if i == 0 else classify_author(
+                    body, login, self_login=self_login,
+                    in_codespy_thread=thread_codespy, bot=bool(author.get("bot")),
+                )
+                position = n.get("position") or {}
+                is_inline = bool(position) or n.get("type") == "DiffNote"
+                kind = "inline" if is_inline else "issue"
+                if i == 0 and not is_inline and origin == "codespy" and has_self_signature(body):
+                    kind = "review"
+                comments.append(
+                    PRComment(
+                        id=n.get("id"), kind=kind, author=login, body=body,
+                        created_at=n.get("created_at"),
+                        path=position.get("new_path") or position.get("old_path"),
+                        line=position.get("new_line") or position.get("old_line"),
+                        thread_id=str(d.id),
+                        in_reply_to_id=root.get("id") if i > 0 else None,
+                        resolved=n.get("resolved") if n.get("resolvable") else None,
+                        origin=origin,
+                        authored_by_self=is_codespy_account(login, self_login, trusted),
+                    )
+                )
+
+        comments = cap_comments(comments, max_comments)
+
+        # Award emojis: every codespy note (bounded) + up to max_comments others.
+        own_budget = max_comments
+        other_budget = max_comments
+        for pc in reversed(comments):
+            if pc.origin == "codespy":
+                if pc.kind == "review" or own_budget <= 0:
+                    continue
+                own_budget -= 1
+            else:
+                if other_budget <= 0:
+                    continue
+                other_budget -= 1
+            try:
+                pc.reactions = self._awards(gl_mr.notes.get(pc.id, lazy=True))
+            except Exception as e:
+                logger.debug(f"Failed to fetch award emojis for note {pc.id}: {e}")
+        return comments
 
     def clone_repository(
         self,
