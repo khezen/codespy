@@ -95,6 +95,15 @@ def has_self_signature(body: str) -> bool:
     )
 
 
+def is_codespy_account(
+    login: str | None, self_login: str | None, trusted_authors: Iterable[str] = ()
+) -> bool:
+    """True if ``login`` is the token's own account or a configured trusted codespy account."""
+    if not login:
+        return False
+    return login == self_login or login in set(trusted_authors or ())
+
+
 def is_bot_login(login: str | None, bot_flag: bool = False) -> bool:
     """True for bot accounts (``*[bot]`` login or platform bot flag)."""
     return bool(bot_flag) or bool(login and login.lower().endswith("[bot]"))

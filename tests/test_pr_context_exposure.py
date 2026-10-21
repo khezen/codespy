@@ -7,8 +7,20 @@ import yaml
 
 from codespy.config_dspy import PRContextConfig
 
+import json
+
 ROOT = Path(__file__).resolve().parent.parent
 FIELDS = list(PRContextConfig.model_fields.items())
+
+
+def _fmt(field) -> str:
+    """Default as written in docs/env: bools lowercase, lists as compact JSON."""
+    d = field.get_default(call_default_factory=True)
+    if isinstance(d, bool):
+        return str(d).lower()
+    if isinstance(d, list):
+        return json.dumps(d, separators=(",", ":"))
+    return str(d)
 
 
 def _read(rel: str) -> str:
@@ -18,14 +30,13 @@ def _read(rel: str) -> str:
 @pytest.mark.parametrize("name,field", FIELDS)
 def test_codespy_yaml_default_matches(name, field):
     cfg = yaml.safe_load(_read("codespy.yaml"))
-    assert cfg["review"]["pr_context"][name] == field.default
+    assert cfg["review"]["pr_context"][name] == field.get_default(call_default_factory=True)
     assert f"REVIEW_PR_CONTEXT_{name.upper()}" in _read("codespy.yaml")
 
 
 @pytest.mark.parametrize("name,field", FIELDS)
 def test_env_example(name, field):
-    default = str(field.default).lower() if isinstance(field.default, bool) else field.default
-    assert f"# REVIEW_PR_CONTEXT_{name.upper()}={default}" in _read(".env.example")
+    assert f"# REVIEW_PR_CONTEXT_{name.upper()}={_fmt(field)}" in _read(".env.example")
 
 
 @pytest.mark.parametrize("name,field", FIELDS)
@@ -34,8 +45,7 @@ def test_action_input_env_and_docker_arg(name, field):
     inp = "pr-context-" + name.replace("_", "-")
     env = f"REVIEW_PR_CONTEXT_{name.upper()}"
     assert inp in action["inputs"]
-    default = str(field.default).lower() if isinstance(field.default, bool) else str(field.default)
-    assert f"Default from codespy.yaml: {default}" in action["inputs"][inp]["description"]
+    assert f"Default from codespy.yaml: {_fmt(field)}" in action["inputs"][inp]["description"]
     text = _read("action.yml")
     assert f"{env}: ${{{{ inputs.{inp} }}}}" in text
     assert f'-e {env}"' in text
@@ -43,8 +53,7 @@ def test_action_input_env_and_docker_arg(name, field):
 
 @pytest.mark.parametrize("name,field", FIELDS)
 def test_documented(name, field):
-    default = str(field.default).lower() if isinstance(field.default, bool) else field.default
-    assert f"`review.pr_context.{name}` | `REVIEW_PR_CONTEXT_{name.upper()}` | `{default}`" in _read(
+    assert f"`review.pr_context.{name}` | `REVIEW_PR_CONTEXT_{name.upper()}` | `{_fmt(field)}`" in _read(
         "docs/configuration.md"
     )
     inp = "pr-context-" + name.replace("_", "-")

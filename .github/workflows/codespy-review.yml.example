@@ -161,6 +161,8 @@ jobs:
 #         # Learn from 👍/👎 and replies on codespy findings (default: true).
 #         # Set 'false' on open source projects where anyone can react.
 #         pr-context-feedback: 'true'
+#         # Accounts trusted as codespy besides the token's (default shown)
+#         pr-context-trusted-authors: '["github-actions[bot]"]'
 #         pr-context-max-commits: '50'          # default 50
 #         pr-context-max-comments: '100'        # default 100
 #         pr-context-max-comment-chars: '1000'  # default 1000

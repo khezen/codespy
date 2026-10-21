@@ -307,7 +307,8 @@ class PRComment(BaseModel):
     authored_by_self: bool = Field(
         default=False,
         description=(
-            "Platform-verified: posted by the account of the token codespy runs with. "
+            "Platform-verified: posted by the token's account or a "
+            "review.pr_context.trusted_authors account. "
             "Required (with a codespy marker/header) before a comment is trusted as a "
             "codespy finding for feedback; markers alone can be forged."
         ),

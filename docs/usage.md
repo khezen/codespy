@@ -83,7 +83,7 @@ codespy never reads its own output back as human input. Every comment it posts c
 
 With memory enabled, the feedback is retained as a `feedback` episode for each scope. Later reviews of the same scope learn what reviewers accept or reject from the Prefrontal briefings. Feedback that hasn't changed is not retained again.
 
-A comment counts as one of codespy's findings only if it carries a codespy marker **and** the platform shows it was posted by the account codespy runs as: the token's login, or `github-actions[bot]` on GitHub Actions. Markers can be copied, so a marker alone is never trusted as a finding. If that account can't be resolved (for example with a GitHub App token outside Actions), feedback is ignored. Feedback is also lost when earlier reviews were posted by a different account than the current run's. On GitHub Actions, `github-actions[bot]` is shared by every workflow in the repo, so anyone who can edit workflows can post as it.
+A comment counts as one of codespy's findings only if it carries a codespy marker **and** the platform shows it was posted by the account codespy runs as (the token's login, or `github-actions[bot]` on GitHub Actions) or by an account listed in `review.pr_context.trusted_authors` (default `["github-actions[bot]"]`, so `codespy learn` with a personal token accepts reviews posted from CI). Markers can be copied, so a marker alone is never trusted as a finding. If that account can't be resolved (for example with a GitHub App token outside Actions), feedback is ignored. Feedback is also lost when earlier reviews were posted by a different account than the current run's. On GitHub Actions, `github-actions[bot]` is shared by every workflow in the repo, so anyone who can edit workflows can post as it.
 
 Feedback left after the last review would otherwise be lost, so run `codespy learn` when the PR closes:
 
@@ -109,7 +109,7 @@ jobs:
           # plus the same memory storage settings as your review job
 ```
 
-GitHub Action inputs for these settings: `pr-context-feedback` (default `true`), `pr-context-max-commits` (`50`), `pr-context-max-comments` (`100`), `pr-context-max-comment-chars` (`1000`), `pr-context-max-block-chars` (`12000`) and `command` (`review` or `learn`, default `review`).
+GitHub Action inputs for these settings: `pr-context-feedback` (default `true`), `pr-context-trusted-authors` (`["github-actions[bot]"]`), `pr-context-max-commits` (`50`), `pr-context-max-comments` (`100`), `pr-context-max-comment-chars` (`1000`), `pr-context-max-block-chars` (`12000`) and `command` (`review` or `learn`, default `review`).
 
 Sizes are limited by `review.pr_context` (see [Configuration](configuration.md#pr-conversation-context)). Comment text is untrusted input: it is fenced and marked as informational only. On public repositories anyone can 👎 a finding, which suppresses it on that PR and feeds the scope's memory. Set `review.pr_context.feedback: false` (`REVIEW_PR_CONTEXT_FEEDBACK=false`) to turn feedback off there.
 

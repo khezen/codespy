@@ -210,3 +210,35 @@ def test_gitlab_conversation():
     assert by_id[24].origin == "codespy"  # codespy user inside a codespy thread
     assert by_id[30].origin == "human" and by_id[30].kind == "issue"
     assert root.authored_by_self and not by_id[23].authored_by_self
+
+
+def test_github_trusted_authors_accept_ci_posted_reviews():
+    """learn with a personal token must accept findings posted by github-actions[bot] in CI."""
+
+    class CIPosted(FakeGHPR):
+        def get_reviews(self):
+            return [NS(id=100, body=f"# 🔍 Code[Spy](x) Review\n{review_marker('r1')}",
+                       user=_user("github-actions[bot]"), submitted_at=T0)]
+
+        def get_review_comments(self):
+            return [NS(id=11, body=f"🟠 **[High] Bug**\n\n{issue_marker('r1', 'fp1', 'bug', 'high')}",
+                       user=_user("github-actions[bot]"), created_at=T0, path="a.py",
+                       raw_data={"pull_request_review_id": 100, "line": 4,
+                                 "reactions": {"-1": 1}})]
+
+        def get_review_comment(self, id):
+            return NS(get_reactions=lambda: [NS(content="-1", user=_user("alice"))])
+
+    from codespy.agents.review.feedback import extract_feedback
+
+    client = GitHubClient(settings=_settings())  # default trusted_authors
+    client._self_login_cache = "alice"  # personal token
+    pr = make_pr()
+    client._fetch_conversation(CIPosted(), pr)
+    assert [f.verdict for f in extract_feedback(pr)] == ["rejected"]
+
+    strict = GitHubClient(settings=_settings(trusted_authors=[]))
+    strict._self_login_cache = "alice"
+    pr2 = make_pr()
+    strict._fetch_conversation(CIPosted(), pr2)
+    assert extract_feedback(pr2) == []

@@ -14,6 +14,7 @@ from codespy.tools.git.conversation import (
     classify_author,
     count_reactions,
     has_self_signature,
+    is_codespy_account,
 )
 from codespy.tools.git.models import (
     ChangedFile,
@@ -265,9 +266,11 @@ class GitLabClient(GitClient):
 
     def _fetch_comments(self, gl_mr, max_comments: int) -> list[PRComment]:
         self_login = self._self_login()
-        if not self_login:
+        trusted = list(getattr(self.settings.review.pr_context, "trusted_authors", []) or [])
+        if not self_login and not trusted:
             logger.warning(
-                "Cannot resolve the token's GitLab username; feedback on earlier codespy "
+                "Cannot resolve the token's GitLab username and no "
+                "review.pr_context.trusted_authors; feedback on earlier codespy "
                 "reviews will be ignored (findings cannot be author-verified)"
             )
         comments: list[PRComment] = []
@@ -305,7 +308,7 @@ class GitLabClient(GitClient):
                         in_reply_to_id=root.get("id") if i > 0 else None,
                         resolved=n.get("resolved") if n.get("resolvable") else None,
                         origin=origin,
-                        authored_by_self=bool(self_login) and login == self_login,
+                        authored_by_self=is_codespy_account(login, self_login, trusted),
                     )
                 )
 

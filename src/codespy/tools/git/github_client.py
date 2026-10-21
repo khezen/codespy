@@ -16,6 +16,7 @@ from codespy.tools.git.conversation import (
     cap_comments,
     classify_author,
     count_reactions,
+    is_codespy_account,
     rollup_reactions,
 )
 from codespy.tools.git.models import (
@@ -187,9 +188,11 @@ class GitHubClient(GitClient):
 
     def _fetch_comments(self, gh_pr: GHPullRequest, max_comments: int) -> list[PRComment]:
         self_login = self._self_login()
-        if not self_login:
+        trusted = list(getattr(self.settings.review.pr_context, "trusted_authors", []) or [])
+        if not self_login and not trusted:
             logger.warning(
-                "Cannot resolve the token's GitHub login; feedback on earlier codespy "
+                "Cannot resolve the token's GitHub login and no "
+                "review.pr_context.trusted_authors; feedback on earlier codespy "
                 "reviews will be ignored (findings cannot be author-verified)"
             )
         comments: list[PRComment] = []
@@ -208,7 +211,7 @@ class GitHubClient(GitClient):
                 PRComment(
                     id=r.id, kind="review", author=login, body=body,
                     created_at=r.submitted_at, review_id=r.id, origin=origin,
-                    authored_by_self=bool(self_login) and login == self_login,
+                    authored_by_self=is_codespy_account(login, self_login, trusted),
                 )
             )
 
@@ -220,7 +223,7 @@ class GitHubClient(GitClient):
                     id=c.id, kind="issue", author=login, body=body, created_at=c.created_at,
                     reactions=rollup_reactions(c.raw_data.get("reactions")),
                     origin=classify_author(body, login, self_login=self_login),
-                    authored_by_self=bool(self_login) and login == self_login,
+                    authored_by_self=is_codespy_account(login, self_login, trusted),
                 )
             )
 
@@ -240,7 +243,7 @@ class GitHubClient(GitClient):
                     review_id=review_id, in_reply_to_id=raw.get("in_reply_to_id"),
                     reactions=rollup_reactions(raw.get("reactions")),
                     origin=origin,
-                    authored_by_self=bool(self_login) and login == self_login,
+                    authored_by_self=is_codespy_account(login, self_login, trusted),
                 )
             )
 

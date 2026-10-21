@@ -57,6 +57,10 @@ class PRContextConfig(BaseModel):
     """
 
     feedback: bool = True
+    # Accounts trusted as codespy when verifying who posted a finding, in addition
+    # to the account of the token codespy runs with. Default covers reviews posted
+    # from GitHub Actions while `learn` runs elsewhere (e.g. a personal token).
+    trusted_authors: list[str] = Field(default_factory=lambda: ["github-actions[bot]"])
 
     max_commits: int = Field(default=50, ge=0)
     max_comments: int = Field(default=100, ge=0)

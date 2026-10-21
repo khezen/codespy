@@ -89,7 +89,8 @@ def extract_feedback(pr: PullRequest) -> list[IssueFeedback]:
         if not root.authored_by_self:
             logger.warning(
                 "Ignoring unverified codespy-looking comment %s by @%s on %s "
-                "(not posted by codespy's account)", root.id, root.author, root.path,
+                "(author is neither the token's account nor in review.pr_context.trusted_authors)",
+                root.id, root.author, root.path,
             )
             continue
         marker = parse_issue_marker(root.body) or {}

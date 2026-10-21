@@ -451,3 +451,9 @@ class TestPRContextConfig:
         assert Settings().review.pr_context.feedback is True
         monkeypatch.setenv("REVIEW_PR_CONTEXT_FEEDBACK", "false")
         assert Settings().review.pr_context.feedback is False
+
+    def test_trusted_authors(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        assert Settings().review.pr_context.trusted_authors == ["github-actions[bot]"]
+        monkeypatch.setenv("REVIEW_PR_CONTEXT_TRUSTED_AUTHORS", '["codespy-app[bot]"]')
+        assert Settings().review.pr_context.trusted_authors == ["codespy-app[bot]"]
