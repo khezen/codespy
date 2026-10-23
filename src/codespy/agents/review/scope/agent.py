@@ -11,6 +11,7 @@ import asyncio
 import fnmatch
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ from codespy.agents.review.feedback.signature import apply_pr_context
 from codespy.agents.review.models import ReviewContext
 from codespy.agents.review.scope.manifest_parser import extract_package_name
 from codespy.agents.review.scope.models import PackageManifest, ScopeResult, ScopeType
+from codespy.agents.review.scope.module_markers import discover_module_markers
 from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
@@ -145,7 +147,26 @@ MANIFEST_FILES: dict[str, str] = {
     "Project.swift": "tuist",
     # Go workspace
     "go.work": "go",
+    # C/C++ (content-gated, see MANIFEST_CONTENT_GATES)
+    "CMakeLists.txt": "cmake",
+    "meson.build": "meson",
+    # Scala build tools
+    "build.mill": "mill",
+    "build.sc": "mill",
+    "project.scala": "scala-cli",
 }
+
+# Manifests that only count when their content declares a build target/project
+MANIFEST_CONTENT_GATES: dict[str, re.Pattern[str]] = {
+    "CMakeLists.txt": re.compile(r"\b(?:add_library|add_executable|project)\s*\(", re.IGNORECASE),
+    "meson.build": re.compile(
+        r"\b(?:project|library|executable|shared_library|static_library)\s*\("
+    ),
+    "project.scala": re.compile(r"^\s*//>\s*using\b", re.MULTILINE),
+}
+
+# Build-system files: never a dependency change (would trigger supply_chain on every edit)
+BUILD_ONLY_PACKAGE_MANAGERS = frozenset({"cmake", "meson"})
 
 # Nx project file: a manifest only when the repo root has nx.json
 NX_PROJECT_FILE = "project.json"
@@ -194,25 +215,32 @@ MANIFEST_PRIORITY: dict[str, int] = {
     "DESCRIPTION": 1,
     "deno.json": 1,
     "deno.jsonc": 1,
+    "*.gemspec": 1,
+    "build.mill": 1,
+    "build.sc": 1,
     # Project files (2)
     "*.xcodeproj": 2,
     "*.podspec": 2,
     "project.yml": 2,
     "Project.swift": 2,
     "project.json": 2,
+    "CMakeLists.txt": 2,
+    "meson.build": 2,
+    "project.scala": 2,
     # Workspace/aggregator files (3)
     "*.xcworkspace": 3,
     "settings.gradle": 3,
     "settings.gradle.kts": 3,
     "go.work": 3,
     "pnpm-workspace.yaml": 3,
-    "Directory.Build.props": 3,
-    "Directory.Packages.props": 3,
     "Chart.yaml": 3,
     "*.sln": 3,
+    "*.slnx": 3,
     # Tooling (4 - lowest priority)
     "Gemfile": 4,
     "Podfile": 4,
+    "Directory.Build.props": 4,
+    "Directory.Packages.props": 4,
 }
 
 # Glob patterns for manifests that use variable filenames
@@ -221,11 +249,21 @@ MANIFEST_GLOBS: dict[str, str] = {
     "*.fsproj": "dotnet",
     "*.vbproj": "dotnet",
     "*.sln": "dotnet",
+    "*.slnx": "dotnet",
     "*.cabal": "cabal",
     "*.xcodeproj": "xcode",
     "*.xcworkspace": "xcode",
     "*.podspec": "cocoapods",
+    "*.gemspec": "bundler",
 }
+
+def _file_matches(path: Path, pattern: re.Pattern[str]) -> bool:
+    """True when the file is readable and its content matches ``pattern``."""
+    try:
+        return bool(pattern.search(path.read_text(encoding="utf-8", errors="ignore")))
+    except OSError:
+        return False
+
 
 # Lock file -> manifest mapping
 LOCK_TO_MANIFEST: dict[str, str] = {
@@ -248,7 +286,11 @@ LOCK_TO_MANIFEST: dict[str, str] = {
     "deno.lock": "deno.json",
     "Package.resolved": "Package.swift",
     "Podfile.lock": "Podfile",
+    "packages.config": "*.csproj",  # Legacy NuGet
 }
+
+# Locks shared by workspace members: looked up in ancestor dirs too
+WORKSPACE_LOCK_FILES = frozenset({"Cargo.lock", "pubspec.lock", "packages.lock.json"})
 
 
 # Scope indicator directories
@@ -423,8 +465,9 @@ class ScopeRefinementSignature(dspy.Signature):
     1. Output only scope boundaries (subroots). Files are assigned automatically by path
        prefix to the deepest matching scope.
     2. No overlapping scopes (parent contains child)
-    3. Manifest-backed candidates (marked 'manifest=...') are authoritative. Keep them
-       unless merging multiple manifests into one.
+    3. Manifest-backed candidates (marked 'manifest=...') and module-marker candidates
+       (marked 'marker=...') are authoritative. Keep them unless merging multiple
+       manifests into one.
     4. Prefer FEWER scopes. 1-3 scopes is typical for most PRs.
     5. When in doubt, MERGE into fewer scopes rather than split.
 
@@ -466,6 +509,35 @@ class ScopeRefinementSignature(dspy.Signature):
 # AI instruction directories and files (used for sparse patterns)
 AI_DIRS: list[str] = [".claude/", ".kilo/", ".agent/", ".ai/", ".cursor/", ".codex/"]
 AI_FILES: list[str] = ["AGENTS.md", "CLAUDE.md", "SKILL.md"]
+
+# Module marker config files (repo root only)
+MARKER_ROOT_SPARSE_FILES: list[str] = [
+    "packwerk.yml",
+    "tach.toml",
+    ".importlinter",
+    "setup.cfg",
+    "pyproject.toml",
+    ".go-arch-lint.yml",
+    "tsconfig.json",
+    "deptrac.yaml",
+    "deptrac.yml",
+    "depfile.yaml",
+    "build.sbt",
+    "build.mill",
+    "build.sc",
+    "modules_statuses.json",
+]
+
+# Per-module marker files (each ancestor dir of a changed file)
+MARKER_DIR_SPARSE_FILES: list[str] = [
+    "package.yml",
+    "module.json",
+    "module-info.java",
+    "main.go",
+    "*Application.java",
+    "*Application.kt",
+    "package.mill",
+]
 
 
 def build_sparse_patterns(
@@ -561,6 +633,18 @@ def build_sparse_patterns(
                     patterns.add(f"/{ai_file}")
                 else:
                     patterns.add(f"/{ancestor}/{ai_file}")
+
+    # Module marker config files live at the repo root only
+    for marker_file in MARKER_ROOT_SPARSE_FILES:
+        patterns.add(f"/{marker_file}")
+
+    # Per-module marker files - anchored to each ancestor dir
+    for ancestor in ancestor_dirs:
+        for marker_file in MARKER_DIR_SPARSE_FILES:
+            if ancestor == ".":
+                patterns.add(f"/{marker_file}")
+            else:
+                patterns.add(f"/{ancestor}/{marker_file}")
 
     return sorted(patterns)
 
@@ -716,6 +800,7 @@ class ScopeResolver(dspy.Module):
             # Extract package name from manifest (bundle dir name for Xcode)
             package_name = extract_package_name(manifest_path, repo_path)
 
+            central_packages: Path | None = None
             if manifest_filename.endswith(XCODE_BUNDLE_SUFFIXES):
                 # Point at a readable file; every file add edits project.pbxproj,
                 # so only the SwiftPM lock counts as a dependency change.
@@ -723,10 +808,17 @@ class ScopeResolver(dspy.Module):
                     manifest_path = f"{manifest_path}/project.pbxproj"
                 lock_file = self._find_xcode_lock(repo_path, manifest_dir, manifest_filename)
                 deps_changed = bool(lock_file and str(lock_file) in changed_paths)
+            elif pkg_mgr in BUILD_ONLY_PACKAGE_MANAGERS:
+                # Build files change with every target edit; never a dependency change.
+                lock_file = None
+                deps_changed = False
             else:
                 lock_file = self._find_lock_file(repo_path, manifest_dir, manifest_filename)
+                # .NET central package management: Directory.Packages.props in an ancestor
+                if pkg_mgr == "dotnet":
+                    central_packages = self._find_central_packages_props(repo_path, manifest_dir)
                 deps_changed = self._dependencies_changed(
-                    manifest_dir, manifest_filename, lock_file, changed_paths
+                    manifest_dir, manifest_filename, lock_file, central_packages, changed_paths
                 )
 
             # Build deterministic description with package name and scope type
@@ -747,7 +839,11 @@ class ScopeResolver(dspy.Module):
                 scope_type=scope_type,
                 package_manifest=PackageManifest(
                     manifest_path=manifest_path,
-                    lock_file_path=str(lock_file) if lock_file else None,
+                    lock_file_path=(
+                        str(lock_file)
+                        if lock_file
+                        else str(central_packages) if central_packages else None
+                    ),
                     package_manager=pkg_mgr,
                     dependencies_changed=deps_changed,
                     package_name=package_name,
@@ -756,8 +852,27 @@ class ScopeResolver(dspy.Module):
                 description=description,
             )
 
+        # Based on manifests only: marker scopes never unlock directory indicators
         has_nested_manifests = any(subroot != "." for subroot in scopes)
         root_is_sole_manifest = "." in scopes and not has_nested_manifests
+
+        # Module markers: explicit sub-modules of single-manifest modular monoliths
+        markers = discover_module_markers(
+            repo_path, [f.filename for f in changed_files], manifests
+        )
+        if markers:
+            logger.info("Module marker discovery found %d marker(s): %s", len(markers), markers)
+        for subroot, (kind, marker_path) in markers.items():
+            if subroot in scopes:
+                continue  # manifest scope wins
+            scopes[subroot] = ScopeResult(
+                repo=repo,
+                subroot=subroot,
+                scope_type=self._classify_scope_type(subroot, None),
+                module_marker=f"{kind}:{marker_path}",
+                reason=f"module marker {kind}",
+                description=f"{kind} module",
+            )
 
         for file in changed_files:
             covered_by_nested = any(
@@ -828,7 +943,7 @@ class ScopeResolver(dspy.Module):
             if not dir_path.is_dir():
                 continue
 
-            # Skip directories inside Xcode bundles (e.g. Peaks.xcodeproj/project.xcworkspace)
+            # Skip directories inside Xcode bundles (e.g. Example.xcodeproj/project.xcworkspace)
             if any(part.endswith(XCODE_BUNDLE_SUFFIXES) for part in rel_dir.parts):
                 continue
 
@@ -841,6 +956,9 @@ class ScopeResolver(dspy.Module):
             candidates: list[tuple[int, str, str]] = []
             for filename in files:
                 if filename in MANIFEST_FILES:
+                    gate = MANIFEST_CONTENT_GATES.get(filename)
+                    if gate is not None and not _file_matches(dir_path / filename, gate):
+                        continue
                     candidates.append(
                         (MANIFEST_PRIORITY.get(filename, 2), filename, MANIFEST_FILES[filename])
                     )
@@ -906,6 +1024,9 @@ class ScopeResolver(dspy.Module):
     ) -> Path | None:
         """Find the lock file corresponding to a manifest.
 
+        Looks in the manifest dir first. For workspace ecosystems (Cargo, Dart pub,
+        NuGet lock), walks up ancestor dirs to the repo root for the shared lock.
+
         Args:
             repo_path: Path to the repository root
             manifest_dir: Directory containing manifest
@@ -914,16 +1035,26 @@ class ScopeResolver(dspy.Module):
         Returns:
             Path to lock file or None
         """
-        search_dir = repo_path / manifest_dir
-        if not search_dir.exists():
+        locks = [
+            lock
+            for lock, pattern in LOCK_TO_MANIFEST.items()
+            if fnmatch.fnmatch(manifest_filename, pattern)
+        ]
+        if not locks:
             return None
 
-        for lock_file, manifest_pattern in LOCK_TO_MANIFEST.items():
-            if fnmatch.fnmatch(manifest_filename, manifest_pattern):
-                lock_path = search_dir / lock_file
-                if lock_path.exists():
-                    return lock_path.relative_to(repo_path)
+        search_dir = repo_path / manifest_dir
+        for lock in locks:
+            if (search_dir / lock).is_file():
+                return (search_dir / lock).relative_to(repo_path)
 
+        workspace_locks = [lock for lock in locks if lock in WORKSPACE_LOCK_FILES]
+        rel = manifest_dir
+        while workspace_locks and rel != Path("."):
+            rel = rel.parent
+            for lock in workspace_locks:
+                if (repo_path / rel / lock).is_file():
+                    return rel / lock if rel != Path(".") else Path(lock)
         return None
 
     def _find_xcode_lock(
@@ -937,19 +1068,45 @@ class ScopeResolver(dspy.Module):
                     return lock_path.relative_to(repo_path)
         return None
 
+    def _find_central_packages_props(
+        self, repo_path: Path, scope_dir: Path
+    ) -> Path | None:
+        """Find Directory.Packages.props for .NET central package management.
+
+        Walks up from scope_dir to repo root looking for Directory.Packages.props.
+
+        Args:
+            repo_path: Path to the repository root
+            scope_dir: Directory of the scope (relative to repo root)
+
+        Returns:
+            Path to Directory.Packages.props if found, None otherwise
+        """
+        rel = scope_dir
+        while True:
+            if (repo_path / rel / "Directory.Packages.props").is_file():
+                return rel / "Directory.Packages.props" if rel != Path(".") else Path(
+                    "Directory.Packages.props"
+                )
+            if rel == Path("."):
+                return None
+            rel = rel.parent
+
     def _dependencies_changed(
         self,
         manifest_dir: Path,
         manifest_filename: str,
         lock_file: Path | None,
+        central_packages: Path | None,
         changed_paths: set[str],
     ) -> bool:
-        """Check if manifest or lock file was changed.
+        """Check if manifest, lock file, or central packages was changed.
 
         Args:
             manifest_dir: Directory containing manifest
             manifest_filename: Name of manifest file
             lock_file: Path to lock file (optional)
+            central_packages: Path to Directory.Packages.props (optional)
             changed_paths: Set of changed file paths
 
         Returns:
@@ -962,7 +1119,9 @@ class ScopeResolver(dspy.Module):
         )
         if manifest_path in changed_paths:
             return True
-        return bool(lock_file and str(lock_file) in changed_paths)
+        if lock_file and str(lock_file) in changed_paths:
+            return True
+        return bool(central_packages and str(central_packages) in changed_paths)
 
     def _assign_files(
         self, scopes: list[ScopeResult], changed_files: list[ChangedFile]
@@ -1038,6 +1197,8 @@ class ScopeResolver(dspy.Module):
         manifest_info = ""
         if s.package_manifest:
             manifest_info = f", manifest={s.package_manifest.manifest_path}"
+        elif s.module_marker:
+            manifest_info = f", marker={s.module_marker}"
         files = ", ".join(f.filename for f in s.changed_files)
         return f"- {s.subroot} ({s.scope_type.value}{manifest_info}): files=[{files}]"
 
@@ -1048,21 +1209,24 @@ class ScopeResolver(dspy.Module):
         deterministic_scopes: list[ScopeResult],
         repo: str,
     ) -> list[ScopeResult]:
-        """Apply LLM boundaries + manifest guardrail + deterministic file assignment.
+        """Apply LLM boundaries + manifest/marker guardrail + deterministic file assignment.
 
         Args:
             boundaries: Scope boundaries from LLM
             all_changed_files: All changed files to assign
-            deterministic_scopes: Original deterministic scopes (for manifest info)
+            deterministic_scopes: Original deterministic scopes (for manifest/marker info)
             repo: Repo identifier
 
         Returns:
             List of ScopeResult with files assigned
         """
-        # Index manifest-backed scopes from deterministic layer
+        # Index manifest-backed and marker-backed scopes from deterministic layer
         manifest_scopes = {s.subroot: s for s in deterministic_scopes if s.package_manifest}
+        marker_scopes = {s.subroot: s for s in deterministic_scopes if s.module_marker}
+        # Combined authoritative scopes (manifest + marker)
+        authoritative_scopes = {**manifest_scopes, **marker_scopes}
 
-        # Determine if root is the sole manifest scope
+        # Determine if root is the sole manifest scope (only counts manifests, not markers)
         has_nested_manifests = any(subroot != "." for subroot in manifest_scopes)
         root_is_sole_manifest = "." in manifest_scopes and not has_nested_manifests
 
@@ -1079,25 +1243,35 @@ class ScopeResolver(dspy.Module):
                 reason=det_scope.reason,
             )
 
-        # 2. Add LLM boundaries — discard if child of a non-root manifest scope,
-        #    or if root is the sole manifest scope
+        # 2. Always include marker-backed scopes (also immutable)
+        for subroot, det_scope in marker_scopes.items():
+            final_boundaries[subroot] = ScopeResult(
+                repo=repo,
+                subroot=subroot,
+                scope_type=det_scope.scope_type,
+                module_marker=det_scope.module_marker,
+                reason=det_scope.reason,
+                description=det_scope.description,
+            )
+
+        # 3. Add LLM boundaries — discard if child of an authoritative scope (manifest or marker)
         for boundary in boundaries:
-            # Check if this boundary is inside a manifest-backed scope
-            inside_manifest = any(
-                boundary.subroot.startswith(ms + "/")
-                for ms in manifest_scopes
-                if ms != boundary.subroot and ms != "."
+            # Check if this boundary is inside an authoritative scope
+            inside_authoritative = any(
+                boundary.subroot.startswith(auth + "/")
+                for auth in authoritative_scopes
+                if auth != boundary.subroot and auth != "."
             )
             # Also discard any non-root boundary when root is the sole manifest
             if root_is_sole_manifest and boundary.subroot != ".":
-                inside_manifest = True
-            if inside_manifest:
+                inside_authoritative = True
+            if inside_authoritative:
                 logger.debug(
-                    "Discarding LLM boundary '%s' — inside manifest scope", boundary.subroot
+                    "Discarding LLM boundary '%s' — inside authoritative scope", boundary.subroot
                 )
                 continue
 
-            # LLM can override scope_type of manifest scopes
+            # LLM can override scope_type of authoritative scopes
             if boundary.subroot in final_boundaries:
                 final_boundaries[boundary.subroot].scope_type = boundary.scope_type
             else:

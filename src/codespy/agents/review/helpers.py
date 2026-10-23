@@ -179,6 +179,7 @@ def make_scope_relative(scope: "ScopeResult") -> "ScopeResult":
         has_changes=scope.has_changes,
         language=scope.language,
         package_manifest=manifest,
+        module_marker=scope.module_marker,
         changed_files=relative_files,
         reason=scope.reason,
         skills=scope.skills,

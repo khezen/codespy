@@ -32,6 +32,18 @@ from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
 logger = logging.getLogger(__name__)
 
 
+def _common_dir(subroot: str, file_path: str) -> str:
+    """Deepest folder containing both ``subroot`` and ``file_path`` (repo-relative)."""
+    a = [] if subroot in (".", "") else subroot.split("/")
+    b = file_path.split("/")[:-1]
+    common: list[str] = []
+    for x, y in zip(a, b, strict=False):
+        if x != y:
+            break
+        common.append(x)
+    return "/".join(common) or "."
+
+
 class SupplyChainSecuritySignature(dspy.Signature):
     """Analyze supply chain security: Dockerfiles and dependencies.
 
@@ -352,14 +364,27 @@ class SupplyChainAuditor(dspy.Module):
             scan_unchanged or manifest.dependencies_changed
         )
 
-        # Convert manifest paths to scope-relative
+        # Tools are rooted at the scope, widened to the deepest common folder when the
+        # lock lives in an ancestor (Cargo/pub workspace lock, Directory.Packages.props).
+        tools_root = scope.subroot or "."
+        if should_scan_manifest and manifest.lock_file_path:
+            tools_root = _common_dir(tools_root, manifest.lock_file_path)
+
+        # Convert manifest paths to tools-root-relative
         if should_scan_manifest:
-            manifest_path = strip_prefix(manifest.manifest_path, scope.subroot)
+            manifest_path = strip_prefix(manifest.manifest_path, tools_root)
             lock_file_path = (
-                strip_prefix(manifest.lock_file_path, scope.subroot)
+                strip_prefix(manifest.lock_file_path, tools_root)
                 if manifest.lock_file_path
                 else ""
             )
+            if tools_root != scope.subroot:
+                logger.debug(
+                    "Lock %s is outside scope %s; supply chain tools rooted at %s",
+                    manifest.lock_file_path,
+                    scope.subroot,
+                    tools_root,
+                )
             package_manager = manifest.package_manager
         else:
             manifest_path = ""
@@ -368,8 +393,8 @@ class SupplyChainAuditor(dspy.Module):
             if manifest:
                 logger.debug(f"Skipping unchanged manifest: {manifest.manifest_path}")
 
-        # Scope-restrict filesystem/parser tools to the scope's subroot
-        scope_root = resolve_scope_root(repo_path, scope.subroot)
+        # Restrict filesystem/parser tools to the scope (or its widened tools root)
+        scope_root = resolve_scope_root(repo_path, tools_root)
         scoped_tools, scoped_contexts = await self._create_scoped_tools(scope_root)
 
         try:
@@ -479,7 +504,7 @@ class SupplyChainAuditor(dspy.Module):
                                 logger.warning("Background cerebral retain failed", exc_info=True)
                     submit_episode_save(_persist, name="supply-chain-episode-save")
             # Restore repo-root-relative paths in reported issues
-            restore_repo_paths(issues, scope.subroot)
+            restore_repo_paths(issues, tools_root)
             logger.debug(
                 f"  Supply chain security in scope {scope.subroot}: {len(issues)} issues"
             )

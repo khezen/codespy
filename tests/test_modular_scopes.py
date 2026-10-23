@@ -31,11 +31,11 @@ def _by_subroot(scopes: list[ScopeResult]) -> dict[str, list[str]]:
 
 @pytest.fixture
 def ios_repo(tmp_path: Path) -> Path:
-    """peaks-ios layout: root Gemfile + Xcode project + sibling Swift packages."""
+    """example-ios layout: root Gemfile + Xcode project + sibling Swift packages."""
     _touch(tmp_path, "Gemfile")
-    _touch(tmp_path, "Peaks.xcodeproj/project.pbxproj")
-    _touch(tmp_path, "Peaks.xcodeproj/project.xcworkspace/contents.xcworkspacedata")
-    _touch(tmp_path, "Peaks.xcworkspace/contents.xcworkspacedata")
+    _touch(tmp_path, "Example.xcodeproj/project.pbxproj")
+    _touch(tmp_path, "Example.xcodeproj/project.xcworkspace/contents.xcworkspacedata")
+    _touch(tmp_path, "Example.xcworkspace/contents.xcworkspacedata")
     for pkg in ("FeatureA", "FeatureB"):
         _touch(tmp_path, f"{pkg}/Package.swift", f'let package = Package(\n    name: "{pkg}",\n)')
     return tmp_path
@@ -46,8 +46,8 @@ class TestIOSLayout:
         files = _changed(
             "FeatureA/Sources/x.swift",
             "FeatureB/Tests/y.swift",
-            "Peaks/App.swift",
-            "Peaks.xcodeproj/project.pbxproj",
+            "Example/App.swift",
+            "Example.xcodeproj/project.pbxproj",
         )
         scopes, orphans = ScopeResolver()._resolve(ios_repo, files, "o/r")
 
@@ -55,26 +55,26 @@ class TestIOSLayout:
         assert _by_subroot(scopes) == {
             "FeatureA": ["FeatureA/Sources/x.swift"],
             "FeatureB": ["FeatureB/Tests/y.swift"],
-            ".": ["Peaks.xcodeproj/project.pbxproj", "Peaks/App.swift"],
+            ".": ["Example.xcodeproj/project.pbxproj", "Example/App.swift"],
         }
 
     def test_root_manifest_is_xcode_not_gemfile(self, ios_repo: Path) -> None:
-        scopes, _ = ScopeResolver()._resolve(ios_repo, _changed("Peaks/App.swift"), "o/r")
+        scopes, _ = ScopeResolver()._resolve(ios_repo, _changed("Example/App.swift"), "o/r")
         root = {s.subroot: s for s in scopes}["."]
         assert root.package_manifest is not None
         assert root.package_manifest.package_manager == "xcode"
-        assert root.package_manifest.manifest_path == "Peaks.xcodeproj/project.pbxproj"
-        assert root.package_manifest.package_name == "Peaks"
+        assert root.package_manifest.manifest_path == "Example.xcodeproj/project.pbxproj"
+        assert root.package_manifest.package_name == "Example"
         assert root.scope_type == ScopeType.APPLICATION
 
     def test_pbxproj_edit_is_not_a_dependency_change(self, ios_repo: Path) -> None:
         scopes, _ = ScopeResolver()._resolve(
-            ios_repo, _changed("Peaks.xcodeproj/project.pbxproj"), "o/r"
+            ios_repo, _changed("Example.xcodeproj/project.pbxproj"), "o/r"
         )
         assert scopes[0].package_manifest.dependencies_changed is False
 
     def test_swiftpm_lock_change_is_a_dependency_change(self, ios_repo: Path) -> None:
-        lock = "Peaks.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+        lock = "Example.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
         _touch(ios_repo, lock, "{}")
         scopes, _ = ScopeResolver()._resolve(ios_repo, _changed(lock), "o/r")
         manifest = scopes[0].package_manifest
@@ -82,8 +82,8 @@ class TestIOSLayout:
         assert manifest.dependencies_changed is True
 
     def test_no_scope_inside_xcode_bundle(self, ios_repo: Path) -> None:
-        _touch(ios_repo, "Peaks.xcodeproj/project.xcworkspace/Package.swift")
-        files = _changed("Peaks.xcodeproj/project.xcworkspace/contents.xcworkspacedata")
+        _touch(ios_repo, "Example.xcodeproj/project.xcworkspace/Package.swift")
+        files = _changed("Example.xcodeproj/project.xcworkspace/contents.xcworkspacedata")
         scopes, _ = ScopeResolver()._resolve(ios_repo, files, "o/r")
         assert [s.subroot for s in scopes] == ["."]
 
@@ -91,9 +91,9 @@ class TestIOSLayout:
 class TestAndroidLayout:
     def test_depth_one_and_depth_three_modules(self, tmp_path: Path) -> None:
         _touch(tmp_path, "build.gradle.kts")
-        _touch(tmp_path, "settings.gradle.kts", 'rootProject.name = "Peaks"')
+        _touch(tmp_path, "settings.gradle.kts", 'rootProject.name = "Example"')
         _touch(
-            tmp_path, "androidApp/build.gradle.kts", 'android {\n    namespace = "com.peaks.app"\n}'
+            tmp_path, "androidApp/build.gradle.kts", 'android {\n    namespace = "com.example.app"\n}'
         )
         _touch(tmp_path, "modules/feature/fea_x/build.gradle.kts", "plugins {}")
         files = _changed(
@@ -106,9 +106,9 @@ class TestAndroidLayout:
         assert not orphans
         by = {s.subroot: s for s in scopes}
         assert set(by) == {"androidApp", "modules/feature/fea_x", "."}
-        assert by["androidApp"].package_manifest.package_name == "com.peaks.app"
+        assert by["androidApp"].package_manifest.package_name == "com.example.app"
         assert by["modules/feature/fea_x"].package_manifest.package_name is None
-        assert by["."].package_manifest.package_name == "Peaks"
+        assert by["."].package_manifest.package_name == "Example"
 
 
 class TestManifestPriority:
@@ -151,16 +151,16 @@ class TestApplyBoundaries:
         return scopes
 
     def test_llm_boundary_kept_when_root_is_container(self, ios_repo: Path) -> None:
-        files = _changed("FeatureA/Sources/x.swift", "Peaks/App.swift")
+        files = _changed("FeatureA/Sources/x.swift", "Example/App.swift")
         det = self._det(ios_repo, files)
         boundaries = [
-            ScopeBoundary(subroot="Peaks", scope_type=ScopeType.APPLICATION, reason="app target"),
+            ScopeBoundary(subroot="Example", scope_type=ScopeType.APPLICATION, reason="app target"),
             ScopeBoundary(subroot="FeatureA/Sources", scope_type=ScopeType.LIBRARY, reason="x"),
         ]
         final = ScopeResolver()._apply_boundaries(boundaries, files, det, "o/r")
         assert _by_subroot(final) == {
             "FeatureA": ["FeatureA/Sources/x.swift"],  # inside a non-root manifest: dropped
-            "Peaks": ["Peaks/App.swift"],
+            "Example": ["Example/App.swift"],
         }
 
     def test_llm_boundary_dropped_when_root_is_sole_manifest(self, tmp_path: Path) -> None:
@@ -225,7 +225,7 @@ class TestRefinementFailureKeepsModules:
     def test_refusal_keeps_deterministic_scopes(self, ios_repo: Path) -> None:
         from codespy.agents.review.models import PRContext, ReviewContext
 
-        files = _changed("FeatureA/Sources/x.swift", "FeatureB/Tests/y.swift", "Peaks/App.swift")
+        files = _changed("FeatureA/Sources/x.swift", "FeatureB/Tests/y.swift", "Example/App.swift")
         pr = MagicMock(changed_files=files, repo_slug="o/r", repo_full_name="o/r")
         review_context = ReviewContext(
             pr_context=PRContext(
@@ -256,7 +256,7 @@ class TestRefinementFailureKeepsModules:
         assert _by_subroot(scopes) == {
             "FeatureA": ["FeatureA/Sources/x.swift"],
             "FeatureB": ["FeatureB/Tests/y.swift"],
-            ".": ["Peaks/App.swift"],
+            ".": ["Example/App.swift"],
         }
 
 

@@ -52,6 +52,10 @@ class ScopeResult(BaseModel):
     package_manifest: PackageManifest | None = Field(
         default=None, description="Package manifest info if present"
     )
+    module_marker: str | None = Field(
+        default=None,
+        description="Module marker of a manifest-less scope (e.g. 'packwerk:billing/package.yml')",
+    )
     changed_files: list[ChangedFile] = Field(
         default_factory=list, description="Changed files belonging to this scope"
     )

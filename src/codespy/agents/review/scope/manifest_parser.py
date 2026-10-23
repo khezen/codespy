@@ -8,6 +8,24 @@ import re
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+_JSONC_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/', re.DOTALL)
+
+
+def load_jsonc(path: Path) -> object | None:
+    """Load a JSON-with-comments file (tsconfig.json, deno.jsonc); None on failure.
+
+    Strips ``//`` and ``/* */`` comments outside strings, and trailing commas.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+        stripped = _JSONC_TOKEN.sub(
+            lambda m: m.group(0) if m.group(0).startswith('"') else "", text
+        )
+        stripped = re.sub(r",(\s*[}\]])", r"\1", stripped)  # trailing commas
+        return json.loads(stripped)
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        return None
+
 
 def extract_package_name(manifest_path: str, repo_path: Path) -> str | None:
     """Extract package name from manifest file. Returns None on failure.
@@ -66,12 +84,32 @@ def extract_package_name(manifest_path: str, repo_path: Path) -> str | None:
             return _extract_from_yaml(full_path, ["name"])
         elif filename == "Project.swift":
             return _extract_from_tuist_project(full_path)
-        elif filename.endswith((".xcodeproj", ".xcworkspace", ".podspec")):
+        elif filename.endswith((".xcodeproj", ".xcworkspace", ".podspec", ".gemspec")):
             return full_path.name.rsplit(".", 1)[0]
+        elif filename == "CMakeLists.txt":
+            return _extract_regex(full_path, _CMAKE_PROJECT)
+        elif filename == "meson.build":
+            return _extract_regex(full_path, _MESON_PROJECT)
+        elif filename == "build.sbt":
+            return _extract_regex(full_path, _SBT_NAME)
     except Exception:
         return None
 
     return None
+
+
+_CMAKE_PROJECT = re.compile(r"\bproject\s*\(\s*\"?([A-Za-z0-9_.+-]+)", re.IGNORECASE)
+_MESON_PROJECT = re.compile(r"\bproject\s*\(\s*'([^']+)'")
+_SBT_NAME = re.compile(r'^name\s*:=\s*"([^"]+)"', re.MULTILINE)
+
+
+def _extract_regex(path: Path, pattern: re.Pattern[str]) -> str | None:
+    """First capture group of ``pattern`` in the file, or None."""
+    try:
+        match = pattern.search(path.read_text(encoding="utf-8"))
+        return match.group(1) if match else None
+    except (UnicodeDecodeError, OSError):
+        return None
 
 
 def _extract_from_json(path: Path, keys: list[str]) -> str | None:
@@ -91,25 +129,14 @@ def _extract_from_json(path: Path, keys: list[str]) -> str | None:
         return None
 
 
-_JSONC_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/', re.DOTALL)
-
-
 def _extract_from_jsonc(path: Path, keys: list[str]) -> str | None:
     """Extract value from JSON-with-comments (deno.jsonc), best effort."""
-    try:
-        text = path.read_text(encoding="utf-8")
-        stripped = _JSONC_TOKEN.sub(
-            lambda m: m.group(0) if m.group(0).startswith('"') else "", text
-        )
-        stripped = re.sub(r",(\s*[}\]])", r"\1", stripped)  # trailing commas
-        value = json.loads(stripped)
-        for key in keys:
-            if not isinstance(value, dict):
-                return None
-            value = value.get(key)
-        return value if isinstance(value, str) else None
-    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
-        return None
+    value = load_jsonc(path)
+    for key in keys:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value if isinstance(value, str) else None
 
 
 def _extract_from_go_mod(path: Path) -> str | None:
