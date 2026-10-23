@@ -292,6 +292,14 @@ class Settings(BaseSettings):
         val = self.get_signature_config("scope").skip_refinement_when_clean
         return val if val is not None else True  # default: skip
 
+    def get_max_concurrent_scopes(self) -> int:
+        """Return the concurrency limit for per-scope review modules.
+
+        Each review module (code_review, doc, supply_chain) runs scopes
+        concurrently, limited by this value per module.
+        """
+        return self.review.max_concurrent_scopes
+
     def get_rlm_threshold(self, module_type: str) -> float:
         """Resolve RLM fallback threshold for a module type.
 

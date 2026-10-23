@@ -4,6 +4,7 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from codespy.config import get_settings
 
@@ -49,7 +50,7 @@ def serve(
     try:
         settings = get_settings(config_file=config_file)
     except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise typer.Exit(1) from None
 
     from codespy.workflows.review.server import run_server

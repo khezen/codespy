@@ -91,6 +91,7 @@ MANIFEST_FILES: dict[str, str] = {
     "go.mod": "go",
     # JavaScript/TypeScript
     "package.json": "npm",
+    "pnpm-workspace.yaml": "npm",
     # Python
     "pyproject.toml": "pip",
     "setup.py": "pip",
@@ -102,11 +103,14 @@ MANIFEST_FILES: dict[str, str] = {
     "pom.xml": "maven",
     "build.gradle": "gradle",
     "build.gradle.kts": "gradle",
+    "settings.gradle": "gradle",
+    "settings.gradle.kts": "gradle",
     "build.sbt": "sbt",
     # PHP
     "composer.json": "composer",
     # Ruby
     "Gemfile": "bundler",
+    "Podfile": "cocoapods",
     # .NET / C# / F#
     "Directory.Build.props": "dotnet",
     "Directory.Packages.props": "dotnet",
@@ -133,6 +137,82 @@ MANIFEST_FILES: dict[str, str] = {
     "DESCRIPTION": "r",
     # Helm charts
     "Chart.yaml": "helm",
+    # Web/Node
+    "deno.json": "deno",
+    "deno.jsonc": "deno",
+    # Apple project generators
+    "project.yml": "xcodegen",
+    "Project.swift": "tuist",
+    # Go workspace
+    "go.work": "go",
+}
+
+# Nx project file: a manifest only when the repo root has nx.json
+NX_PROJECT_FILE = "project.json"
+NX_ROOT_MARKER = "nx.json"
+
+# Xcode bundles: manifest is the bundle dir; real file and SwiftPM lock live inside
+XCODE_BUNDLE_SUFFIXES = (".xcodeproj", ".xcworkspace")
+XCODE_LOCK_PATHS: dict[str, str] = {
+    ".xcodeproj": "project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+    ".xcworkspace": "xcshareddata/swiftpm/Package.resolved",
+}
+
+# Manifests describing an app target rather than a library
+APPLICATION_PACKAGE_MANAGERS = frozenset({"xcode", "xcodegen", "tuist"})
+
+# Manifest priority ranking (higher = preferred when multiple exist in same dir)
+# 1: Language package manifests (highest)
+# 2: Project files
+# 3: Workspace/aggregator files
+# 4: Tooling (lowest)
+MANIFEST_PRIORITY: dict[str, int] = {
+    # Language package manifests (1)
+    "go.mod": 1,
+    "package.json": 1,
+    "pyproject.toml": 1,
+    "setup.py": 1,
+    "setup.cfg": 1,
+    "Pipfile": 1,
+    "Cargo.toml": 1,
+    "pom.xml": 1,
+    "build.gradle": 1,
+    "build.gradle.kts": 1,
+    "build.sbt": 1,
+    "composer.json": 1,
+    "Package.swift": 1,
+    "pubspec.yaml": 1,
+    "mix.exs": 1,
+    "deps.edn": 1,
+    "project.clj": 1,
+    "stack.yaml": 1,
+    "cabal.project": 1,
+    "dune-project": 1,
+    "build.zig.zon": 1,
+    "cpanfile": 1,
+    "Makefile.PL": 1,
+    "DESCRIPTION": 1,
+    "deno.json": 1,
+    "deno.jsonc": 1,
+    # Project files (2)
+    "*.xcodeproj": 2,
+    "*.podspec": 2,
+    "project.yml": 2,
+    "Project.swift": 2,
+    "project.json": 2,
+    # Workspace/aggregator files (3)
+    "*.xcworkspace": 3,
+    "settings.gradle": 3,
+    "settings.gradle.kts": 3,
+    "go.work": 3,
+    "pnpm-workspace.yaml": 3,
+    "Directory.Build.props": 3,
+    "Directory.Packages.props": 3,
+    "Chart.yaml": 3,
+    "*.sln": 3,
+    # Tooling (4 - lowest priority)
+    "Gemfile": 4,
+    "Podfile": 4,
 }
 
 # Glob patterns for manifests that use variable filenames
@@ -142,6 +222,9 @@ MANIFEST_GLOBS: dict[str, str] = {
     "*.vbproj": "dotnet",
     "*.sln": "dotnet",
     "*.cabal": "cabal",
+    "*.xcodeproj": "xcode",
+    "*.xcworkspace": "xcode",
+    "*.podspec": "cocoapods",
 }
 
 # Lock file -> manifest mapping
@@ -160,6 +243,11 @@ LOCK_TO_MANIFEST: dict[str, str] = {
     "mix.lock": "mix.exs",
     "packages.lock.json": "*.csproj",
     "paket.lock": "paket.dependencies",
+    "bun.lock": "package.json",
+    "bun.lockb": "package.json",
+    "deno.lock": "deno.json",
+    "Package.resolved": "Package.swift",
+    "Podfile.lock": "Podfile",
 }
 
 
@@ -613,22 +701,33 @@ class ScopeResolver(dspy.Module):
 
         # Build ScopeResult per manifest
         scopes: dict[str, ScopeResult] = {}
+        changed_paths = {f.filename for f in changed_files}
         for manifest_dir, (pkg_mgr, manifest_filename) in manifests.items():
             subroot = str(manifest_dir) if str(manifest_dir) != "." else "."
-            lock_file = self._find_lock_file(repo_path, manifest_dir, manifest_filename)
             scope_type = self._classify_scope_type(subroot, manifest_filename)
-            changed_paths = {f.filename for f in changed_files}
-            deps_changed = self._dependencies_changed(
-                manifest_dir, manifest_filename, lock_file, changed_paths
-            )
+            if pkg_mgr in APPLICATION_PACKAGE_MANAGERS and scope_type == ScopeType.LIBRARY:
+                scope_type = ScopeType.APPLICATION
             manifest_path = (
                 str(manifest_dir / manifest_filename)
                 if manifest_dir != Path(".")
                 else manifest_filename
             )
 
-            # Extract package name from manifest
+            # Extract package name from manifest (bundle dir name for Xcode)
             package_name = extract_package_name(manifest_path, repo_path)
+
+            if manifest_filename.endswith(XCODE_BUNDLE_SUFFIXES):
+                # Point at a readable file; every file add edits project.pbxproj,
+                # so only the SwiftPM lock counts as a dependency change.
+                if manifest_filename.endswith(".xcodeproj"):
+                    manifest_path = f"{manifest_path}/project.pbxproj"
+                lock_file = self._find_xcode_lock(repo_path, manifest_dir, manifest_filename)
+                deps_changed = bool(lock_file and str(lock_file) in changed_paths)
+            else:
+                lock_file = self._find_lock_file(repo_path, manifest_dir, manifest_filename)
+                deps_changed = self._dependencies_changed(
+                    manifest_dir, manifest_filename, lock_file, changed_paths
+                )
 
             # Build deterministic description with package name and scope type
             parts = []
@@ -704,6 +803,7 @@ class ScopeResolver(dspy.Module):
         logger.debug("Scanning ancestor directories for manifests (excluded: %s)", excluded_dirs)
         manifests: dict[Path, tuple[str, str]] = {}
         excluded_set = set(excluded_dirs)
+        nx_repo = (repo_path / NX_ROOT_MARKER).is_file()
 
         # Collect all unique ancestor directories from changed files
         ancestor_dirs: set[Path] = set()
@@ -728,22 +828,34 @@ class ScopeResolver(dspy.Module):
             if not dir_path.is_dir():
                 continue
 
+            # Skip directories inside Xcode bundles (e.g. Peaks.xcodeproj/project.xcworkspace)
+            if any(part.endswith(XCODE_BUNDLE_SUFFIXES) for part in rel_dir.parts):
+                continue
+
             try:
-                files = os.listdir(dir_path)
+                files = sorted(os.listdir(dir_path))
             except OSError:
                 continue
 
+            # (priority, filename, package manager); lowest priority value wins
+            candidates: list[tuple[int, str, str]] = []
             for filename in files:
-                # Check exact matches
                 if filename in MANIFEST_FILES:
-                    manifests[rel_dir] = (MANIFEST_FILES[filename], filename)
-                    break
-
-                # Check glob patterns
+                    candidates.append(
+                        (MANIFEST_PRIORITY.get(filename, 2), filename, MANIFEST_FILES[filename])
+                    )
+                    continue
+                if filename == NX_PROJECT_FILE and nx_repo:
+                    candidates.append((MANIFEST_PRIORITY[NX_PROJECT_FILE], filename, "nx"))
+                    continue
                 for pattern, pkg_mgr in MANIFEST_GLOBS.items():
                     if fnmatch.fnmatch(filename, pattern):
-                        manifests[rel_dir] = (pkg_mgr, filename)
+                        candidates.append((MANIFEST_PRIORITY.get(pattern, 2), filename, pkg_mgr))
                         break
+
+            if candidates:
+                _, filename, pkg_mgr = min(candidates)
+                manifests[rel_dir] = (pkg_mgr, filename)
 
         return manifests
 
@@ -814,6 +926,17 @@ class ScopeResolver(dspy.Module):
 
         return None
 
+    def _find_xcode_lock(
+        self, repo_path: Path, manifest_dir: Path, bundle_name: str
+    ) -> Path | None:
+        """Find the SwiftPM Package.resolved inside an .xcodeproj/.xcworkspace bundle."""
+        for suffix, rel in XCODE_LOCK_PATHS.items():
+            if bundle_name.endswith(suffix):
+                lock_path = repo_path / manifest_dir / bundle_name / rel
+                if lock_path.is_file():
+                    return lock_path.relative_to(repo_path)
+        return None
+
     def _dependencies_changed(
         self,
         manifest_dir: Path,
@@ -854,7 +977,13 @@ class ScopeResolver(dspy.Module):
             List of orphan files that couldn't be assigned
         """
         # Sort by depth (deepest first) for greedy assignment
-        sorted_scopes = sorted(scopes, key=lambda s: (-s.subroot.count("/"), s.subroot))
+        # Root "." has depth 0, all other paths have depth = slashes + 1
+        def _depth(s: ScopeResult) -> int:
+            if s.subroot == "." or s.subroot == "":
+                return 0
+            return s.subroot.count("/") + 1
+
+        sorted_scopes = sorted(scopes, key=lambda s: (-_depth(s), s.subroot))
         orphans: list[ChangedFile] = []
 
         for file in changed_files:
@@ -933,6 +1062,10 @@ class ScopeResolver(dspy.Module):
         # Index manifest-backed scopes from deterministic layer
         manifest_scopes = {s.subroot: s for s in deterministic_scopes if s.package_manifest}
 
+        # Determine if root is the sole manifest scope
+        has_nested_manifests = any(subroot != "." for subroot in manifest_scopes)
+        root_is_sole_manifest = "." in manifest_scopes and not has_nested_manifests
+
         # Build final boundary set
         final_boundaries: dict[str, ScopeResult] = {}
 
@@ -946,14 +1079,18 @@ class ScopeResolver(dspy.Module):
                 reason=det_scope.reason,
             )
 
-        # 2. Add LLM boundaries — but discard if child of a manifest scope
+        # 2. Add LLM boundaries — discard if child of a non-root manifest scope,
+        #    or if root is the sole manifest scope
         for boundary in boundaries:
             # Check if this boundary is inside a manifest-backed scope
             inside_manifest = any(
-                boundary.subroot.startswith(ms + "/") or ms == "."
+                boundary.subroot.startswith(ms + "/")
                 for ms in manifest_scopes
-                if ms != boundary.subroot
+                if ms != boundary.subroot and ms != "."
             )
+            # Also discard any non-root boundary when root is the sole manifest
+            if root_is_sole_manifest and boundary.subroot != ".":
+                inside_manifest = True
             if inside_manifest:
                 logger.debug(
                     "Discarding LLM boundary '%s' — inside manifest scope", boundary.subroot
@@ -1017,6 +1154,26 @@ class ScopeResolver(dspy.Module):
         for scope in scopes:
             scope.skills = collect_skills(repo_path, scope.subroot)
 
+        return scopes
+
+    def _deterministic_fallback(
+        self, scopes: list[ScopeResult], orphans: list[ChangedFile], repo: str
+    ) -> list[ScopeResult]:
+        """Deterministic scopes with orphans folded into the root scope."""
+        if not orphans:
+            return scopes
+        root = next((s for s in scopes if s.subroot == "."), None)
+        if root is None:
+            root = ScopeResult(
+                repo=repo,
+                subroot=".",
+                scope_type=ScopeType.APPLICATION,
+                reason="catch-all for unmatched files",
+                description="Repository root",
+            )
+            scopes = [*scopes, root]
+        root.changed_files.extend(orphans)
+        root.has_changes = True
         return scopes
 
     async def _refine_scopes(
@@ -1275,7 +1432,16 @@ class ScopeResolver(dspy.Module):
                 )
                 scopes = self._finalize_scopes(scopes, review_context)
             else:
-                scopes = await self._refine_scopes(scopes, orphans, review_context)
+                try:
+                    scopes = await self._refine_scopes(scopes, orphans, review_context)
+                except Exception as e:
+                    # Refinement only adjusts deterministic candidates; losing it must not
+                    # collapse a modular repo into one root scope.
+                    logger.error(
+                        "Scope refinement failed; using deterministic scopes: %s", e, exc_info=True
+                    )
+                    scopes = self._deterministic_fallback(scopes, orphans, repo)
+                    scopes = self._finalize_scopes(scopes, review_context)
             # Log final scopes for visibility
             scope_summary = "\n".join(
                 f"  - {s.subroot} ({s.scope_type.value}): {len(s.changed_files)} files"

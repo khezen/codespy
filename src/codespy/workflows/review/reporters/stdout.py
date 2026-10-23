@@ -35,4 +35,6 @@ class StdoutReporter(BaseReporter):
         if self.format == "json":
             self.console.print_json(json.dumps(result.to_json_dict(), indent=2))
         else:
-            self.console.print(result.to_markdown())
+            # Review text contains PR and model content (e.g. "[/{accountID}]" in a
+            # route); Rich markup would raise MarkupError on it.
+            self.console.print(result.to_markdown(), markup=False, highlight=False)

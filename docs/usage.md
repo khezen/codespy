@@ -113,6 +113,10 @@ GitHub Action inputs for these settings: `pr-context-feedback` (default `true`),
 
 Sizes are limited by `review.pr_context` (see [Configuration](configuration.md#pr-conversation-context)). Comment text is untrusted input: it is fenced and marked as informational only. On public repositories anyone can 👎 a finding, which suppresses it on that PR and feeds the scope's memory. Set `review.pr_context.feedback: false` (`REVIEW_PR_CONTEXT_FEEDBACK=false`) to turn feedback off there.
 
+## Modular Repositories
+
+Each module with its own manifest is reviewed as a separate scope: Swift packages (`Package.swift`), Gradle modules (`build.gradle(.kts)`), npm/Deno/Nx projects, Go modules and others. Files outside every module (for example an iOS app target next to `Peaks.xcodeproj`) go to the repository root scope. Scopes are reviewed in parallel, capped per module by the `max-concurrent-scopes` Action input (`review.max_concurrent_scopes`, default `8`; see [Configuration](configuration.md#concurrency)).
+
 ## IDE Integration (MCP Server)
 
 CodeSpy can run as an MCP (Model Context Protocol) server for integration with AI coding assistants like Cline, enabling code reviews directly from your editor without leaving your workflow.

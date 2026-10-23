@@ -336,6 +336,13 @@ inputs:
     required: false
 
   # ==========================================
+  # CONCURRENCY
+  # ==========================================
+  max-concurrent-scopes:
+    description: 'Maximum number of scopes to review concurrently per module. Default from codespy.yaml: 8'
+    required: false
+
+  # ==========================================
   # MEMORY (Hippocampus)
   # ==========================================
   memory-enabled:
@@ -602,6 +609,9 @@ runs:
         REVIEW_SCOPE_TEMPERATURE: ${{ inputs.scope-temperature }}
         REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN: ${{ inputs.scope-skip-refinement-when-clean }}
 
+        # Concurrency
+        REVIEW_MAX_CONCURRENT_SCOPES: ${{ inputs.max-concurrent-scopes }}
+
         # Code review signature
         REVIEW_CODE_REVIEW_ENABLED: ${{ inputs.code-review-enabled }}
         REVIEW_CODE_REVIEW_MODEL: ${{ inputs.code-review-model }}
@@ -738,6 +748,9 @@ runs:
         [ -n "$REVIEW_SCOPE_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_REASONING_EFFORT"
         [ -n "$REVIEW_SCOPE_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_TEMPERATURE"
         [ -n "$REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN"
+
+        # Concurrency
+        [ -n "$REVIEW_MAX_CONCURRENT_SCOPES" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_MAX_CONCURRENT_SCOPES"
 
         # Code review
         [ -n "$REVIEW_CODE_REVIEW_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_ENABLED"

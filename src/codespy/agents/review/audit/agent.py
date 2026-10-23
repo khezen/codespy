@@ -196,16 +196,26 @@ class Auditor(dspy.Module):
         logger.info("Running audit...")
 
         async with SignatureContext("audit", self._cost_tracker):
-            result, hippo, store, _artifacts = await self._acall_auditor(
-                auditor_agent,
-                review_context,
-                all_issues,
-                run_id,
-                scopes,
-                topics,
-                prefrontal_memory=prefrontal_memory,
-                pr_context_kwargs=pc_kwargs,
-            )
+            try:
+                result, hippo, store, _artifacts = await self._acall_auditor(
+                    auditor_agent,
+                    review_context,
+                    all_issues,
+                    run_id,
+                    scopes,
+                    topics,
+                    prefrontal_memory=prefrontal_memory,
+                    pr_context_kwargs=pc_kwargs,
+                )
+            except Exception as e:
+                # Audit only summarizes findings already collected; a failure here
+                # (e.g. Bedrock content_filter refusal) must not discard the review.
+                logger.error("Audit failed; posting review without assessment: %s", e,
+                             exc_info=True)
+                return (
+                    f"Audit unavailable: {str(e).splitlines()[0][:200]}",
+                    "NEEDS_DISCUSSION" if all_issues else "APPROVE",
+                )
 
         # Background episode save (after SignatureContext closes)
         if hippo is not None and store is not None:

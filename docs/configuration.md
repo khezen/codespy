@@ -210,6 +210,12 @@ See [Memory System](memory.md) for:
 | Git | `REVIEW_OUTPUT_GIT` | `true` | Post review to GitHub/GitLab |
 | Cache dir | `REVIEW_CACHE_DIR` | `~/.cache/codespy` | Cache directory path |
 
+## Concurrency
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `review.max_concurrent_scopes` | `REVIEW_MAX_CONCURRENT_SCOPES` | `8` | Scopes reviewed at once by each of code_review, doc and supply_chain (so up to 3× this value run in total). Modular repos (Swift packages, Gradle modules) can yield many scopes per PR; this bounds provider throttling and MCP subprocesses. Action input: `max-concurrent-scopes` |
+
 ## PR Conversation Context
 
 These settings control the commit messages, PR comments and feedback on earlier reviews that are given to the agents (see [Usage](usage.md#pr-conversation-and-human-feedback)). Commits and comments are always on for remote reviews.

@@ -47,13 +47,27 @@ def extract_package_name(manifest_path: str, repo_path: Path) -> str | None:
         ):
             return _extract_from_dotnet_proj(full_path)
         elif filename in ("build.gradle", "build.gradle.kts"):
-            return _extract_from_gradle(repo_path, manifest_path)
+            return _extract_from_gradle_module(full_path) or _extract_from_gradle_settings(
+                repo_path, manifest_path
+            )
+        elif filename in ("settings.gradle", "settings.gradle.kts"):
+            return _extract_from_gradle_settings(repo_path, manifest_path)
         elif filename == "Gemfile":
             return _extract_from_gemfile(full_path)
         elif filename == "Package.swift":
             return _extract_from_swift_package(full_path)
         elif filename == "mix.exs":
             return _extract_from_mix_exs(full_path)
+        elif filename in ("deno.json", "project.json"):
+            return _extract_from_json(full_path, ["name"])
+        elif filename == "deno.jsonc":
+            return _extract_from_jsonc(full_path, ["name"])
+        elif filename == "project.yml":
+            return _extract_from_yaml(full_path, ["name"])
+        elif filename == "Project.swift":
+            return _extract_from_tuist_project(full_path)
+        elif filename.endswith((".xcodeproj", ".xcworkspace", ".podspec")):
+            return full_path.name.rsplit(".", 1)[0]
     except Exception:
         return None
 
@@ -72,6 +86,27 @@ def _extract_from_json(path: Path, keys: list[str]) -> str | None:
             value = value.get(key)
             if value is None:
                 return None
+        return value if isinstance(value, str) else None
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        return None
+
+
+_JSONC_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/', re.DOTALL)
+
+
+def _extract_from_jsonc(path: Path, keys: list[str]) -> str | None:
+    """Extract value from JSON-with-comments (deno.jsonc), best effort."""
+    try:
+        text = path.read_text(encoding="utf-8")
+        stripped = _JSONC_TOKEN.sub(
+            lambda m: m.group(0) if m.group(0).startswith('"') else "", text
+        )
+        stripped = re.sub(r",(\s*[}\]])", r"\1", stripped)  # trailing commas
+        value = json.loads(stripped)
+        for key in keys:
+            if not isinstance(value, dict):
+                return None
+            value = value.get(key)
         return value if isinstance(value, str) else None
     except (json.JSONDecodeError, UnicodeDecodeError, OSError):
         return None
@@ -228,33 +263,32 @@ def _extract_from_dotnet_proj(path: Path) -> str | None:
         return path.stem
 
 
-def _extract_from_gradle(repo_path: Path, manifest_path: str) -> str | None:
-    """Extract project name from Gradle settings.gradle or settings.gradle.kts.
+_GRADLE_NAMESPACE = re.compile(r"""\bnamespace\s*=?\s*["']([^"']+)["']""")
+_GRADLE_ROOT_NAME = re.compile(r"""rootProject\.name\s*=\s*["']([^"']+)["']""")
 
-    Gradle projects don't store the name in build.gradle - it's in settings.gradle.
-    This is a best-effort extraction.
-    """
+
+def _extract_from_gradle_module(build_path: Path) -> str | None:
+    """Extract the Android ``namespace`` from build.gradle(.kts) (Kotlin or Groovy DSL)."""
+    try:
+        match = _GRADLE_NAMESPACE.search(build_path.read_text(encoding="utf-8"))
+        return match.group(1) if match else None
+    except (UnicodeDecodeError, OSError):
+        return None
+
+
+def _extract_from_gradle_settings(repo_path: Path, manifest_path: str) -> str | None:
+    """Extract ``rootProject.name`` from settings.gradle(.kts) next to the manifest."""
     manifest_dir = Path(manifest_path).parent
-
-    # Look for settings.gradle or settings.gradle.kts
-    settings_files = ["settings.gradle", "settings.gradle.kts"]
-
-    for settings_file in settings_files:
+    for settings_file in ("settings.gradle", "settings.gradle.kts"):
         settings_path = repo_path / manifest_dir / settings_file
-        if settings_path.exists():
-            try:
-                with open(settings_path, encoding="utf-8") as f:
-                    content = f.read()
-                # Look for rootProject.name = 'name' or rootProject.name = "name"
-                match = re.search(
-                    r"rootProject\.name\s*=\s*['\"]([^'\"]+)['\"]",
-                    content,
-                )
-                if match:
-                    return match.group(1)
-            except (UnicodeDecodeError, OSError):
-                continue
-
+        if not settings_path.is_file():
+            continue
+        try:
+            match = _GRADLE_ROOT_NAME.search(settings_path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, OSError):
+            continue
+        if match:
+            return match.group(1)
     return None
 
 
@@ -286,6 +320,19 @@ def _extract_from_swift_package(path: Path) -> str | None:
         if match:
             return match.group(1)
         return None
+    except (UnicodeDecodeError, OSError):
+        return None
+
+
+def _extract_from_tuist_project(path: Path) -> str | None:
+    """Extract project name from a Tuist Project.swift (``Project(name: "...")``)."""
+    try:
+        match = re.search(
+            r"Project\s*\([^)]*?name:\s*['\"]([^'\"]+)['\"]",
+            path.read_text(encoding="utf-8"),
+            re.DOTALL,
+        )
+        return match.group(1) if match else None
     except (UnicodeDecodeError, OSError):
         return None
 

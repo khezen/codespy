@@ -91,6 +91,9 @@ class ReviewConfig(BaseModel):
     # PR conversation context size caps
     pr_context: PRContextConfig = Field(default_factory=PRContextConfig)
 
+    # Concurrency limit for per-scope review modules
+    max_concurrent_scopes: int = Field(default=8, ge=1)
+
     # Per-signature configs
     supply_chain: SignatureConfig = Field(
         default_factory=lambda: SignatureConfig(model="bedrock/converse/nvidia.nemotron-super-3-120b")
@@ -132,4 +135,5 @@ SIGNATURE_NAMES = set(ReviewConfig.model_fields.keys()) - {
     "cache_dir",
     "excluded_directories",
     "pr_context",
+    "max_concurrent_scopes",
 }
