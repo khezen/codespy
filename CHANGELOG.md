@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-10-23
+
 ### Fixed
 
 - **Scope depth tie bug.** `ScopeResolver._assign_files` sorted by `(-subroot.count("/"), subroot)`. Root `"."` and first-level manifests both had depth 0, but the tie-break put root first alphabetically. Every file matched the empty prefix, so all files went to root. Now depth is `0` for root, `slashes + 1` for others, so first-level manifests sort before root.
@@ -17,6 +19,7 @@
 
 ### Added
 
+- **Running version is shown.** The startup panels (`review`, `review-local`, `review-uncommitted`), `learn`, and the MCP server startup log now show the codespy version. The GitHub/GitLab review header shows it too (`<sub>vX.Y.Z</sub>`).
 - **Extended manifest coverage:**
   - Apple: `*.xcodeproj`, `*.xcworkspace`, `*.podspec`, `project.yml` (XcodeGen), `Project.swift` (Tuist), `Podfile`.
   - Gradle: `settings.gradle`, `settings.gradle.kts`.

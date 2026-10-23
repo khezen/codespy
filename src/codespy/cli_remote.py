@@ -9,6 +9,7 @@ from rich.markup import escape
 from rich.logging import RichHandler
 from rich.panel import Panel
 
+from codespy import __version__
 from codespy.config import get_settings
 from codespy.config_git import get_github_token_source, get_gitlab_token_source
 from codespy.config_utils import secret_value
@@ -122,7 +123,7 @@ def review(
             f"[bold]Output:[/bold] {output_display}\n"
             f"[bold]{platform.title()} Token:[/bold] [green]found[/green] "
             f"[dim]({token_source})[/dim]",
-            title="codespy",
+            title=f"codespy v{__version__}",
         )
     )
 
@@ -268,6 +269,7 @@ def learn(
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise typer.Exit(1) from None
 
+    console.print(f"[dim]codespy v{__version__}[/dim]")
     platform, _ = _validate_url_and_token(pr_url, settings)
     if not settings.memory.enabled:
         console.print("[yellow]Memory is disabled (memory.enabled=false); nothing to learn.[/]")

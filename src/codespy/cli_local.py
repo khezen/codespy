@@ -11,6 +11,7 @@ from rich.markup import escape
 from rich.logging import RichHandler
 from rich.panel import Panel
 
+from codespy import __version__
 from codespy.config import get_settings
 
 console = Console()
@@ -103,7 +104,7 @@ def review_local(
             f"[bold]Base ref:[/bold] {base_ref}\n"
             f"[bold]Model:[/bold] {settings.llm.default_model}\n"
             f"[bold]Output:[/bold] {settings.review.output_format}",
-            title="codespy review-local",
+            title=f"codespy v{__version__} review-local",
         )
     )
 
@@ -222,7 +223,7 @@ def review_uncommitted(
             f"[bold]Repository:[/bold] {repo}\n"
             f"[bold]Model:[/bold] {settings.llm.default_model}\n"
             f"[bold]Output:[/bold] {settings.review.output_format}",
-            title="codespy review-uncommitted",
+            title=f"codespy v{__version__} review-uncommitted",
         )
     )
 
