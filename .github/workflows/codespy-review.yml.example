@@ -167,6 +167,8 @@ jobs:
 #         pr-context-max-comments: '100'        # default 100
 #         pr-context-max-comment-chars: '1000'  # default 1000
 #         pr-context-max-block-chars: '12000'   # default 12000
+#         # Scopes reviewed at once per module (default 8)
+#         max-concurrent-scopes: '8'
 
 # --- Learn from human feedback when the PR closes (needs memory) ---
 # Add a separate workflow triggered on `pull_request: types: [closed]`:

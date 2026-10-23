@@ -7,9 +7,11 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.logging import RichHandler
 from rich.panel import Panel
 
+from codespy import __version__
 from codespy.config import get_settings
 
 console = Console()
@@ -77,7 +79,7 @@ def review_local(
     try:
         settings = get_settings(config_file=config_file)
     except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise typer.Exit(1) from None
 
     if model:
@@ -102,7 +104,7 @@ def review_local(
             f"[bold]Base ref:[/bold] {base_ref}\n"
             f"[bold]Model:[/bold] {settings.llm.default_model}\n"
             f"[bold]Output:[/bold] {settings.review.output_format}",
-            title="codespy review-local",
+            title=f"codespy v{__version__} review-local",
         )
     )
 
@@ -141,7 +143,7 @@ def review_local(
         stdout_reporter.report(result)
 
     except Exception as e:
-        console.print(f"[red]Error during review:[/red] {e}")
+        console.print(f"[red]Error during review:[/red] {escape(str(e))}")
         logging.exception("Review failed")
         raise typer.Exit(1) from None
 
@@ -197,7 +199,7 @@ def review_uncommitted(
     try:
         settings = get_settings(config_file=config_file)
     except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise typer.Exit(1) from None
 
     if model:
@@ -221,7 +223,7 @@ def review_uncommitted(
             f"[bold]Repository:[/bold] {repo}\n"
             f"[bold]Model:[/bold] {settings.llm.default_model}\n"
             f"[bold]Output:[/bold] {settings.review.output_format}",
-            title="codespy review-uncommitted",
+            title=f"codespy v{__version__} review-uncommitted",
         )
     )
 
@@ -260,6 +262,6 @@ def review_uncommitted(
         stdout_reporter.report(result)
 
     except Exception as e:
-        console.print(f"[red]Error during review:[/red] {e}")
+        console.print(f"[red]Error during review:[/red] {escape(str(e))}")
         logging.exception("Review failed")
         raise typer.Exit(1) from None

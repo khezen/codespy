@@ -17,6 +17,7 @@ from codespy.agents.memory.prefrontal import with_prefrontal_memory
 from codespy.agents.review.feedback.signature import apply_pr_context
 from codespy.agents.review.helpers import (
     filter_by_confidence,
+    gather_limited,
     issues_to_markdown,
     make_scope_relative,
     resolve_scope_root,
@@ -254,12 +255,13 @@ class CodeReviewer(dspy.Module):
             f"Code review for {len(changed_scopes)} scopes ({total_files} changed files)..."
         )
 
-        # Parallelize scope processing
+        # Parallelize scope processing with concurrency limit
+        max_concurrent = self._settings.get_max_concurrent_scopes()
         scope_tasks = [
             self._review_scope(scope, repo_path, run_id, pr, review_context, categories, max_iters)
             for scope in changed_scopes
         ]
-        results = await asyncio.gather(*scope_tasks, return_exceptions=True)
+        results = await gather_limited(scope_tasks, max_concurrent)
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.error(

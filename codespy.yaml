@@ -248,6 +248,9 @@ review:
     max_tokens: null                                              # REVIEW_SCOPE_MAX_TOKENS
     skip_refinement_when_clean: null                              # REVIEW_SCOPE_SKIP_REFINEMENT_WHEN_CLEAN
 
+  # Concurrency settings
+  max_concurrent_scopes: 8                                      # REVIEW_MAX_CONCURRENT_SCOPES
+
   # Summary
   summary:
     enabled: true                                                 # REVIEW_SUMMARY_ENABLED

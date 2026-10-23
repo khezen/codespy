@@ -5,9 +5,11 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.logging import RichHandler
 from rich.panel import Panel
 
+from codespy import __version__
 from codespy.config import get_settings
 from codespy.config_git import get_github_token_source, get_gitlab_token_source
 from codespy.config_utils import secret_value
@@ -84,7 +86,7 @@ def review(
     try:
         settings = get_settings(config_file=config_file)
     except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise typer.Exit(1) from None
 
     # Print config at startup (secrets are hidden via repr=False)
@@ -121,7 +123,7 @@ def review(
             f"[bold]Output:[/bold] {output_display}\n"
             f"[bold]{platform.title()} Token:[/bold] [green]found[/green] "
             f"[dim]({token_source})[/dim]",
-            title="codespy",
+            title=f"codespy v{__version__}",
         )
     )
 
@@ -181,10 +183,10 @@ def review(
             stdout_reporter.report(result)
 
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise typer.Exit(1) from None
     except Exception as e:
-        console.print(f"[red]Error during review:[/red] {e}")
+        console.print(f"[red]Error during review:[/red] {escape(str(e))}")
         logging.exception("Review failed")
         raise typer.Exit(1) from None
 
@@ -264,9 +266,10 @@ def learn(
     try:
         settings = get_settings(config_file=config_file)
     except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise typer.Exit(1) from None
 
+    console.print(f"[dim]codespy v{__version__}[/dim]")
     platform, _ = _validate_url_and_token(pr_url, settings)
     if not settings.memory.enabled:
         console.print("[yellow]Memory is disabled (memory.enabled=false); nothing to learn.[/]")
@@ -281,10 +284,10 @@ def learn(
         pipeline = ReviewPipeline(settings)
         count = pipeline.learn(pr_url)
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise typer.Exit(1) from None
     except Exception as e:
-        console.print(f"[red]Error during learn:[/red] {e}")
+        console.print(f"[red]Error during learn:[/red] {escape(str(e))}")
         logging.exception("Learn failed")
         raise typer.Exit(1) from None
 

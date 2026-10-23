@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased]
+
+## [2.4.1] - 2026-10-23
+
+### Fixed
+
+- **Scope depth tie bug.** `ScopeResolver._assign_files` sorted by `(-subroot.count("/"), subroot)`. Root `"."` and first-level manifests both had depth 0, but the tie-break put root first alphabetically. Every file matched the empty prefix, so all files went to root. Now depth is `0` for root, `slashes + 1` for others, so first-level manifests sort before root.
+- **Root-manifest LLM guard.** `_apply_boundaries` discarded every LLM boundary when the root had a manifest. Now it only discards boundaries inside non-root manifest scopes, or inside root when root is the *sole* manifest.
+- **Nondeterministic manifest pick.** `_discover_manifests` kept whichever manifest `os.listdir` returned first. Now it iterates `sorted(os.listdir)` and picks by explicit priority ranking.
+- **An audit failure no longer discards the review.** When the audit LLM call failed (e.g. Bedrock `content_filter` refusal), the whole run aborted and none of the collected findings were posted. The audit now soft-fails: the review is posted with `Audit unavailable: <reason>` and a deterministic recommendation (`NEEDS_DISCUSSION` with findings, `APPROVE` without), like the disabled-audit path.
+- **Bedrock `content_filter` refusals in RLM agents.** Each RLM step's free-form answer (a short plan, then a fenced code block) was turned into `reasoning`/`code` by the extraction model. `nemotron-nano` sometimes wrote its own meta-commentary into `reasoning` instead ("I need to extract the reasoning and code…", 6/20 in testing). That text was replayed to the main LM as REPL history and saved to memory, and Opus 5.5 refused those prompts. In replays, removing it cleared the refusal in 5 of 6 dumps. `DiagnosticTwoStepAdapter` now splits RLM action steps locally at the first code fence (sync and async), with no extraction call; other signatures and fence-less answers still use the extraction model.
+- **Crash printing reviews or errors that contain bracketed text.** The markdown review on stdout and the CLI error messages were rendered as Rich markup, so PR or model text such as `[/{accountID}]` raised `MarkupError` and replaced the real result or error. The stdout review is now printed without markup, and exception text is escaped in all CLI error prints.
+- **A scope refinement failure no longer collapses the PR into one root scope.** When the scope LLM refinement failed (e.g. `content_filter`), every changed file went to a single `.` scope, losing per-module review. It now falls back to the deterministic manifest scopes, with unmatched files in the root scope.
+- **Workspace locks.** Cargo and Dart pub workspace members (and NuGet `packages.lock.json`) now find the shared lock in an ancestor dir, so a root `Cargo.lock`/`pubspec.lock` change flags each changed member scope as a dependency change.
+- **.NET central package management.** A `Directory.Packages.props` in the scope dir or an ancestor now counts as a dependency file for .NET scopes.
+- **.NET root manifest pick.** `*.sln`/`*.slnx` now win over `Directory.Build.props`/`Directory.Packages.props` at the same dir (previously decided by alphabetical order).
+
+### Added
+
+- **Running version is shown.** The startup panels (`review`, `review-local`, `review-uncommitted`), `learn`, and the MCP server startup log now show the codespy version. The GitHub/GitLab review header shows it too (`<sub>vX.Y.Z</sub>`).
+- **Extended manifest coverage:**
+  - Apple: `*.xcodeproj`, `*.xcworkspace`, `*.podspec`, `project.yml` (XcodeGen), `Project.swift` (Tuist), `Podfile`.
+  - Gradle: `settings.gradle`, `settings.gradle.kts`.
+  - Web: `deno.json`, `deno.jsonc`, `pnpm-workspace.yaml`, `project.json` (Nx), and locks `bun.lock`, `bun.lockb`, `deno.lock`.
+  - Go: `go.work`.
+  - Swift: `Package.resolved` maps to `Package.swift`.
+  - CocoaPods: `Podfile.lock` maps to `Podfile`.
+- **Gradle namespace extraction.** Module `build.gradle.kts` files are now parsed for `namespace = "..."` to extract the Android namespace as the package name.
+- **Concurrency cap for per-scope review modules.** New setting `review.max_concurrent_scopes` (default 8, env `REVIEW_MAX_CONCURRENT_SCOPES`, Action input `max-concurrent-scopes`). Code review, doc, and supply chain each fan out over scopes but cap concurrent execution to avoid Bedrock throttling and MCP subprocess overload.
+- **Module markers for single-manifest modular monoliths.** A repo with only a root manifest is now split into one scope per module declared by explicit tooling: Packwerk (`package.yml`), tach, import-linter, go-arch-lint, Spring Modulith, JPMS `module-info.java`, Go `cmd/<name>/main.go` (single root `go.mod` only), TypeScript project references, Laravel modules, Deptrac directory collectors, sbt subprojects and Mill modules. Marker scopes are authoritative like manifest scopes (the LLM can't split them) and use path-based topic IDs. Malformed marker config is ignored.
+- **More manifests:** `*.gemspec`, `CMakeLists.txt` and `meson.build` (only when they declare a target/project; never counted as a dependency change), `build.mill`/`build.sc` (Mill), `project.scala` (Scala CLI, with a `//> using` directive), `*.slnx`, and `packages.config` (legacy NuGet). Package names are read from gemspec, CMake, Meson and `build.sbt` (`name := ...`).
+
+
+### Changed
+
+- **Scope topic IDs change for some scopes.** Topic IDs come from `package_name`. Gradle modules now use their Android `namespace` (e.g. `com.example.summary`), and repo roots now picked by a project file get its name (e.g. iOS root `Example` from `Example.xcodeproj` instead of the `Gemfile`). Prior memory under the old IDs is no longer recalled for those scopes; no migration is planned.
+- **More scope topic IDs change.** sbt roots now take their `name := "..."` (e.g. `owner/repo/shop` instead of `owner/repo`), and dirs now picked by `CMakeLists.txt` (`project(...)`), `meson.build` (`project('...')`) or `*.gemspec` (file stem) use that name. Prior memory under the old IDs is no longer recalled for those scopes; no migration is planned.
+- **Supply chain sees workspace locks.** When a scope's lock lives in an ancestor dir (Cargo/pub workspace lock, `Directory.Packages.props`), supply chain tools are rooted at the deepest folder containing both the scope and the lock.
+
 ## [2.4.0] - 2026-10-21
 
 ### Added

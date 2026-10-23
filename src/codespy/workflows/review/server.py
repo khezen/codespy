@@ -9,6 +9,7 @@ from typing import Any
 
 from mcp.server import MCPServer
 
+from codespy import __version__
 from codespy.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -198,7 +199,7 @@ def run_server(settings: Settings | None = None) -> None:
     )
 
     _settings = settings if settings is not None else Settings()
-    logger.info(f"codespy-reviewer MCP server starting (model: {_settings.llm.default_model})")
+    logger.info(f"codespy-reviewer MCP server v{__version__} starting (model: {_settings.llm.default_model})")
     mcp.run()
 
 

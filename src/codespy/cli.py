@@ -4,6 +4,7 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 
 from codespy import __version__
@@ -71,7 +72,7 @@ def config(
     try:
         settings = get_settings(config_file=config_file)
     except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise typer.Exit(1) from None
 
     console.print(Panel("[bold]Current Configuration[/bold]", title="codespy"))

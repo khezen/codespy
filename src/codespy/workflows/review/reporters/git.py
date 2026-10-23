@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from collections import Counter
 
+from codespy import __version__
 from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
 from codespy.workflows.review.models import ReviewResult
 from codespy.workflows.review.reporters.base import BaseReporter
@@ -169,7 +170,10 @@ class GitReporter(BaseReporter):
         lines = []
 
         # Header with stats - link to CodeSpy repo
-        lines.append("# 🔍 Code[Spy](https://github.com/khezen/codespy) Review")
+        # Version goes after the header text: legacy detection anchors on the line start
+        lines.append(
+            f"# 🔍 Code[Spy](https://github.com/khezen/codespy) Review <sub>v{__version__}</sub>"
+        )
         # Hidden marker: lets later runs recognize (and exclude) codespy's own review
         lines.append(review_marker(result.run_id or ""))
         lines.append("")

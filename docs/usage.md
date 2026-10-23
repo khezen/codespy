@@ -113,6 +113,29 @@ GitHub Action inputs for these settings: `pr-context-feedback` (default `true`),
 
 Sizes are limited by `review.pr_context` (see [Configuration](configuration.md#pr-conversation-context)). Comment text is untrusted input: it is fenced and marked as informational only. On public repositories anyone can 👎 a finding, which suppresses it on that PR and feeds the scope's memory. Set `review.pr_context.feedback: false` (`REVIEW_PR_CONTEXT_FEEDBACK=false`) to turn feedback off there.
 
+## Modular Repositories
+
+Each module with its own manifest is reviewed as a separate scope: Swift packages (`Package.swift`), Gradle modules (`build.gradle(.kts)`), npm/Deno/Nx projects, Go modules and others. Files outside every module (for example an iOS app target next to `Example.xcodeproj`) go to the repository root scope. Scopes are reviewed in parallel, capped per module by the `max-concurrent-scopes` Action input (`review.max_concurrent_scopes`, default `8`; see [Configuration](configuration.md#concurrency)).
+
+A repository with a single root manifest (a modular monolith) is split only where modules are declared explicitly. Directory names alone never create a scope there. Recognised module markers:
+
+| Tool | Detected from | Scope |
+|---|---|---|
+| Packwerk | root `packwerk.yml` | each dir with `package.yml` |
+| tach | root `tach.toml` | each `[[modules]] path` under `source_roots` |
+| import-linter | `.importlinter`, `setup.cfg` or `pyproject.toml` `[tool.importlinter]` | contract `layers`/`modules`/`containers`/`source_modules` (at `.` or `src/`) |
+| go-arch-lint | root `.go-arch-lint.yml` | `workdir` + literal prefix of each component `in` |
+| Spring Modulith | `*Application.java`/`.kt` with `@SpringBootApplication` | each direct sub-package |
+| JPMS | `module-info.java` | its module dir (without `src/main/java`) |
+| Go | `cmd/<name>/main.go` with a single root `go.mod` | `cmd/<name>` |
+| TypeScript | root `tsconfig.json` `references` | each referenced project |
+| Laravel modules | `Modules/<name>/module.json` (or root `modules_statuses.json`) | the module dir |
+| Deptrac | root `deptrac.yaml`/`deptrac.yml`/`depfile.yaml` | literal prefix of each `directory` collector |
+| sbt | root `build.sbt` | `project.in(file("x"))` / `project in file("x")` |
+| Mill | root `build.mill`/`build.sc`, `package.mill` | top-level `object x extends ...Module` → `x`; dirs with `package.mill` |
+
+Marker scopes keep their dependencies on the enclosing manifest, so supply-chain review still runs on that manifest's scope. A marker dir that also has its own manifest is a manifest scope.
+
 ## IDE Integration (MCP Server)
 
 CodeSpy can run as an MCP (Model Context Protocol) server for integration with AI coding assistants like Cline, enabling code reviews directly from your editor without leaving your workflow.

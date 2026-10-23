@@ -13,7 +13,7 @@ from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 from dspy.adapters.two_step_adapter import TwoStepAdapter  # type: ignore[import-untyped]
-from dspy.adapters.base import AdapterParseError  # type: ignore[import-untyped]
+from dspy.adapters.base import Adapter, AdapterParseError  # type: ignore[import-untyped]
 
 from codespy.config import get_settings
 
@@ -267,13 +267,57 @@ def _get_finish_reason_from_lm(lm: Any) -> str | None:
         return None
 
 
+RLM_ACTION_FIELDS = frozenset({"reasoning", "code"})
+
+
+def _is_rlm_action(signature: Any) -> bool:
+    """Whether ``signature`` is a dspy.RLM action step (outputs exactly reasoning + code)."""
+    try:
+        return set(signature.output_fields) == RLM_ACTION_FIELDS
+    except Exception:
+        return False
+
+
+def split_rlm_action(completion: str) -> dict[str, str] | None:
+    """Split an RLM action completion into its plan and its fenced code block.
+
+    The main LM answers an RLM step as free text: a short plan, then a fenced
+    code block. Splitting that locally keeps the extraction model away from
+    ``reasoning``: a small extraction model sometimes writes its own meta-commentary
+    ("I need to extract the reasoning and code…") into the field, which is then
+    replayed to the main LM as REPL history and saved to memory, and Bedrock
+    refuses those prompts with ``content_filter``.
+
+    Returns None when the completion has no code fence, so the caller can fall
+    back to model extraction.
+    """
+    fence = completion.find("```")
+    if fence == -1:
+        return None
+    reasoning = completion[:fence].strip()
+    # dspy.RLM strips the fence itself; keep it so non-Python tags are still rejected there
+    code = completion[fence:].strip()
+    return {"reasoning": reasoning, "code": code}
+
+
 class DiagnosticTwoStepAdapter(TwoStepAdapter):
     """TwoStepAdapter that logs diagnostics on empty LM responses.
 
     Wraps the parent's __call__ and __acall__ to catch AdapterParseError for empty/null
     responses and log detailed diagnostics before re-raising the original
     exception unchanged.
+
+    RLM action steps (``reasoning, code``) are split deterministically instead of
+    going through the extraction model; see :func:`split_rlm_action`.
     """
+
+    def parse(self, signature: Any, completion: str) -> dict[str, Any]:
+        """Parse locally for RLM action steps; otherwise use the extraction model."""
+        if _is_rlm_action(signature):
+            split = split_rlm_action(completion)
+            if split is not None:
+                return split
+        return super().parse(signature, completion)
 
     def _check_and_log_empty_response(
         self, exc: AdapterParseError, lm: dspy.LM, signature: Any
@@ -321,6 +365,10 @@ class DiagnosticTwoStepAdapter(TwoStepAdapter):
     ) -> dict[str, Any]:
         """Async call parent adapter, logging diagnostics on empty response."""
         try:
+            if _is_rlm_action(signature):
+                # TwoStepAdapter.acall calls the extraction model directly and never
+                # reaches parse(); the base Adapter path does, like the sync path.
+                return await Adapter.acall(self, lm, lm_kwargs, signature, demos, inputs)
             return await super().acall(lm, lm_kwargs, signature, demos, inputs)
         except AdapterParseError as exc:
             self._check_and_log_empty_response(exc, lm, signature)

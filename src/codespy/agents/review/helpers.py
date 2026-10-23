@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-from collections.abc import Sequence
+from collections.abc import Coroutine, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from codespy.agents.review.models import Issue
 from codespy.tools.git.models import ChangedFile
 
 if TYPE_CHECKING:
     from codespy.agents.review.scope.models import ScopeResult, PackageManifest
+
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +179,7 @@ def make_scope_relative(scope: "ScopeResult") -> "ScopeResult":
         has_changes=scope.has_changes,
         language=scope.language,
         package_manifest=manifest,
+        module_marker=scope.module_marker,
         changed_files=relative_files,
         reason=scope.reason,
         skills=scope.skills,
@@ -300,3 +304,30 @@ def filter_by_confidence(
         module, scope_subroot, raw_count, kept_count, min_confidence
     )
     return kept
+
+
+async def gather_limited(
+    coros: list[Coroutine[Any, Any, T]], limit: int
+) -> list[T | BaseException]:
+    """Run coroutines concurrently with a semaphore limit.
+
+    Results are returned in the same order as the input coroutines.
+    Exceptions are captured as BaseException instances (like asyncio.gather).
+
+    Args:
+        coros: List of coroutines to run
+        limit: Maximum number of coroutines to run concurrently. A non-int or
+            value < 1 means unbounded.
+
+    Returns:
+        List of results or exceptions, in input order
+    """
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+        limit = max(len(coros), 1)
+    semaphore = asyncio.Semaphore(limit)
+
+    async def _wrapped(coro: Coroutine[Any, Any, T]) -> T:
+        async with semaphore:
+            return await coro
+
+    return await asyncio.gather(*(_wrapped(c) for c in coros), return_exceptions=True)

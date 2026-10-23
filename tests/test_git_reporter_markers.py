@@ -2,11 +2,13 @@
 
 from pr_conversation_fakes import comment, make_pr
 
+from codespy import __version__
 from codespy.agents.review.feedback import drop_rejected, extract_feedback, issue_fingerprint
 from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
 from codespy.tools.git.conversation import (
     REVIEW_MARKER_RE,
     classify_author,
+    has_self_signature,
     parse_issue_marker,
 )
 from codespy.workflows.review.models import ReviewResult
@@ -43,6 +45,14 @@ def test_review_body_has_review_marker_and_body_issue_marker():
     assert marker["cat"] == "security" and marker["sev"] == "critical"
     # The header still comes first (legacy detection keeps working)
     assert body.startswith("# 🔍 Code[Spy]")
+
+
+def test_review_header_shows_version_and_keeps_self_signature():
+    body = _reporter()._build_review_body(_result(), [])
+    first_line = body.splitlines()[0]
+    assert f"v{__version__}" in first_line
+    # Header alone (no hidden marker) is still recognized as codespy's own
+    assert has_self_signature(first_line)
 
 
 def test_inline_comment_marker_and_first_line_shape():
