@@ -778,7 +778,7 @@ def get_prefrontal(
 
 
 # Consumer signatures that share the run-level Prefrontal load
-_RUN_PREFRONTAL_CONSUMERS = ("summary", "code_review", "doc", "supply_chain", "audit")
+_RUN_PREFRONTAL_CONSUMERS = ("summary", "code_review", "doc", "seo", "supply_chain", "audit")
 
 
 def get_run_prefrontal(

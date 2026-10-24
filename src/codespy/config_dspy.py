@@ -45,6 +45,12 @@ class SignatureConfig(BaseModel):
     skip_refinement_when_clean: bool | None = None  # For scope: skip LLM refinement when 1 scope, 0 orphans
 
 
+class SEOSignatureConfig(SignatureConfig):
+    """Configuration for the SEO signature with scope filtering."""
+
+    scopes: list[str] = Field(default_factory=list, description="fnmatch globs on scope.subroot; empty means all scopes")
+
+
 class PRContextConfig(BaseModel):
     """PR conversation context (commits, comments, feedback on earlier reviews).
 
@@ -113,6 +119,9 @@ class ReviewConfig(BaseModel):
     audit: SignatureConfig = Field(
         default_factory=lambda: SignatureConfig(model="bedrock/converse/global.anthropic.claude-opus-5-5")
     )
+    seo: SEOSignatureConfig = Field(
+        default_factory=lambda: SEOSignatureConfig(enabled=False, model="bedrock/converse/global.anthropic.claude-opus-5-5")
+    )
 
     def signatures(self) -> dict[str, SignatureConfig]:
         """Return a dict of signature name -> SignatureConfig."""
@@ -123,6 +132,7 @@ class ReviewConfig(BaseModel):
             "scope": self.scope,
             "summary": self.summary,
             "audit": self.audit,
+            "seo": self.seo,
         }
 
 

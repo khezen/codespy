@@ -336,6 +336,41 @@ inputs:
     required: false
 
   # ==========================================
+  # SIGNATURE: seo
+  # ==========================================
+  seo-enabled:
+    description: 'Enable SEO & AI-visibility review (public websites only). Default from codespy.yaml: false'
+    required: false
+
+  seo-scopes:
+    description: 'JSON array of fnmatch globs on scope subroot to SEO-review (e.g. ["apps/web"]). Empty = any detected web scope. Default from codespy.yaml: []'
+    required: false
+
+  seo-model:
+    description: 'Model for SEO review (empty = use default). Default from codespy.yaml: bedrock/converse/global.anthropic.claude-opus-5-5'
+    required: false
+
+  seo-max-iters:
+    description: 'Max iterations for SEO review. Default from codespy.yaml: 5'
+    required: false
+
+  seo-max-llm-calls:
+    description: 'Max LLM calls for SEO review RLM fallback. Default from codespy.yaml: 16'
+    required: false
+
+  seo-max-tokens:
+    description: 'Max tokens for SEO review. Default from codespy.yaml: default-max-tokens'
+    required: false
+
+  seo-reasoning-effort:
+    description: 'Reasoning effort for SEO review (minimal|low|medium|high). Default from codespy.yaml: medium'
+    required: false
+
+  seo-temperature:
+    description: 'Temperature for SEO review. Default from codespy.yaml: 1.0'
+    required: false
+
+  # ==========================================
   # CONCURRENCY
   # ==========================================
   max-concurrent-scopes:
@@ -628,6 +663,16 @@ runs:
         REVIEW_DOC_REASONING_EFFORT: ${{ inputs.doc-reasoning-effort }}
         REVIEW_DOC_TEMPERATURE: ${{ inputs.doc-temperature }}
 
+        # SEO signature
+        REVIEW_SEO_ENABLED: ${{ inputs.seo-enabled }}
+        REVIEW_SEO_SCOPES: ${{ inputs.seo-scopes }}
+        REVIEW_SEO_MODEL: ${{ inputs.seo-model }}
+        REVIEW_SEO_MAX_ITERS: ${{ inputs.seo-max-iters }}
+        REVIEW_SEO_MAX_LLM_CALLS: ${{ inputs.seo-max-llm-calls }}
+        REVIEW_SEO_MAX_TOKENS: ${{ inputs.seo-max-tokens }}
+        REVIEW_SEO_REASONING_EFFORT: ${{ inputs.seo-reasoning-effort }}
+        REVIEW_SEO_TEMPERATURE: ${{ inputs.seo-temperature }}
+
         # Supply chain signature
         REVIEW_SUPPLY_CHAIN_ENABLED: ${{ inputs.supply-chain-enabled }}
         REVIEW_SUPPLY_CHAIN_MODEL: ${{ inputs.supply-chain-model }}
@@ -779,6 +824,16 @@ runs:
         [ -n "$REVIEW_DOC_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_DOC_MAX_LLM_CALLS"
         [ -n "$REVIEW_DOC_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_DOC_REASONING_EFFORT"
         [ -n "$REVIEW_DOC_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_DOC_TEMPERATURE"
+
+        # SEO review
+        [ -n "$REVIEW_SEO_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SEO_ENABLED"
+        [ -n "$REVIEW_SEO_SCOPES" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SEO_SCOPES"
+        [ -n "$REVIEW_SEO_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SEO_MODEL"
+        [ -n "$REVIEW_SEO_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SEO_MAX_ITERS"
+        [ -n "$REVIEW_SEO_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SEO_MAX_LLM_CALLS"
+        [ -n "$REVIEW_SEO_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SEO_MAX_TOKENS"
+        [ -n "$REVIEW_SEO_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SEO_REASONING_EFFORT"
+        [ -n "$REVIEW_SEO_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SEO_TEMPERATURE"
 
         # Supply chain
         [ -n "$REVIEW_SUPPLY_CHAIN_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUPPLY_CHAIN_ENABLED"

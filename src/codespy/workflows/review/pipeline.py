@@ -19,6 +19,7 @@ from codespy.agents.review import (
     CodeReviewer,
     DocReviewer,
     ScopeResolver,
+    SEOReviewer,
     Summarizer,
     SupplyChainAuditor,
 )
@@ -74,6 +75,7 @@ class ReviewPipeline(dspy.Module):
         self.scope_resolver = ScopeResolver()
         self.code_reviewer = CodeReviewer()
         self.doc_reviewer = DocReviewer()
+        self.seo_reviewer = SEOReviewer()
         self.supply_chain_auditor = SupplyChainAuditor()
         self.summarizer = Summarizer()
         self.auditor = Auditor()
@@ -139,6 +141,7 @@ class ReviewPipeline(dspy.Module):
         tasks = [
             self.code_reviewer.aforward(scopes=scopes, review_context=review_context),
             self.doc_reviewer.aforward(scopes=scopes, review_context=review_context),
+            self.seo_reviewer.aforward(scopes=scopes, review_context=review_context),
             self.supply_chain_auditor.aforward(scopes=scopes, review_context=review_context),
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -198,7 +201,7 @@ class ReviewPipeline(dspy.Module):
         if config_path:
             logger.info(f"Config loaded from: {config_path}")
         logger.info(f"min_confidence={self.settings.review.min_confidence:.2f}")
-        for sig_name in ["code_review", "doc", "supply_chain", "summary", "audit"]:
+        for sig_name in ["code_review", "doc", "seo", "supply_chain", "summary", "audit"]:
             max_iters = self.settings.get_max_iters(sig_name)
             max_llm_calls = self.settings.get_max_llm_calls(sig_name)
             logger.info(f"  {sig_name}: max_iters={max_iters}, max_llm_calls={max_llm_calls}")
@@ -342,7 +345,7 @@ class ReviewPipeline(dspy.Module):
         )
 
         # Step 3: Run review modules concurrently via asyncio.gather
-        module_names = ["code_reviewer", "doc_reviewer", "supply_chain_auditor"]
+        module_names = ["code_reviewer", "doc_reviewer", "seo_reviewer", "supply_chain_auditor"]
         logger.info(f"Running review modules concurrently: {', '.join(module_names)}...")
         all_issues = asyncio.run(
             self._run_review_modules(scopes, module_names, review_context=review_ctx)

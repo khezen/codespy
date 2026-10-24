@@ -32,6 +32,7 @@ class IssueCategory(StrEnum):
     BUG = "bug"
     DOCUMENTATION = "documentation"
     SMELL = "smell"
+    SEO = "seo"
 
 
 FeedbackVerdict = Literal["accepted", "rejected", "discussed", "resolved"]

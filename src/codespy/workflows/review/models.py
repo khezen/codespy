@@ -165,6 +165,11 @@ class ReviewResult(BaseModel):
         """Get all code smell issues."""
         return [i for i in self.issues if i.category == IssueCategory.SMELL]
 
+    @property
+    def seo_issues(self) -> list["Issue"]:
+        """Get all SEO issues."""
+        return [i for i in self.issues if i.category == IssueCategory.SEO]
+
     def issues_by_severity(self) -> dict["IssueSeverity", list["Issue"]]:
         """Group issues by severity."""
         result: dict[IssueSeverity, list[Issue]] = {s: [] for s in IssueSeverity}
@@ -205,6 +210,7 @@ class ReviewResult(BaseModel):
                 f"- **Bugs:** {len(self.bug_issues)}",
                 f"- **Documentation:** {len(self.documentation_issues)}",
                 f"- **Smells:** {len(self.smell_issues)}",
+                f"- **SEO:** {len(self.seo_issues)}",
                 "",
             ]
         )

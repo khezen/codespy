@@ -300,6 +300,14 @@ class Settings(BaseSettings):
         """
         return self.review.max_concurrent_scopes
 
+    def get_seo_scopes(self) -> list[str]:
+        """Return the list of scope globs for the SEO reviewer.
+
+        Empty list means all scopes are eligible for SEO review.
+        """
+        config = self.get_signature_config("seo")
+        return getattr(config, "scopes", [])
+
     def get_rlm_threshold(self, module_type: str) -> float:
         """Resolve RLM fallback threshold for a module type.
 

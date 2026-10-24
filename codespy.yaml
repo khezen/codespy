@@ -261,6 +261,17 @@ review:
     temperature: null                                             # REVIEW_SUMMARY_TEMPERATURE
     max_tokens: null                                              # REVIEW_SUMMARY_MAX_TOKENS
 
+  # SEO & AI-visibility
+  seo:
+    enabled: false                                               # REVIEW_SEO_ENABLED
+    scopes: []                                                    # REVIEW_SEO_SCOPES (JSON array in env)
+    max_iters: 5                                                  # REVIEW_SEO_MAX_ITERS
+    max_llm_calls: 16                                             # REVIEW_SEO_MAX_LLM_CALLS
+    model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_SEO_MODEL
+    reasoning_effort: null                                        # REVIEW_SEO_REASONING_EFFORT
+    temperature: null                                             # REVIEW_SEO_TEMPERATURE
+    max_tokens: null                                              # REVIEW_SEO_MAX_TOKENS
+
   # Audit
   audit:
     enabled: true                                                 # REVIEW_AUDIT_ENABLED
