@@ -67,6 +67,7 @@ Built for **engineering teams that care about correctness, security, and control
 - 🔒 **Security Analysis** — Detects common vulnerabilities (injection, auth issues, data exposure) with CWE references
 - 🐛 **Bug Detection** — Identifies logic errors, null references, resource leaks, edge cases
 - 📝 **Documentation Review** — Checks for missing docstrings, outdated comments, incomplete docs
+- 🌐 **SEO & AI-Visibility Review** (opt-in) — Flags website changes that hurt crawling, indexing, ranking, or citation by search engines and AI assistants (client-only content, noindex, missing redirects, robots/bot rules, structured data, hreflang, Core Web Vitals). See [SEO Review](docs/configuration.md#seo-review)
 - 🔍 **Intelligent Scope Detection** — Automatically identifies code scopes (frontend, backend, infra, microservice in monorepo, etc.)
 - 🧠 **Cross-Review Memory** — Agents learn patterns, constants, and domain knowledge from past reviews of the same codebase
 - 💰 **Cost Tracking** — Track LLM calls, tokens, and costs per review

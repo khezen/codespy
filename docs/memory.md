@@ -20,7 +20,7 @@ CodeSpy's memory system has three independent components:
    │   └── Own Prefrontal load (task="review", include_repo=True)
    ├── Run-level Prefrontal recall (task="review", episode_id=NULL)
    ├── Summary
-   ├── code_review, doc, supply_chain (concurrent)
+   ├── code_review, doc, seo, supply_chain (concurrent)
    └── Audit
 2. Review published with "Memory: pending" (remote) or printed (local CLI/MCP)
 3. finish_memory() starts queued saves
@@ -42,6 +42,7 @@ If `forward()` raises, deferred saves still start but consolidation does not run
 | summary | Run-level | No | Yes |
 | code_review | Run-level | Yes | Yes |
 | doc | Run-level | No | Yes |
+| seo | Run-level | Yes | Yes (only for scopes that pass the SEO gating) |
 | supply_chain | Run-level | Yes | Yes |
 | audit | Run-level | No | Yes |
 | feedback | n/a (no LLM call of its own; the Distiller reads human reactions to codespy's comments) | No | Yes, one per scope with new feedback. Cerebral retains only the observations; the `feedback` and `feedback_hash` artifacts stay episodic |
@@ -193,7 +194,7 @@ Prefrontal reads Cerebral and injects prior knowledge into agents.
 
 ### Run-level load vs scope load
 
-**One run-level load** (`task="review"`, all project scopes + the repo-root scope) shared by summary, code_review, doc, supply_chain, audit. Only the **scope** agent does its own load when model refinement runs. The other agents create a per-agent Prefrontal only for the `recall_memory` tool.
+**One run-level load** (`task="review"`, all project scopes + the repo-root scope) shared by summary, code_review, doc, seo, supply_chain, audit. Only the **scope** agent does its own load when model refinement runs. The other agents create a per-agent Prefrontal only for the `recall_memory` tool.
 
 ### Facets
 
@@ -213,12 +214,12 @@ Only the `context` facet runs the reflect loop; the others stay raw recall at MI
 
 `memory.prefrontal.recall.reach` (`local` | `org` | `bank`, default `org`):
 
-- **Local pool** (always): `project_scope:<scope id>` for code_review and supply_chain. Agents with `include_repo` (scope, run-level load) also get the repo-root scope `project_scope:<owner/repo>`. The run-level load includes all PR scopes plus the root. `repo:<owner/repo>` is never part of the local pool, because it matches every fact in the repo.
+- **Local pool** (always): `project_scope:<scope id>` for code_review, seo and supply_chain. Agents with `include_repo` (scope, run-level load) also get the repo-root scope `project_scope:<owner/repo>`. The run-level load includes all PR scopes plus the root. `repo:<owner/repo>` is never part of the local pool, because it matches every fact in the repo.
 - **Remote pool** (`org`: `org:<owner>` AND NOT `repo:<own>`; `bank`: NOT `repo:<own>`): always raw facts, labelled with their source repo. Takes a fixed 25% share of `max_tokens` (and of `max_tool_tokens` for the tool); local facets split the rest. With `local` reach the local pool gets the whole budget.
 
 ### `recall_memory` tool
 
-RLM agents (code_review, scope, supply_chain) get `async recall_memory(query: str, reach: str = "local") -> str`. A reach above the configured one is clamped; at most `max_tool_calls` calls per agent call (then `"recall limit reached"`); errors return `"memory unavailable"`.
+RLM agents (code_review, scope, seo, supply_chain) get `async recall_memory(query: str, reach: str = "local") -> str`. A reach above the configured one is clamped; at most `max_tool_calls` calls per agent call (then `"recall limit reached"`); errors return `"memory unavailable"`.
 
 `reflects=0` disables the reflect loop, but the tool still works in raw-recall mode (`details.mode="recall"`). Only `max_tool_calls=0` (the **default**) turns it off.
 

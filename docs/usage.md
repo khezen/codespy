@@ -69,9 +69,9 @@ codespy learn https://github.com/owner/repo/pull/123
 
 For remote reviews, codespy also reads the PR conversation and gives it to the agents:
 
-- **Commit messages** go to summary, scope refinement, code review, doc review and audit. Local `review-local` runs include them too.
-- **Human PR comments** (general, review and inline), with their emoji reaction counts (👍2 👎1 …), go to summary, code review, doc review and audit.
-- **Human feedback on codespy's earlier comments on the same PR** goes to code review, doc review, supply chain and audit. Each finding gets a verdict:
+- **Commit messages** go to summary, scope refinement, code review, doc review, SEO review and audit. Local `review-local` runs include them too.
+- **Human PR comments** (general, review and inline), with their emoji reaction counts (👍2 👎1 …), go to summary, code review, doc review, SEO review and audit.
+- **Human feedback on codespy's earlier comments on the same PR** goes to code review, doc review, SEO review, supply chain and audit. Each finding gets a verdict:
   - `rejected`: more 👎/😕 than 👍/❤️/🎉/🚀
   - `accepted`: more positive reactions than negative ones
   - `discussed`: a human replied
@@ -135,6 +135,36 @@ A repository with a single root manifest (a modular monolith) is split only wher
 | Mill | root `build.mill`/`build.sc`, `package.mill` | top-level `object x extends ...Module` → `x`; dirs with `package.mill` |
 
 Marker scopes keep their dependencies on the enclosing manifest, so supply-chain review still runs on that manifest's scope. A marker dir that also has its own manifest is a manifest scope.
+
+## Websites: SEO & AI-Visibility Review
+
+For repositories that serve a public website, enable the opt-in SEO reviewer. It flags changes that hurt crawling, indexing, ranking, or citation by search engines and AI assistants, for example:
+
+- content moved to client-only rendering;
+- an accidental `noindex`;
+- removed URLs with no redirect;
+- `robots.txt` rules that block search or retrieval bots;
+- structured data that doesn't match the visible page.
+
+```bash
+# Local
+REVIEW_SEO_ENABLED=true codespy review-local
+
+# Only the web app of a monorepo
+REVIEW_SEO_ENABLED=true REVIEW_SEO_SCOPES='["apps/web"]' codespy review https://github.com/owner/repo/pull/123
+```
+
+```yaml
+# GitHub Action
+- uses: khezen/codespy@v2
+  with:
+    model: 'anthropic/claude-opus-4-6'
+    anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+    seo-enabled: 'true'
+    seo-scopes: '["apps/web"]'   # optional; empty = any scope detected as a website
+```
+
+Scopes that don't look like a website, and diffs with no web-relevant changes (backend-only, tests, CI), are skipped without any LLM call. Put project-specific SEO rules (canonical host, locales, retired terms, required disclosures, AI training-bot policy) in `AGENTS.md`. See [Configuration → SEO Review](configuration.md#seo-review) for the gating rules, the checks, and the severity mapping.
 
 ## IDE Integration (MCP Server)
 
@@ -291,6 +321,8 @@ This PR implements user authentication with JWT tokens...
 - **Security:** 1
 - **Bugs:** 1
 - **Documentation:** 1
+- **Smells:** 0
+- **SEO:** 0
 
 ## Issues
 

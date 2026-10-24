@@ -144,6 +144,7 @@ Each signature supports env var overrides: `REVIEW_<SIGNATURE>_<SETTING>`
 | Code Reviewer | `code_review` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
 | Doc Reviewer | `doc` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
 | Supply Chain | `supply_chain` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS, SCAN_UNCHANGED |
+| SEO & AI-visibility | `seo` | ENABLED (default `false`), SCOPES, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS. See [SEO Review](#seo-review) |
 | Auditor | `audit` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
 
 Example: `REVIEW_CODE_REVIEW_MODEL=anthropic/claude-sonnet-4-5-20250929`
@@ -214,7 +215,78 @@ See [Memory System](memory.md) for:
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| `review.max_concurrent_scopes` | `REVIEW_MAX_CONCURRENT_SCOPES` | `8` | Scopes reviewed at once by each of code_review, doc and supply_chain (so up to 3× this value run in total). Modular repos (Swift packages, Gradle modules) can yield many scopes per PR; this bounds provider throttling and MCP subprocesses. Action input: `max-concurrent-scopes` |
+| `review.max_concurrent_scopes` | `REVIEW_MAX_CONCURRENT_SCOPES` | `8` | Scopes reviewed at once by each of code_review, doc, seo and supply_chain (so up to 4× this value run in total). Modular repos (Swift packages, Gradle modules) can yield many scopes per PR; this bounds provider throttling and MCP subprocesses. Action input: `max-concurrent-scopes` |
+
+## SEO Review
+
+The `seo` signature reviews changes to public websites for problems with crawling, indexing, ranking and AI citation. It covers search engines (Googlebot, Bingbot) and AI crawlers and assistants (GPTBot, OAI-SearchBot, ChatGPT-User, ClaudeBot, Claude-SearchBot, PerplexityBot, Google AI Overviews, Copilot). It is **off by default**. Turn it on only for repos that serve a public site.
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `review.seo.enabled` | `REVIEW_SEO_ENABLED` | `false` | Enable the SEO reviewer. Action input: `seo-enabled` |
+| `review.seo.scopes` | `REVIEW_SEO_SCOPES` | `[]` | `fnmatch` globs matched against the scope subroot (JSON array in env, for example `["apps/web", "sites/*"]`). Empty means any scope detected as a website. Action input: `seo-scopes` |
+| `review.seo.model` | `REVIEW_SEO_MODEL` | `bedrock/converse/global.anthropic.claude-opus-5-5` | Model. Action input: `seo-model` |
+| `review.seo.max_iters` | `REVIEW_SEO_MAX_ITERS` | `5` | RLM iterations per scope. Action input: `seo-max-iters` |
+| `review.seo.max_llm_calls` | `REVIEW_SEO_MAX_LLM_CALLS` | `16` | RLM LLM-call budget per scope. Action input: `seo-max-llm-calls` |
+
+`reasoning_effort`, `temperature` and `max_tokens` work like they do for every other signature (Action inputs `seo-reasoning-effort`, `seo-temperature`, `seo-max-tokens`).
+
+### Which scopes are reviewed
+
+A changed scope is reviewed only if it passes every check below, in this order. No LLM is called for scopes that are skipped, and each skip is logged with its reason.
+
+1. **Whitelist.** If `scopes` is set, the scope subroot must match one of the globs.
+2. **Website detection.** This check is skipped for whitelisted scopes. Otherwise the scope must contain at least one of:
+   - a web framework in `package.json`: Next.js, Nuxt, SvelteKit, Astro, Gatsby, Remix, Angular SSR, React DOM, Vue, Svelte, Qwik or SolidStart;
+   - a static site generator: Hugo, Jekyll or Eleventy;
+   - server templates under `templates/`, `views/`, `app/views/` or `resources/views/`, such as ERB, Blade, Twig, Jinja, Liquid, Nunjucks, Handlebars, HEEx, Razor or Go templates;
+   - plain `.html` files;
+   - a changed crawl or hosting file.
+3. **Web-relevant changes.** This check always applies. At least one changed file must be markup, a component, a template, a stylesheet, content, a crawl or hosting file, or framework config. Changes that touch only tests, CI, docs or scripts are skipped.
+
+### What it checks
+
+The reviewer checks the following for every changed page:
+
+- **Rendering:** content, links or facts moved to client-only rendering, or removed from the DOM by UI state.
+- **Navigation:** links implemented as click handlers instead of `<a href>`.
+- **Metadata:** title, description, canonical, Open Graph and accidental `noindex`.
+- **Indexation:** sitemap entries, missing 301/308 redirects, soft 404s, and content that differs by user agent, geo or cookie.
+- **AI crawler access:** `robots.txt` and bot rules, plus `llms.txt`.
+- **Structured data:** JSON-LD that is invalid or doesn't match the visible page.
+- **Content:** hardcoded volatile facts (prices, rates) and removed YMYL disclaimers.
+- **Semantics:** heading order, alt text, link text.
+- **Core Web Vitals:** LCP, CLS and INP risks.
+- **i18n:** reciprocal hreflang alternates.
+
+It is static only: it reads the repository and never calls the live site. The canonical host comes from site config in the repo (Astro `site`, Hugo `baseURL`, Nuxt `site.url`, next-sitemap `siteUrl`, `.env.example`). Anything decided at runtime, such as CDN/WAF rules outside the repo, CMS content or real Core Web Vitals, is reported at most once, as an `info` issue, and only when a finding depends on it.
+
+**Project rules** (canonical host, locales, retired terms, required disclosures, AI training-bot policy) go in the `AGENTS.md` / `CLAUDE.md` files the scope already inherits. They override the generic checks, except where following them would break search-engine guidelines (cloaking, hidden text, doorway pages, fake reviews).
+
+### Site config outside the scope
+
+Crawl and hosting config often lives outside the web scope, for example a root `vercel.json` or an `infra/nginx/` directory. Besides its scope-restricted filesystem, ripgrep and tree-sitter tools, the reviewer gets two read-only tools, `list_site_config` and `read_site_config`. They see only tracked files that match the site-config patterns: `robots.*`, `sitemap*`, `llms.txt`, `llms-full.txt`, `vercel.json`, `netlify.toml`, `_redirects`, `_headers`, `.htaccess`, nginx/apache `*.conf`, `firebase.json`, `wrangler.toml`, `middleware.*`, and Next.js, Nuxt, Astro, SvelteKit, Gatsby, Hugo, Jekyll and Eleventy config.
+
+- The list is built once per run with `git ls-files`.
+- It skips `review.excluded_directories` and is capped at 200 paths.
+- Each read returns at most 60,000 characters.
+
+Issues in these files use repo-root paths.
+
+> **Known limitation:** remote reviews use a sparse checkout, and site config files outside the reviewed scopes are not added to it yet. `list_site_config` can show such a file while `read_site_config` reports it as unreadable. Local reviews (`review-local`, `review-uncommitted`) are not affected.
+
+### Output
+
+Findings are regular issues with category `seo`. They are counted in the **SEO** column of the statistics table and follow the same rejected-feedback suppression as other issues. Severity:
+
+| Severity | Used for |
+|----------|----------|
+| `critical` | Blockers. Examples: indexable content missing from the initial HTML, accidental `noindex`, a removed URL with no redirect, robots rules blocking search bots, a wrong canonical or hreflang, soft 404s, wrong prices or facts, removed legal disclosures, invalid structured data |
+| `high` | Major problems. Examples: a missing or duplicate title or description, missing structured data for a new page type, hardcoded volatile facts, non-reciprocal hreflang, a new route missing from the sitemap, metadata set only on the client |
+| `low` | Tuning: alt text, title and description length, OG images, small performance wins |
+| `info` | Questions the code alone cannot answer |
+
+Titles start with the area, for example `Rendering: FAQ moved to client-only`. Decisions that belong to people, such as AI training-bot policy, YMYL disclaimers or pricing policy, are marked `Human review:` and come with no suggested fix.
 
 ## PR Conversation Context
 
