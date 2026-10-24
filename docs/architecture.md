@@ -8,7 +8,7 @@ CodeSpy's review pipeline follows a 4-step flow:
 
 1. **Scope Identifier** (RLM + tools) — Identifies code scopes (frontend, backend, infra, microservice in monorepo, etc.)
 2. **PR Summary** (RLM) — Generates 2-3 sentence PR summary
-3. **Parallel Review Modules** — Supply Chain Auditor, Code Reviewer, and Doc Reviewer run simultaneously
+3. **Parallel Review Modules** — Supply Chain Auditor, Code Reviewer, Doc Reviewer, and SEO Reviewer (opt-in) run simultaneously
 4. **Auditor** (RLM) — Generates quality assessment + recommendation (APPROVE / REQUEST_CHANGES / NEEDS_DISCUSSION)
 
 ## Architecture Diagram
@@ -41,11 +41,11 @@ CodeSpy's review pipeline follows a 4-step flow:
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
 │  │ 3. Parallel Review Modules                                 │     │
-│  │  ┌──────────────┐ ┌──────────────┐ ┌───────────────┐       │     │
-│  │  │ Supply Chain │ │    Code      │ │     Doc       │       │     │
-│  │  │   Auditor    │ │  Reviewer    │ │   Reviewer    │       │     │
-│  │  │ (RLM+tools)  │ │ (RLM+tools)  │ │   (RLM)       │       │     │
-│  │  └──────────────┘ └──────────────┘ └───────────────┘       │     │
+│  │ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐│     │
+│  │ │Supply Chain│ │    Code    │ │    Doc     │ │    SEO     ││     │
+│  │ │  Auditor   │ │  Reviewer  │ │  Reviewer  │ │  Reviewer  ││     │
+│  │ │(RLM+tools) │ │(RLM+tools) │ │   (RLM)    │ │(RLM+tools) ││     │
+│  │ └────────────┘ └────────────┘ └────────────┘ └────────────┘│     │
 │  └──────────────────────────┬─────────────────────────────────┘     │
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
@@ -84,6 +84,7 @@ CodeSpy's review pipeline follows a 4-step flow:
 | **CodeReviewSignature** | `code_review` | RLM | Detects verified bugs, security vulnerabilities, removed defensive code, and code smells |
 | **DocReviewSignature** | `doc` | RLM | Detects stale or wrong documentation caused by code changes |
 | **SupplyChainSecuritySignature** | `supply_chain` | RLM | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
+| **SEOReviewSignature** | `seo` | RLM | Opt-in. Detects website changes that hurt crawling, indexing, ranking, or AI citation. Runs only on scopes detected as websites (or whitelisted) with web-relevant changes |
 | **AuditSignature** | `audit` | RLM | Generates quality assessment and recommendation |
 
 See [Configuration](configuration.md) for per-signature settings.
@@ -133,6 +134,7 @@ See [Memory System](memory.md) for implementation details.
 - **Filesystem**: `read_file`, `list_directory`, `find_files`, `search_text`, `get_file_summary`
 - **Git**: GitHub + GitLab clients, sparse checkout
 - **Parsers**: Ripgrep (code search) + Tree-sitter (multi-language AST)
+- **Site config** (SEO only): read-only `list_site_config` / `read_site_config` over tracked crawl and hosting files anywhere in the repo (robots, sitemap, redirects, hosting and framework config)
 - **Web**: Browser-based web search
 - **Cyber/OSV**: Vulnerability scanning
 
