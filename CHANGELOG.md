@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-10-24
+
+### Added
+
+- **SEO & AI-visibility reviewer.** New opt-in review module (`review.seo`) that flags PR changes hurting crawling, indexing, ranking, and AI citation of public websites. Gated by whitelist scope globs and deterministic web detection; disabled by default.
+
 ## [2.4.1] - 2026-10-23
 
 ### Fixed

@@ -344,6 +344,7 @@ class GitReporter(BaseReporter):
             (IssueCategory.BUG, "Bugs"),
             (IssueCategory.DOCUMENTATION, "Documentation"),
             (IssueCategory.SMELL, "Smells"),
+            (IssueCategory.SEO, "SEO"),
         ]
 
         # Build counts with one pass over issues
@@ -363,8 +364,8 @@ class GitReporter(BaseReporter):
             "<details>",
             "<summary>📊 Statistics</summary>",
             "",
-            "| Severity | Security | Bugs | Documentation | Smells | Total |",
-            "|----------|----------|------|---------------|--------|-------|",
+            "| Severity | Security | Bugs | Documentation | Smells | SEO | Total |",
+            "|----------|----------|------|---------------|--------|-----|-------|",
         ]
 
         # Data rows
