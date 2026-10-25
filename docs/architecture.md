@@ -103,7 +103,7 @@ After scope resolution the set grows to each scope's full subtree. A root scope 
 | **CodeReviewSignature** | `code_review` | RLM | Detects verified bugs, security vulnerabilities, removed defensive code, and code smells |
 | **DocReviewSignature** | `doc` | RLM | Detects stale or wrong documentation caused by code changes |
 | **SupplyChainSecuritySignature** | `supply_chain` | RLM | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
-| **SEOReviewSignature** | `seo` | RLM | Opt-in. Detects website changes that hurt crawling, indexing, ranking, or AI citation. Runs only on scopes detected as websites (or whitelisted) with web-relevant changes |
+| **SEOReviewSignature** | `seo` | RLM | Opt-in. Detects website changes that hurt crawling, indexing, ranking, or AI citation. Runs only on scopes detected as websites (or whitelisted) with web-relevant changes. A regex hotspot pre-scan (`seo/hotspots.py`, no LLM) passes candidate render-gating shapes as an optional `hotspots` input. The model verifies them and also runs its own sweep. In `review-path` mode the prompt switches from diff review to a full-scope audit |
 | **AuditSignature** | `audit` | RLM | Generates quality assessment and recommendation |
 | **ImplementationPlanSignature** | `plan` | RLM | Opt-in. Turns the findings of one scope into ordered steps (files, change, verification, addressed issues), using filesystem, ripgrep and tree-sitter tools to check call sites and tests |
 

@@ -171,7 +171,7 @@ class PullRequestReporter:
             "",
             f"**Repository:** [{fp.owner}/{fp.repo}@{fp.sha[:8]}]({fp.tree_url}) | "
             f"**Issues Found:** {result.total_issues} | "
-            f"**Critical:** {len(result.critical_issues)} | **Model:** {result.model_used}",
+            f"**Critical:** {len(result.critical_issues)}",
             "",
         ]
         # Memories go here (after the header), then the collapsed sections

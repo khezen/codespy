@@ -300,8 +300,8 @@ A changed scope is reviewed only if it passes every check below, in this order. 
 
 The reviewer checks the following for every changed page:
 
-- **Rendering:** content, links or facts moved to client-only rendering, or removed from the DOM by UI state.
-- **Navigation:** links implemented as click handlers instead of `<a href>`.
+- **Rendering:** content, links or facts moved to client-only rendering, or removed from the DOM by UI state. This includes content behind modals and accordions that start closed, selectors that render only one of several datasets, and menus whose links mount only on hover.
+- **Navigation:** links implemented as click handlers or buttons instead of `<a href>`.
 - **Metadata:** title, description, canonical, Open Graph and accidental `noindex`.
 - **Indexation:** sitemap entries, missing 301/308 redirects, soft 404s, and content that differs by user agent, geo or cookie.
 - **AI crawler access:** `robots.txt` and bot rules, plus `llms.txt`.
@@ -310,6 +310,24 @@ The reviewer checks the following for every changed page:
 - **Semantics:** heading order, alt text, link text.
 - **Core Web Vitals:** LCP, CLS and INP risks.
 - **i18n:** reciprocal hreflang alternates.
+
+In `review-path` runs there is no diff, so the reviewer audits the whole scope and reports issues that already exist, starting with shared layout, navigation and the most-used components. In PR reviews it reports only what the diff introduces or touches.
+
+### Hotspot pre-scan
+
+Before the model runs, a regex pre-scan (no LLM) looks for code shapes that often keep facts or links out of the initial HTML. It covers React/JSX (`.tsx`, `.jsx`, `.ts`, `.js`) and skips tests, stories and mocks. The rules:
+
+| Rule | Looks for |
+|------|-----------|
+| `disclosure-prop` | `isOpen=`/`open=`/`show=`/`expanded=` props in components with `useState`: content passed to a modal, dialog, drawer or accordion. When the modal comes from an external package (directly or through one local wrapper), the package is named |
+| `selected-dataset` | `.find(x => x.selected)` or `useState(list[0])`: only the selected item of a tab or chip selector is rendered |
+| `mount-on-interaction` | `{isActive && …}`, `{isOpen && …}`, `{hoveredLink && …}`: links or text mounted only after hover, focus or open |
+| `client-viewport-gate` | `{isMobile && …}` and similar viewport-hook branches |
+| `ssr-false` | `dynamic(…, { ssr: false })` |
+
+For each hit it records the component, its content-like props and the files that use it. The list goes to the model as a `hotspots` input, with every rule represented and at most 40 entries or 4,000 characters. The list is omitted when the scan finds nothing or fails. A `review-path` run scans every file in the scope. A PR review scans the changed files and their one-hop import neighbours, and marks the neighbours `[context]`: they help the model trace consumers but are never reported on their own. At most 2,000 scope files are used for these lookups.
+
+Hotspots are only candidates. The model verifies or dismisses each one, and it always runs its own sweep on top, so it also covers shapes and frameworks the rules miss (Vue `v-if`, Svelte `{#if}`, Angular `*ngIf`, `useEffect` fetches, button-only navigation, one-slide carousels). A shared component is reported once and lists where it is used. Severity depends on the hidden content: costs, returns, deposit protection or risk text is critical; snackbars, cookie banners and similar UI are dismissed.
 
 It is static only: it reads the repository and never calls the live site. The canonical host comes from site config in the repo (Astro `site`, Hugo `baseURL`, Nuxt `site.url`, next-sitemap `siteUrl`, `.env.example`). Anything decided at runtime, such as CDN/WAF rules outside the repo, CMS content or real Core Web Vitals, is reported at most once, as an `info` issue, and only when a finding depends on it.
 
