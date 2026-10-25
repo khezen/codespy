@@ -288,3 +288,13 @@ review:
     reasoning_effort: null                                        # REVIEW_AUDIT_REASONING_EFFORT
     temperature: null                                             # REVIEW_AUDIT_TEMPERATURE
     max_tokens: null                                              # REVIEW_AUDIT_MAX_TOKENS
+
+  # Implementation Planner
+  plan:
+    enabled: false                                               # REVIEW_PLAN_ENABLED
+    max_iters: null                                                  # REVIEW_PLAN_MAX_ITERS
+    max_llm_calls: null                                             # REVIEW_PLAN_MAX_LLM_CALLS
+    model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_PLAN_MODEL
+    reasoning_effort: null                                        # REVIEW_PLAN_REASONING_EFFORT
+    temperature: null                                             # REVIEW_PLAN_TEMPERATURE
+    max_tokens: null                                              # REVIEW_PLAN_MAX_TOKENS

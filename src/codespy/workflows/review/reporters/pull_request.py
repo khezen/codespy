@@ -10,7 +10,7 @@ from codespy.tools.git.base import SubmittedPullRequest
 from codespy.tools.git.client import get_repo_client
 from codespy.tools.git.conversation import fingerprint, issue_marker, review_marker
 from codespy.tools.git.full_path import blob_url, report_branch, report_file
-from codespy.workflows.review.models import ReviewResult
+from codespy.workflows.review.models import MAX_PLAN_CHARS, ReviewResult
 
 if TYPE_CHECKING:
     from codespy.config import Settings
@@ -179,6 +179,15 @@ class PullRequestReporter:
         tail: list[str] = []
         if result.recommendation:
             tail.extend(["## Recommendation", "", result.recommendation, ""])
+
+        # Implementation Plan (capped; the report file holds the full plan)
+        if result.implementation_plan:
+            tail.extend(
+                result.implementation_plan_markdown_lines(
+                    max_chars=MAX_PLAN_CHARS, overflow_link=self.report_file_url(result)
+                )
+            )
+
         if result.total_cost > 0 or result.llm_calls > 0:
             tail.extend(
                 [

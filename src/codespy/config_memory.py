@@ -778,7 +778,7 @@ def get_prefrontal(
 
 
 # Consumer signatures that share the run-level Prefrontal load
-_RUN_PREFRONTAL_CONSUMERS = ("summary", "code_review", "doc", "seo", "supply_chain", "audit")
+_RUN_PREFRONTAL_CONSUMERS = ("summary", "code_review", "doc", "seo", "supply_chain", "audit", "plan")
 
 
 def get_run_prefrontal(
@@ -792,7 +792,7 @@ def get_run_prefrontal(
     - Memory is enabled globally (settings.memory.enabled)
     - A repo is known
     - Cerebral is available
-    - At least one consumer (summary, code_review, doc, supply_chain, audit)
+    - At least one consumer (summary, code_review, doc, seo, supply_chain, audit, plan)
       has is_signature_enabled True
 
     When active, returns a Prefrontal with task_name="review", include_repo=True,

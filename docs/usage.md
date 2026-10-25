@@ -84,7 +84,7 @@ How it works:
 1. `--ref` (default: the repo's default branch) is resolved to a commit through the API. It must be a branch, because it is also the base of the report PR. Tags and SHAs are rejected.
 2. codespy sparse-clones `--path` (default `.`, the whole repo) at that commit. The files directly in each parent directory are also checked out (manifests, lock files, `AGENTS.md`), but nothing else.
 3. There is no diff: every reviewable file under the path is presented as **newly added**, and the code is reviewed as-is. Binary, lock, minified and excluded-directory files are skipped, as in PR reviews, and so are symlinks, files larger than 512 KB, non-UTF-8 files and `.codespy/`. The skip counts are shown in the report.
-4. All scopes under the path are identified (every manifest or module-marker package is its own scope), and the full pipeline runs: summary, code, doc, SEO and supply-chain review, audit, and memory.
+4. All scopes under the path are identified (every manifest or module-marker package is its own scope), and the full pipeline runs: summary, code, doc, SEO and supply-chain review, audit, the implementation plan (opt-in), and memory.
 
 ### The report PR
 
@@ -226,6 +226,24 @@ REVIEW_SEO_ENABLED=true REVIEW_SEO_SCOPES='["apps/web"]' codespy review https://
 ```
 
 Scopes that don't look like a website, and diffs with no web-relevant changes (backend-only, tests, CI), are skipped without any LLM call. Put project-specific SEO rules (canonical host, locales, retired terms, required disclosures, AI training-bot policy) in `AGENTS.md`. See [Configuration → SEO Review](configuration.md#seo-review) for the gating rules, the checks, and the severity mapping.
+
+## Implementation Plan
+
+Enable the opt-in planner to get an ordered fix plan for the review's findings, in a collapsible section of the PR review (or of the `review-path` report PR and file):
+
+```bash
+REVIEW_PLAN_ENABLED=true codespy review https://github.com/owner/repo/pull/123
+REVIEW_PLAN_ENABLED=true codespy review-path https://github.com/owner/repo --path services/api
+```
+
+```yaml
+# GitHub Action
+- uses: khezen/codespy@v2
+  with:
+    plan-enabled: 'true'
+```
+
+Steps are grouped per scope and ordered by dependency, then severity. Each one names the files, the change, how to verify it, and the issues it fixes. See [Configuration → Implementation Plan](configuration.md#implementation-plan).
 
 ## IDE Integration (MCP Server)
 

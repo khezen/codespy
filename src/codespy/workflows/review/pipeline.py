@@ -18,6 +18,7 @@ from codespy.agents.review import (
     Auditor,
     CodeReviewer,
     DocReviewer,
+    ImplementationPlanner,
     ScopeResolver,
     SEOReviewer,
     Summarizer,
@@ -29,6 +30,8 @@ from codespy.agents.memory.hippocampus.episode import (
     start_deferred_episode_saves,
 )
 from codespy.agents.review.helpers import build_patches
+from codespy.agents.review.plan import ScopePlan
+from codespy.agents.review.scope.models import ScopeResult
 from codespy.agents.review.feedback import (
     drop_rejected,
     extract_feedback,
@@ -88,6 +91,7 @@ class ReviewPipeline(dspy.Module):
         self.supply_chain_auditor = SupplyChainAuditor()
         self.summarizer = Summarizer()
         self.auditor = Auditor()
+        self.planner = ImplementationPlanner()
 
     def _verify_code_interpreter(self) -> None:
         """Verify the Deno runtime that every RLM review agent needs.
@@ -333,7 +337,7 @@ class ReviewPipeline(dspy.Module):
         if config_path:
             logger.info(f"Config loaded from: {config_path}")
         logger.info(f"min_confidence={self.settings.review.min_confidence:.2f}")
-        for sig_name in ["code_review", "doc", "seo", "supply_chain", "summary", "audit"]:
+        for sig_name in ["code_review", "doc", "seo", "supply_chain", "summary", "audit", "plan"]:
             max_iters = self.settings.get_max_iters(sig_name)
             max_llm_calls = self.settings.get_max_llm_calls(sig_name)
             logger.info(f"  {sig_name}: max_iters={max_iters}, max_llm_calls={max_llm_calls}")
@@ -509,6 +513,11 @@ class ReviewPipeline(dspy.Module):
             topics=all_scope_topics,
         )
 
+        # Step 5: Implementation plan (opt-in; sees the audit verdict)
+        implementation_plan = self._run_planner(
+            scopes, all_issues, review_ctx, quality_assessment, recommendation
+        )
+
         # Build memories list from scope and run-level Prefrontal loads
         # Run-level first (flat), then scope (nested)
         memories: list[RecalledMemory] = []
@@ -557,7 +566,33 @@ class ReviewPipeline(dspy.Module):
             memories=memories,
             memory_pending=True,
             full_path=full_path_info,
+            implementation_plan=implementation_plan,
         )
+
+    def _run_planner(
+        self,
+        scopes: list[ScopeResult],
+        issues: list[Issue],
+        review_ctx: ReviewContext,
+        quality_assessment: str,
+        recommendation: str,
+    ) -> list[ScopePlan]:
+        """Run the opt-in planner. Never raises: a failure yields no plan."""
+        if not issues or not self.settings.is_signature_enabled("plan"):
+            return []
+        try:
+            return asyncio.run(
+                self.planner.aforward(
+                    scopes=scopes,
+                    issues=issues,
+                    review_context=review_ctx,
+                    quality_assessment=quality_assessment,
+                    recommendation=recommendation,
+                )
+            )
+        except Exception:
+            logger.error("Planner failed; publishing review without a plan", exc_info=True)
+            return []
 
     def _fill_conversation_context(self, pr_context: PRContext, pr: Any) -> None:
         """Render commits, human discussion and review feedback into ``pr_context``.

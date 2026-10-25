@@ -138,6 +138,9 @@ class ReviewConfig(BaseModel):
     seo: SEOSignatureConfig = Field(
         default_factory=lambda: SEOSignatureConfig(enabled=False, model="bedrock/converse/global.anthropic.claude-opus-5-5")
     )
+    plan: SignatureConfig = Field(
+        default_factory=lambda: SignatureConfig(enabled=False, model="bedrock/converse/global.anthropic.claude-opus-5-5")
+    )
 
     def signatures(self) -> dict[str, SignatureConfig]:
         """Return a dict of signature name -> SignatureConfig."""
@@ -149,6 +152,7 @@ class ReviewConfig(BaseModel):
             "summary": self.summary,
             "audit": self.audit,
             "seo": self.seo,
+            "plan": self.plan,
         }
 
 
