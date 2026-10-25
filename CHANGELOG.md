@@ -7,6 +7,10 @@
 - **Full-path review (`codespy review-path`).** Reviews existing code with no PR. `codespy review-path <repo-url> [--path P] [--ref BRANCH]` sparse-clones the path at the branch head, presents every reviewable file as newly added, identifies all scopes under it, and runs the full pipeline. The report is delivered as a PR/MR opened by codespy: branch `codespy/review/<path-slug>`, report file `.codespy/reviews/<path-slug>.md`, and the report in the description, with each issue linked to its lines at the reviewed commit. Re-runs update the open report PR (new commit, new description, one comment). `--no-open-pr` is a dry run. New caps `review.full_path.max_files` (default 300, `--max-files`) and `review.full_path.max_bytes` (default 2 MB) stop over-sized runs before any LLM call. Symlinks in the reviewed repo are never followed. Needs a token that can write contents and pull requests (GitLab: `api`).
 - **Implementation planner.** New opt-in review module (`review.plan`) that turns review findings into an ordered implementation plan. Runs per-scope with filesystem, ripgrep and treesitter MCP tools to verify call sites and tests. The plan is rendered as a collapsible section in PR reviews, full-path reports, stdout and JSON output. Disabled by default. Enable with `review.plan.enabled: true` or `REVIEW_PLAN_ENABLED=true`.
 
+### Changed
+
+- **Collapsible sections in the `review-path` report PR description.** Scope of this review, Summary, Quality Assessment, each issue severity group and Recommendation are now collapsed `<details>` sections, like the memories, plan and cost sections. The committed report file is unchanged.
+
 ### Fixed
 
 - **A missing Deno runtime produced an empty "APPROVE" review.** Every review agent runs in dspy's Deno sandbox. Without Deno each agent failed on its first step and soft-failed to "no findings", so the run reported 0 issues and posted it. Review commands now check Deno (2.x) before any clone or LLM call and stop with install guidance. The Docker image already bundles it.

@@ -151,8 +151,12 @@ class PullRequestReporter:
     def _size(lines: list[str]) -> int:
         return sum(len(line) + 1 for line in lines)
 
+    @staticmethod
+    def _collapsible(summary: str, body: str) -> list[str]:
+        return ["<details>", f"<summary>{summary}</summary>", "", body, "", "</details>", ""]
+
     def build_body(self, result: ReviewResult) -> str:
-        """PR description: always under ``MAX_BODY_CHARS``.
+        """PR description: always under ``MAX_BODY_CHARS``, sections collapsed.
 
         Issues are dropped (lowest severity last) before any other section; the
         memories section only gets the budget left over, as in GitReporter.
@@ -169,16 +173,18 @@ class PullRequestReporter:
             f"**Issues Found:** {result.total_issues} | "
             f"**Critical:** {len(result.critical_issues)} | **Model:** {result.model_used}",
             "",
-            *result.full_path_scope_lines(),
         ]
+        # Memories go here (after the header), then the collapsed sections
+        insert_at = len(head)
+        head.extend(result.full_path_scope_lines(collapsible=True))
         if result.overall_summary:
-            head.extend(["## Summary", "", result.overall_summary, ""])
+            head.extend(self._collapsible("📋 Summary", result.overall_summary))
         if result.quality_assessment:
-            head.extend(["## Quality Assessment", "", result.quality_assessment, ""])
+            head.extend(self._collapsible("🎯 Quality Assessment", result.quality_assessment))
 
         tail: list[str] = []
         if result.recommendation:
-            tail.extend(["## Recommendation", "", result.recommendation, ""])
+            tail.extend(self._collapsible("💡 Recommendation", result.recommendation))
 
         # Implementation Plan (capped; the report file holds the full plan)
         if result.implementation_plan:
@@ -211,24 +217,35 @@ class PullRequestReporter:
         shown = 0
         if result.issues:
             issue_lines.extend(["## Issues", ""])
+            group_tail = ["</details>", ""]
             stop = False
             for severity in SEVERITY_ORDER:
                 sev_issues = [i for i in result.issues if i.severity == severity]
                 if not sev_issues or stop:
                     continue
                 section = [
-                    f"### {SEVERITY_EMOJI[severity]} {severity.value.title()} ({len(sev_issues)})",
+                    "<details>",
+                    f"<summary>{SEVERITY_EMOJI[severity]} {severity.value.title()} "
+                    f"({len(sev_issues)})</summary>",
                     "",
                 ]
+                added = 0
                 for issue in sev_issues:
                     block = self._issue_block(issue, result)
-                    if self._size(issue_lines) + self._size(section) + self._size(block) > budget:
+                    needed = (
+                        self._size(issue_lines)
+                        + self._size(section)
+                        + self._size(block)
+                        + self._size(group_tail)
+                    )
+                    if needed > budget:
                         stop = True
                         break
                     section.extend(block)
+                    added += 1
                     shown += 1
-                if len(section) > 2:
-                    issue_lines.extend(section)
+                if added:
+                    issue_lines.extend(section + group_tail)
             if shown < result.total_issues:
                 issue_lines.extend(
                     [
@@ -244,6 +261,5 @@ class PullRequestReporter:
             memory_lines = result.memories_markdown_lines(
                 summary="🧠 memories", max_chars=max(0, remaining)
             )
-            insert_at = len(head)
             lines[insert_at:insert_at] = memory_lines
         return "\n".join(lines)

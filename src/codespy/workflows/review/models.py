@@ -245,15 +245,22 @@ class ReviewResult(BaseModel):
             return f"[`{issue.location}`]({url})"
         return f"`{issue.location}`"
 
-    def full_path_scope_lines(self) -> list[str]:
-        """'Scope of this review' block for path mode ([] otherwise)."""
+    def full_path_scope_lines(self, collapsible: bool = False) -> list[str]:
+        """'Scope of this review' block for path mode ([] otherwise).
+
+        ``collapsible`` wraps it in ``<details>`` instead of a ``##`` heading.
+        """
         fp = self.full_path
         if not fp:
             return []
         shown = "whole repository" if fp.path == "." else f"`{fp.path}`"
+        head = (
+            ["<details>", "<summary>🗂️ Scope of this review</summary>", ""]
+            if collapsible
+            else ["## Scope of this review", ""]
+        )
         lines = [
-            "## Scope of this review",
-            "",
+            *head,
             f"- **Path:** {shown} at `{fp.ref}` (`{fp.sha[:8]}`)",
             "- **Mode:** no diff; every file is reviewed as newly added code",
             f"- **Files reviewed:** {fp.files_reviewed} ({fp.bytes_reviewed:,} bytes)",
@@ -265,6 +272,8 @@ class ReviewResult(BaseModel):
             listed = ", ".join(f"`{s}`" for s in fp.scopes)
             lines.append(f"- **Scopes ({len(fp.scopes)}):** {listed}")
         lines.append("")
+        if collapsible:
+            lines.extend(["</details>", ""])
         return lines
 
     def to_markdown(self) -> str:

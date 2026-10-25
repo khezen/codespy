@@ -427,7 +427,7 @@ class TestReporters:
         result = _result(self._huge_plan(), full_path=True, n_issues=300, desc="y" * 400)
         body = reporter.build_body(result)
         assert len(body) <= PullRequestReporter.MAX_BODY_CHARS
-        assert body.index("## Recommendation") < body.index("🛠️ Implementation Plan")
+        assert body.index("💡 Recommendation") < body.index("🛠️ Implementation Plan")
         plan_part = body[body.index("🛠️ Implementation Plan"):]
         assert "[full plan](https://github.com/o/r/blob/codespy/review/src/" in plan_part
         assert _balanced(body)

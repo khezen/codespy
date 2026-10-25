@@ -469,10 +469,23 @@ class TestReportRendering:
         # Highest severity first
         assert body.index("[High]") < body.index("[Low]")
 
+    def test_body_sections_collapsible(self):
+        body = _reporter().build_body(_result(4))
+        assert body.startswith("# 🔍 Code[Spy]")
+        assert "<summary>🗂️ Scope of this review</summary>" in body
+        assert "<summary>📋 Summary</summary>" in body
+        assert "<summary>💡 Recommendation</summary>" in body
+        assert "<summary>🟠 High (" in body
+        assert "## Summary" not in body
+        assert "## Scope of this review" not in body
+        assert "## Recommendation" not in body
+        assert body.count("<details>") == body.count("</details>")
+
     def test_body_truncates_with_link(self):
         result = _result(400, desc="x" * 400)
         body = _reporter().build_body(result)
         assert len(body) <= PullRequestReporter.MAX_BODY_CHARS
+        assert body.count("<details>") == body.count("</details>")
         assert "did not fit in this description" in body
         assert "https://github.com/o/r/blob/codespy/review/src/.codespy/reviews/src.md" in body
         # The committed file keeps everything
