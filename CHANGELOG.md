@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- **A missing Deno runtime produced an empty "APPROVE" review.** Every review agent runs in dspy's Deno sandbox. Without Deno each agent failed on its first step and soft-failed to "no findings", so the run reported 0 issues and posted it. Review commands now check Deno (2.x) before any clone or LLM call and stop with install guidance. The Docker image already bundles it.
 - **Remote reviews checked out the whole repository.** The sparse-checkout patterns started with a bare `/*`, which in non-cone mode selects every path, so every `codespy review` materialised the full repo. The patterns are now ordered git cone-style (`/*`, `!/*/`, then `/A/`, `!/A/*/` for each parent dir): the scope subtrees plus the files directly in their parent directories (manifests, workspace lock files, `project.json`, `AGENTS.md`). They are applied with `git read-tree -mu HEAD`, which also shrinks clones cached by earlier versions. Site config files outside the reviewed scopes are no longer on disk, as the existing SEO known limitation describes.
 
 ## [2.4.2] - 2026-10-24
