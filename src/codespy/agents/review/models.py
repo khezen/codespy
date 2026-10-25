@@ -119,6 +119,7 @@ class ReviewMetadata(BaseModel):
     run_id: str | None = None
     pr: PullRequest | None = None
     is_local: bool = False
+    is_full_path: bool = False  # True for review-path mode
 
 
 class ReviewContext(BaseModel):

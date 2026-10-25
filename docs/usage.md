@@ -61,9 +61,70 @@ codespy review-uncommitted --output json
 codespy review-uncommitted --model anthropic/claude-sonnet-4-5-20250929
 codespy review-uncommitted --config staging.yaml
 
+# Review a whole repo path (no PR needed); the report is delivered as a new PR/MR
+codespy review-path https://github.com/owner/repo                       # whole repo
+codespy review-path https://github.com/owner/repo --path services/api   # one path
+codespy review-path https://gitlab.com/group/project --path src --ref develop
+codespy review-path https://github.com/owner/repo --path lib --no-open-pr  # dry run: stdout only
+
 # Learn from human reactions to codespy's reviews of a PR (posts nothing; needs memory)
 codespy learn https://github.com/owner/repo/pull/123
 ```
+
+## Full-Path Review
+
+`codespy review-path` reviews existing code instead of a change. Use it to audit a service or module, take over an unfamiliar codebase, or check code that was never reviewed.
+
+```bash
+codespy review-path <repo-url> [--path P] [--ref BRANCH] [--max-files N] [--open-pr/--no-open-pr]
+```
+
+How it works:
+
+1. `--ref` (default: the repo's default branch) is resolved to a commit through the API. It must be a branch, because it is also the base of the report PR. Tags and SHAs are rejected.
+2. codespy sparse-clones `--path` (default `.`, the whole repo) at that commit. The files directly in each parent directory are also checked out (manifests, lock files, `AGENTS.md`), but nothing else.
+3. There is no diff: every reviewable file under the path is presented as **newly added**, and the code is reviewed as-is. Binary, lock, minified and excluded-directory files are skipped, as in PR reviews, and so are symlinks, files larger than 512 KB, non-UTF-8 files and `.codespy/`. The skip counts are shown in the report.
+4. All scopes under the path are identified (every manifest or module-marker package is its own scope), and the full pipeline runs: summary, code, doc, SEO and supply-chain review, audit, and memory.
+
+### The report PR
+
+There is no PR to comment on, so codespy opens one itself:
+
+- **Branch** `codespy/review/<path-slug>` (`root` for the whole repo, `services-api` for `services/api`), based on the reviewed commit and targeting `--ref`.
+- **File** `.codespy/reviews/<path-slug>.md` holds the full report. Every issue links to its file and lines at the reviewed commit.
+- **Description** holds the same report. On very large reports, the lowest-severity issues are left out of the description (to stay under the platform's size limit), with a link to the file.
+
+The PR is there to deliver the report. It can be closed without merging.
+
+**Re-runs** (e.g. a weekly schedule) update the same PR. When an open report PR exists for that path and branch, codespy commits the new report file to it, replaces the description and posts one `Updated by codespy run …` comment, so earlier reports stay in the branch history. When the branch exists but its PR was closed or merged, the branch is reset to the reviewed commit and a new PR is opened. Don't push your own work to `codespy/review/*` branches.
+
+The description is first posted before the memory phase, then rewritten with the final costs. `--no-open-pr` (or `review.output_git: false`) is a dry run: the report goes to stdout only and nothing is written to the repository.
+
+### Token permissions
+
+Opening the report PR needs write access:
+
+| Platform | Token permissions |
+|---|---|
+| GitHub | `contents: write` and `pull-requests: write` (classic token: `repo`) |
+| GitLab | `api` |
+
+On GitHub Actions with the built-in `GITHUB_TOKEN`, also turn on **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**. For self-hosted GitLab, the repo URL host must match `GITLAB_URL`.
+
+### Cost caps
+
+A full-path review sends every file to the reviewers, so it can cost much more than a PR review. Both caps count only the files that will actually be reviewed, after every skip rule above. Untracked and `.gitignore`d files are never listed. Two caps stop the run **before any LLM call** and print the file and byte counts per top-level directory, so you can narrow `--path` or raise the cap:
+
+| Setting | Env Var | Default |
+|---|---|---|
+| `review.full_path.max_files` (or `--max-files`) | `REVIEW_FULL_PATH_MAX_FILES` | `300` |
+| `review.full_path.max_bytes` | `REVIEW_FULL_PATH_MAX_BYTES` | `2000000` (about 500k tokens) |
+
+### Notes
+
+- If your repo also runs the codespy Action on `pull_request`, the report PR is reviewed like any other PR. Skip it with `if: ${{ !startsWith(github.head_ref, 'codespy/review/') }}` on the review job.
+- Feedback (👍/👎) on a report PR is not learned: the findings are in the description, not in review comments.
+- Repository URLs must be plain repo URLs (`https://github.com/owner/repo`, `https://gitlab.example.com/group/sub/project`). PR, tree and SSH URLs are rejected.
 
 ## PR Conversation and Human Feedback
 

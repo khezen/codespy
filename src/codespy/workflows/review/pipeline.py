@@ -36,7 +36,13 @@ from codespy.agents.review.feedback import (
     render_commits,
     render_discussion,
 )
-from codespy.agents.review.scope import MANIFEST_FILES, MANIFEST_GLOBS, build_sparse_patterns
+from codespy.agents.review.scope import (
+    MANIFEST_FILES,
+    MANIFEST_GLOBS,
+    append_sparse_patterns,
+    apply_sparse_checkout,
+    build_sparse_patterns,
+)
 from codespy.config import Settings, get_loaded_config_path, get_settings
 from codespy.config_memory import (
     get_cerebral,
@@ -48,8 +54,10 @@ from codespy.tools.git import ChangedFile, GitClient, PullRequest, get_client
 from codespy.tools.git.local_diff import build_pr_from_diff
 
 from codespy.workflows.review.models import (
+    FullPathInfo,
     LocalReviewConfig,
     MemorySection,
+    PathReviewConfig,
     RecalledMemory,
     RemoteReviewConfig,
     ReviewConfig,
@@ -68,6 +76,7 @@ class ReviewPipeline(dspy.Module):
         super().__init__()
         self.settings = settings or get_settings()
         self._git_client: GitClient | None = None
+        self._path_info: FullPathInfo | None = None
         self.cost_tracker = get_cost_tracker()
         configure_dspy(self.settings)
 
@@ -79,6 +88,30 @@ class ReviewPipeline(dspy.Module):
         self.supply_chain_auditor = SupplyChainAuditor()
         self.summarizer = Summarizer()
         self.auditor = Auditor()
+
+    def _verify_code_interpreter(self) -> None:
+        """Verify the Deno runtime that every RLM review agent needs.
+
+        Without it each agent fails on its first step and soft-fails to "no
+        findings", so the run would report a clean APPROVE without reviewing
+        anything. Fail before any clone or LLM call instead.
+        """
+        from dspy.primitives.python_interpreter import (
+            _find_deno_executable,
+            _validate_deno_version,
+        )
+
+        deno = _find_deno_executable()
+        try:
+            _validate_deno_version(deno)
+        except Exception as e:
+            raise ValueError(
+                f"Code interpreter unavailable: {e} "
+                "codespy's review agents run in dspy's Deno sandbox. Install Deno 2.x "
+                "(https://docs.deno.com/runtime/getting_started/installation/) and make sure "
+                "`deno` is on PATH, or use the Docker image, which bundles it."
+            ) from None
+        logger.info(f"Code interpreter: {deno}")
 
     def _verify_model_access(self) -> None:
         """Verify LLM model access."""
@@ -172,6 +205,93 @@ class ReviewPipeline(dspy.Module):
             max_commits=self.settings.review.pr_context.max_commits,
         )
 
+    def _build_path_pr(self, config: PathReviewConfig) -> tuple[PullRequest, Path, FullPathInfo]:
+        """Sparse-clone ``config.path`` and build a synthetic all-added PullRequest.
+
+        Fails fast (ValueError) on a non-branch ref, an empty path, or a cap
+        breach, before any review LLM call.
+
+        Returns:
+            Tuple of (PullRequest, repo_path, FullPathInfo)
+        """
+        import shutil
+
+        from codespy.tools.git.client import get_repo_client, parse_repo_url
+        from codespy.tools.git.full_path import (
+            build_pr_from_tree,
+            check_caps,
+            normalize_path,
+            path_slug,
+        )
+        from codespy.tools.git.models import GitPlatform
+
+        path = normalize_path(config.path)
+        platform, host, owner, repo_name = parse_repo_url(config.repo_url)
+        client = get_repo_client(config.repo_url, self.settings)
+
+        ref = config.ref or client.get_default_branch(owner, repo_name)
+        sha = client.resolve_branch(owner, repo_name, ref)  # ValueError if not a branch
+        logger.info("Full-path review of %s @ %s (%s)", path, ref, sha[:8])
+
+        # Dedicated clone per path, rebuilt every run: its sparse set is path-scoped
+        cache_dir = Path(self.settings.review.cache_dir).expanduser()
+        paths_root = (cache_dir / "paths").resolve()
+        repo_path = paths_root / owner.replace("/", "_") / repo_name / path_slug(path)
+        if not repo_path.resolve().is_relative_to(paths_root) or repo_path.resolve() == paths_root:
+            raise ValueError(f"Refusing to use clone directory outside the cache: {repo_path}")
+        if repo_path.exists():
+            shutil.rmtree(repo_path)
+        repo_path.parent.mkdir(parents=True, exist_ok=True)
+
+        sparse_paths = build_sparse_patterns([], recursive_dirs=[path])
+        logger.info("Sparse checkout patterns: %d", len(sparse_paths))
+        client.clone_repository(
+            owner=owner,
+            repo_name=repo_name,
+            ref=sha,
+            target_path=repo_path,
+            depth=1,
+            sparse_paths=sparse_paths,
+        )
+
+        git_platform = GitPlatform.GITLAB if platform == "gitlab" else GitPlatform.GITHUB
+        pr, stats = build_pr_from_tree(
+            repo_path=repo_path,
+            path=path,
+            ref=ref,
+            sha=sha,
+            owner=owner,
+            repo=repo_name,
+            host=host,
+            platform=git_platform,
+            excluded_dirs=self.settings.review.excluded_directories,
+        )
+        caps = self.settings.review.full_path
+        check_caps(
+            stats,
+            max_files=config.max_files if config.max_files is not None else caps.max_files,
+            max_bytes=caps.max_bytes,
+        )
+        logger.info(
+            "Path review: %d files (%s bytes), %d skipped",
+            stats.files_reviewed, f"{stats.bytes_reviewed:,}", stats.files_skipped,
+        )
+        info = FullPathInfo(
+            repo_url=config.repo_url,
+            path=path,
+            ref=ref,
+            sha=sha,
+            platform=platform,
+            host=host,
+            owner=owner,
+            repo=repo_name,
+            files_reviewed=stats.files_reviewed,
+            files_skipped=stats.files_skipped,
+            bytes_reviewed=stats.bytes_reviewed,
+            skipped=dict(stats.skipped),
+        )
+        return pr, repo_path, info
+
     def forward(self, config: ReviewConfig) -> ReviewResult:
         """Run the complete review pipeline (review phase only).
 
@@ -189,6 +309,18 @@ class ReviewPipeline(dspy.Module):
         # Generate a single run_id shared across all agents/modules invoked
         # within this pipeline run, used to correlate Episode records.
         run_id = uuid.uuid4().hex
+        self._path_info = None
+
+        # Every review agent needs the Deno sandbox: check before cloning or calling a model
+        self._verify_code_interpreter()
+
+        # Path mode: clone + cap check first, so an over-cap path fails before any LLM call
+        path_setup: tuple[PullRequest, Path] | None = None
+        if isinstance(config, PathReviewConfig):
+            logger.info(f"Starting path review: {config.path} @ {config.ref or '<default>'} "
+                        f"from {config.repo_url}")
+            pr_, repo_path_, self._path_info = self._build_path_pr(config)
+            path_setup = (pr_, repo_path_)
 
         # Always verify model access
         self._verify_model_access()
@@ -218,6 +350,8 @@ class ReviewPipeline(dspy.Module):
             logger.info(f"Starting local review: {mode} in {config.repo_path}")
             pr = self._build_local_pr(config)
             repo_path = config.repo_path.resolve()
+        elif path_setup is not None:
+            pr, repo_path = path_setup
         else:
             raise ValueError(f"Invalid config type: {type(config)}")
 
@@ -234,7 +368,7 @@ class ReviewPipeline(dspy.Module):
     def _run_review_phase(
         self,
         config: ReviewConfig,
-        pr: Any,
+        pr: PullRequest,
         repo_path: Path,
         run_id: str,
     ) -> ReviewResult:
@@ -250,6 +384,7 @@ class ReviewPipeline(dspy.Module):
             ReviewResult with memory_pending=True
         """
         is_local = isinstance(config, LocalReviewConfig)
+        is_full_path = isinstance(config, PathReviewConfig)
 
         # Step 1: Identify scopes FIRST
         logger.info("Identifying code scopes...")
@@ -262,7 +397,13 @@ class ReviewPipeline(dspy.Module):
             summary=pr.title,  # Use title as placeholder since summary hasn't run
         )
         self._fill_conversation_context(pr_context, pr)
-        metadata = ReviewMetadata(repo_path=repo_path, run_id=run_id, pr=pr, is_local=is_local)
+        metadata = ReviewMetadata(
+            repo_path=repo_path,
+            run_id=run_id,
+            pr=pr,
+            is_local=is_local,
+            is_full_path=is_full_path,
+        )
         review_ctx = ReviewContext(pr_context=pr_context, memory=None, metadata=metadata)
         scopes = self.scope_resolver(review_context=review_ctx)
         for scope in scopes:
@@ -285,7 +426,12 @@ class ReviewPipeline(dspy.Module):
         # Expand sparse checkout to cover full scope subtrees
         changed_file_paths = [f.filename for f in pr.changed_files]
         if not is_local:
-            self._expand_sparse_for_scopes(scopes, repo_path, changed_file_paths)
+            self._expand_sparse_for_scopes(
+                scopes,
+                repo_path,
+                changed_file_paths,
+                full_path=self._path_info.path if self._path_info else None,
+            )
         patches = build_patches(pr.changed_files)
 
         # Build all scope topics (scope topics + PR topic)
@@ -386,6 +532,13 @@ class ReviewPipeline(dspy.Module):
         # Collect stats at end of review phase (before memory phase)
         signature_stats_list = self._collect_signature_stats()
 
+        # Full-path info (path mode only), with the resolved scopes
+        full_path_info = None
+        if self._path_info is not None:
+            full_path_info = self._path_info.model_copy(
+                update={"scopes": [s.subroot for s in scopes]}
+            )
+
         return ReviewResult(
             pr_number=pr.number,
             pr_title=pr.title,
@@ -403,6 +556,7 @@ class ReviewPipeline(dspy.Module):
             signature_stats=signature_stats_list,
             memories=memories,
             memory_pending=True,
+            full_path=full_path_info,
         )
 
     def _fill_conversation_context(self, pr_context: PRContext, pr: Any) -> None:
@@ -564,20 +718,27 @@ class ReviewPipeline(dspy.Module):
 
         return stats_list
 
-    def _expand_sparse_for_scopes(self, scopes: list, repo_path: Path, changed_files: list[str] | None = None) -> None:
+    def _expand_sparse_for_scopes(
+        self,
+        scopes: list,
+        repo_path: Path,
+        changed_files: list[str] | None = None,
+        full_path: str | None = None,
+    ) -> None:
         """Expand sparse checkout to cover full subtree of each identified scope.
 
         Called after scope identification and before review modules,
         to ensure read_file and patch compaction have full scope context available.
 
-        Uses the same sparse pattern builder as derive_sparse_paths to ensure
-        manifests and AI instruction files are consistently anchored to ancestor
-        dirs of changed files, avoiding repo-wide pattern matching.
+        PR mode: a root scope disables sparse checkout (the whole repo is the scope).
+        Path mode (``full_path`` set): never widens beyond ``full_path`` plus the
+        non-root scope subtrees (which may sit above the path, as read context).
 
         Args:
             scopes: List of identified scope results
             repo_path: Path to the repository root
             changed_files: Optional list of changed file paths (if None, extracts from scopes)
+            full_path: Reviewed path for full-path mode, None for PR mode
         """
         from git import Repo
         from git.exc import GitCommandError
@@ -586,53 +747,38 @@ class ReviewPipeline(dspy.Module):
         if not git_dir.exists():
             return
 
-        # Check for root scope — disable sparse checkout entirely
-        has_root_scope = any(s.subroot == "." for s in scopes)
-        if has_root_scope:
-            try:
-                repo = Repo(repo_path)
-                repo.git.update_environment(GIT_TERMINAL_PROMPT="0")
-                # Disable sparse checkout to get full repo
-                repo.git.config("core.sparseCheckout", "false")
-                # Re-checkout to materialize everything
-                if repo.head.is_valid():
-                    repo.git.checkout()
-                    logger.info("Root scope: disabled sparse checkout, full repo checked out")
-                return
-            except (GitCommandError, ValueError, TypeError) as e:
-                logger.warning("Failed to disable sparse checkout for root scope: %s", e)
-                return
+        subtrees = [s.subroot.strip("/") for s in scopes if s.subroot not in (".", "")]
 
-        # Build sparse patterns using the canonical builder
-        if changed_files is None:
-            changed_files = []
-            for scope in scopes:
-                changed_files.extend(f.filename for f in scope.changed_files)
+        if full_path is not None:
+            sparse_paths = build_sparse_patterns([], recursive_dirs=[full_path, *subtrees])
+        else:
+            # Check for root scope — disable sparse checkout entirely
+            has_root_scope = any(s.subroot == "." for s in scopes)
+            if has_root_scope:
+                try:
+                    repo = Repo(repo_path)
+                    if repo.head.is_valid():
+                        # git-read-tree docs: select everything, re-apply, then disable
+                        apply_sparse_checkout(repo_path, ["/*"])
+                        repo.git.config("core.sparseCheckout", "false")
+                        logger.info("Root scope: disabled sparse checkout, full repo checked out")
+                    return
+                except (GitCommandError, ValueError, TypeError) as e:
+                    logger.warning("Failed to disable sparse checkout for root scope: %s", e)
+                    return
 
-        sparse_paths = build_sparse_patterns(changed_files)
+            if changed_files is None:
+                changed_files = [f.filename for scope in scopes for f in scope.changed_files]
+            # Ordered list: never re-sort (last matching pattern wins)
+            sparse_paths = append_sparse_patterns(
+                build_sparse_patterns(changed_files), [f"/{s}/" for s in subtrees]
+            )
 
-        # Add scope subtrees (full directories) for expanded scope context
-        for scope in scopes:
-            if scope.subroot != ".":
-                sparse_paths.append(f"/{scope.subroot.rstrip('/')}/")
-
-        # Deduplicate and sort
-        sparse_paths = sorted(set(sparse_paths))
-
-        sparse_file = git_dir / "info" / "sparse-checkout"
-        sparse_file.write_text("\n".join(sparse_paths) + "\n")
-
-        # Re-checkout to materialize newly included paths
         try:
-            repo = Repo(repo_path)
-            repo.git.update_environment(GIT_TERMINAL_PROMPT="0")
-            # Guard: repo.head.is_valid() is False for unborn branches (no commits fetched)
-            if not repo.head.is_valid():
-                logger.warning(
-                    "Skipping sparse expansion: HEAD is not valid (clone may have failed)"
-                )
+            if not Repo(repo_path).head.is_valid():
+                logger.warning("Skipping sparse expansion: HEAD is not valid (failed clone?)")
                 return
-            repo.git.checkout()
+            apply_sparse_checkout(repo_path, sparse_paths)
             logger.debug("Sparse checkout expanded for %d scope(s)", len(scopes))
         except (GitCommandError, ValueError, TypeError) as e:
             logger.warning("Sparse checkout expansion failed (non-fatal): %s", e)

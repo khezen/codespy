@@ -75,6 +75,7 @@ Built for **engineering teams that care about correctness, security, and control
 - 🐳 **Docker Ready** — Run locally or in the cloud with Docker
 - <img src="assets/GitHub_Invertocat_Black.svg" height="20" alt="GitHub"> <img src="assets/gitlab-logo-500-rgb.png" height="20" alt="GitLab"> **GitHub & GitLab** — Works with both platforms, auto-detects from URL
 - 🖥️ **Local Reviews** — Review local git changes without GitHub/GitLab — diff against any branch, ref, or review uncommitted work
+- 📂 **Full-Path Reviews** — Review existing code with no PR: `codespy review-path` sparse-clones a repo path, reviews every scope in it, and opens a PR with the report. See [Full-Path Review](docs/usage.md#full-path-review)
 - 🧩 **MCP Server** — IDE integration via Model Context Protocol — trigger reviews from AI coding assistants without leaving your editor
 - 🔌 **GitHub Action** — One-line integration for automatic PR reviews
 
@@ -139,6 +140,9 @@ export ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
 codespy review https://github.com/owner/repo/pull/123
 # OR
 codespy review https://gitlab.com/group/project/-/merge_requests/123
+
+# Or review existing code with no PR: codespy opens a PR with the report
+codespy review-path https://github.com/owner/repo --path services/api
 ```
 
 codespy auto-discovers credentials from standard locations (`~/.aws/credentials`, `gh auth token`, `glab auth token`, etc.) - see [Configuration](docs/configuration.md) for details.
@@ -149,7 +153,7 @@ codespy auto-discovers credentials from standard locations (`~/.aws/credentials`
 
 | Guide | Contents |
 |-------|----------|
-| **[Usage](docs/usage.md)** | CLI commands, Docker, GitHub Action, MCP server, output formats |
+| **[Usage](docs/usage.md)** | CLI commands, full-path reviews, Docker, GitHub Action, MCP server, output formats |
 | **[Configuration](docs/configuration.md)** | Environment variables, YAML config, model strategy, per-signature settings |
 | **[Architecture](docs/architecture.md)** | Pipeline design, DSPy signatures, supported languages |
 | **[Memory System](docs/memory.md)** | Hippocampus (episodic), Cerebral (semantic store), Prefrontal (recall) |

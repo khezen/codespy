@@ -91,8 +91,57 @@ class LocalReviewConfig(BaseModel):
     )
 
 
+class FullPathInfo(BaseModel):
+    """Information about a full-path review."""
+
+    repo_url: str = Field(default="", description="Repository URL as given")
+    path: str = Field(description="Reviewed path relative to repo root ('.' = whole repo)")
+    ref: str = Field(description="Base branch")
+    sha: str = Field(description="Resolved commit SHA")
+    platform: str = Field(description="Git platform (github, gitlab)")
+    host: str = Field(default="", description="Repo host (e.g. github.com)")
+    owner: str = Field(description="Repository owner/namespace")
+    repo: str = Field(description="Repository name")
+    files_reviewed: int = Field(description="Number of files reviewed")
+    files_skipped: int = Field(default=0, description="Number of files skipped")
+    bytes_reviewed: int = Field(default=0, description="Total bytes reviewed")
+    skipped: dict[str, int] = Field(default_factory=dict, description="Skip counts by reason")
+    scopes: list[str] = Field(default_factory=list, description="Resolved scope subroots")
+
+    @property
+    def tree_url(self) -> str:
+        from codespy.tools.git.full_path import tree_url
+        from codespy.tools.git.models import GitPlatform
+
+        platform = GitPlatform(self.platform)
+        return tree_url(self.host, self.owner, self.repo, self.sha, self.path, platform)
+
+    def blob_url(
+        self, filename: str, line_start: int | None = None, line_end: int | None = None
+    ) -> str:
+        from codespy.tools.git.full_path import blob_url
+
+        return blob_url(
+            self.host, self.owner, self.repo, self.sha, filename, self.platform,
+            line_start, line_end,
+        )
+
+
+class PathReviewConfig(BaseModel):
+    """Configuration for reviewing a full path in a remote repository."""
+
+    repo_url: str = Field(description="Repository URL (GitHub or GitLab)")
+    path: str = Field(default=".", description="Path to review relative to repo root")
+    ref: str | None = Field(
+        default=None, description="Base branch (defaults to repo default branch)"
+    )
+    max_files: int | None = Field(
+        default=None, description="Override review.full_path.max_files"
+    )
+
+
 # Union type for review configuration
-ReviewConfig = RemoteReviewConfig | LocalReviewConfig
+ReviewConfig = RemoteReviewConfig | LocalReviewConfig | PathReviewConfig
 
 
 class ReviewResult(BaseModel):
@@ -133,6 +182,9 @@ class ReviewResult(BaseModel):
     memory_pending: bool = Field(
         default=False,
         description="True when memory phase (saves, retain, consolidation) is still pending",
+    )
+    full_path: FullPathInfo | None = Field(
+        default=None, description="Full-path review info (None for PR reviews)"
     )
 
     @property
@@ -177,16 +229,59 @@ class ReviewResult(BaseModel):
             result[issue.severity].append(issue)
         return result
 
+    def issue_location_md(self, issue: Issue) -> str:
+        """Issue location as markdown; a link to the reviewed SHA in path mode."""
+        if self.full_path and issue.filename:
+            url = self.full_path.blob_url(issue.filename, issue.line_start, issue.line_end)
+            return f"[`{issue.location}`]({url})"
+        return f"`{issue.location}`"
+
+    def full_path_scope_lines(self) -> list[str]:
+        """'Scope of this review' block for path mode ([] otherwise)."""
+        fp = self.full_path
+        if not fp:
+            return []
+        shown = "whole repository" if fp.path == "." else f"`{fp.path}`"
+        lines = [
+            "## Scope of this review",
+            "",
+            f"- **Path:** {shown} at `{fp.ref}` (`{fp.sha[:8]}`)",
+            "- **Mode:** no diff; every file is reviewed as newly added code",
+            f"- **Files reviewed:** {fp.files_reviewed} ({fp.bytes_reviewed:,} bytes)",
+            f"- **Files skipped:** {fp.files_skipped}",
+        ]
+        for reason, n in sorted(fp.skipped.items(), key=lambda kv: -kv[1]):
+            lines.append(f"  - {reason}: {n}")
+        if fp.scopes:
+            listed = ", ".join(f"`{s}`" for s in fp.scopes)
+            lines.append(f"- **Scopes ({len(fp.scopes)}):** {listed}")
+        lines.append("")
+        return lines
+
     def to_markdown(self) -> str:
         """Format review results as Markdown."""
-        lines = [
-            f"# Code Review: {self.pr_title}",
-            "",
-            f"**PR:** [{self.repo}#{self.pr_number}]({self.pr_url})",
-            f"**Reviewed at:** {self.reviewed_at.strftime('%Y-%m-%d %H:%M UTC')}",
-            f"**Model:** {self.model_used}",
-            "",
-        ]
+        fp = self.full_path
+        if fp:
+            # Full-path review mode: no PR, link the reviewed tree instead
+            lines = [
+                f"# Full Review: {fp.path} @ {fp.ref}",
+                "",
+                f"**Repository:** [{fp.owner}/{fp.repo}@{fp.sha[:8]}]({fp.tree_url})",
+                f"**Reviewed at:** {self.reviewed_at.strftime('%Y-%m-%d %H:%M UTC')}",
+                f"**Model:** {self.model_used}",
+                "",
+            ]
+            lines.extend(self.full_path_scope_lines())
+        else:
+            # PR review mode
+            lines = [
+                f"# Code Review: {self.pr_title}",
+                "",
+                f"**PR:** [{self.repo}#{self.pr_number}]({self.pr_url})",
+                f"**Reviewed at:** {self.reviewed_at.strftime('%Y-%m-%d %H:%M UTC')}",
+                f"**Model:** {self.model_used}",
+                "",
+            ]
 
         # Memories section (collapsible) - placed before Summary
         lines.extend(self.memories_markdown_lines())
@@ -262,7 +357,7 @@ class ReviewResult(BaseModel):
                             [
                                 f"#### {issue.title}",
                                 "",
-                                f"**Location:** `{issue.location}`",
+                                f"**Location:** {self.issue_location_md(issue)}",
                                 f"**Category:** {issue.category.value}",
                                 "",
                                 issue.description,

@@ -350,6 +350,10 @@ class PullRequest(BaseModel):
     reactions: dict[str, int] = Field(
         default_factory=dict, description="Reaction counts on the PR description"
     )
+    web_url: str = Field(
+        default="",
+        description="Override for url (e.g. the tree URL of a full-path review).",
+    )
 
     @property
     def repo_full_name(self) -> str:
@@ -370,7 +374,13 @@ class PullRequest(BaseModel):
 
     @property
     def url(self) -> str:
-        """Get the PR URL."""
+        """Get the PR URL.
+
+        Also the PR memory topic id, so the PR-mode values must stay stable;
+        ``web_url`` overrides it (full-path reviews use the reviewed tree URL).
+        """
+        if self.web_url:
+            return self.web_url
         if self.platform == GitPlatform.GITLAB:
             return f"https://gitlab.com/{self.repo_full_name}/-/merge_requests/{self.number}"
         return f"https://github.com/{self.repo_full_name}/pull/{self.number}"

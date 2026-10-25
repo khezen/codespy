@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Full-path review (`codespy review-path`).** Reviews existing code with no PR. `codespy review-path <repo-url> [--path P] [--ref BRANCH]` sparse-clones the path at the branch head, presents every reviewable file as newly added, identifies all scopes under it, and runs the full pipeline. The report is delivered as a PR/MR opened by codespy: branch `codespy/review/<path-slug>`, report file `.codespy/reviews/<path-slug>.md`, and the report in the description, with each issue linked to its lines at the reviewed commit. Re-runs update the open report PR (new commit, new description, one comment). `--no-open-pr` is a dry run. New caps `review.full_path.max_files` (default 300, `--max-files`) and `review.full_path.max_bytes` (default 2 MB) stop over-sized runs before any LLM call. Symlinks in the reviewed repo are never followed. Needs a token that can write contents and pull requests (GitLab: `api`).
+
+### Fixed
+
+- **Remote reviews checked out the whole repository.** The sparse-checkout patterns started with a bare `/*`, which in non-cone mode selects every path, so every `codespy review` materialised the full repo. The patterns are now ordered git cone-style (`/*`, `!/*/`, then `/A/`, `!/A/*/` for each parent dir): the scope subtrees plus the files directly in their parent directories (manifests, workspace lock files, `project.json`, `AGENTS.md`). They are applied with `git read-tree -mu HEAD`, which also shrinks clones cached by earlier versions. Site config files outside the reviewed scopes are no longer on disk, as the existing SEO known limitation describes.
+
 ## [2.4.2] - 2026-10-24
 
 ### Added

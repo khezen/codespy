@@ -25,6 +25,8 @@ Or create a token at https://github.com/settings/tokens with `repo` scope:
 GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
 ```
 
+`codespy review-path` writes to the repository (it opens the report PR). A fine-grained token needs `contents: write` and `pull-requests: write`. See [Full-Path Review](usage.md#token-permissions).
+
 To disable auto-discovery:
 ```bash
 GITHUB_AUTO_DISCOVER_TOKEN=false
@@ -208,7 +210,7 @@ See [Memory System](memory.md) for:
 |---------|---------|---------|-------------|
 | Format | `REVIEW_OUTPUT_FORMAT` | `markdown` | `markdown` or `json` |
 | Stdout | `REVIEW_OUTPUT_STDOUT` | `true` | Enable stdout output |
-| Git | `REVIEW_OUTPUT_GIT` | `true` | Post review to GitHub/GitLab |
+| Git | `REVIEW_OUTPUT_GIT` | `true` | Post review to GitHub/GitLab (for `review-path`: open/update the report PR) |
 | Cache dir | `REVIEW_CACHE_DIR` | `~/.cache/codespy` | Cache directory path |
 
 ## Concurrency
@@ -216,6 +218,22 @@ See [Memory System](memory.md) for:
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
 | `review.max_concurrent_scopes` | `REVIEW_MAX_CONCURRENT_SCOPES` | `8` | Scopes reviewed at once by each of code_review, doc, seo and supply_chain (so up to 4× this value run in total). Modular repos (Swift packages, Gradle modules) can yield many scopes per PR; this bounds provider throttling and MCP subprocesses. Action input: `max-concurrent-scopes` |
+
+## Full-Path Review
+
+Caps for `codespy review-path` (see [Usage](usage.md#full-path-review)). When either is exceeded, the run stops before any LLM call and prints the file and byte counts per top-level directory.
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `review.full_path.max_files` | `REVIEW_FULL_PATH_MAX_FILES` | `300` | Most reviewable files under the path. CLI: `--max-files` |
+| `review.full_path.max_bytes` | `REVIEW_FULL_PATH_MAX_BYTES` | `2000000` | Most total bytes of reviewable files (about 500k tokens) |
+
+```yaml
+review:
+  full_path:
+    max_files: 500
+    max_bytes: 4000000
+```
 
 ## SEO Review
 
@@ -273,7 +291,7 @@ Crawl and hosting config often lives outside the web scope, for example a root `
 
 Issues in these files use repo-root paths.
 
-> **Known limitation:** remote reviews use a sparse checkout, and site config files outside the reviewed scopes are not added to it yet. `list_site_config` can show such a file while `read_site_config` reports it as unreadable. Local reviews (`review-local`, `review-uncommitted`) are not affected.
+> **Known limitation:** remote reviews (`review`, `review-path`) use a sparse checkout that holds the reviewed scopes plus the files directly in their parent directories. Site config files elsewhere (for example `infra/nginx/site.conf` for a `web/` scope) are not added to it yet. `list_site_config` can show such a file while `read_site_config` reports it as unreadable. Local reviews (`review-local`, `review-uncommitted`) and `review-path` of the whole repo are not affected.
 
 ### Output
 

@@ -3,12 +3,13 @@
 import logging
 import re
 from pathlib import Path
+from typing import Any
 
 import gitlab
 from git import Repo
 
 from codespy.config_utils import secret_value
-from codespy.tools.git.base import GitClient, SubmittedReview
+from codespy.tools.git.base import GitClient, SubmittedPullRequest, SubmittedReview
 from codespy.tools.git.conversation import (
     cap_comments,
     classify_author,
@@ -616,3 +617,110 @@ class GitLabClient(GitClient):
             )
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _project_path(owner: str, repo: str) -> str:
+        return f"{owner}/{repo}" if owner else repo
+
+    def get_default_branch(self, owner: str, repo: str) -> str:
+        """Get the default branch for a project."""
+        return str(self.gitlab_client.projects.get(self._project_path(owner, repo)).default_branch)
+
+    def resolve_branch(self, owner: str, repo: str, branch: str) -> str:
+        """Resolve a branch name to its head commit SHA (ValueError if not a branch)."""
+        project = self.gitlab_client.projects.get(self._project_path(owner, repo))
+        try:
+            return str(project.branches.get(branch).commit["id"])
+        except gitlab.exceptions.GitlabGetError as e:
+            raise ValueError(
+                f"'{branch}' is not a branch of {self._project_path(owner, repo)} "
+                "(full-path reviews need a branch as the report MR base)"
+            ) from e
+
+    @staticmethod
+    def _put_file(project: Any, path: str, content: str, message: str, branch: str) -> None:
+        """Create or update one file on ``branch`` in a single commit."""
+        try:
+            project.files.get(file_path=path, ref=branch)
+            action = "update"
+        except gitlab.exceptions.GitlabGetError:
+            action = "create"
+        project.commits.create(
+            {
+                "branch": branch,
+                "commit_message": message,
+                "actions": [{"action": action, "file_path": path, "content": content}],
+            }
+        )
+
+    def upsert_report_pull_request(
+        self,
+        owner: str,
+        repo: str,
+        base_branch: str,
+        base_sha: str,
+        head_branch: str,
+        file_path: str,
+        file_content: str,
+        commit_message: str,
+        title: str,
+        body: str,
+        update_comment: str,
+    ) -> SubmittedPullRequest:
+        """Create or update the report MR for a full-path review."""
+        project_path = self._project_path(owner, repo)
+        project = self.gitlab_client.projects.get(project_path)
+
+        open_mrs = project.mergerequests.list(
+            state="opened", source_branch=head_branch, target_branch=base_branch
+        )
+        if open_mrs:
+            # Re-run: update the existing report MR, never touch its history
+            mr = project.mergerequests.get(open_mrs[0].iid)
+            self._put_file(project, file_path, file_content, commit_message, head_branch)
+            mr.description = body
+            mr.save()
+            mr.notes.create({"body": update_comment})
+            logger.info(f"Updated report MR !{mr.iid} on {project_path}")
+            return SubmittedPullRequest(number=mr.iid, url=mr.web_url, created=False)
+
+        branch_created = False
+        try:
+            try:
+                project.branches.get(head_branch)
+            except gitlab.exceptions.GitlabGetError:
+                pass
+            else:
+                # Stale branch from a closed/merged report MR: restart from base
+                project.branches.delete(head_branch)
+            project.branches.create({"branch": head_branch, "ref": base_sha})
+            branch_created = True
+
+            self._put_file(project, file_path, file_content, commit_message, head_branch)
+            mr = project.mergerequests.create(
+                {
+                    "source_branch": head_branch,
+                    "target_branch": base_branch,
+                    "title": title,
+                    "description": body,
+                }
+            )
+        except Exception:
+            if branch_created:
+                try:
+                    project.branches.delete(head_branch)
+                    logger.warning(f"Deleted branch {head_branch} after a failed report MR")
+                except Exception as cleanup_err:
+                    logger.warning(f"Could not delete branch {head_branch}: {cleanup_err}")
+            raise
+        logger.info(f"Opened report MR !{mr.iid} on {project_path}")
+        return SubmittedPullRequest(number=mr.iid, url=mr.web_url, created=True)
+
+    def update_pull_request_body(self, url: str, body: str) -> None:
+        """Replace a merge request's description."""
+        project_path = self._get_project_path(url)
+        _, _, mr_iid = self.parse_url(url)
+        mr = self.gitlab_client.projects.get(project_path).mergerequests.get(mr_iid)
+        mr.description = body
+        mr.save()
+        logger.info(f"Updated MR !{mr_iid} description on {project_path}")
