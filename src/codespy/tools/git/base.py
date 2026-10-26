@@ -22,6 +22,21 @@ class SubmittedReview:
     body_suffix: str = ""
 
 
+@dataclass
+class SubmittedPullRequest:
+    """A report PR/MR opened or updated by codespy.
+
+    Attributes:
+        number: PR number (GitHub) or MR iid (GitLab)
+        url: Web URL of the PR/MR
+        created: True when this call opened it, False when it updated an open one
+    """
+
+    number: int
+    url: str
+    created: bool
+
+
 class GitClient(ABC):
     """Abstract base class for Git platform clients (GitHub, GitLab)."""
 
@@ -144,5 +159,76 @@ class GitClient(ABC):
 
         Returns:
             True if this client can handle the URL
+        """
+        ...
+
+    @abstractmethod
+    def get_default_branch(self, owner: str, repo: str) -> str:
+        """Get the default branch for a repository.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+
+        Returns:
+            Default branch name (e.g., 'main', 'master')
+        """
+        ...
+
+    @abstractmethod
+    def resolve_branch(self, owner: str, repo: str, branch: str) -> str:
+        """Resolve a branch name to a commit SHA.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            branch: Branch name
+
+        Returns:
+            Commit SHA
+
+        Raises:
+            ValueError: If branch is not found or is not a branch
+        """
+        ...
+
+    @abstractmethod
+    def upsert_report_pull_request(
+        self,
+        owner: str,
+        repo: str,
+        base_branch: str,
+        base_sha: str,
+        head_branch: str,
+        file_path: str,
+        file_content: str,
+        commit_message: str,
+        title: str,
+        body: str,
+        update_comment: str,
+    ) -> SubmittedPullRequest:
+        """Create or update a report pull request.
+
+        If an open PR exists with ``head_branch`` -> ``base_branch``, commits the
+        file to that branch, replaces the body and posts ``update_comment``.
+        Otherwise creates (or force-resets a stale) ``head_branch`` at
+        ``base_sha``, commits the file and opens the PR.
+
+        Returns:
+            SubmittedPullRequest (number, url, created)
+
+        Raises:
+            Exception: On failure. A branch created by this call is deleted
+                first; a branch that belongs to an open PR is never deleted.
+        """
+        ...
+
+    @abstractmethod
+    def update_pull_request_body(self, url: str, body: str) -> None:
+        """Update an existing pull request's body/description.
+
+        Args:
+            url: Pull request URL
+            body: New PR body
         """
         ...

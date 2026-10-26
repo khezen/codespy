@@ -25,6 +25,8 @@ Or create a token at https://github.com/settings/tokens with `repo` scope:
 GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
 ```
 
+`codespy review-path` writes to the repository (it opens the report PR). A fine-grained token needs `contents: write` and `pull-requests: write`. See [Full-Path Review](usage.md#token-permissions).
+
 To disable auto-discovery:
 ```bash
 GITHUB_AUTO_DISCOVER_TOKEN=false
@@ -146,6 +148,7 @@ Each signature supports env var overrides: `REVIEW_<SIGNATURE>_<SETTING>`
 | Supply Chain | `supply_chain` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS, SCAN_UNCHANGED |
 | SEO & AI-visibility | `seo` | ENABLED (default `false`), SCOPES, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS. See [SEO Review](#seo-review) |
 | Auditor | `audit` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
+| Implementation Planner | `plan` | ENABLED (default `false`), MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS. See [Implementation Plan](#implementation-plan) |
 
 Example: `REVIEW_CODE_REVIEW_MODEL=anthropic/claude-sonnet-4-5-20250929`
 
@@ -208,14 +211,63 @@ See [Memory System](memory.md) for:
 |---------|---------|---------|-------------|
 | Format | `REVIEW_OUTPUT_FORMAT` | `markdown` | `markdown` or `json` |
 | Stdout | `REVIEW_OUTPUT_STDOUT` | `true` | Enable stdout output |
-| Git | `REVIEW_OUTPUT_GIT` | `true` | Post review to GitHub/GitLab |
+| Git | `REVIEW_OUTPUT_GIT` | `true` | Post review to GitHub/GitLab (for `review-path`: open/update the report PR) |
 | Cache dir | `REVIEW_CACHE_DIR` | `~/.cache/codespy` | Cache directory path |
 
 ## Concurrency
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| `review.max_concurrent_scopes` | `REVIEW_MAX_CONCURRENT_SCOPES` | `8` | Scopes reviewed at once by each of code_review, doc, seo and supply_chain (so up to 4× this value run in total). Modular repos (Swift packages, Gradle modules) can yield many scopes per PR; this bounds provider throttling and MCP subprocesses. Action input: `max-concurrent-scopes` |
+| `review.max_concurrent_scopes` | `REVIEW_MAX_CONCURRENT_SCOPES` | `8` | Scopes reviewed at once by each of code_review, doc, seo and supply_chain (so up to 4× this value run in total), and by the planner after the audit. Modular repos (Swift packages, Gradle modules) can yield many scopes per PR; this bounds provider throttling and MCP subprocesses. Action input: `max-concurrent-scopes` |
+
+## Full-Path Review
+
+Caps for `codespy review-path` (see [Usage](usage.md#full-path-review)). When either is exceeded, the run stops before any LLM call and prints the file and byte counts per top-level directory.
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `review.full_path.max_files` | `REVIEW_FULL_PATH_MAX_FILES` | `300` | Most reviewable files under the path. CLI: `--max-files` |
+| `review.full_path.max_bytes` | `REVIEW_FULL_PATH_MAX_BYTES` | `2000000` | Most total bytes of reviewable files (about 500k tokens) |
+
+```yaml
+review:
+  full_path:
+    max_files: 500
+    max_bytes: 4000000
+```
+
+## Implementation Plan
+
+The `plan` signature turns the review's findings into an ordered implementation plan. It is **off by default**.
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `review.plan.enabled` | `REVIEW_PLAN_ENABLED` | `false` | Enable the planner. Action input: `plan-enabled` |
+| `review.plan.model` | `REVIEW_PLAN_MODEL` | `bedrock/converse/global.anthropic.claude-opus-5-5` | Model. Action input: `plan-model` |
+| `review.plan.max_iters` | `REVIEW_PLAN_MAX_ITERS` | `DEFAULT_MAX_ITERS` | RLM iterations per scope. Action input: `plan-max-iters` |
+| `review.plan.max_llm_calls` | `REVIEW_PLAN_MAX_LLM_CALLS` | `DEFAULT_MAX_LLM_CALLS` | RLM LLM-call budget per scope. Action input: `plan-max-llm-calls` |
+
+`reasoning_effort`, `temperature` and `max_tokens` work like they do for every other signature (Action inputs `plan-reasoning-effort`, `plan-temperature`, `plan-max-tokens`).
+
+How it runs:
+
+- After the audit, with the audit's quality assessment and recommendation as input. It adds one planner run to the time before the review is posted.
+- One run per scope that has issues, concurrently (bounded by `review.max_concurrent_scopes`). Each issue goes to the scope with the longest matching subroot; issues outside every scope are planned against the repo root.
+- Each run gets filesystem, ripgrep and tree-sitter tools rooted at its scope, to find the call sites and tests a fix touches.
+- Every issue left after confidence filtering and rejected-feedback suppression is planned. With no issues the planner is skipped (no LLM call).
+- Memory is read-only: the planner gets the run-level recall and the `recall_memory` tool, but writes no episode.
+- Soft-fail: a failed scope is left out of the plan; a planner failure posts the review without a plan.
+
+Each step lists its title, files, the change, how to verify it, and the issues it addresses. Where it appears:
+
+| Output | Rendering |
+|--------|-----------|
+| PR/MR review body | Collapsible `🛠️ Implementation Plan` section after the recommendation, capped at 20,000 chars (trailing steps dropped, with a note) |
+| `review-path` report PR description | Same section, same cap, with a link to the full plan in the report file |
+| `review-path` report file, stdout markdown, MCP | Same collapsible section, uncapped |
+| JSON | `implementation_plan` field: a list of `{subroot, steps: [{title, files, change, verification, addresses}]}` |
+
+With several scopes, each scope's steps are nested in their own collapsible section. The planner's cost appears as `plan` in the Review cost table.
 
 ## SEO Review
 
@@ -248,8 +300,8 @@ A changed scope is reviewed only if it passes every check below, in this order. 
 
 The reviewer checks the following for every changed page:
 
-- **Rendering:** content, links or facts moved to client-only rendering, or removed from the DOM by UI state.
-- **Navigation:** links implemented as click handlers instead of `<a href>`.
+- **Rendering:** content, links or facts moved to client-only rendering, or removed from the DOM by UI state. This includes content behind modals and accordions that start closed, selectors that render only one of several datasets, and menus whose links mount only on hover.
+- **Navigation:** links implemented as click handlers or buttons instead of `<a href>`.
 - **Metadata:** title, description, canonical, Open Graph and accidental `noindex`.
 - **Indexation:** sitemap entries, missing 301/308 redirects, soft 404s, and content that differs by user agent, geo or cookie.
 - **AI crawler access:** `robots.txt` and bot rules, plus `llms.txt`.
@@ -258,6 +310,24 @@ The reviewer checks the following for every changed page:
 - **Semantics:** heading order, alt text, link text.
 - **Core Web Vitals:** LCP, CLS and INP risks.
 - **i18n:** reciprocal hreflang alternates.
+
+In `review-path` runs there is no diff, so the reviewer audits the whole scope and reports issues that already exist, starting with shared layout, navigation and the most-used components. In PR reviews it reports only what the diff introduces or touches.
+
+### Hotspot pre-scan
+
+Before the model runs, a regex pre-scan (no LLM) looks for code shapes that often keep facts or links out of the initial HTML. It covers React/JSX (`.tsx`, `.jsx`, `.ts`, `.js`) and skips tests, stories and mocks. The rules:
+
+| Rule | Looks for |
+|------|-----------|
+| `disclosure-prop` | `isOpen=`/`open=`/`show=`/`expanded=` props in components with `useState`: content passed to a modal, dialog, drawer or accordion. When the modal comes from an external package (directly or through one local wrapper), the package is named |
+| `selected-dataset` | `.find(x => x.selected)` or `useState(list[0])`: only the selected item of a tab or chip selector is rendered |
+| `mount-on-interaction` | `{isActive && …}`, `{isOpen && …}`, `{hoveredLink && …}`: links or text mounted only after hover, focus or open |
+| `client-viewport-gate` | `{isMobile && …}` and similar viewport-hook branches |
+| `ssr-false` | `dynamic(…, { ssr: false })` |
+
+For each hit it records the component, its content-like props and the files that use it. The list goes to the model as a `hotspots` input, with every rule represented and at most 40 entries or 4,000 characters. The list is omitted when the scan finds nothing or fails. A `review-path` run scans every file in the scope. A PR review scans the changed files and their one-hop import neighbours, and marks the neighbours `[context]`: they help the model trace consumers but are never reported on their own. At most 2,000 scope files are used for these lookups.
+
+Hotspots are only candidates. The model verifies or dismisses each one, and it always runs its own sweep on top, so it also covers shapes and frameworks the rules miss (Vue `v-if`, Svelte `{#if}`, Angular `*ngIf`, `useEffect` fetches, button-only navigation, one-slide carousels). A shared component is reported once and lists where it is used. Severity depends on the hidden content: costs, returns, deposit protection or risk text is critical; snackbars, cookie banners and similar UI are dismissed.
 
 It is static only: it reads the repository and never calls the live site. The canonical host comes from site config in the repo (Astro `site`, Hugo `baseURL`, Nuxt `site.url`, next-sitemap `siteUrl`, `.env.example`). Anything decided at runtime, such as CDN/WAF rules outside the repo, CMS content or real Core Web Vitals, is reported at most once, as an `info` issue, and only when a finding depends on it.
 
@@ -273,7 +343,7 @@ Crawl and hosting config often lives outside the web scope, for example a root `
 
 Issues in these files use repo-root paths.
 
-> **Known limitation:** remote reviews use a sparse checkout, and site config files outside the reviewed scopes are not added to it yet. `list_site_config` can show such a file while `read_site_config` reports it as unreadable. Local reviews (`review-local`, `review-uncommitted`) are not affected.
+> **Known limitation:** remote reviews (`review`, `review-path`) use a sparse checkout that holds the reviewed scopes plus the files directly in their parent directories. Site config files elsewhere (for example `infra/nginx/site.conf` for a `web/` scope) are not added to it yet. `list_site_config` can show such a file while `read_site_config` reports it as unreadable. Local reviews (`review-local`, `review-uncommitted`) and `review-path` of the whole repo are not affected.
 
 ### Output
 

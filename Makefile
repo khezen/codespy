@@ -1,4 +1,4 @@
-.PHONY: help install install-dev lint format typecheck test clean build docker-build docker-run docker-learn review review-json learn config
+.PHONY: help install install-dev lint format typecheck test clean build docker-build docker-run docker-learn review review-json review-path learn config
 
 # Default target
 help:
@@ -23,6 +23,7 @@ help:
 	@echo "Run:"
 	@echo "  docker-run    Run codespy in Docker (use PR_URL=...)"
 	@echo "  review        Run review on a PR (use PR_URL=...)"
+	@echo "  review-path   Review a whole repo path in Docker and open a report PR (use REPO_URL=..., optional REVIEW_PATH=, REF=, MAX_FILES=, OPEN_PR=false)"
 	@echo "  learn         Learn from human feedback on codespy reviews of a PR, posts nothing (use PR_URL=...)"
 	@echo "  docker-learn  Run learn in Docker (use PR_URL=...)"
 	@echo "  config        Show current configuration"
@@ -31,6 +32,7 @@ help:
 	@echo "  make install-dev"
 	@echo "  make lint"
 	@echo "  make review PR_URL=https://github.com/owner/repo/pull/123"
+	@echo "  make review-path REPO_URL=https://github.com/owner/repo REVIEW_PATH=services/api OPEN_PR=false"
 	@echo "  make learn PR_URL=https://github.com/owner/repo/pull/123"
 	@echo "  make docker-run PR_URL=https://github.com/owner/repo/pull/123"
 
@@ -104,6 +106,25 @@ ifndef PR_URL
 	$(error PR_URL is required. Usage: make review-json PR_URL=https://github.com/owner/repo/pull/123)
 endif
 	poetry run codespy review $(PR_URL) --output json
+
+# Review every file under a repo path in Docker; opens/updates a report PR (requires REPO_URL)
+# Rebuilds the image first (cached layers) so it always runs this checkout's code.
+# Usage: make review-path REPO_URL=https://github.com/owner/repo [REVIEW_PATH=services/api] [REF=main] [MAX_FILES=500] [OPEN_PR=false]
+REVIEW_PATH ?= .
+OPEN_PR ?= true
+review-path:
+ifndef REPO_URL
+	$(error REPO_URL is required. Usage: make review-path REPO_URL=https://github.com/owner/repo [REVIEW_PATH=services/api] [REF=main] [MAX_FILES=500] [OPEN_PR=false])
+endif
+	$(MAKE) docker-build
+	@docker run --rm \
+		--env-file .env \
+		-v $${HOME}/.aws:/home/codespy/.aws:ro \
+		-v codespy-cache:/home/codespy/.cache/codespy \
+		codespy:latest review-path $(REPO_URL) --path "$(REVIEW_PATH)" \
+		$(if $(REF),--ref "$(REF)") \
+		$(if $(MAX_FILES),--max-files $(MAX_FILES)) \
+		$(if $(filter false,$(OPEN_PR)),--no-open-pr,--open-pr)
 
 # Learn from human feedback on codespy's reviews of a PR (posts nothing; needs memory)
 # Usage: make learn PR_URL=https://github.com/owner/repo/pull/123

@@ -4,12 +4,24 @@
 
 ## Pipeline Overview
 
-CodeSpy's review pipeline follows a 4-step flow:
+CodeSpy's review pipeline follows a 5-step flow:
 
 1. **Scope Identifier** (RLM + tools) — Identifies code scopes (frontend, backend, infra, microservice in monorepo, etc.)
 2. **PR Summary** (RLM) — Generates 2-3 sentence PR summary
 3. **Parallel Review Modules** — Supply Chain Auditor, Code Reviewer, Doc Reviewer, and SEO Reviewer (opt-in) run simultaneously
 4. **Auditor** (RLM) — Generates quality assessment + recommendation (APPROVE / REQUEST_CHANGES / NEEDS_DISCUSSION)
+5. **Implementation Planner** (RLM + tools, opt-in) — Turns the findings into an ordered plan, one run per scope with issues, given the audit's assessment and recommendation. Skipped when there are no issues; a failure never blocks the review
+
+The same pipeline serves three input modes. `review` fetches a PR/MR diff. `review-local` and `review-uncommitted` build one from local git. `review-path` builds a synthetic PR from a repository path where every reviewable file is newly added (`tools/git/full_path.py`), and delivers the report as a PR/MR that codespy opens (`workflows/review/reporters/pull_request.py`) instead of review comments.
+
+### Sparse checkout
+
+Remote reviews clone the repository treeless (`--filter=tree:0`) with a non-cone sparse checkout (`build_sparse_patterns` in `agents/review/scope/agent.py`). The pattern list is ordered, because the last matching pattern wins:
+
+1. `/*` and `!/*/` keep the files at the root, then `/A/` and `!/A/*/` keep the files directly in each parent directory `A` of the changed files. This covers manifests, lock files, `project.json` and `AGENTS.md` without listing them.
+2. The scope subtrees (`/<scope>/`), AI instruction directories and Xcode bundles of each parent directory.
+
+After scope resolution the set grows to each scope's full subtree. A root scope switches sparse checkout off in PR reviews, never in `review-path`. Each change is applied with `git read-tree -mu HEAD`, which also prunes cached clones that hold more than the current set.
 
 ## Architecture Diagram
 
@@ -17,12 +29,14 @@ CodeSpy's review pipeline follows a 4-step flow:
 ┌─────────────────────────────────────────────────────────────────────┐
 │                           codespy CLI                               │
 ├─────────────────────────────────────────────────────────────────────┤
-│  review <pr_url> | learn | review-local | review-uncommitted | serve│
+│  review <pr_url> | review-path <repo_url> | learn | serve           │
+│  review-local | review-uncommitted                                  │
 └──────────────────────────────┬──────────────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────────────┐
 │                  Git Platform Integration                           │
 │  GitHub / GitLab — fetch diff, changed files, commit messages       │
+│  review-path: every file under a path presented as added            │
 │  Auto-detects platform · Sparse checkout for full context           │
 └──────────────────────────────┬──────────────────────────────────────┘
                                │
@@ -52,6 +66,11 @@ CodeSpy's review pipeline follows a 4-step flow:
 │  │ 4. Auditor (RLM)                                             │     │
 │  │    Quality assessment + recommendation                     │     │
 │  │    (APPROVE / REQUEST_CHANGES / NEEDS_DISCUSSION)          │     │
+│  └──────────────────────────┬─────────────────────────────────┘     │
+│                             │                                       │
+│  ┌──────────────────────────▼─────────────────────────────────┐     │
+│  │ 5. Implementation Planner (RLM + tools, opt-in)            │     │
+│  │    Ordered fix plan per scope (collapsible section)        │     │
 │  └────────────────────────────────────────────────────────────┘     │
 │                                                                     │
 │  ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┐           │
@@ -84,8 +103,9 @@ CodeSpy's review pipeline follows a 4-step flow:
 | **CodeReviewSignature** | `code_review` | RLM | Detects verified bugs, security vulnerabilities, removed defensive code, and code smells |
 | **DocReviewSignature** | `doc` | RLM | Detects stale or wrong documentation caused by code changes |
 | **SupplyChainSecuritySignature** | `supply_chain` | RLM | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
-| **SEOReviewSignature** | `seo` | RLM | Opt-in. Detects website changes that hurt crawling, indexing, ranking, or AI citation. Runs only on scopes detected as websites (or whitelisted) with web-relevant changes |
+| **SEOReviewSignature** | `seo` | RLM | Opt-in. Detects website changes that hurt crawling, indexing, ranking, or AI citation. Runs only on scopes detected as websites (or whitelisted) with web-relevant changes. A regex hotspot pre-scan (`seo/hotspots.py`, no LLM) passes candidate render-gating shapes as an optional `hotspots` input. The model verifies them and also runs its own sweep. In `review-path` mode the prompt switches from diff review to a full-scope audit |
 | **AuditSignature** | `audit` | RLM | Generates quality assessment and recommendation |
+| **ImplementationPlanSignature** | `plan` | RLM | Opt-in. Turns the findings of one scope into ordered steps (files, change, verification, addressed issues), using filesystem, ripgrep and tree-sitter tools to check call sites and tests |
 
 See [Configuration](configuration.md) for per-signature settings.
 

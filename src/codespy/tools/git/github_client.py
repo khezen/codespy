@@ -5,13 +5,14 @@ import logging
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 from git import Repo
-from github import Auth, Github
+from github import Auth, Github, GithubException
 from github.PullRequest import PullRequest as GHPullRequest
 
 from codespy.config_utils import secret_value
-from codespy.tools.git.base import GitClient, SubmittedReview
+from codespy.tools.git.base import GitClient, SubmittedPullRequest, SubmittedReview
 from codespy.tools.git.conversation import (
     cap_comments,
     classify_author,
@@ -569,3 +570,96 @@ class GitHubClient(GitClient):
             )
 
         return "\n".join(lines)
+
+    def get_default_branch(self, owner: str, repo: str) -> str:
+        """Get the default branch for a repository."""
+        return str(self.github.get_repo(f"{owner}/{repo}").default_branch)
+
+    def resolve_branch(self, owner: str, repo: str, branch: str) -> str:
+        """Resolve a branch name to its head commit SHA (ValueError if not a branch)."""
+        gh_repo = self.github.get_repo(f"{owner}/{repo}")
+        try:
+            return str(gh_repo.get_branch(branch).commit.sha)
+        except GithubException as e:
+            if e.status == 404:
+                raise ValueError(
+                    f"'{branch}' is not a branch of {owner}/{repo} "
+                    "(full-path reviews need a branch as the report PR base)"
+                ) from e
+            raise
+
+    @staticmethod
+    def _put_file(gh_repo: Any, path: str, content: str, message: str, branch: str) -> None:
+        """Create or update one file on ``branch`` (one commit)."""
+        try:
+            existing = gh_repo.get_contents(path, ref=branch)
+        except GithubException as e:
+            if e.status != 404:
+                raise
+            gh_repo.create_file(path=path, message=message, content=content, branch=branch)
+            return
+        gh_repo.update_file(
+            path=path, message=message, content=content, sha=existing.sha, branch=branch
+        )
+
+    def upsert_report_pull_request(
+        self,
+        owner: str,
+        repo: str,
+        base_branch: str,
+        base_sha: str,
+        head_branch: str,
+        file_path: str,
+        file_content: str,
+        commit_message: str,
+        title: str,
+        body: str,
+        update_comment: str,
+    ) -> SubmittedPullRequest:
+        """Create or update the report PR for a full-path review."""
+        gh_repo = self.github.get_repo(f"{owner}/{repo}")
+
+        open_prs = list(
+            gh_repo.get_pulls(state="open", head=f"{owner}:{head_branch}", base=base_branch)
+        )
+        if open_prs:
+            # Re-run: update the existing report PR, never touch its history
+            gh_pr = open_prs[0]
+            self._put_file(gh_repo, file_path, file_content, commit_message, head_branch)
+            gh_pr.edit(body=body)
+            gh_pr.create_issue_comment(update_comment)
+            logger.info(f"Updated report PR #{gh_pr.number} on {owner}/{repo}")
+            return SubmittedPullRequest(number=gh_pr.number, url=gh_pr.html_url, created=False)
+
+        branch_created = False
+        try:
+            try:
+                ref = gh_repo.get_git_ref(f"heads/{head_branch}")
+            except GithubException as e:
+                if e.status != 404:
+                    raise
+                gh_repo.create_git_ref(f"refs/heads/{head_branch}", base_sha)
+                branch_created = True
+            else:
+                # Stale branch from a closed/merged report PR: restart from base
+                ref.edit(base_sha, force=True)
+
+            self._put_file(gh_repo, file_path, file_content, commit_message, head_branch)
+            gh_pr = gh_repo.create_pull(title=title, body=body, base=base_branch, head=head_branch)
+        except Exception:
+            if branch_created:
+                try:
+                    gh_repo.get_git_ref(f"heads/{head_branch}").delete()
+                    logger.warning(f"Deleted branch {head_branch} after a failed report PR")
+                except Exception as cleanup_err:
+                    logger.warning(f"Could not delete branch {head_branch}: {cleanup_err}")
+            raise
+        logger.info(f"Opened report PR #{gh_pr.number} on {owner}/{repo}")
+        return SubmittedPullRequest(number=gh_pr.number, url=gh_pr.html_url, created=True)
+
+    def update_pull_request_body(self, url: str, body: str) -> None:
+        """Replace a pull request's description."""
+        owner, repo_name, pr_number = self.parse_url(url)
+        gh_pr: GHPullRequest = self.github.get_repo(f"{owner}/{repo_name}").get_pull(pr_number)
+        gh_pr.edit(body=body)
+        logger.info(f"Updated PR #{pr_number} body on {owner}/{repo_name}")

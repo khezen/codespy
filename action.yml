@@ -371,6 +371,37 @@ inputs:
     required: false
 
   # ==========================================
+  # SIGNATURE: plan
+  # ==========================================
+  plan-enabled:
+    description: 'Enable implementation plan generation from review findings. Default from codespy.yaml: false'
+    required: false
+
+  plan-model:
+    description: 'Model for implementation plan (empty = use default). Default from codespy.yaml: bedrock/converse/global.anthropic.claude-opus-5-5'
+    required: false
+
+  plan-max-iters:
+    description: 'Max iterations for implementation plan. Default from codespy.yaml: 5'
+    required: false
+
+  plan-max-llm-calls:
+    description: 'Max LLM calls for implementation plan RLM fallback. Default from codespy.yaml: 16'
+    required: false
+
+  plan-max-tokens:
+    description: 'Max tokens for implementation plan. Default from codespy.yaml: default-max-tokens'
+    required: false
+
+  plan-reasoning-effort:
+    description: 'Reasoning effort for implementation plan (minimal|low|medium|high). Default from codespy.yaml: medium'
+    required: false
+
+  plan-temperature:
+    description: 'Temperature for implementation plan. Default from codespy.yaml: 1.0'
+    required: false
+
+  # ==========================================
   # CONCURRENCY
   # ==========================================
   max-concurrent-scopes:
@@ -698,6 +729,15 @@ runs:
         REVIEW_AUDIT_REASONING_EFFORT: ${{ inputs.audit-reasoning-effort }}
         REVIEW_AUDIT_TEMPERATURE: ${{ inputs.audit-temperature }}
 
+        # Plan signature
+        REVIEW_PLAN_ENABLED: ${{ inputs.plan-enabled }}
+        REVIEW_PLAN_MODEL: ${{ inputs.plan-model }}
+        REVIEW_PLAN_MAX_ITERS: ${{ inputs.plan-max-iters }}
+        REVIEW_PLAN_MAX_LLM_CALLS: ${{ inputs.plan-max-llm-calls }}
+        REVIEW_PLAN_MAX_TOKENS: ${{ inputs.plan-max-tokens }}
+        REVIEW_PLAN_REASONING_EFFORT: ${{ inputs.plan-reasoning-effort }}
+        REVIEW_PLAN_TEMPERATURE: ${{ inputs.plan-temperature }}
+
         # Output settings (REVIEW_OUTPUT_FORMAT removed - only via CLI flag)
 
         # Memory (Hippocampus)
@@ -812,6 +852,7 @@ runs:
         [ -n "$REVIEW_SUPPLY_CHAIN_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUPPLY_CHAIN_MAX_TOKENS"
         [ -n "$REVIEW_SUMMARY_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_SUMMARY_MAX_TOKENS"
         [ -n "$REVIEW_AUDIT_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_AUDIT_MAX_TOKENS"
+        [ -n "$REVIEW_PLAN_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_PLAN_MAX_TOKENS"
 
         # Memory module max_tokens
         [ -n "$MEMORY_DISTILLER_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_DISTILLER_MAX_TOKENS"
@@ -859,6 +900,14 @@ runs:
         [ -n "$REVIEW_AUDIT_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_AUDIT_MAX_LLM_CALLS"
         [ -n "$REVIEW_AUDIT_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_AUDIT_REASONING_EFFORT"
         [ -n "$REVIEW_AUDIT_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_AUDIT_TEMPERATURE"
+
+        # Plan
+        [ -n "$REVIEW_PLAN_ENABLED" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_PLAN_ENABLED"
+        [ -n "$REVIEW_PLAN_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_PLAN_MODEL"
+        [ -n "$REVIEW_PLAN_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_PLAN_MAX_ITERS"
+        [ -n "$REVIEW_PLAN_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_PLAN_MAX_LLM_CALLS"
+        [ -n "$REVIEW_PLAN_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_PLAN_REASONING_EFFORT"
+        [ -n "$REVIEW_PLAN_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_PLAN_TEMPERATURE"
 
         # Output settings (REVIEW_OUTPUT_FORMAT removed - only via CLI flag)
 

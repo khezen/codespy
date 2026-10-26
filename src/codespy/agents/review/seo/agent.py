@@ -24,10 +24,17 @@ from codespy.agents.review.helpers import (
     issues_to_markdown,
     make_scope_relative,
     resolve_scope_root,
-    restore_repo_paths,
 )
 from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
 from codespy.agents.review.scope.models import ScopeResult
+from codespy.agents.review.seo.hotspots import (
+    list_scope_files,
+    neighbours,
+    render,
+    rule_counts,
+    scan,
+    with_hotspots,
+)
 from codespy.agents.review.seo.site_files import SiteConfigTools, find_site_config_files
 from codespy.agents.review.seo.web_filter import has_web_relevant_changes, is_web_scope
 from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm
@@ -61,6 +68,40 @@ class SEOReviewSignature(dspy.Signature):
     or could easily fix in files it already changes. Ignore pre-existing issues.
     If the PR changes nothing that reaches public HTML, HTTP responses, routing,
     crawler access or build output (e.g., backend-only, tests), return empty issues.
+    Reporting boundary: report a candidate only when the diff introduces or touches it,
+    i.e. a changed file, or a changed file that newly passes content into an existing
+    gated component (e.g. a new <XWithModal content=...>): report it on the changed
+    consumer and name the gating component. Unchanged neighbour files (hotspots marked
+    [context]) are context only, never findings by themselves.
+
+    STEP 3: HOTSPOT DETECTION (two sources, both mandatory)
+    a) Pre-scan hotspots (input `hotspots`, when present): a static regex list of
+       candidate render-gating shapes. Verify each with tools first (cheap, high-yield);
+       dismiss false positives silently. If the gating component comes from an external
+       package you cannot inspect, assume its closed content is unmounted and absent
+       from the initial HTML (confidence ~0.8, say so in the description).
+    b) Your own sweep, ALWAYS, whether or not `hotspots` is present: the pre-scan is
+       incomplete (regex only, React-first). In the REPL, iterate over
+       scope.changed_files and use Python `re` on every patch (the REPL has no regex
+       tool; in a full-scope audit each patch holds the whole file). Then use the
+       ripgrep tools (search_literal, find_imports_of, find_function_usages) to trace
+       consumers. Look for every shape, in the stack from STEP 1, that keeps facts or
+       links out of the server HTML, e.g.: v-if/v-show, {#if}, *ngIf/@if,
+       dynamic(..., {ssr:false}), <ClientOnly>, useEffect+fetch, {state && ...},
+       .find/.filter on selection state, visibility toggled by JS, portals, onClick
+       navigation, <button> nav triggers without <a href>, tabs/carousels showing one
+       slide, lazy or intersection-observer content.
+    Treat your own candidates exactly like pre-scan hotspots: trace to consumers,
+    verify, group, rate by content. Do not stop after the first finding in a category:
+    keep looking for other components with the same shape before finalising.
+
+    GROUPING AND SEVERITY BY CONTENT
+    - Report a shared component once, on the component. Name its consumers/pages in the
+      description, or as a first line "Used by: a, b, +N" in the suggestion.
+    - Rate severity by the content consumers actually pass. Costs, fees, spreads,
+      returns, performance, deposit protection, risk or legal text hidden from the
+      initial HTML is critical (YMYL). UI chrome (snackbars, toasts, cookie banners,
+      share sheets, forms) is not indexable content: dismiss it.
 
     HOW AI CRAWLERS DIFFER FROM SEARCH ENGINES
     GPTBot, OAI-SearchBot, ChatGPT-User, ClaudeBot, Claude-SearchBot, Claude-User,
@@ -77,6 +118,17 @@ class SEOReviewSignature(dspy.Signature):
       useEffect/onMounted/componentDidMount, content injected by JavaScript into empty containers.
     - Content hidden behind UI state (v-if, {#if}, *ngIf, {cond && ...}) in tabs,
       accordions, modals, "read more" panels. Should use CSS or hidden attribute, not JS removal.
+    - Disclosure content: content passed as a prop to modal/dialog/drawer/popover/accordion
+      components controlled by open-state props (isOpen, open, show, expanded). If the
+      component is external or unmounts when closed, the content is absent from the
+      initial HTML. Fix: render it in the server HTML and only toggle visibility.
+    - Selector shows one dataset: a tab/chip/dropdown renders only the selected item of a
+      collection. The other N-1 datasets are missing, and the shown one must name its
+      subject in visible text (e.g. which portfolio a return figure belongs to).
+      Fix: render every dataset server-side, each labelled; toggle visibility only.
+    - Menus mounted on interaction: submenu links mounted only on hover/focus/open, or
+      top-level nav items that are buttons with no href. Every nav destination (main
+      nav, sub-navs, footer) needs a real <a href> in the server HTML.
     - Navigation using click handlers (router.push, navigate(), window.location, onclick)
       instead of real <a href> anchors.
     - Charts, calculators, carousels or maps carrying facts with no HTML text equivalent.
@@ -189,6 +241,66 @@ class SEOReviewSignature(dspy.Signature):
         "Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none. "
         "File paths scope-relative, or 'repo:<path>' for site config files."
     )
+
+
+_STEP2_PATH = """STEP 2: SCOPE (FULL-SCOPE AUDIT)
+There is no diff: every file under the reviewed path is presented as newly added.
+Audit the whole scope as-is. Every file is in scope; report existing issues,
+prioritised by page impact. Start with the shared layout, header/nav/footer and the
+components with the most consumers, then the page templates. All verified hotspots,
+pre-scan or your own, are reportable."""
+
+SEO_AREAS = (
+    "Rendering", "Metadata", "Indexation", "AI crawlers", "Structured data",
+    "Content", "Semantics", "Performance", "i18n",
+)
+
+_COVERAGE_PATH = f"""STEP 4: COVERAGE (FULL-SCOPE AUDIT, mandatory)
+Every area of CHECKS must be audited, not only Rendering. Hotspots feed Rendering only and
+count as no coverage for any other area.
+a) Inventory first: with tools, build REPL variables `pages` (routes, page templates),
+   `layouts` (root/shared layouts, head/meta components), `site_config` (list_site_config)
+   and `shared` (most-imported components, via find_imports_of). Print their counts.
+b) Ledger: keep `coverage = {{area: {{"status": None, "files": [], "note": ""}}}}` for each
+   title Area: {", ".join(SEO_AREAS)}.
+   An area ends as "checked" (files examined listed) or "not_applicable" (note names the
+   search that proves it, e.g. search_literal found no JSON-LD). One finding does not
+   close an area: check every relevant inventory target for it.
+c) Fan out: for areas with many targets, delegate per area or per batch of pages to
+   dspy.ReActV2 sub-agents with the provided tools, or llm_query_batched over file
+   contents. Verify their candidates yourself, append them to a REPL list `issues`, and
+   print each verified issue in full when you append it.
+d) Budget: a full-scope audit is expected to use a large share of the iterations and
+   sub-LLM calls. Submitting in the first tenth of the iterations on a scope with hundreds
+   of files means areas were skipped. Keep the last iterations for grouping and SUBMIT.
+e) SUBMIT only after a separate step that prints `coverage` shows no area with status
+   None. If iterations run low, close remaining areas with a quick check of the main
+   layouts and top pages rather than skipping them.
+f) Hard stop: at the second-to-last iteration, SUBMIT the verified `issues` as they are,
+   even with areas still open. Never let the iterations run out without a SUBMIT."""
+
+
+def _replace_step2(instructions: str) -> str:
+    start = instructions.index("STEP 2: SCOPE")
+    end = instructions.index("STEP 3:", start)
+    out = instructions[:start] + _STEP2_PATH + "\n\n" + instructions[end:]
+    anchor = out.index("GROUPING AND SEVERITY BY CONTENT")
+    return out[:anchor] + _COVERAGE_PATH + "\n\n" + out[anchor:]
+
+
+_PATH_SIGNATURE: type[dspy.Signature] | None = None
+
+
+def seo_signature(full_scope: bool) -> type[dspy.Signature]:
+    """SEO signature for PR mode, or with full-scope audit wording (cached)."""
+    global _PATH_SIGNATURE
+    if not full_scope:
+        return SEOReviewSignature
+    if _PATH_SIGNATURE is None:
+        _PATH_SIGNATURE = SEOReviewSignature.with_instructions(
+            _replace_step2(SEOReviewSignature.instructions)
+        )
+    return _PATH_SIGNATURE
 
 
 class SEOReviewer(dspy.Module):
@@ -361,18 +473,29 @@ class SEOReviewer(dspy.Module):
 
         tools, contexts = await self._create_tools(scope_root, site_tools)
         try:
+            is_full_scope = bool(
+                review_context.metadata and review_context.metadata.is_full_path
+            )
+            scoped = make_scope_relative(scope)
+            hotspots_text = await asyncio.to_thread(
+                self._hotspots_text, scope.subroot, scope_root, scoped, is_full_scope
+            )
             repo_full_name = review_context.pr_context.repo_full_name
             scope_topic_id = scope.topic(repo_full_name).id
             pf = get_prefrontal(
                 self._settings, "seo", repo_full_name, scope_topic_ids=[scope_topic_id]
             )
             base_sig, pc_kwargs = apply_pr_context(
-                SEOReviewSignature,
+                seo_signature(is_full_scope),
                 review_context.pr_context,
                 ("commit_messages", "pr_discussion", "review_feedback"),
                 self._settings,
                 subroot=scope.subroot,
             )
+            hs_kwargs: dict[str, str] = {}
+            if hotspots_text:
+                base_sig = with_hotspots(base_sig)
+                hs_kwargs["hotspots"] = hotspots_text
             sig = with_prefrontal_memory(base_sig) if review_context.prefrontal_memory else base_sig
             recall_tool = pf.recall_tool() if pf else None
             agent_tools = [*tools, recall_tool] if recall_tool else tools
@@ -384,7 +507,6 @@ class SEOReviewer(dspy.Module):
                 max_llm_calls=self._settings.get_max_llm_calls("seo"),
                 rlm_threshold=self._settings.get_rlm_threshold("react"),
             )
-            scoped = make_scope_relative(scope)
             logger.info(f"  SEO review: scope {scope.subroot} ({len(scope.changed_files)} files)")
             hippo: Hippocampus | None = None
             async with SignatureContext("seo", self._cost_tracker):
@@ -421,7 +543,12 @@ class SEOReviewer(dspy.Module):
                         topics=topics,
                     )
                 result = await run_rlm(
-                    agent, scope=scoped, categories=categories, **pc_kwargs, **pf_kwargs
+                    agent,
+                    scope=scoped,
+                    categories=categories,
+                    **hs_kwargs,
+                    **pc_kwargs,
+                    **pf_kwargs,
                 )
                 log_rlm_outcome(result, "seo", scope.subroot)
                 issues = filter_by_confidence(
@@ -456,6 +583,36 @@ class SEOReviewer(dspy.Module):
             return []
         finally:
             await cleanup_mcp_contexts(contexts)
+
+    def _hotspots_text(
+        self, subroot: str, scope_root: Path, scoped: ScopeResult, is_full_scope: bool
+    ) -> str:
+        """Run the static hotspot pre-scan; "" when nothing is found or on any error.
+
+        Full-scope: every file of the scope. PR mode: changed files plus their
+        one-hop import neighbours (marked context-only).
+        """
+        try:
+            changed = [cf.filename for cf in scoped.changed_files if cf.filename]
+            if is_full_scope:
+                files: list[str] = changed
+                all_files: list[str] = changed
+                changed_arg: list[str] | None = None
+            else:
+                all_files = list_scope_files(
+                    scope_root, self._settings.review.excluded_directories
+                )
+                files = sorted(set(changed) | set(neighbours(changed, all_files, scope_root)))
+                changed_arg = changed
+            found = scan(scope_root, files, all_files=all_files, changed=changed_arg)
+            text = render(found)
+            logger.info(
+                "  SEO hotspots: scope %s: %d %s", subroot, len(found), rule_counts(found)
+            )
+            return text
+        except Exception as e:
+            logger.warning(f"  SEO hotspot pre-scan failed for scope {subroot}: {e}")
+            return ""
 
     def _restore_repo_paths(self, issues: list[Issue], subroot: str) -> list[Issue]:
         """Restore repo-root-relative paths in issue filenames.

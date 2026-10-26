@@ -287,6 +287,12 @@ def log_rlm_outcome(
     """
     # Check if this was an extract fallback
     final_reasoning = getattr(result, "final_reasoning", None)
+    if final_reasoning == "Extract after content_filter refusal":
+        logger.warning(
+            f"RLM[{module}] scope {scope}: action step refused (content_filter) after "
+            f"{len(getattr(result, 'trajectory', []) or [])} steps; outputs extracted from history"
+        )
+        return
     if final_reasoning != "Extract forced final output":
         return
 

@@ -74,6 +74,19 @@ class PRContextConfig(BaseModel):
     max_block_chars: int = Field(default=12000, ge=0)
 
 
+class FullPathConfig(BaseModel):
+    """Configuration for full-path reviews (review-path command).
+
+    Hard caps that fail fast before any LLM call, to protect against
+    runaway costs when reviewing large paths.
+    """
+
+    max_files: int = Field(default=300, ge=1, description="Maximum reviewable files")
+    max_bytes: int = Field(
+        default=2_000_000, ge=1, description="Maximum total bytes of reviewable files"
+    )
+
+
 class ReviewConfig(BaseModel):
     """Configuration for the review subsystem.
 
@@ -96,6 +109,9 @@ class ReviewConfig(BaseModel):
 
     # PR conversation context size caps
     pr_context: PRContextConfig = Field(default_factory=PRContextConfig)
+
+    # Full-path review caps
+    full_path: FullPathConfig = Field(default_factory=FullPathConfig)
 
     # Concurrency limit for per-scope review modules
     max_concurrent_scopes: int = Field(default=8, ge=1)
@@ -122,6 +138,9 @@ class ReviewConfig(BaseModel):
     seo: SEOSignatureConfig = Field(
         default_factory=lambda: SEOSignatureConfig(enabled=False, model="bedrock/converse/global.anthropic.claude-opus-5-5")
     )
+    plan: SignatureConfig = Field(
+        default_factory=lambda: SignatureConfig(enabled=False, model="bedrock/converse/global.anthropic.claude-opus-5-5")
+    )
 
     def signatures(self) -> dict[str, SignatureConfig]:
         """Return a dict of signature name -> SignatureConfig."""
@@ -133,6 +152,7 @@ class ReviewConfig(BaseModel):
             "summary": self.summary,
             "audit": self.audit,
             "seo": self.seo,
+            "plan": self.plan,
         }
 
 
@@ -146,4 +166,5 @@ SIGNATURE_NAMES = set(ReviewConfig.model_fields.keys()) - {
     "excluded_directories",
     "pr_context",
     "max_concurrent_scopes",
+    "full_path",
 }

@@ -8,7 +8,7 @@ from collections import Counter
 
 from codespy import __version__
 from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
-from codespy.workflows.review.models import ReviewResult
+from codespy.workflows.review.models import MAX_PLAN_CHARS, ReviewResult
 from codespy.workflows.review.reporters.base import BaseReporter
 from codespy.tools.git.base import SubmittedReview
 from codespy.tools.git.client import get_client
@@ -308,6 +308,12 @@ class GitReporter(BaseReporter):
                     "",
                 ]
             )
+
+        # Implementation Plan (after Recommendation; memories get what is left)
+        if result.implementation_plan:
+            used = len("\n".join(lines)) + 1
+            plan_budget = min(MAX_PLAN_CHARS, self.MAX_BODY_CHARS - reserve - used - 1)
+            lines.extend(result.implementation_plan_markdown_lines(max_chars=max(0, plan_budget)))
 
         # Memories section (collapsible, size-limited for GitHub's 65,536 char body limit)
         # Insert after header, before Summary

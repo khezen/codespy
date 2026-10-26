@@ -540,51 +540,70 @@ MARKER_DIR_SPARSE_FILES: list[str] = [
 ]
 
 
+def _ancestors(path: str) -> list[str]:
+    """Proper ancestor dirs of a repo-relative path, shallowest first ("." excluded)."""
+    parts = [p for p in path.strip("/").split("/") if p and p != "."]
+    return ["/".join(parts[:i]) for i in range(1, len(parts))]
+
+
 def build_sparse_patterns(
     changed_files: list[str],
     include_scope_roots: bool = True,
     include_manifests: bool = True,
     include_ai_files: bool = True,
+    recursive_dirs: list[str] | None = None,
 ) -> list[str]:
-    """Build anchored sparse checkout patterns from changed files.
+    """Build an ordered non-cone sparse-checkout pattern list.
 
-    In non-cone sparse-checkout mode (gitignore-style semantics):
-    - Patterns with a leading/middle slash are anchored to repo root
-    - Patterns without a slash match at any depth (expensive in treeless clones)
-    - Patterns ending with slash match directories at any depth
+    Git sparse patterns use gitignore semantics where the last matching pattern
+    wins, so the result is ORDERED and must not be re-sorted by callers:
 
-    This function emits anchored patterns only: /<ancestor>/<pattern>
-    to limit materialization to ancestor dirs of changed files.
+    1. Parent section (git's cone-mode layout): ``/*`` + ``!/*/`` keeps the files
+       directly at the root; then for each ancestor dir ``A`` (shallowest first)
+       ``/A/`` + ``!/A/*/`` keeps the files directly in ``A``. This puts every
+       manifest, lock file, project file, marker file and AGENTS.md of each
+       ancestor on disk without listing them.
+    2. Positive section: recursive dirs (scope roots), AI instruction dirs and
+       Xcode bundle dirs at each ancestor, plus the anchored manifest/marker/AI
+       file patterns (redundant with (1), kept as a safety net).
+
+    A bare ``/*`` would select the whole repository; that was the pre-2.4.3 bug.
 
     Args:
-        changed_files: List of changed file paths (relative to repo root)
-        include_scope_roots: Include scope subtree roots (e.g., /packages/auth/)
-        include_manifests: Include anchored manifest patterns
+        changed_files: Changed file paths (relative to repo root)
+        include_scope_roots: Include recursive scope subtree roots
+        include_manifests: Include anchored manifest/marker file patterns
         include_ai_files: Include anchored AI instruction dir/file patterns
+        recursive_dirs: Directories to include recursively. When given, replaces
+            the scope-indicator / depth-2 guess from ``changed_files``. ``"."``
+            means the whole repository.
 
     Returns:
-        List of anchored sparse patterns for git sparse-checkout
+        Ordered, de-duplicated patterns.
     """
-    patterns: set[str] = set()
     ancestor_dirs: set[str] = set()
-
-    # Build scope roots from changed files (for subtree checkout)
     scope_roots: set[str] = set()
+
+    if recursive_dirs is not None:
+        for d in recursive_dirs:
+            d = d.strip("/")
+            if d in ("", "."):
+                return ["/*"]  # Whole repository requested
+            scope_roots.add(d)
+            ancestor_dirs.update(_ancestors(d + "/x"))
     for filepath in changed_files:
         parts = filepath.split("/")
         if len(parts) <= 1:
             continue  # Root-level file
-
-        # Collect all ancestor directories of this file
-        for depth in range(1, len(parts)):
-            ancestor_dirs.add("/".join(parts[:depth]))
+        ancestor_dirs.update(_ancestors(filepath))
+        if recursive_dirs is not None:
+            continue
 
         # Strategy A: Find scope indicator and take the next directory
         found_indicator = False
         for i, part in enumerate(parts[:-1]):  # Skip filename
             if part.lower() in SCOPE_INDICATOR_DIRS and i + 1 < len(parts) - 1:
-                scope_root = "/".join(parts[: i + 2])
-                scope_roots.add(scope_root)
+                scope_roots.add("/".join(parts[: i + 2]))
                 found_indicator = True
                 break
 
@@ -593,60 +612,87 @@ def build_sparse_patterns(
             depth = min(2, len(parts) - 1)
             scope_roots.add("/".join(parts[:depth]))
 
-    # Always include root in ancestor dirs
-    ancestor_dirs.add(".")
+    # Ancestors of recursive roots are parents too (their own files only)
+    for root in scope_roots:
+        ancestor_dirs.update(_ancestors(root + "/x"))
 
-    # Scope roots (for subtree checkout) - anchored as /<scope>/
+    def under_root(d: str) -> bool:
+        return any(d == r or d.startswith(r + "/") for r in scope_roots)
+
+    # Dirs already covered recursively need no parent entry
+    parent_dirs = ancestor_dirs
     if include_scope_roots:
-        for scope_root in scope_roots:
-            patterns.add(f"/{scope_root}/")
+        parent_dirs = {d for d in ancestor_dirs if not under_root(d)}
 
-    # Root-level files
-    patterns.add("/*")
+    # 1. Parent section (order matters)
+    parent: list[str] = ["/*", "!/*/"]
+    for ancestor in sorted(parent_dirs, key=lambda a: (a.count("/"), a)):
+        parent.extend([f"/{ancestor}/", f"!/{ancestor}/*/"])
 
-    # Manifest files - anchored to each ancestor dir to avoid repo-wide matching
-    if include_manifests:
-        for ancestor in ancestor_dirs:
-            for manifest in MANIFEST_FILES:
-                if ancestor == ".":
-                    patterns.add(f"/{manifest}")
-                else:
-                    patterns.add(f"/{ancestor}/{manifest}")
-        for ancestor in ancestor_dirs:
-            for manifest_pattern in MANIFEST_GLOBS:
-                if ancestor == ".":
-                    patterns.add(f"/{manifest_pattern}")
-                else:
-                    patterns.add(f"/{ancestor}/{manifest_pattern}")
+    # 2. Positive section (sorted within the section only)
+    levels = ["", *sorted(ancestor_dirs)]  # "" = root
+    positive: set[str] = set()
 
-    # AI instruction directories and files - anchored to each ancestor dir
-    if include_ai_files:
-        for ancestor in ancestor_dirs:
-            for ai_dir in AI_DIRS:
-                if ancestor == ".":
-                    patterns.add(f"/{ai_dir}")
-                else:
-                    patterns.add(f"/{ancestor}/{ai_dir}")
-        for ancestor in ancestor_dirs:
-            for ai_file in AI_FILES:
-                if ancestor == ".":
-                    patterns.add(f"/{ai_file}")
-                else:
-                    patterns.add(f"/{ancestor}/{ai_file}")
+    def anchored(level: str, name: str) -> str:
+        return f"/{level}/{name}" if level else f"/{name}"
 
-    # Module marker config files live at the repo root only
-    for marker_file in MARKER_ROOT_SPARSE_FILES:
-        patterns.add(f"/{marker_file}")
+    if include_scope_roots:
+        positive.update(f"/{root}/" for root in scope_roots)
+    for level in levels:
+        for bundle in ("*.xcodeproj/", "*.xcworkspace/"):
+            positive.add(anchored(level, bundle))
+        if include_ai_files:
+            positive.update(anchored(level, ai_dir) for ai_dir in AI_DIRS)
+            positive.update(anchored(level, ai_file) for ai_file in AI_FILES)
+        if include_manifests:
+            positive.update(anchored(level, m) for m in MANIFEST_FILES)
+            positive.update(anchored(level, m) for m in MANIFEST_GLOBS)
+            positive.update(anchored(level, m) for m in MARKER_DIR_SPARSE_FILES)
+    positive.update(f"/{marker_file}" for marker_file in MARKER_ROOT_SPARSE_FILES)
 
-    # Per-module marker files - anchored to each ancestor dir
-    for ancestor in ancestor_dirs:
-        for marker_file in MARKER_DIR_SPARSE_FILES:
-            if ancestor == ".":
-                patterns.add(f"/{marker_file}")
-            else:
-                patterns.add(f"/{ancestor}/{marker_file}")
+    return parent + sorted(positive - set(parent))
 
-    return sorted(patterns)
+
+def append_sparse_patterns(patterns: list[str], extra: list[str]) -> list[str]:
+    """Append patterns to an ordered sparse list, de-duplicated, order kept."""
+    seen = set(patterns)
+    out = list(patterns)
+    for p in extra:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def write_sparse_patterns(repo_path: Path, patterns: list[str]) -> None:
+    """Enable sparse checkout and write the pattern file, without touching the tree.
+
+    Call this BEFORE checking out a new commit in a treeless clone, so the checkout
+    only fetches blobs for the new set (not for the previous run's set).
+    """
+    from git import Repo
+
+    repo = Repo(repo_path)
+    repo.git.config("core.sparseCheckout", "true")
+    sparse_file = repo_path / ".git" / "info" / "sparse-checkout"
+    sparse_file.parent.mkdir(parents=True, exist_ok=True)
+    sparse_file.write_text("\n".join(patterns) + "\n")
+
+
+def apply_sparse_checkout(repo_path: Path, patterns: list[str]) -> None:
+    """Write the sparse-checkout file and re-apply it to the working tree.
+
+    ``git read-tree -mu HEAD`` both materialises newly included paths and
+    removes paths no longer selected (e.g. a cached clone made before the
+    sparse fix, which was a full checkout).
+    """
+    from git import Repo
+
+    write_sparse_patterns(repo_path, patterns)
+    repo = Repo(repo_path)
+    repo.git.update_environment(GIT_TERMINAL_PROMPT="0")
+    if repo.head.is_valid():
+        repo.git.read_tree("-mu", "HEAD")
 
 
 def derive_sparse_paths(changed_files: list[str]) -> list[str]:
@@ -708,16 +754,20 @@ class ScopeResolver(dspy.Module):
         )
         return tools, contexts
 
-    async def _ensure_repo(self, pr: PullRequest, repo_path: Path, is_local: bool) -> None:
+    async def _ensure_repo(
+        self, pr: PullRequest, repo_path: Path, is_local: bool, is_full_path: bool = False
+    ) -> None:
         """Clone repo programmatically if not already on disk.
 
         Args:
             pr: The pull request
             repo_path: Path where repo should be cloned
             is_local: If True, skip cloning (repo already on disk)
+            is_full_path: If True, skip: the path-review pipeline already cloned
+                the repo with path-scoped sparse patterns
         """
-        if is_local:
-            logger.debug("Local review - skipping clone")
+        if is_local or is_full_path:
+            logger.debug("Repo already prepared (local or full-path review) - skipping clone")
             return
 
         if repo_path.exists() and (repo_path / ".git").exists():
@@ -726,15 +776,14 @@ class ScopeResolver(dspy.Module):
             logger.debug("Updating existing clone at %s", repo_path)
             changed_file_paths = [f.filename for f in pr.changed_files]
             sparse_paths = derive_sparse_paths(changed_file_paths)
-            # Update sparse-checkout config
-            sparse_file = repo_path / ".git" / "info" / "sparse-checkout"
-            sparse_file.parent.mkdir(parents=True, exist_ok=True)
-            sparse_file.write_text("\n".join(sparse_paths) + "\n")
-            # Fetch and checkout correct ref
+            # Write the new patterns first so the checkout only fetches the new set
+            write_sparse_patterns(repo_path, sparse_paths)
             repo = Repo(repo_path)
             repo.git.update_environment(GIT_TERMINAL_PROMPT="0")
             repo.git.fetch("origin", pr.head_sha, "--depth", "1")
             repo.git.checkout(pr.head_sha)
+            # Re-apply to the whole tree: prunes paths of older, wider clones
+            apply_sparse_checkout(repo_path, sparse_paths)
             return
 
         changed_file_paths = [f.filename for f in pr.changed_files]
@@ -1572,7 +1621,9 @@ class ScopeResolver(dspy.Module):
             return [fallback]
 
         try:
-            await self._ensure_repo(pr, repo_path, is_local)
+            await self._ensure_repo(
+                pr, repo_path, is_local, getattr(review_context.metadata, "is_full_path", False)
+            )
             scopes, orphans = self._resolve(repo_path, reviewable_files, repo)
             # Log deterministic scopes before LLM refinement
             if scopes:

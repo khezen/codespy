@@ -68,7 +68,7 @@ src/codespy/
 │       ├── models.py         # Review data models
 │       ├── reviewer.py       # Main review orchestrator
 │       ├── server.py         # MCP server implementation
-│       ├── modules/          # Pipeline stages (scope_resolver, summarizer, code_reviewer, doc_reviewer, seo_reviewer, supply_chain_auditor, auditor)
+│       ├── modules/          # Pipeline stages (scope_resolver, summarizer, code_reviewer, doc_reviewer, seo_reviewer, supply_chain_auditor, auditor, planner)
 │       └── reporters/        # Output reporters (git comments, stdout)
 └── tools/                    # Agent tools
     ├── git/                  # GitHub/GitLab clients, local diff, patch utils

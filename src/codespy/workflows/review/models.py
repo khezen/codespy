@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
+from codespy.agents.review.plan.models import ScopePlan
 
 # Appended to a memory text cut to fit the review body size limit
 TRUNCATED_MARKER = "…(truncated)"
+
+# Maximum characters for the implementation plan in review body (leaves room for other sections)
+MAX_PLAN_CHARS = 20000
 
 
 class MemorySection(BaseModel):
@@ -91,8 +96,57 @@ class LocalReviewConfig(BaseModel):
     )
 
 
+class FullPathInfo(BaseModel):
+    """Information about a full-path review."""
+
+    repo_url: str = Field(default="", description="Repository URL as given")
+    path: str = Field(description="Reviewed path relative to repo root ('.' = whole repo)")
+    ref: str = Field(description="Base branch")
+    sha: str = Field(description="Resolved commit SHA")
+    platform: str = Field(description="Git platform (github, gitlab)")
+    host: str = Field(default="", description="Repo host (e.g. github.com)")
+    owner: str = Field(description="Repository owner/namespace")
+    repo: str = Field(description="Repository name")
+    files_reviewed: int = Field(description="Number of files reviewed")
+    files_skipped: int = Field(default=0, description="Number of files skipped")
+    bytes_reviewed: int = Field(default=0, description="Total bytes reviewed")
+    skipped: dict[str, int] = Field(default_factory=dict, description="Skip counts by reason")
+    scopes: list[str] = Field(default_factory=list, description="Resolved scope subroots")
+
+    @property
+    def tree_url(self) -> str:
+        from codespy.tools.git.full_path import tree_url
+        from codespy.tools.git.models import GitPlatform
+
+        platform = GitPlatform(self.platform)
+        return tree_url(self.host, self.owner, self.repo, self.sha, self.path, platform)
+
+    def blob_url(
+        self, filename: str, line_start: int | None = None, line_end: int | None = None
+    ) -> str:
+        from codespy.tools.git.full_path import blob_url
+
+        return blob_url(
+            self.host, self.owner, self.repo, self.sha, filename, self.platform,
+            line_start, line_end,
+        )
+
+
+class PathReviewConfig(BaseModel):
+    """Configuration for reviewing a full path in a remote repository."""
+
+    repo_url: str = Field(description="Repository URL (GitHub or GitLab)")
+    path: str = Field(default=".", description="Path to review relative to repo root")
+    ref: str | None = Field(
+        default=None, description="Base branch (defaults to repo default branch)"
+    )
+    max_files: int | None = Field(
+        default=None, description="Override review.full_path.max_files"
+    )
+
+
 # Union type for review configuration
-ReviewConfig = RemoteReviewConfig | LocalReviewConfig
+ReviewConfig = RemoteReviewConfig | LocalReviewConfig | PathReviewConfig
 
 
 class ReviewResult(BaseModel):
@@ -133,6 +187,13 @@ class ReviewResult(BaseModel):
     memory_pending: bool = Field(
         default=False,
         description="True when memory phase (saves, retain, consolidation) is still pending",
+    )
+    full_path: FullPathInfo | None = Field(
+        default=None, description="Full-path review info (None for PR reviews)"
+    )
+    implementation_plan: list[ScopePlan] = Field(
+        default_factory=list,
+        description="Implementation plan generated from review findings",
     )
 
     @property
@@ -177,16 +238,68 @@ class ReviewResult(BaseModel):
             result[issue.severity].append(issue)
         return result
 
+    def issue_location_md(self, issue: Issue) -> str:
+        """Issue location as markdown; a link to the reviewed SHA in path mode."""
+        if self.full_path and issue.filename:
+            url = self.full_path.blob_url(issue.filename, issue.line_start, issue.line_end)
+            return f"[`{issue.location}`]({url})"
+        return f"`{issue.location}`"
+
+    def full_path_scope_lines(self, collapsible: bool = False) -> list[str]:
+        """'Scope of this review' block for path mode ([] otherwise).
+
+        ``collapsible`` wraps it in ``<details>`` instead of a ``##`` heading.
+        """
+        fp = self.full_path
+        if not fp:
+            return []
+        shown = "whole repository" if fp.path == "." else f"`{fp.path}`"
+        head = (
+            ["<details>", "<summary>🗂️ Scope of this review</summary>", ""]
+            if collapsible
+            else ["## Scope of this review", ""]
+        )
+        lines = [
+            *head,
+            f"- **Path:** {shown} at `{fp.ref}` (`{fp.sha[:8]}`)",
+            "- **Mode:** no diff; every file is reviewed as newly added code",
+            f"- **Files reviewed:** {fp.files_reviewed} ({fp.bytes_reviewed:,} bytes)",
+            f"- **Files skipped:** {fp.files_skipped}",
+        ]
+        for reason, n in sorted(fp.skipped.items(), key=lambda kv: -kv[1]):
+            lines.append(f"  - {reason}: {n}")
+        if fp.scopes:
+            listed = ", ".join(f"`{s}`" for s in fp.scopes)
+            lines.append(f"- **Scopes ({len(fp.scopes)}):** {listed}")
+        lines.append("")
+        if collapsible:
+            lines.extend(["</details>", ""])
+        return lines
+
     def to_markdown(self) -> str:
         """Format review results as Markdown."""
-        lines = [
-            f"# Code Review: {self.pr_title}",
-            "",
-            f"**PR:** [{self.repo}#{self.pr_number}]({self.pr_url})",
-            f"**Reviewed at:** {self.reviewed_at.strftime('%Y-%m-%d %H:%M UTC')}",
-            f"**Model:** {self.model_used}",
-            "",
-        ]
+        fp = self.full_path
+        if fp:
+            # Full-path review mode: no PR, link the reviewed tree instead
+            lines = [
+                f"# Full Review: {fp.path} @ {fp.ref}",
+                "",
+                f"**Repository:** [{fp.owner}/{fp.repo}@{fp.sha[:8]}]({fp.tree_url})",
+                f"**Reviewed at:** {self.reviewed_at.strftime('%Y-%m-%d %H:%M UTC')}",
+                f"**Model:** {self.model_used}",
+                "",
+            ]
+            lines.extend(self.full_path_scope_lines())
+        else:
+            # PR review mode
+            lines = [
+                f"# Code Review: {self.pr_title}",
+                "",
+                f"**PR:** [{self.repo}#{self.pr_number}]({self.pr_url})",
+                f"**Reviewed at:** {self.reviewed_at.strftime('%Y-%m-%d %H:%M UTC')}",
+                f"**Model:** {self.model_used}",
+                "",
+            ]
 
         # Memories section (collapsible) - placed before Summary
         lines.extend(self.memories_markdown_lines())
@@ -262,7 +375,7 @@ class ReviewResult(BaseModel):
                             [
                                 f"#### {issue.title}",
                                 "",
-                                f"**Location:** `{issue.location}`",
+                                f"**Location:** {self.issue_location_md(issue)}",
                                 f"**Category:** {issue.category.value}",
                                 "",
                                 issue.description,
@@ -302,6 +415,9 @@ class ReviewResult(BaseModel):
         # Recommendation
         if self.recommendation:
             lines.extend(["## Recommendation", "", self.recommendation, ""])
+
+        # Implementation Plan (uncapped for report file / stdout / MCP)
+        lines.extend(self.implementation_plan_markdown_lines())
 
         return "\n".join(lines)
 
@@ -486,6 +602,109 @@ class ReviewResult(BaseModel):
         if not lines:
             return []
         return outer_head + lines + outer_tail
+
+    def implementation_plan_markdown_lines(
+        self, max_chars: int | None = None, overflow_link: str | None = None
+    ) -> list[str]:
+        """Build the collapsible implementation plan section.
+
+        Structure:
+          <details>
+          <summary>🛠️ Implementation Plan (N steps)</summary>
+          <blockquote>
+            [one scope] steps directly
+            [several scopes] <details><summary>`subroot` (k steps)</summary>…</details>
+          </blockquote>
+          </details>
+
+        Steps show title, files, change, verification and addressed issues.
+
+        Args:
+            max_chars: Character budget for the section (None = unlimited).
+            overflow_link: URL to link to full plan when truncated.
+
+        Returns:
+            Markdown lines, or ``[]`` when there is no plan or nothing fits.
+        """
+        if not self.implementation_plan:
+            return []
+        plans = [sp for sp in self.implementation_plan if sp.steps]
+        total_steps = sum(len(sp.steps) for sp in plans)
+        if total_steps == 0:
+            return []
+
+        def size(block_lines: list[str]) -> int:
+            return sum(len(line) + 1 for line in block_lines)
+
+        def plural(n: int, word: str) -> str:
+            return f"{n} {word}{'' if n == 1 else 's'}"
+
+        def step_block(idx: int, step: Any) -> list[str]:
+            block = [f"**{idx}. {step.title}**", ""]
+            if step.files:
+                block.extend([f"**Files:** {', '.join(f'`{f}`' for f in step.files)}", ""])
+            if step.change:
+                block.extend([step.change, ""])
+            if step.verification:
+                block.extend([f"**Verify:** {step.verification}", ""])
+            if step.addresses:
+                block.extend([f"**Addresses:** {'; '.join(step.addresses)}", ""])
+            return block
+
+        nested = len(plans) > 1
+        summary = f"🛠️ Implementation Plan ({plural(total_steps, 'step')}"
+        summary += f" in {plural(len(plans), 'scope')})" if nested else ")"
+        outer_head = ["<details>", f"<summary>{summary}</summary>", "<blockquote>", ""]
+        outer_tail = ["</blockquote>", "</details>", ""]
+
+        def note_lines(omitted: int) -> list[str]:
+            note = f"> {plural(omitted, 'more step')} omitted {TRUNCATED_MARKER}"
+            if overflow_link:
+                note += f" See the [full plan]({overflow_link})."
+            return [note, ""]
+
+        remaining: int | None = None
+        if max_chars is not None:
+            # Reserve the frame and the worst-case truncation note up front
+            frame = size(outer_head) + size(outer_tail) + size(note_lines(total_steps))
+            remaining = max_chars - frame
+
+        body: list[str] = []
+        shown = 0
+        stopped = False
+        for sp in plans:
+            if stopped:
+                break
+            head: list[str] = []
+            tail: list[str] = []
+            if nested:
+                head = [
+                    "<details>",
+                    f"<summary>`{sp.subroot}` ({plural(len(sp.steps), 'step')})</summary>",
+                    "<blockquote>",
+                    "",
+                ]
+                tail = ["</blockquote>", "</details>", ""]
+            frame = size(head) + size(tail)
+            scope_lines: list[str] = []
+            for step in sp.steps:
+                block = step_block(shown + 1, step)
+                cost = size(block) + (frame if not scope_lines else 0)
+                if remaining is not None and cost > remaining:
+                    stopped = True
+                    break
+                scope_lines.extend(block)
+                shown += 1
+                if remaining is not None:
+                    remaining -= cost
+            if scope_lines:
+                body.extend(head + scope_lines + tail)
+
+        if shown == 0:
+            return []
+        if shown < total_steps:
+            body.extend(note_lines(total_steps - shown))
+        return outer_head + body + outer_tail
 
     def to_json_dict(self) -> dict:
         """Convert to a JSON-serializable dictionary."""

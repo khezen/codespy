@@ -21,7 +21,8 @@ CodeSpy's memory system has three independent components:
    ├── Run-level Prefrontal recall (task="review", episode_id=NULL)
    ├── Summary
    ├── code_review, doc, seo, supply_chain (concurrent)
-   └── Audit
+   ├── Audit
+   └── Plan (opt-in, read-only: no episode)
 2. Review published with "Memory: pending" (remote) or printed (local CLI/MCP)
 3. finish_memory() starts queued saves
    ├── Each episode: end_episode() → Distiller → Cartographer → evict → save
@@ -45,6 +46,7 @@ If `forward()` raises, deferred saves still start but consolidation does not run
 | seo | Run-level | Yes | Yes (only for scopes that pass the SEO gating) |
 | supply_chain | Run-level | Yes | Yes |
 | audit | Run-level | No | Yes |
+| plan | Run-level | Yes | No (read-only: plans derive from this run's findings, so storing them would duplicate the review episodes) |
 | feedback | n/a (no LLM call of its own; the Distiller reads human reactions to codespy's comments) | No | Yes, one per scope with new feedback. Cerebral retains only the observations; the `feedback` and `feedback_hash` artifacts stay episodic |
 
 The run-level recall (`task="review"`, `episode_id=NULL`) covers all project scopes plus the repo. Only the scope agent loads its own memory when model refinement runs; all other agents share the run-level recall.
@@ -194,7 +196,7 @@ Prefrontal reads Cerebral and injects prior knowledge into agents.
 
 ### Run-level load vs scope load
 
-**One run-level load** (`task="review"`, all project scopes + the repo-root scope) shared by summary, code_review, doc, seo, supply_chain, audit. Only the **scope** agent does its own load when model refinement runs. The other agents create a per-agent Prefrontal only for the `recall_memory` tool.
+**One run-level load** (`task="review"`, all project scopes + the repo-root scope) shared by summary, code_review, doc, seo, supply_chain, audit, plan. Only the **scope** agent does its own load when model refinement runs. The other agents create a per-agent Prefrontal only for the `recall_memory` tool.
 
 ### Facets
 
@@ -219,7 +221,7 @@ Only the `context` facet runs the reflect loop; the others stay raw recall at MI
 
 ### `recall_memory` tool
 
-RLM agents (code_review, scope, seo, supply_chain) get `async recall_memory(query: str, reach: str = "local") -> str`. A reach above the configured one is clamped; at most `max_tool_calls` calls per agent call (then `"recall limit reached"`); errors return `"memory unavailable"`.
+RLM agents (code_review, scope, seo, supply_chain, plan) get `async recall_memory(query: str, reach: str = "local") -> str`. A reach above the configured one is clamped; at most `max_tool_calls` calls per agent call (then `"recall limit reached"`); errors return `"memory unavailable"`.
 
 `reflects=0` disables the reflect loop, but the tool still works in raw-recall mode (`details.mode="recall"`). Only `max_tool_calls=0` (the **default**) turns it off.
 

@@ -413,3 +413,90 @@ class TestCodespyRLM:
         assert "dspy.Predict" in sig.instructions
         assert "dspy.ChainOfThought" in sig.instructions
         assert "dspy.ReActV2" in sig.instructions
+
+
+class TestRefusalSalvage:
+    """A content_filter refusal on an action step extracts from the history so far."""
+
+    def _refusal(self):
+        from dspy.adapters.base import AdapterParseError
+
+        try:
+            raise AdapterParseError(
+                adapter_name="TwoStepAdapter", signature=MagicMock(), lm_response="", message="empty"
+            )
+        except AdapterParseError as inner:
+            try:
+                raise AdapterParseError(
+                    adapter_name="DiagnosticTwoStepAdapter", signature=MagicMock(), lm_response="",
+                    message="model refused (content_filter)",
+                ) from inner
+            except AdapterParseError as outer:
+                return outer
+
+    def _rlm(self):
+        from codespy.agents.context_safe import CodespyRLM
+
+        return CodespyRLM("question -> answer", max_iters=5)
+
+    def _history(self, n):
+        from dspy.primitives.repl_types import REPLHistory
+
+        h = REPLHistory()
+        for i in range(n):
+            h = h.append(reasoning=f"r{i}", code="print(1)", output="1")
+        return h
+
+    def test_detects_refusal_in_cause_chain(self):
+        from codespy.agents.context_safe import is_content_filter_refusal
+
+        assert is_content_filter_refusal(self._refusal())
+        try:
+            try:
+                raise self._refusal()
+            except Exception as e:
+                raise RuntimeError("Tool wrapper") from e
+        except RuntimeError as wrapped:
+            assert is_content_filter_refusal(wrapped)
+        assert not is_content_filter_refusal(ValueError("boom"))
+
+    def test_sync_refusal_extracts(self):
+        from codespy.agents.context_safe import REFUSAL_EXTRACT_REASONING
+
+        rlm, hist, refusal = self._rlm(), self._history(3), self._refusal()
+        extracted = dspy.Prediction(answer="found", trajectory=[], final_reasoning="Extract forced final output")
+        with patch.object(dspy.RLM, "_execute_iteration", side_effect=refusal), \
+             patch.object(type(rlm), "_extract_fallback", return_value=extracted) as fb:
+            out = rlm._execute_iteration(None, [], hist, 3, {}, ["answer"], None, "")
+        fb.assert_called_once_with([], hist, ["answer"])
+        assert out.answer == "found" and out.final_reasoning == REFUSAL_EXTRACT_REASONING
+
+    def test_async_refusal_extracts(self):
+        import asyncio
+
+        from codespy.agents.context_safe import REFUSAL_EXTRACT_REASONING
+
+        rlm, hist, refusal = self._rlm(), self._history(2), self._refusal()
+        extracted = dspy.Prediction(answer="found", trajectory=[], final_reasoning="x")
+
+        async def boom(*a, **k):
+            raise refusal
+
+        async def ext(*a, **k):
+            return extracted
+
+        with patch.object(dspy.RLM, "_aexecute_iteration", side_effect=boom), \
+             patch.object(type(rlm), "_aextract_fallback", side_effect=ext):
+            out = asyncio.run(rlm._aexecute_iteration(None, [], hist, 2, {}, ["answer"], None, ""))
+        assert out.final_reasoning == REFUSAL_EXTRACT_REASONING
+
+    def test_refusal_on_first_step_and_other_errors_propagate(self):
+        rlm, refusal = self._rlm(), self._refusal()
+        with patch.object(dspy.RLM, "_execute_iteration", side_effect=refusal), \
+             patch.object(type(rlm), "_extract_fallback") as fb:
+            with pytest.raises(Exception, match="content_filter"):
+                rlm._execute_iteration(None, [], self._history(0), 0, {}, ["answer"], None, "")
+            fb.assert_not_called()
+        with patch.object(dspy.RLM, "_execute_iteration", side_effect=ValueError("boom")):
+            with pytest.raises(ValueError):
+                rlm._execute_iteration(None, [], self._history(2), 2, {}, ["answer"], None, "")

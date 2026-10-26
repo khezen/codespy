@@ -10,6 +10,7 @@ from rich.panel import Panel
 from codespy import __version__
 from codespy.cli_local import review_local, review_uncommitted
 from codespy.cli_mcp_server import serve
+from codespy.cli_path import review_path
 
 # Import command functions from submodules
 from codespy.cli_remote import learn, review
@@ -30,6 +31,7 @@ app.command(name="review")(review)
 app.command(name="learn")(learn)
 app.command(name="review-local")(review_local)
 app.command(name="review-uncommitted")(review_uncommitted)
+app.command(name="review-path")(review_path)
 app.command(name="serve")(serve)
 
 
