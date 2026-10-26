@@ -49,11 +49,31 @@ def _plain(value):  # type: ignore[no-untyped-def]
     return value
 
 
+def is_content_filter_refusal(exc: BaseException) -> bool:
+    """Whether ``exc`` (or its cause chain) is a provider ``content_filter`` refusal."""
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if "content_filter" in str(cur):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
+REFUSAL_EXTRACT_REASONING = "Extract after content_filter refusal"
+
+
 class CodespyRLM(dspy.RLM):
     """dspy.RLM adjusted for codespy.
 
     - Neutral action-signature `reasoning` description (Bedrock content_filter).
     - Enum inputs passed as plain values (REPL variable injection).
+    - A content_filter refusal on an action step ends the loop through dspy's
+      extract step on the history so far, instead of discarding every verified
+      finding. Bedrock's classifier flips on byte-level changes of a long REPL
+      history (one ``Output (`` -> ``Output: (`` edit clears it), so no wording
+      avoids it reliably. Not a retry: the refused step is not re-sent.
     """
 
     def forward(self, **kwargs):  # type: ignore[no-untyped-def]
@@ -61,6 +81,46 @@ class CodespyRLM(dspy.RLM):
 
     async def aforward(self, **kwargs):  # type: ignore[no-untyped-def]
         return await super().aforward(**{k: _plain(v) for k, v in kwargs.items()})
+
+    def _refusal_warning(self, iteration: int, history) -> None:  # type: ignore[no-untyped-def]
+        logger.warning(
+            "RLM action step %d/%d refused (content_filter); "
+            "extracting outputs from %d REPL steps",
+            iteration + 1, self.max_iters, len(history),
+        )
+
+    @staticmethod
+    def _mark_refusal(pred: dspy.Prediction) -> dspy.Prediction:
+        pred.final_reasoning = REFUSAL_EXTRACT_REASONING
+        return pred
+
+    def _execute_iteration(  # type: ignore[no-untyped-def]
+        self, repl, variables, history, iteration, input_args, output_field_names, *args, **kw
+    ):
+        try:
+            return super()._execute_iteration(
+                repl, variables, history, iteration, input_args, output_field_names, *args, **kw
+            )
+        except Exception as exc:
+            if not is_content_filter_refusal(exc) or not len(history):
+                raise
+            self._refusal_warning(iteration, history)
+            pred = self._extract_fallback(variables, history, output_field_names)
+            return self._mark_refusal(pred)
+
+    async def _aexecute_iteration(  # type: ignore[no-untyped-def]
+        self, repl, variables, history, iteration, input_args, output_field_names, *args, **kw
+    ):
+        try:
+            return await super()._aexecute_iteration(
+                repl, variables, history, iteration, input_args, output_field_names, *args, **kw
+            )
+        except Exception as exc:
+            if not is_content_filter_refusal(exc) or not len(history):
+                raise
+            self._refusal_warning(iteration, history)
+            pred = await self._aextract_fallback(variables, history, output_field_names)
+            return self._mark_refusal(pred)
 
     def _build_signatures(self):  # type: ignore[no-untyped-def]
         action_sig, extract_sig = super()._build_signatures()

@@ -24,7 +24,6 @@ from codespy.agents.review.helpers import (
     issues_to_markdown,
     make_scope_relative,
     resolve_scope_root,
-    restore_repo_paths,
 )
 from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
 from codespy.agents.review.scope.models import ScopeResult
@@ -251,11 +250,42 @@ prioritised by page impact. Start with the shared layout, header/nav/footer and 
 components with the most consumers, then the page templates. All verified hotspots,
 pre-scan or your own, are reportable."""
 
+SEO_AREAS = (
+    "Rendering", "Metadata", "Indexation", "AI crawlers", "Structured data",
+    "Content", "Semantics", "Performance", "i18n",
+)
+
+_COVERAGE_PATH = f"""STEP 4: COVERAGE (FULL-SCOPE AUDIT, mandatory)
+Every area of CHECKS must be audited, not only Rendering. Hotspots feed Rendering only and
+count as no coverage for any other area.
+a) Inventory first: with tools, build REPL variables `pages` (routes, page templates),
+   `layouts` (root/shared layouts, head/meta components), `site_config` (list_site_config)
+   and `shared` (most-imported components, via find_imports_of). Print their counts.
+b) Ledger: keep `coverage = {{area: {{"status": None, "files": [], "note": ""}}}}` for each
+   title Area: {", ".join(SEO_AREAS)}.
+   An area ends as "checked" (files examined listed) or "not_applicable" (note names the
+   search that proves it, e.g. search_literal found no JSON-LD). One finding does not
+   close an area: check every relevant inventory target for it.
+c) Fan out: for areas with many targets, delegate per area or per batch of pages to
+   dspy.ReActV2 sub-agents with the provided tools, or llm_query_batched over file
+   contents. Verify their candidates yourself, append them to a REPL list `issues`, and
+   print each verified issue in full when you append it.
+d) Budget: a full-scope audit is expected to use a large share of the iterations and
+   sub-LLM calls. Submitting in the first tenth of the iterations on a scope with hundreds
+   of files means areas were skipped. Keep the last iterations for grouping and SUBMIT.
+e) SUBMIT only after a separate step that prints `coverage` shows no area with status
+   None. If iterations run low, close remaining areas with a quick check of the main
+   layouts and top pages rather than skipping them.
+f) Hard stop: at the second-to-last iteration, SUBMIT the verified `issues` as they are,
+   even with areas still open. Never let the iterations run out without a SUBMIT."""
+
 
 def _replace_step2(instructions: str) -> str:
     start = instructions.index("STEP 2: SCOPE")
     end = instructions.index("STEP 3:", start)
-    return instructions[:start] + _STEP2_PATH + "\n\n" + instructions[end:]
+    out = instructions[:start] + _STEP2_PATH + "\n\n" + instructions[end:]
+    anchor = out.index("GROUPING AND SEVERITY BY CONTENT")
+    return out[:anchor] + _COVERAGE_PATH + "\n\n" + out[anchor:]
 
 
 _PATH_SIGNATURE: type[dspy.Signature] | None = None

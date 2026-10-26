@@ -14,6 +14,7 @@ from typing import Any
 import dspy  # type: ignore[import-untyped]
 from dspy.adapters.two_step_adapter import TwoStepAdapter  # type: ignore[import-untyped]
 from dspy.adapters.base import Adapter, AdapterParseError  # type: ignore[import-untyped]
+from dspy.primitives.repl_types import REPLHistory  # type: ignore[import-untyped]
 
 from codespy.config import get_settings
 
@@ -278,6 +279,31 @@ def _is_rlm_action(signature: Any) -> bool:
         return False
 
 
+def _is_rlm_step(signature: Any) -> bool:
+    """Whether ``signature`` is a dspy.RLM action or extract step (has a REPL history input)."""
+    try:
+        return "repl_history" in signature.input_fields
+    except Exception:
+        return False
+
+
+def format_rlm_input(value: Any) -> str:
+    """Render an RLM step input as the prompt text dspy intends.
+
+    TwoStepAdapter formats inputs with ``f"{name}: {value}"``, so ``repl_history``
+    reached the model as the ``REPLHistory(entries=[REPLEntry(...)])`` repr: every
+    code cell and file read escaped onto one quoted line, without dspy's
+    ``=== Step N ===`` layout or output truncation. Bedrock refuses that shape with
+    ``content_filter`` once a few file reads accumulate; the same history rendered
+    with ``REPLHistory.format()`` passes.
+    """
+    if isinstance(value, REPLHistory):
+        return value.format()
+    if isinstance(value, (list, tuple)) and all(isinstance(v, str) for v in value):
+        return "\n\n".join(value)
+    return str(value)
+
+
 def split_rlm_action(completion: str) -> dict[str, str] | None:
     """Split an RLM action completion into its plan and its fenced code block.
 
@@ -310,6 +336,26 @@ class DiagnosticTwoStepAdapter(TwoStepAdapter):
     RLM action steps (``reasoning, code``) are split deterministically instead of
     going through the extraction model; see :func:`split_rlm_action`.
     """
+
+    def format_user_message_content(
+        self,
+        signature: Any,
+        inputs: dict[str, Any],
+        prefix: str = "",
+        suffix: str = "",
+        main_request: bool = False,
+    ) -> str:
+        """Render RLM step inputs as text (see :func:`format_rlm_input`); others unchanged."""
+        if not _is_rlm_step(signature):
+            return super().format_user_message_content(
+                signature, inputs, prefix=prefix, suffix=suffix, main_request=main_request
+            )
+        parts = [prefix]
+        for name in signature.input_fields:
+            if name in inputs:
+                parts.append(f"{name}:\n{format_rlm_input(inputs[name])}")
+        parts.append(suffix)
+        return "\n\n".join(parts).strip()
 
     def parse(self, signature: Any, completion: str) -> dict[str, Any]:
         """Parse locally for RLM action steps; otherwise use the extraction model."""

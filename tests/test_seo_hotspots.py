@@ -10,7 +10,7 @@ import pytest
 from codespy.agents.review.models import PRContext, ReviewContext, ReviewMetadata
 from codespy.agents.review.scope.models import ScopeResult, ScopeType
 from codespy.agents.review.seo import hotspots as hs
-from codespy.agents.review.seo.agent import SEOReviewSignature, seo_signature
+from codespy.agents.review.seo.agent import SEO_AREAS, SEOReviewSignature, seo_signature
 from codespy.config_dspy import PRContextConfig
 from codespy.tools.git.models import ChangedFile, FileStatus
 
@@ -225,6 +225,25 @@ def test_pr_and_path_mode_instructions():
         assert "Menus mounted on interaction" in text
     assert seo_signature(True) is seo_signature(True)
     assert seo_signature(False) is SEOReviewSignature
+
+
+def test_path_mode_requires_area_coverage():
+    pr = seo_signature(False).instructions
+    path = seo_signature(True).instructions
+    assert pr == SEOReviewSignature.instructions
+    assert "STEP 4: COVERAGE" not in pr
+    assert "STEP 4: COVERAGE" in path
+    assert path.index("STEP 3:") < path.index("STEP 4: COVERAGE") < path.index(
+        "GROUPING AND SEVERITY BY CONTENT"
+    )
+    coverage = path.split("STEP 4: COVERAGE", 1)[1].split("GROUPING", 1)[0]
+    output_areas = pr.split("Area is one of:", 1)[1].split("Prefix with", 1)[0]
+    for area in SEO_AREAS:
+        assert area in coverage
+        assert area in output_areas  # ledger areas match the reportable title Areas
+    assert len(SEO_AREAS) == output_areas.count(",") + 1
+    assert "Hard stop" in coverage
+    assert "Think step-by-step" not in path
 
 
 # --------------------------------------------------------------------------- wiring

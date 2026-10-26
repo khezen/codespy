@@ -514,3 +514,54 @@ class TestAcallHandling:
         assert "model refused (content_filter)" in str(exc_info.value)
         assert "Empty LM response" in caplog.text
 
+
+
+class TestRLMInputFormatting:
+    """RLM step inputs reach the model as dspy's text layout, not a pydantic repr."""
+
+    def _history(self):
+        from dspy.primitives.repl_types import REPLHistory
+
+        h = REPLHistory(max_output_chars=50)
+        h = h.append(reasoning="Read config.", code="print(open('a').read())", output="x" * 200)
+        return h.append(reasoning="Next.", code="print(1)", output="1")
+
+    def _action_sig(self):
+        from codespy.agents.context_safe import CodespyRLM
+
+        rlm = CodespyRLM("scope -> issues", max_iters=3)
+        return rlm.generate_action.signature, rlm.extract.signature
+
+    def test_repl_history_is_formatted_text(self):
+        from codespy.agents.diagnostic_adapter import format_rlm_input
+
+        text = format_rlm_input(self._history())
+        assert "REPLEntry(" not in text and "REPLHistory(" not in text
+        assert "=== Step 1 ===" in text and "=== Step 2 ===" in text
+        assert "characters omitted" in text  # dspy's max_output_chars truncation applies
+        assert format_rlm_input(["Variable: `a`", "Variable: `b`"]) == "Variable: `a`\n\nVariable: `b`"
+
+    def test_action_and_extract_messages_use_text_layout(self):
+        adapter = DiagnosticTwoStepAdapter(MagicMock(spec=dspy.BaseLM))
+        for sig in self._action_sig():
+            inputs = {
+                "variables_info": ["Variable: `scope`\nType: str"],
+                "repl_history": self._history(),
+                "iteration": "3/10",
+            }
+            inputs = {k: v for k, v in inputs.items() if k in sig.input_fields}
+            content = adapter.format_user_message_content(sig, inputs)
+            assert "REPLEntry(" not in content
+            assert "repl_history:\n=== Step 1 ===" in content
+            assert "variables_info:\nVariable: `scope`" in content
+            assert "['" not in content.split("repl_history:")[0]
+
+    def test_non_rlm_signature_unchanged(self):
+        from dspy.adapters.two_step_adapter import TwoStepAdapter
+
+        sig = dspy.Signature("question -> answer")
+        adapter = DiagnosticTwoStepAdapter(MagicMock(spec=dspy.BaseLM))
+        base = TwoStepAdapter(MagicMock(spec=dspy.BaseLM))
+        assert adapter.format_user_message_content(sig, {"question": "hi"}) == (
+            base.format_user_message_content(sig, {"question": "hi"})
+        )
