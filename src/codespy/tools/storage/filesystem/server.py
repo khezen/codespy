@@ -1,16 +1,41 @@
 """MCP server for filesystem operations."""
 
+import functools
 import logging
 import os
 import sys
 from collections import OrderedDict
+from collections.abc import Callable
 from functools import lru_cache
+from typing import Any, TypeVar
 
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from codespy.tools.storage.filesystem.client import FileSystem
 
 logger = logging.getLogger(__name__)
+
+# Failures caused by the agent's arguments (missing path, file vs directory, path
+# escaping the root). Raised as ToolError so MCP returns the message to the agent
+# instead of logging a crash traceback and hiding the reason.
+_EXPECTED_ERRORS = (FileNotFoundError, NotADirectoryError, IsADirectoryError,
+                    PermissionError, ValueError)
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _agent_errors(fn: _F) -> _F:
+    """Re-raise expected filesystem errors as ToolError (message kept)."""
+
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return fn(*args, **kwargs)
+        except _EXPECTED_ERRORS as e:
+            raise ToolError(str(e)) from e
+
+    return wrapper  # type: ignore[return-value]
 
 # Get caller module from environment (set by mcp_utils.py)
 _caller_module = os.environ.get("MCP_CALLER_MODULE", "unknown")
@@ -46,6 +71,7 @@ def _read_file_cached(path: str, max_bytes: int, max_lines: int | None) -> tuple
 
 
 @mcp.tool()
+@_agent_errors
 def read_file(path: str, max_bytes: int = 100_000, max_lines: int | None = None) -> dict:
     """Read contents of a file.
 
@@ -71,6 +97,7 @@ def _list_directory_cached(path: str, include_hidden: bool) -> tuple:
 
 
 @mcp.tool()
+@_agent_errors
 def list_directory(path: str = "", include_hidden: bool = False) -> dict:
     """List contents of a directory.
 
@@ -94,6 +121,7 @@ def _get_tree_cached(path: str, max_depth: int, include_hidden: bool) -> str:
 
 
 @mcp.tool()
+@_agent_errors
 def get_tree(path: str = "", max_depth: int = 3, include_hidden: bool = False) -> str:
     """Get string representation of directory tree.
 
@@ -118,6 +146,7 @@ def _file_exists_cached(path: str) -> bool:
 
 
 @mcp.tool()
+@_agent_errors
 def file_exists(path: str = "") -> bool:
     """Check if a path exists.
 
@@ -141,6 +170,7 @@ def _get_file_info_cached(path: str) -> tuple:
 
 
 @mcp.tool()
+@_agent_errors
 def get_file_info(path: str = "") -> dict:
     """Get information about a file or directory.
 

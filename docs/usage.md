@@ -243,7 +243,7 @@ REVIEW_PLAN_ENABLED=true codespy review-path https://github.com/owner/repo --pat
     plan-enabled: 'true'
 ```
 
-Steps are grouped per scope and ordered by dependency, then severity. Each one names the files, the change, how to verify it, and the issues it fixes. See [Configuration → Implementation Plan](configuration.md#implementation-plan).
+One planner run sees every scope and issue, so steps are ordered by dependency across scopes (a shared library before its consumers), then by severity, and grouped per scope with global step numbers. Each one names the files, the change, how to verify it, the steps it depends on, and the issues it fixes. See [Configuration → Implementation Plan](configuration.md#implementation-plan).
 
 ## IDE Integration (MCP Server)
 

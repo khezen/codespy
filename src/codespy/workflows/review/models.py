@@ -617,7 +617,10 @@ class ReviewResult(BaseModel):
           </blockquote>
           </details>
 
-        Steps show title, files, change, verification and addressed issues.
+        The plan is holistic: steps carry global numbers (dependency order across
+        scopes), so numbers inside one scope can have gaps. Steps show title,
+        files, change, verification, dependencies (with the scope of steps in
+        another scope) and addressed issues.
 
         Args:
             max_chars: Character budget for the section (None = unlimited).
@@ -639,14 +642,32 @@ class ReviewResult(BaseModel):
         def plural(n: int, word: str) -> str:
             return f"{n} {word}{'' if n == 1 else 's'}"
 
-        def step_block(idx: int, step: Any) -> list[str]:
-            block = [f"**{idx}. {step.title}**", ""]
+        # Global step number -> scope subroot (for cross-scope "Depends on" labels)
+        numbers: dict[int, int] = {}  # id(step) -> displayed number
+        scope_of: dict[int, str] = {}
+        position = 0
+        for sp in plans:
+            for step in sp.steps:
+                position += 1
+                num = getattr(step, "number", 0) or position
+                numbers[id(step)] = num
+                scope_of.setdefault(num, sp.subroot)
+
+        def step_block(step: Any, subroot: str) -> list[str]:
+            block = [f"**{numbers[id(step)]}. {step.title}**", ""]
             if step.files:
                 block.extend([f"**Files:** {', '.join(f'`{f}`' for f in step.files)}", ""])
             if step.change:
                 block.extend([step.change, ""])
             if step.verification:
                 block.extend([f"**Verify:** {step.verification}", ""])
+            deps = getattr(step, "depends_on", None) or []
+            if deps:
+                labels = []
+                for d in deps:
+                    other = scope_of.get(d)
+                    labels.append(f"{d} (`{other}`)" if other and other != subroot else str(d))
+                block.extend([f"**Depends on:** {', '.join(labels)}", ""])
             if step.addresses:
                 block.extend([f"**Addresses:** {'; '.join(step.addresses)}", ""])
             return block
@@ -688,7 +709,7 @@ class ReviewResult(BaseModel):
             frame = size(head) + size(tail)
             scope_lines: list[str] = []
             for step in sp.steps:
-                block = step_block(shown + 1, step)
+                block = step_block(step, sp.subroot)
                 cost = size(block) + (frame if not scope_lines else 0)
                 if remaining is not None and cost > remaining:
                     stopped = True

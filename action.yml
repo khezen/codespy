@@ -382,11 +382,11 @@ inputs:
     required: false
 
   plan-max-iters:
-    description: 'Max iterations for implementation plan. Default from codespy.yaml: 5'
+    description: 'Max iterations for implementation plan, per scope with issues (scaled for the single run, at most x8). Default from codespy.yaml: 5'
     required: false
 
   plan-max-llm-calls:
-    description: 'Max LLM calls for implementation plan RLM fallback. Default from codespy.yaml: 16'
+    description: 'Max LLM calls for implementation plan RLM fallback, per scope with issues (scaled for the single run, at most x8). Default from codespy.yaml: 16'
     required: false
 
   plan-max-tokens:
