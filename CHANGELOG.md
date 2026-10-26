@@ -6,6 +6,10 @@
 
 - **Implementation planner plans holistically.** One planner run now sees every scope and every issue, with tools rooted at the repo root, and orders steps by dependency across scopes, then severity. Before, each scope was planned in an isolated run, so a plan could not say that a fix in one scope needs a change in another scope first (e.g. a shared library before its consumers). Each step still changes exactly one scope. Work spanning scopes is split into one step per scope, linked by a new **Depends on** line that names the other scope. Steps are numbered globally and grouped per scope as before, so numbers inside a scope can have gaps. JSON steps gain `number`, `scope` and `depends_on`. The run's budget is `review.plan.max_iters` / `max_llm_calls` × the number of scopes with issues (at most ×8), so total spend stays close to before. `review.max_concurrent_scopes` no longer applies to the planner. A planner failure now drops the whole plan (the review is still posted), where before only the failed scope was left out.
 
+### Fixed
+
+- **A missing path in a filesystem tool call was logged as a crash and the agent never saw why.** With mcp 2.2, a tool that raises anything other than `ToolError` is treated as a crash: logged at ERROR with a full traceback, and the client gets only `Error executing tool list_directory`. An agent probing `deploy/` or `infra/` in a scope without them filled the log with tracebacks and couldn't tell a missing directory from a broken tool. The filesystem MCP server now raises the expected failures (missing path, file vs directory, permission denied, path escaping the root) as `ToolError`, so the agent gets `Directory not found: deploy` and nothing is logged as a crash. Real crashes are unchanged.
+
 ## [2.4.3] - 2026-10-26
 
 ### Added
