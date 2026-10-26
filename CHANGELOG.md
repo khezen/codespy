@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.4.3] - 2026-10-26
+
 ### Added
 
 - **Full-path review (`codespy review-path`).** Reviews existing code with no PR. `codespy review-path <repo-url> [--path P] [--ref BRANCH]` sparse-clones the path at the branch head, presents every reviewable file as newly added, identifies all scopes under it, and runs the full pipeline. The report is delivered as a PR/MR opened by codespy: branch `codespy/review/<path-slug>`, report file `.codespy/reviews/<path-slug>.md`, and the report in the description, with each issue linked to its lines at the reviewed commit. Re-runs update the open report PR (new commit, new description, one comment). `--no-open-pr` is a dry run. New caps `review.full_path.max_files` (default 300, `--max-files`) and `review.full_path.max_bytes` (default 2 MB) stop over-sized runs before any LLM call. Symlinks in the reviewed repo are never followed. Needs a token that can write contents and pull requests (GitLab: `api`).
