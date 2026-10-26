@@ -218,7 +218,7 @@ See [Memory System](memory.md) for:
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| `review.max_concurrent_scopes` | `REVIEW_MAX_CONCURRENT_SCOPES` | `8` | Scopes reviewed at once by each of code_review, doc, seo and supply_chain (so up to 4× this value run in total), and by the planner after the audit. Modular repos (Swift packages, Gradle modules) can yield many scopes per PR; this bounds provider throttling and MCP subprocesses. Action input: `max-concurrent-scopes` |
+| `review.max_concurrent_scopes` | `REVIEW_MAX_CONCURRENT_SCOPES` | `8` | Scopes reviewed at once by each of code_review, doc, seo and supply_chain (so up to 4× this value run in total). Modular repos (Swift packages, Gradle modules) can yield many scopes per PR; this bounds provider throttling and MCP subprocesses. Action input: `max-concurrent-scopes` |
 
 ## Full-Path Review
 
@@ -244,19 +244,20 @@ The `plan` signature turns the review's findings into an ordered implementation 
 |---------|---------|---------|-------------|
 | `review.plan.enabled` | `REVIEW_PLAN_ENABLED` | `false` | Enable the planner. Action input: `plan-enabled` |
 | `review.plan.model` | `REVIEW_PLAN_MODEL` | `bedrock/converse/global.anthropic.claude-opus-5-5` | Model. Action input: `plan-model` |
-| `review.plan.max_iters` | `REVIEW_PLAN_MAX_ITERS` | `DEFAULT_MAX_ITERS` | RLM iterations per scope. Action input: `plan-max-iters` |
-| `review.plan.max_llm_calls` | `REVIEW_PLAN_MAX_LLM_CALLS` | `DEFAULT_MAX_LLM_CALLS` | RLM LLM-call budget per scope. Action input: `plan-max-llm-calls` |
+| `review.plan.max_iters` | `REVIEW_PLAN_MAX_ITERS` | `DEFAULT_MAX_ITERS` | RLM iterations per scope with issues (see below). Action input: `plan-max-iters` |
+| `review.plan.max_llm_calls` | `REVIEW_PLAN_MAX_LLM_CALLS` | `DEFAULT_MAX_LLM_CALLS` | RLM LLM-call budget per scope with issues (see below). Action input: `plan-max-llm-calls` |
 
 `reasoning_effort`, `temperature` and `max_tokens` work like they do for every other signature (Action inputs `plan-reasoning-effort`, `plan-temperature`, `plan-max-tokens`).
 
 How it runs:
 
 - After the audit, with the audit's quality assessment and recommendation as input. It adds one planner run to the time before the review is posted.
-- One run per scope that has issues, concurrently (bounded by `review.max_concurrent_scopes`). Each issue goes to the scope with the longest matching subroot; issues outside every scope are planned against the repo root.
-- Each run gets filesystem, ripgrep and tree-sitter tools rooted at its scope, to find the call sites and tests a fix touches.
+- One run over every scope and every issue, so work can be ordered across scopes (e.g. fix a shared library before the services that use it). Each step changes exactly one scope; work spanning scopes is split into one step per scope, linked by `depends_on`.
+- Budget: the run gets `max_iters` and `max_llm_calls` multiplied by the number of scopes with issues, at most ×8 (issues outside every scope count as the repo root). With the defaults and 3 scopes with issues: 15 iterations / 48 LLM calls.
+- The run gets filesystem, ripgrep and tree-sitter tools rooted at the repo root, to find the call sites and tests a fix touches. Only the scope subtrees (and the files in their parent directories) are checked out.
 - Every issue left after confidence filtering and rejected-feedback suppression is planned. With no issues the planner is skipped (no LLM call).
 - Memory is read-only: the planner gets the run-level recall and the `recall_memory` tool, but writes no episode.
-- Soft-fail: a failed scope is left out of the plan; a planner failure posts the review without a plan.
+- Soft-fail: a planner failure posts the review without a plan.
 
 Each step lists its title, files, the change, how to verify it, and the issues it addresses. Where it appears:
 
@@ -265,9 +266,9 @@ Each step lists its title, files, the change, how to verify it, and the issues i
 | PR/MR review body | Collapsible `🛠️ Implementation Plan` section after the recommendation, capped at 20,000 chars (trailing steps dropped, with a note) |
 | `review-path` report PR description | Same section, same cap, with a link to the full plan in the report file |
 | `review-path` report file, stdout markdown, MCP | Same collapsible section, uncapped |
-| JSON | `implementation_plan` field: a list of `{subroot, steps: [{title, files, change, verification, addresses}]}` |
+| JSON | `implementation_plan` field: a list of `{subroot, steps: [{number, title, scope, files, change, verification, addresses, depends_on}]}` |
 
-With several scopes, each scope's steps are nested in their own collapsible section. The planner's cost appears as `plan` in the Review cost table.
+Steps are numbered globally in dependency order, then grouped per scope (scopes ordered by their first step), so numbers inside a scope can have gaps. With several scopes, each scope's steps are nested in their own collapsible section. A step with dependencies shows a **Depends on:** line (e.g. ``1 (`libs/common`), 3``), naming the scope of steps in another scope. The planner's cost appears as `plan` in the Review cost table.
 
 ## SEO Review
 

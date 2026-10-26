@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Implementation planner plans holistically.** One planner run now sees every scope and every issue, with tools rooted at the repo root, and orders steps by dependency across scopes, then severity. Before, each scope was planned in an isolated run, so a plan could not say that a fix in one scope needs a change in another scope first (e.g. a shared library before its consumers). Each step still changes exactly one scope. Work spanning scopes is split into one step per scope, linked by a new **Depends on** line that names the other scope. Steps are numbered globally and grouped per scope as before, so numbers inside a scope can have gaps. JSON steps gain `number`, `scope` and `depends_on`. The run's budget is `review.plan.max_iters` / `max_llm_calls` × the number of scopes with issues (at most ×8), so total spend stays close to before. `review.max_concurrent_scopes` no longer applies to the planner. A planner failure now drops the whole plan (the review is still posted), where before only the failed scope was left out.
+
 ## [2.4.3] - 2026-10-26
 
 ### Added

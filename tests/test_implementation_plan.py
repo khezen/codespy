@@ -21,12 +21,13 @@ from codespy.agents.review.models import (
 from codespy.agents.review.plan import agent as plan_agent
 from codespy.agents.review.plan.agent import (
     ImplementationPlanner,
-    group_issues_by_scope,
-    restore_step_paths,
-    scope_relative_issues,
+    assemble_plan,
+    plan_budget,
+    scope_for_path,
 )
 from codespy.agents.review.plan.models import PlanStep, ScopePlan
 from codespy.agents.review.scope.models import ScopeResult, ScopeType
+from codespy.tools.git.models import ChangedFile, FileStatus
 from codespy.workflows.review.models import MAX_PLAN_CHARS, FullPathInfo, ReviewResult
 from codespy.workflows.review.reporters.git import GitReporter
 from codespy.workflows.review.reporters.pull_request import PullRequestReporter
@@ -53,13 +54,17 @@ def _issue(filename: str, title: str = "t", severity=IssueSeverity.HIGH) -> Issu
     )
 
 
-def _step(title: str = "Fix", files=None, n: int = 0) -> PlanStep:
+def _step(title: str = "Fix", files=None, n: int = 0, scope: str = "", depends_on=None,
+          number: int = 0) -> PlanStep:
     return PlanStep(
         title=title,
+        scope=scope,
         files=files or ["a.py"],
         change="Change " + "x" * n,
         verification="Run tests",
         addresses=[title],
+        depends_on=depends_on or [],
+        number=number,
     )
 
 
@@ -158,45 +163,77 @@ class TestConfig:
 # ---------------------------------------------------------------------------
 
 
-class TestGrouping:
+class TestScopeForPath:
     def test_longest_prefix_wins(self):
-        scopes = [_scope("apps"), _scope("apps/web")]
-        groups = dict(group_issues_by_scope(scopes, [_issue("apps/web/a.ts"), _issue("apps/b.ts")]))
-        assert [i.filename for i in groups["apps/web"]] == ["apps/web/a.ts"]
-        assert [i.filename for i in groups["apps"]] == ["apps/b.ts"]
+        subroots = ["apps", "apps/web", "."]
+        assert scope_for_path(subroots, "apps/web/a.ts") == "apps/web"
+        assert scope_for_path(subroots, "apps/b.ts") == "apps"
 
     def test_segment_aware(self):
-        groups = dict(group_issues_by_scope([_scope("apps/web")], [_issue("apps/web2/x.ts")]))
-        assert "apps/web" not in groups
-        assert [i.filename for i in groups["."]] == ["apps/web2/x.ts"]
+        assert scope_for_path(["apps/web"], "apps/web2/x.ts") == "."
 
-    def test_root_scope_collects_unmatched(self):
-        scopes = [_scope("."), _scope("svc")]
-        groups = group_issues_by_scope(scopes, [_issue("README.md"), _issue("svc/a.go")])
-        assert [s for s, _ in groups] == [".", "svc"]  # scopes order
-        assert [i.filename for i in dict(groups)["."]] == ["README.md"]
+    def test_root_fallback_and_normalization(self):
+        assert scope_for_path(["svc"], "README.md") == "."
+        assert scope_for_path(["svc/"], "./svc/a.go") == "svc"
+        assert scope_for_path([], "x.py") == "."
 
-    def test_orphans_without_root_scope_go_last(self):
-        groups = group_issues_by_scope([_scope("svc")], [_issue("other/x.py"), _issue("svc/a.py")])
-        assert [s for s, _ in groups] == ["svc", "."]
 
-    def test_scopes_without_issues_skipped(self):
-        assert group_issues_by_scope([_scope("a"), _scope("b")], [_issue("b/x")]) == [
-            ("b", [_issue("b/x")])
+class TestAssemblePlan:
+    def test_global_numbering_grouped_by_first_appearance(self):
+        steps = [_step("A1", scope="a"), _step("B1", scope="b"), _step("A2", scope="a")]
+        plans = assemble_plan(steps, ["a", "b"])
+        assert [p.subroot for p in plans] == ["a", "b"]
+        assert [s.number for s in plans[0].steps] == [1, 3]
+        assert [s.number for s in plans[1].steps] == [2]
+
+    def test_invalid_scope_inferred_from_files_else_root(self):
+        steps = [
+            _step("X", scope="nope", files=["b/pkg/x.py"]),
+            _step("Y", scope="", files=["other/y.py"]),
+            _step("Z", scope="./b/", files=["b/z.py"]),
         ]
+        plans = {p.subroot: p.steps for p in assemble_plan(steps, ["a", "b"])}
+        assert [s.title for s in plans["b"]] == ["X", "Z"]
+        assert [s.title for s in plans["."]] == ["Y"]
+        assert all(s.scope == sr for sr, ss in plans.items() for s in ss)
 
-    def test_relative_copies_do_not_mutate(self):
-        original = _issue("svc/pkg/a.py")
-        rel = scope_relative_issues([original], "svc")
-        assert rel[0].filename == "pkg/a.py"
-        assert original.filename == "svc/pkg/a.py"
+    def test_depends_on_sanitized(self):
+        steps = [
+            _step("A", scope="a"),
+            _step("B", scope="a", depends_on=[1, 1, 2, 3, 0, -1, 99]),
+        ]
+        plans = assemble_plan(steps, ["a"])
+        assert plans[0].steps[0].depends_on == []
+        assert plans[0].steps[1].depends_on == [1]
 
-    def test_restore_step_paths(self):
-        steps = [_step(files=["a.py", "./b.py", "svc/c.py", ".github/x.yml"])]
-        restored = restore_step_paths(steps, "svc")
-        assert restored[0].files == ["svc/a.py", "svc/b.py", "svc/c.py", "svc/.github/x.yml"]
-        assert steps[0].files[0] == "a.py"  # not mutated
-        assert restore_step_paths(steps, ".")[0].files == steps[0].files
+    def test_paths_normalized_and_inputs_not_mutated(self):
+        original = _step("A", scope="a", files=["./a/x.py", "/a/y.py", ""], depends_on=[5])
+        plans = assemble_plan([original], ["a"])
+        assert plans[0].steps[0].files == ["a/x.py", "a/y.py"]
+        assert original.files == ["./a/x.py", "/a/y.py", ""]
+        assert original.number == 0 and original.depends_on == [5]
+
+    def test_empty(self):
+        assert assemble_plan([], ["a"]) == []
+
+
+class TestBudget:
+    def test_scales_with_scopes_with_issues(self):
+        subroots = [".", "a", "b", "c", "unused"]
+        assert plan_budget(5, 16, subroots, [_issue("a/x"), _issue("a/y")]) == (5, 16)
+        issues = [_issue("a/x"), _issue("b/x"), _issue("c/x")]
+        assert plan_budget(5, 16, subroots, issues) == (15, 48)
+
+    def test_orphans_count_as_root(self):
+        assert plan_budget(5, 16, ["a"], [_issue("a/x"), _issue("lib/x")]) == (10, 32)
+
+    def test_capped(self):
+        subroots = [f"s{i}" for i in range(20)]
+        issues = [_issue(f"s{i}/x") for i in range(20)]
+        assert plan_budget(5, 16, subroots, issues) == (40, 128)
+
+    def test_at_least_one(self):
+        assert plan_budget(5, 16, [], []) == (5, 16)
 
 
 # ---------------------------------------------------------------------------
@@ -215,50 +252,24 @@ class TestPlanner:
         assert asyncio.run(_planner().aforward([_scope(".")], [], ctx)) == []
         called.assert_not_called()
 
-    def test_one_failing_scope_keeps_others(self, monkeypatch, tmp_path):
-        planner = _planner()
+    def _patch_run(self, monkeypatch, run):
+        captured: dict = {"runs": 0, "roots": []}
 
-        async def fake_plan(scope, issues, *_):
-            if scope.subroot == "bad":
-                raise RuntimeError("boom")
-            return ScopePlan(subroot=scope.subroot, steps=[_step()])
-
-        monkeypatch.setattr(planner, "_plan_scope", fake_plan)
-        plans = asyncio.run(
-            planner.aforward(
-                [_scope("good"), _scope("bad")],
-                [_issue("good/a"), _issue("bad/b")],
-                _review_ctx(tmp_path),
-            )
-        )
-        assert [p.subroot for p in plans] == ["good"]
-
-    def test_orphans_planned_against_synthetic_root(self, monkeypatch, tmp_path):
-        planner = _planner()
-        seen = []
-
-        async def fake_plan(scope, issues, *_):
-            seen.append((scope.subroot, [i.filename for i in issues]))
-            return None
-
-        monkeypatch.setattr(planner, "_plan_scope", fake_plan)
-        asyncio.run(planner.aforward([_scope("svc")], [_issue("lib/x.py")], _review_ctx(tmp_path)))
-        assert seen == [(".", ["lib/x.py"])]
-
-    def test_scope_run_inputs_and_paths(self, monkeypatch, tmp_path):
-        """Agent gets scope-relative issues + audit verdict; steps come back repo-relative."""
-        (tmp_path / "svc").mkdir()
-        captured: dict = {}
-
-        async def fake_connect(*a, **k):
+        async def fake_connect(server, roots, contexts, name):
+            captured["roots"].append(roots)
             return []
 
         async def fake_cleanup(contexts):
             captured["cleaned"] = True
 
         async def fake_run(agent, **kwargs):
+            captured["runs"] += 1
             captured.update(kwargs)
-            return SimpleNamespace(steps=[_step(files=["pkg/a.py"])])
+            return await run(**kwargs)
+
+        def fake_build(*a, **k):
+            captured["budget"] = (k["max_iters"], k["max_llm_calls"])
+            return object()
 
         @asynccontextmanager
         async def fake_sig_ctx(*a, **k):
@@ -266,28 +277,61 @@ class TestPlanner:
 
         monkeypatch.setattr(plan_agent, "connect_mcp_server", fake_connect)
         monkeypatch.setattr(plan_agent, "cleanup_mcp_contexts", fake_cleanup)
-        monkeypatch.setattr(plan_agent, "build_rlm_agent", lambda *a, **k: object())
+        monkeypatch.setattr(plan_agent, "build_rlm_agent", fake_build)
         monkeypatch.setattr(plan_agent, "run_rlm", fake_run)
         monkeypatch.setattr(plan_agent, "log_rlm_outcome", lambda *a, **k: None)
         monkeypatch.setattr(plan_agent, "get_prefrontal", lambda *a, **k: None)
         monkeypatch.setattr(plan_agent, "SignatureContext", fake_sig_ctx)
+        return captured
 
-        issue = _issue("svc/pkg/a.py")
+    def test_single_holistic_run(self, monkeypatch, tmp_path):
+        """One run over all scopes and issues, repo-rooted tools, repo-relative paths."""
+
+        async def run(**kwargs):
+            return SimpleNamespace(steps=[
+                _step("Lib", scope="libs/common", files=["libs/common/x.py"]),
+                _step("Svc", scope="svc", files=["svc/pkg/a.py"], depends_on=[1]),
+            ])
+
+        captured = self._patch_run(monkeypatch, run)
+        svc = _scope("svc")
+        svc.changed_files = [
+            ChangedFile(filename="svc/pkg/a.py", status=FileStatus.MODIFIED, patch="@@ diff")
+        ]
+        scopes = [svc, _scope("libs/common")]
+        issues = [_issue("svc/pkg/a.py", "Svc"), _issue("libs/common/x.py", "Lib")]
         plans = asyncio.run(
             _planner().aforward(
-                [_scope("svc")], [issue], _review_ctx(tmp_path),
+                scopes, issues, _review_ctx(tmp_path),
                 quality_assessment="QA", recommendation="REQUEST_CHANGES",
             )
         )
-        assert captured["quality_assessment"] == "QA"
-        assert captured["recommendation"] == "REQUEST_CHANGES"
+        assert captured["runs"] == 1
+        assert captured["roots"] and all(r == [str(tmp_path)] for r in captured["roots"])
+        assert captured["budget"] == (6, 10)  # 3/5 per scope × 2 scopes with issues
+        assert (captured["quality_assessment"], captured["recommendation"]) == (
+            "QA", "REQUEST_CHANGES"
+        )
         assert captured["summary"] == "S"
-        assert [i.filename for i in captured["issues"]] == ["pkg/a.py"]
-        assert captured["scope"].subroot == "."
+        assert [i.filename for i in captured["issues"]] == ["svc/pkg/a.py", "libs/common/x.py"]
+        assert [s.subroot for s in captured["scopes"]] == ["svc", "libs/common"]
+        assert captured["scopes"][0].changed_files[0].patch is None
+        assert svc.changed_files[0].patch == "@@ diff"  # original untouched
         assert captured["cleaned"] is True
-        assert "prefrontal_memory" not in captured  # no run-level recall in this run
-        assert plans == [ScopePlan(subroot="svc", steps=[_step(files=["svc/pkg/a.py"])])]
-        assert issue.filename == "svc/pkg/a.py"
+        assert "prefrontal_memory" not in captured
+        assert [p.subroot for p in plans] == ["libs/common", "svc"]
+        assert plans[1].steps[0].number == 2 and plans[1].steps[0].depends_on == [1]
+
+    def test_run_failure_propagates_and_cleans_up(self, monkeypatch, tmp_path):
+        async def run(**kwargs):
+            raise RuntimeError("boom")
+
+        captured = self._patch_run(monkeypatch, run)
+        with pytest.raises(RuntimeError):
+            asyncio.run(
+                _planner().aforward([_scope("svc")], [_issue("svc/a")], _review_ctx(tmp_path))
+            )
+        assert captured["cleaned"] is True
 
 
 class TestPipelineStep:
@@ -363,6 +407,23 @@ class TestRendering:
         assert text.count("<details>") == 3
         assert _balanced(text)
 
+    def test_global_numbers_and_depends_on(self):
+        plan = assemble_plan(
+            [
+                _step("Lib", scope="libs/common"),
+                _step("Svc", scope="svc", depends_on=[1]),
+                _step("Lib2", scope="libs/common", depends_on=[1]),
+            ],
+            ["libs/common", "svc"],
+        )
+        text = "\n".join(_result(plan).implementation_plan_markdown_lines())
+        lib_section = text[text.index("`libs/common`"):text.index("`svc` (")]
+        assert "**1. Lib**" in lib_section and "**3. Lib2**" in lib_section
+        assert "**Depends on:** 1\n" in lib_section + "\n"  # same scope: no label
+        assert "**2. Svc**" in text
+        assert "**Depends on:** 1 (`libs/common`)" in text
+        assert _balanced(text)
+
     @pytest.mark.parametrize("nested", [False, True])
     def test_truncation_within_budget(self, nested):
         steps = [_step(f"S{i}", n=500) for i in range(50)]
@@ -392,8 +453,12 @@ class TestRendering:
         assert "omitted" not in md
 
     def test_json_has_plan(self):
-        data = _result([ScopePlan(subroot="a", steps=[_step()])]).to_json_dict()
-        assert data["implementation_plan"][0]["steps"][0]["verification"] == "Run tests"
+        plan = assemble_plan([_step(scope="a"), _step(scope="a", depends_on=[1])], ["a"])
+        data = _result(plan).to_json_dict()
+        steps = data["implementation_plan"][0]["steps"]
+        assert steps[0]["verification"] == "Run tests"
+        assert [s["number"] for s in steps] == [1, 2]
+        assert steps[1]["depends_on"] == [1] and steps[1]["scope"] == "a"
 
 
 class TestReporters:
