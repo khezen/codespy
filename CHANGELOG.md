@@ -2,9 +2,17 @@
 
 ## [Unreleased]
 
+## [2.4.4] - 2026-10-27
+
 ### Changed
 
 - **Implementation planner plans holistically.** One planner run now sees every scope and every issue, with tools rooted at the repo root, and orders steps by dependency across scopes, then severity. Before, each scope was planned in an isolated run, so a plan could not say that a fix in one scope needs a change in another scope first (e.g. a shared library before its consumers). Each step still changes exactly one scope. Work spanning scopes is split into one step per scope, linked by a new **Depends on** line that names the other scope. Steps are numbered globally and grouped per scope as before, so numbers inside a scope can have gaps. JSON steps gain `number`, `scope` and `depends_on`. The run's budget is `review.plan.max_iters` / `max_llm_calls` × the number of scopes with issues (at most ×8), so total spend stays close to before. `review.max_concurrent_scopes` no longer applies to the planner. A planner failure now drops the whole plan (the review is still posted), where before only the failed scope was left out.
+
+- **Implementation plan has Goal, Decisions, Tasks, Risks and Validation sections.** The plan was only a list of steps, with no statement of intent, trade-offs or end-to-end checks. Now it has five ordered sections: **Goal** (the end state once every issue is fixed), **Decisions** (choices between alternatives, each with the reason), **Tasks** (the ordered steps, grouped per scope), **Risks** (what could break or regress), and **Validation** (end-to-end checks to run after every step is done). Steps keep their per-step **Verify** line. Empty sections are omitted. The plan is rendered with section headings inside the existing collapsible block. There is no extra LLM call.
+
+  Breaking (JSON): `implementation_plan` is now an object `{goal, decisions, scopes: [{subroot, steps: [...]}], risks, validation}` or `null` when there is no plan. It was a list of `{subroot, steps}` in 2.4.3.
+
+- **Large reviews post the issues without line references and the plan as separate comments.** Before, the plan was cut to whatever space was left (down to nothing) and the body issues ate into it. Now, when the full body would exceed the character budget, the review body contains a pointer, and the issues without line references and the plan are posted as separate PR/MR comments. Each overflow comment starts with a hidden marker so later runs ignore them as discussion. The comments are posted after the review and are not updated after the memory phase.
 
 ### Fixed
 

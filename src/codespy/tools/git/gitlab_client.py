@@ -419,6 +419,8 @@ class GitLabClient(GitClient):
         body: str,
         comments: list[dict] | None = None,
         commit_sha: str | None = None,
+        *,
+        split: bool = False,
     ) -> SubmittedReview | None:
         """Submit a review on a merge request.
 
@@ -559,7 +561,7 @@ class GitLabClient(GitClient):
             )
 
         if note_id:
-            return SubmittedReview(id=note_id, body_suffix=body_suffix)
+            return SubmittedReview(id=note_id, body_suffix=body_suffix, split=split)
         return None
 
     def update_review(
@@ -724,3 +726,21 @@ class GitLabClient(GitClient):
         mr.description = body
         mr.save()
         logger.info(f"Updated MR !{mr_iid} description on {project_path}")
+
+    def post_comment(self, url: str, body: str) -> int:
+        """Post a comment on the merge request.
+
+        Args:
+            url: GitLab MR URL
+            body: Comment body text
+
+        Returns:
+            The note ID
+        """
+        project_path = self._get_project_path(url)
+        _, _, mr_iid = self.parse_url(url)
+        project = self.gitlab_client.projects.get(project_path)
+        gl_mr = project.mergerequests.get(mr_iid)
+        note = gl_mr.notes.create({"body": body})
+        logger.debug(f"Posted comment {note.id} on {project_path}!{mr_iid}")
+        return note.id

@@ -363,6 +363,8 @@ class GitHubClient(GitClient):
         body: str,
         comments: list[dict] | None = None,
         commit_sha: str | None = None,
+        *,
+        split: bool = False,
     ) -> SubmittedReview | None:
         """Submit a review on a pull request.
 
@@ -516,7 +518,7 @@ class GitHubClient(GitClient):
         if skipped_path_comments:
             logger.info(f"Skipped {len(skipped_path_comments)} comments for files not in PR")
 
-        return SubmittedReview(id=review_id, body_suffix=body_suffix)
+        return SubmittedReview(id=review_id, body_suffix=body_suffix, split=split)
 
     def update_review(
         self,
@@ -663,3 +665,20 @@ class GitHubClient(GitClient):
         gh_pr: GHPullRequest = self.github.get_repo(f"{owner}/{repo_name}").get_pull(pr_number)
         gh_pr.edit(body=body)
         logger.info(f"Updated PR #{pr_number} body on {owner}/{repo_name}")
+
+    def post_comment(self, url: str, body: str) -> int:
+        """Post a comment on the pull request.
+
+        Args:
+            url: GitHub PR URL
+            body: Comment body text
+
+        Returns:
+            The comment ID
+        """
+        owner, repo_name, pr_number = self.parse_url(url)
+        repo = self.github.get_repo(f"{owner}/{repo_name}")
+        gh_pr: GHPullRequest = repo.get_pull(pr_number)
+        comment = gh_pr.create_issue_comment(body)
+        logger.debug(f"Posted comment {comment.id} on {owner}/{repo_name}#{pr_number}")
+        return comment.id

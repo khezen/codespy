@@ -10,7 +10,7 @@ CodeSpy's review pipeline follows a 5-step flow:
 2. **PR Summary** (RLM) — Generates 2-3 sentence PR summary
 3. **Parallel Review Modules** — Supply Chain Auditor, Code Reviewer, Doc Reviewer, and SEO Reviewer (opt-in) run simultaneously
 4. **Auditor** (RLM) — Generates quality assessment + recommendation (APPROVE / REQUEST_CHANGES / NEEDS_DISCUSSION)
-5. **Implementation Planner** (RLM + tools, opt-in) — Turns the findings into one ordered plan in a single run over every scope and issue (steps ordered by dependency across scopes, then grouped per scope), given the audit's assessment and recommendation. Skipped when there are no issues; a failure never blocks the review
+5. **Implementation Planner** (RLM + tools, opt-in) — Turns the findings into one structured plan in a single run over every scope and issue. The plan has sections: **Goal**, **Decisions**, **Tasks** (steps ordered by dependency across scopes, then grouped per scope), **Risks**, and **Validation**. Skipped when there are no issues; a failure never blocks the review
 
 The same pipeline serves three input modes. `review` fetches a PR/MR diff. `review-local` and `review-uncommitted` build one from local git. `review-path` builds a synthetic PR from a repository path where every reviewable file is newly added (`tools/git/full_path.py`), and delivers the report as a PR/MR that codespy opens (`workflows/review/reporters/pull_request.py`) instead of review comments.
 
@@ -105,7 +105,7 @@ After scope resolution the set grows to each scope's full subtree. A root scope 
 | **SupplyChainSecuritySignature** | `supply_chain` | RLM | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
 | **SEOReviewSignature** | `seo` | RLM | Opt-in. Detects website changes that hurt crawling, indexing, ranking, or AI citation. Runs only on scopes detected as websites (or whitelisted) with web-relevant changes. A regex hotspot pre-scan (`seo/hotspots.py`, no LLM) passes candidate render-gating shapes as an optional `hotspots` input. The model verifies them and also runs its own sweep. In `review-path` mode the prompt switches from diff review to a full-scope audit |
 | **AuditSignature** | `audit` | RLM | Generates quality assessment and recommendation |
-| **ImplementationPlanSignature** | `plan` | RLM | Opt-in. Turns the findings of one scope into ordered steps (files, change, verification, addressed issues), using filesystem, ripgrep and tree-sitter tools to check call sites and tests |
+| **ImplementationPlanSignature** | `plan` | RLM | Opt-in. Turns the findings into a structured plan with Goal, Decisions, Tasks (steps with files, change, verification, addressed issues), Risks, and Validation sections, using filesystem, ripgrep and tree-sitter tools to check call sites and tests |
 
 See [Configuration](configuration.md) for per-signature settings.
 

@@ -17,9 +17,11 @@ class SubmittedReview:
     Attributes:
         id: The review/note ID from the platform
         body_suffix: Any content appended to the body (e.g., fallback inline comments)
+        split: True when issues and plan were posted as separate comments
     """
     id: int
     body_suffix: str = ""
+    split: bool = False
 
 
 @dataclass
@@ -109,6 +111,8 @@ class GitClient(ABC):
         body: str,
         comments: list[dict] | None = None,
         commit_sha: str | None = None,
+        *,
+        split: bool = False,
     ) -> SubmittedReview | None:
         """Submit a review on a pull request.
 
@@ -120,6 +124,7 @@ class GitClient(ABC):
                 - line: Line number
                 - body: Comment text
             commit_sha: Commit SHA to review (defaults to head SHA)
+            split: True when issues and plan were posted as separate comments
 
         Returns:
             SubmittedReview with the review ID and any body suffix appended,
@@ -230,5 +235,18 @@ class GitClient(ABC):
         Args:
             url: Pull request URL
             body: New PR body
+        """
+        ...
+
+    @abstractmethod
+    def post_comment(self, url: str, body: str) -> int:
+        """Post a comment on the pull request.
+
+        Args:
+            url: Pull request URL
+            body: Comment body text
+
+        Returns:
+            The comment/note ID from the platform
         """
         ...

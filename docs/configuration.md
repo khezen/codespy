@@ -263,12 +263,12 @@ Each step lists its title, files, the change, how to verify it, and the issues i
 
 | Output | Rendering |
 |--------|-----------|
-| PR/MR review body | Collapsible `🛠️ Implementation Plan` section after the recommendation, capped at 20,000 chars (trailing steps dropped, with a note) |
-| `review-path` report PR description | Same section, same cap, with a link to the full plan in the report file |
+| PR/MR review body | Collapsible `🛠️ Implementation Plan` section after the recommendation. The full plan is in the body when it fits; otherwise issues without line references and the plan are posted as separate comments (marked so later runs ignore them as discussion). The plan is capped at about 60 KB in the separate comment (trailing steps dropped, with a note). |
+| `review-path` report PR description | Same section, capped at 20,000 chars, with a link to the full plan in the report file |
 | `review-path` report file, stdout markdown, MCP | Same collapsible section, uncapped |
-| JSON | `implementation_plan` field: a list of `{subroot, steps: [{number, title, scope, files, change, verification, addresses, depends_on}]}` |
+| JSON | `implementation_plan` field: an object `{goal, decisions, scopes: [{subroot, steps: [{number, title, scope, files, change, verification, addresses, depends_on}]}], risks, validation}` or `null` when there is no plan |
 
-Steps are numbered globally in dependency order, then grouped per scope (scopes ordered by their first step), so numbers inside a scope can have gaps. With several scopes, each scope's steps are nested in their own collapsible section. A step with dependencies shows a **Depends on:** line (e.g. ``1 (`libs/common`), 3``), naming the scope of steps in another scope. The planner's cost appears as `plan` in the Review cost table.
+The plan sections render in this order: **Goal** → **Decisions** → **Tasks** (steps grouped per scope) → **Risks** → **Validation**. Empty sections are omitted. Steps are numbered globally in dependency order, then grouped per scope (scopes ordered by their first step), so numbers inside a scope can have gaps. With several scopes, each scope's steps are nested in their own collapsible section. A step with dependencies shows a **Depends on:** line (e.g. ``1 (`libs/common`), 3``), naming the scope of steps in another scope. The planner's cost appears as `plan` in the Review cost table.
 
 ## SEO Review
 

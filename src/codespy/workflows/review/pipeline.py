@@ -30,7 +30,7 @@ from codespy.agents.memory.hippocampus.episode import (
     start_deferred_episode_saves,
 )
 from codespy.agents.review.helpers import build_patches
-from codespy.agents.review.plan import ScopePlan
+from codespy.agents.review.plan import ImplementationPlan
 from codespy.agents.review.scope.models import ScopeResult
 from codespy.agents.review.feedback import (
     drop_rejected,
@@ -576,10 +576,10 @@ class ReviewPipeline(dspy.Module):
         review_ctx: ReviewContext,
         quality_assessment: str,
         recommendation: str,
-    ) -> list[ScopePlan]:
+    ) -> ImplementationPlan | None:
         """Run the opt-in planner. Never raises: a failure yields no plan."""
         if not issues or not self.settings.is_signature_enabled("plan"):
-            return []
+            return None
         try:
             return asyncio.run(
                 self.planner.aforward(
@@ -592,7 +592,7 @@ class ReviewPipeline(dspy.Module):
             )
         except Exception:
             logger.error("Planner failed; publishing review without a plan", exc_info=True)
-            return []
+            return None
 
     def _fill_conversation_context(self, pr_context: PRContext, pr: Any) -> None:
         """Render commits, human discussion and review feedback into ``pr_context``.

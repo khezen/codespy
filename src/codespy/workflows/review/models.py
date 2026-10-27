@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
-from codespy.agents.review.plan.models import ScopePlan
+from codespy.agents.review.plan.models import ImplementationPlan, ScopePlan
 
 # Appended to a memory text cut to fit the review body size limit
 TRUNCATED_MARKER = "…(truncated)"
@@ -191,9 +191,9 @@ class ReviewResult(BaseModel):
     full_path: FullPathInfo | None = Field(
         default=None, description="Full-path review info (None for PR reviews)"
     )
-    implementation_plan: list[ScopePlan] = Field(
-        default_factory=list,
-        description="Implementation plan generated from review findings",
+    implementation_plan: ImplementationPlan | None = Field(
+        default=None,
+        description="Implementation plan generated from review findings (sections: Goal, Decisions, Tasks, Risks, Validation)",
     )
 
     @property
@@ -612,15 +612,30 @@ class ReviewResult(BaseModel):
           <details>
           <summary>🛠️ Implementation Plan (N steps)</summary>
           <blockquote>
+
+            #### Goal
+            ...
+
+            #### Decisions
+            - ...
+
+            #### Tasks
             [one scope] steps directly
             [several scopes] <details><summary>`subroot` (k steps)</summary>…</details>
+
+            #### Risks
+            - ...
+
+            #### Validation
+            - ...
+
           </blockquote>
           </details>
 
         The plan is holistic: steps carry global numbers (dependency order across
         scopes), so numbers inside one scope can have gaps. Steps show title,
         files, change, verification, dependencies (with the scope of steps in
-        another scope) and addressed issues.
+        another scope) and addressed issues. Empty sections are omitted.
 
         Args:
             max_chars: Character budget for the section (None = unlimited).
@@ -629,10 +644,11 @@ class ReviewResult(BaseModel):
         Returns:
             Markdown lines, or ``[]`` when there is no plan or nothing fits.
         """
-        if not self.implementation_plan:
+        plan = self.implementation_plan
+        if plan is None:
             return []
-        plans = [sp for sp in self.implementation_plan if sp.steps]
-        total_steps = sum(len(sp.steps) for sp in plans)
+        scopes = [sp for sp in plan.scopes if sp.steps]
+        total_steps = sum(len(sp.steps) for sp in scopes)
         if total_steps == 0:
             return []
 
@@ -642,29 +658,46 @@ class ReviewResult(BaseModel):
         def plural(n: int, word: str) -> str:
             return f"{n} {word}{'' if n == 1 else 's'}"
 
+        # Build pre sections (Goal, Decisions)
+        pre: list[str] = []
+        if plan.goal:
+            pre.extend(["#### Goal", "", plan.goal, ""])
+        if plan.decisions:
+            pre.extend(["#### Decisions", ""])
+            pre.extend([f"- {d}" for d in plan.decisions])
+            pre.append("")
+
+        # Build post sections (Risks, Validation)
+        post: list[str] = []
+        if plan.risks:
+            post.extend(["#### Risks", ""])
+            post.extend([f"- {r}" for r in plan.risks])
+            post.append("")
+        if plan.validation:
+            post.extend(["#### Validation", ""])
+            post.extend([f"- {v}" for v in plan.validation])
+            post.append("")
+
+        # Tasks header
+        tasks_header = ["#### Tasks", ""]
+
         # Global step number -> scope subroot (for cross-scope "Depends on" labels)
-        numbers: dict[int, int] = {}  # id(step) -> displayed number
         scope_of: dict[int, str] = {}
-        position = 0
-        for sp in plans:
+        for sp in scopes:
             for step in sp.steps:
-                position += 1
-                num = getattr(step, "number", 0) or position
-                numbers[id(step)] = num
-                scope_of.setdefault(num, sp.subroot)
+                scope_of.setdefault(step.number, sp.subroot)
 
         def step_block(step: Any, subroot: str) -> list[str]:
-            block = [f"**{numbers[id(step)]}. {step.title}**", ""]
+            block = [f"**{step.number}. {step.title}**", ""]
             if step.files:
                 block.extend([f"**Files:** {', '.join(f'`{f}`' for f in step.files)}", ""])
             if step.change:
                 block.extend([step.change, ""])
             if step.verification:
                 block.extend([f"**Verify:** {step.verification}", ""])
-            deps = getattr(step, "depends_on", None) or []
-            if deps:
+            if step.depends_on:
                 labels = []
-                for d in deps:
+                for d in step.depends_on:
                     other = scope_of.get(d)
                     labels.append(f"{d} (`{other}`)" if other and other != subroot else str(d))
                 block.extend([f"**Depends on:** {', '.join(labels)}", ""])
@@ -672,9 +705,9 @@ class ReviewResult(BaseModel):
                 block.extend([f"**Addresses:** {'; '.join(step.addresses)}", ""])
             return block
 
-        nested = len(plans) > 1
+        nested = len(scopes) > 1
         summary = f"🛠️ Implementation Plan ({plural(total_steps, 'step')}"
-        summary += f" in {plural(len(plans), 'scope')})" if nested else ")"
+        summary += f" in {plural(len(scopes), 'scope')})" if nested else ")"
         outer_head = ["<details>", f"<summary>{summary}</summary>", "<blockquote>", ""]
         outer_tail = ["</blockquote>", "</details>", ""]
 
@@ -684,16 +717,21 @@ class ReviewResult(BaseModel):
                 note += f" See the [full plan]({overflow_link})."
             return [note, ""]
 
+        # Calculate reservation for fixed sections
         remaining: int | None = None
         if max_chars is not None:
-            # Reserve the frame and the worst-case truncation note up front
-            frame = size(outer_head) + size(outer_tail) + size(note_lines(total_steps))
-            remaining = max_chars - frame
+            # Reserve the frame, fixed sections, and the worst-case truncation note
+            fixed = size(pre) + size(tasks_header) + size(post) + size(outer_head) + size(outer_tail) + size(note_lines(total_steps))
+            remaining = max_chars - fixed
+            if remaining < 0:
+                # Fixed sections alone exceed budget - return nothing
+                return []
 
-        body: list[str] = []
+        # Build steps body with truncation
+        steps_body: list[str] = []
         shown = 0
         stopped = False
-        for sp in plans:
+        for sp in scopes:
             if stopped:
                 break
             head: list[str] = []
@@ -719,12 +757,20 @@ class ReviewResult(BaseModel):
                 if remaining is not None:
                     remaining -= cost
             if scope_lines:
-                body.extend(head + scope_lines + tail)
+                steps_body.extend(head + scope_lines + tail)
 
         if shown == 0:
             return []
+
+        # Build final output: pre + tasks header + steps (+ note) + post
+        body: list[str] = []
+        body.extend(pre)
+        body.extend(tasks_header)
+        body.extend(steps_body)
         if shown < total_steps:
             body.extend(note_lines(total_steps - shown))
+        body.extend(post)
+
         return outer_head + body + outer_tail
 
     def to_json_dict(self) -> dict:

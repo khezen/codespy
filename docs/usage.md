@@ -243,7 +243,7 @@ REVIEW_PLAN_ENABLED=true codespy review-path https://github.com/owner/repo --pat
     plan-enabled: 'true'
 ```
 
-One planner run sees every scope and issue, so steps are ordered by dependency across scopes (a shared library before its consumers), then by severity, and grouped per scope with global step numbers. Each one names the files, the change, how to verify it, the steps it depends on, and the issues it fixes. See [Configuration → Implementation Plan](configuration.md#implementation-plan).
+One planner run sees every scope and issue, so steps are ordered by dependency across scopes (a shared library before its consumers), then by severity, and grouped per scope with global step numbers. The plan opens with a **Goal** and **Decisions** sections, then the **Tasks** (steps with files, change, verification, dependencies, and addressed issues), then **Risks** and **Validation** sections. When the review body would be too large, the issues without line references and the plan are posted as separate comments. See [Configuration → Implementation Plan](configuration.md#implementation-plan).
 
 ## IDE Integration (MCP Server)
 

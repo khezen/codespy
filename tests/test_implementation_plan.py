@@ -25,7 +25,7 @@ from codespy.agents.review.plan.agent import (
     plan_budget,
     scope_for_path,
 )
-from codespy.agents.review.plan.models import PlanStep, ScopePlan
+from codespy.agents.review.plan.models import ImplementationPlan, PlanStep, ScopePlan
 from codespy.agents.review.scope.models import ScopeResult, ScopeType
 from codespy.tools.git.models import ChangedFile, FileStatus
 from codespy.workflows.review.models import MAX_PLAN_CHARS, FullPathInfo, ReviewResult
@@ -55,16 +55,32 @@ def _issue(filename: str, title: str = "t", severity=IssueSeverity.HIGH) -> Issu
 
 
 def _step(title: str = "Fix", files=None, n: int = 0, scope: str = "", depends_on=None,
-          number: int = 0) -> PlanStep:
+          number: int = 1) -> PlanStep:
     return PlanStep(
         title=title,
-        scope=scope,
+        scope=scope or ".",
         files=files or ["a.py"],
         change="Change " + "x" * n,
         verification="Run tests",
         addresses=[title],
         depends_on=depends_on or [],
         number=number,
+    )
+
+
+def _plan(
+    scopes: list[ScopePlan],
+    goal: str = "",
+    decisions: list[str] | None = None,
+    risks: list[str] | None = None,
+    validation: list[str] | None = None,
+) -> ImplementationPlan:
+    return ImplementationPlan(
+        goal=goal,
+        decisions=decisions or [],
+        scopes=scopes,
+        risks=risks or [],
+        validation=validation or [],
     )
 
 
@@ -93,7 +109,7 @@ def _planner(enabled: bool = True) -> ImplementationPlanner:
     return planner
 
 
-def _result(plan: list[ScopePlan], full_path: bool = False, n_issues: int = 1, desc: str = "d"):
+def _result(plan: ImplementationPlan | None, full_path: bool = False, n_issues: int = 1, desc: str = "d"):
     fp = None
     if full_path:
         fp = FullPathInfo(
