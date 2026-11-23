@@ -2,14 +2,11 @@
 
 import logging
 import time
-from typing import TYPE_CHECKING
-
 from collections import Counter
+from typing import TYPE_CHECKING
 
 from codespy import __version__
 from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
-from codespy.workflows.review.models import MAX_PLAN_CHARS, ReviewResult
-from codespy.workflows.review.reporters.base import BaseReporter
 from codespy.tools.git.base import SubmittedReview
 from codespy.tools.git.client import get_client
 from codespy.tools.git.conversation import (
@@ -19,11 +16,17 @@ from codespy.tools.git.conversation import (
     plan_marker,
     review_marker,
 )
+from codespy.tools.git.models import ChangedFile
+from codespy.workflows.review.models import MAX_PLAN_CHARS, ReviewResult
+from codespy.workflows.review.reporters.base import BaseReporter
 
 if TYPE_CHECKING:
     from codespy.config import Settings
 
 logger = logging.getLogger(__name__)
+
+# Title of the one section for issues that are not inline comments
+BODY_ISSUES_TITLE = "Issues without line reference or could not post inline"
 
 # Appended to content cut to fit a comment
 TRUNCATED_MARKER = "…(truncated)"
@@ -68,31 +71,74 @@ class GitReporter(BaseReporter):
         """
         self.publish(result)
 
-    def publish(self, result: ReviewResult) -> SubmittedReview | None:
+    @staticmethod
+    def _issue_key(issue: Issue) -> str:
+        """Opaque key of an inline comment, returned by the client when it is rejected."""
+        fp = fingerprint(issue.filename, issue.category.value, issue.title)
+        return f"{fp}:{issue.line_start}:{issue.line_end}"
+
+    def _partition(
+        self,
+        result: ReviewResult,
+        changed_files: list[ChangedFile] | None,
+        moved: set[str],
+    ) -> tuple[list[Issue], list[Issue], list[str]]:
+        """Split issues into inline comments and issues listed in the review body.
+
+        An issue goes to the body when it has no line, when its key is in ``moved``
+        (rejected by the platform), or, with ``changed_files``, when its file or
+        line is not part of the diff.
+
+        Returns:
+            (inline issues, body issues, keys of the issues moved by the diff check)
+        """
+        files = {f.filename: f for f in changed_files} if changed_files is not None else None
+        inline: list[Issue] = []
+        body: list[Issue] = []
+        pre_moved: list[str] = []
+        for issue in result.issues:
+            if issue.line_start is None:
+                body.append(issue)
+                continue
+            key = self._issue_key(issue)
+            if key in moved:
+                body.append(issue)
+                continue
+            if files is not None:
+                changed = files.get(issue.filename)
+                lines = [issue.line_start, issue.line_end or issue.line_start]
+                if changed is None or not all(changed.is_line_in_diff(n) for n in lines):
+                    body.append(issue)
+                    pre_moved.append(key)
+                    continue
+            inline.append(issue)
+        return inline, body, pre_moved
+
+    def publish(
+        self,
+        result: ReviewResult,
+        changed_files: list[ChangedFile] | None = None,
+    ) -> SubmittedReview | None:
         """Publish the review to the merge request.
 
         Posts the initial review after the audit phase (before memory phase).
         The review will show "Memory: pending" in costs if memory_pending is True.
 
-        When the review body plus issues and plan would exceed the budget,
-        the issues without line references and the plan are posted as separate
-        comments with hidden markers.
+        Issues that can't be inline comments (no line, file or line not in the
+        diff, or rejected by the platform) are listed in one body section. When
+        the review body plus issues and plan would exceed the budget, that
+        section and the plan are posted as separate comments with hidden markers.
 
         Args:
             result: The review result to publish.
+            changed_files: The PR's changed files, to check that each inline
+                comment is in the diff. Without them, only platform rejections
+                move an issue to the body.
 
         Returns:
             SubmittedReview handle for later update, or None if publish failed.
         """
-        # Separate issues with and without line numbers
-        inline_issues: list[Issue] = []
-        body_issues: list[Issue] = []
-
-        for issue in result.issues:
-            if issue.line_start is not None:
-                inline_issues.append(issue)
-            else:
-                body_issues.append(issue)
+        inline_issues, body_issues, pre_moved = self._partition(result, changed_files, set())
 
         # Decide if we need to split
         split = self._needs_split(result, body_issues)
@@ -113,6 +159,19 @@ class GitReporter(BaseReporter):
 
         if not handle:
             return None
+
+        # The platform rejected comments the diff check accepted: list them in the body
+        client_rejected = list(handle.rejected)
+        handle.rejected = [*pre_moved, *client_rejected]
+        if client_rejected:
+            _, body_issues, _ = self._partition(result, None, set(handle.rejected))
+            split = self._needs_split(result, body_issues)
+            handle.split = split
+            body = self._build_review_body(result, body_issues, reserve=0, split=split)
+            try:
+                self.client.update_review(self.url, handle, body)
+            except Exception as e:
+                logger.warning(f"Failed to add rejected inline issues to the review body: {e}")
 
         # Post overflow comments if in split mode
         if split:
@@ -143,24 +202,11 @@ class GitReporter(BaseReporter):
             handle: The SubmittedReview returned by publish().
             result: The updated review result with full costs.
         """
-        # Separate issues with and without line numbers
-        inline_issues: list[Issue] = []
-        body_issues: list[Issue] = []
-
-        for issue in result.issues:
-            if issue.line_start is not None:
-                inline_issues.append(issue)
-            else:
-                body_issues.append(issue)
+        # Same partition as publish: issues moved to the body stay there
+        _, body_issues, _ = self._partition(result, None, set(handle.rejected))
 
         # Build review body in the same layout as publish
-        body = self._build_review_body(
-            result, body_issues, reserve=len(handle.body_suffix), split=handle.split
-        )
-
-        # Append the body suffix (fallback comments from original submission)
-        if handle.body_suffix:
-            body = body + handle.body_suffix
+        body = self._build_review_body(result, body_issues, reserve=0, split=handle.split)
 
         # Try to update with retries
         last_error: Exception | None = None
@@ -201,7 +247,7 @@ class GitReporter(BaseReporter):
             f"### {emoji} [{issue.severity.value.title()}] {issue.title}",
             self._issue_marker(issue, run_id),
             "",
-            f"**File:** `{issue.filename}`",
+            f"**File:** `{issue.location}`",
             f"**Category:** {issue.category.value} | **Confidence:** {confidence_pct}%",
             "",
             issue.description,
@@ -278,7 +324,7 @@ class GitReporter(BaseReporter):
         if body_issues:
             issue_lines: list[str] = [
                 "<details>",
-                "<summary>⚠️ Issues Without Line References</summary>",
+                f"<summary>⚠️ {BODY_ISSUES_TITLE}</summary>",
                 "",
             ]
             for issue in body_issues:
@@ -291,7 +337,7 @@ class GitReporter(BaseReporter):
                 # Split at issue boundaries
                 parts: list[list[str]] = []
                 current_part: list[str] = []
-                header = ["<details>", "<summary>⚠️ Issues Without Line References</summary>", ""]
+                header = ["<details>", f"<summary>⚠️ {BODY_ISSUES_TITLE}</summary>", ""]
                 footer = ["</details>", ""]
                 header_size = sum(len(line) + 1 for line in header)
                 footer_size = sum(len(line) + 1 for line in footer)
@@ -452,7 +498,7 @@ class GitReporter(BaseReporter):
             lines.extend(
                 [
                     "<details>",
-                    "<summary>⚠️ Issues Without Line References</summary>",
+                    f"<summary>⚠️ {BODY_ISSUES_TITLE}</summary>",
                     "",
                 ]
             )
@@ -491,9 +537,15 @@ class GitReporter(BaseReporter):
             has_issues = bool(body_issues)
             has_plan = bool(result.implementation_plan)
             if has_issues and has_plan:
-                pointer = "> ⚠️ Issues without line references and the implementation plan are posted as separate comments."
+                pointer = (
+                    "> ⚠️ Issues without line reference or that could not be posted inline, "
+                    "and the implementation plan, are posted as separate comments."
+                )
             elif has_issues:
-                pointer = "> ⚠️ Issues without line references are posted as separate comments."
+                pointer = (
+                    "> ⚠️ Issues without line reference or that could not be posted inline "
+                    "are posted as separate comments."
+                )
             elif has_plan:
                 pointer = "> ⚠️ The implementation plan is posted as a separate comment."
             else:
@@ -668,6 +720,7 @@ class GitReporter(BaseReporter):
                 "path": issue.filename,
                 "body": "\n".join(body_lines),
                 "line": issue.line_start,
+                "issue_key": self._issue_key(issue),
             }
 
             # Add multi-line support if applicable

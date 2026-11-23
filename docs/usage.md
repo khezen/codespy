@@ -243,7 +243,7 @@ REVIEW_PLAN_ENABLED=true codespy review-path https://github.com/owner/repo --pat
     plan-enabled: 'true'
 ```
 
-One planner run sees every scope and issue, so steps are ordered by dependency across scopes (a shared library before its consumers), then by severity, and grouped per scope with global step numbers. The plan opens with a **Goal** and **Decisions** sections, then the **Tasks** (steps with files, change, verification, dependencies, and addressed issues), then **Risks** and **Validation** sections. When the review body would be too large, the issues without line references and the plan are posted as separate comments. See [Configuration → Implementation Plan](configuration.md#implementation-plan).
+One planner run sees every scope and issue, so steps are ordered by dependency across scopes (a shared library before its consumers), then by severity, and grouped per scope with global step numbers. The plan opens with a **Goal** and **Decisions** sections, then the **Tasks** (steps with files, change, verification, dependencies, and addressed issues), then **Risks** and **Validation** sections. When the review body would be too large, the issues that are not inline comments and the plan are posted as separate comments. See [Configuration → Implementation Plan](configuration.md#implementation-plan).
 
 ## Implementation Agent
 
@@ -473,7 +473,7 @@ review:
 
 **Features:**
 
-- 🎯 **Inline Comments** - Issues are posted as review comments on the exact lines where they occur
+- 🎯 **Inline Comments** - Issues are posted as review comments on the exact lines where they occur. Issues that cannot be inline comments (no line, file or line outside the diff, or rejected by the platform) are listed in one collapsible review section, "Issues without line reference or could not post inline", with their `file:line`
 - 📏 **Multi-line Support** - Issues spanning multiple lines are annotated with start/end line ranges
 - 🔴🟠🟡🔵 **Severity Indicators** - Visual emoji markers for Critical, High, Medium, Low severity
 - 📦 **Collapsible Sections** - Organized review body with expandable details:

@@ -415,14 +415,14 @@ class GitHubClient(GitClient):
 
         # Build comments list for the API, filtering out invalid paths
         review_comments = []
-        skipped_path_comments = []
+        rejected: list[str] = []
         if comments:
             for comment in comments:
                 path = comment["path"]
-                # Skip comments for files not in the PR diff
+                # Comments for files not in the PR diff go to the review body
                 if path not in changed_files_map:
-                    skipped_path_comments.append(comment)
-                    logger.warning(f"Skipping comment for file not in PR: {path}")
+                    rejected.append(comment.get("issue_key", ""))
+                    logger.warning(f"Cannot post comment inline, file not in PR: {path}")
                     continue
 
                 review_comment = {
@@ -436,10 +436,14 @@ class GitHubClient(GitClient):
                 # Support multi-line comments
                 if "start_line" in comment and "line" in comment:
                     review_comment["start_line"] = comment["start_line"]
+                review_comment["issue_key"] = comment.get("issue_key", "")
                 review_comments.append(review_comment)
 
-        body_suffix = ""
         review_id = 0
+
+        def api_comments(items: list[dict]) -> list[dict]:
+            """Comments as the API expects them (without our ``issue_key``)."""
+            return [{k: v for k, v in c.items() if k != "issue_key"} for c in items]
 
         # Try to submit the review optimistically with all inline comments
         try:
@@ -447,7 +451,7 @@ class GitHubClient(GitClient):
                 commit=repo.get_commit(review_commit),
                 body=body,
                 event="COMMENT",
-                comments=review_comments,
+                comments=api_comments(review_comments),
             )
             review_id = review.id
             logger.info(
@@ -477,10 +481,8 @@ class GitHubClient(GitClient):
                         invalid_line_comments.append(comment)
                         logger.debug(f"Comment on {path}:{line} not in diff, moving to body")
 
-                # Build updated body with invalid line comments
-                updated_body = body
+                rejected.extend(c["issue_key"] for c in invalid_line_comments)
                 if invalid_line_comments:
-                    updated_body = self._append_comments_to_body(body, invalid_line_comments)
                     logger.info(
                         f"Moving {len(invalid_line_comments)} comments with invalid lines to body"
                     )
@@ -489,31 +491,28 @@ class GitHubClient(GitClient):
                 try:
                     review = gh_pr.create_review(
                         commit=repo.get_commit(review_commit),
-                        body=updated_body,
+                        body=body,
                         event="COMMENT",
-                        comments=valid_comments,
+                        comments=api_comments(valid_comments),
                     )
                     review_id = review.id
-                    body_suffix = updated_body[len(body):]
                     logger.info(
                         f"Submitted review on {owner}/{repo_name}#{pr_number} "
                         f"with {len(valid_comments)} inline comments (after validation)"
                     )
                 except Exception as retry_e:
-                    # Final fallback: all comments to body
+                    # Final fallback: every comment goes to the body
                     logger.warning(
                         f"Retry with valid comments also failed ({retry_e}), posting body only"
                     )
-                    all_failed_comments = review_comments  # All original comments
-                    final_body = self._append_comments_to_body(body, all_failed_comments)
+                    rejected.extend(c["issue_key"] for c in valid_comments)
                     review = gh_pr.create_review(
                         commit=repo.get_commit(review_commit),
-                        body=final_body,
+                        body=body,
                         event="COMMENT",
                         comments=[],
                     )
                     review_id = review.id
-                    body_suffix = final_body[len(body):]
                     logger.info(
                         f"Submitted review on {owner}/{repo_name}#{pr_number} "
                         f"(body only, all comments)"
@@ -521,10 +520,9 @@ class GitHubClient(GitClient):
             else:
                 raise
 
-        if skipped_path_comments:
-            logger.info(f"Skipped {len(skipped_path_comments)} comments for files not in PR")
-
-        return SubmittedReview(id=review_id, body_suffix=body_suffix, split=split)
+        return SubmittedReview(
+            id=review_id, rejected=[k for k in rejected if k], split=split
+        )
 
     def update_review(
         self,
@@ -547,37 +545,6 @@ class GitHubClient(GitClient):
         gh_review = gh_pr.get_review(review.id)
         gh_review.edit(body=body)
         logger.info(f"Updated review {review.id} on {owner}/{repo_name}#{pr_number}")
-
-    def _append_comments_to_body(self, body: str, comments: list[dict]) -> str:
-        """Append inline comments to the review body when they can't be posted inline.
-
-        Args:
-            body: Original review body
-            comments: List of comment dicts that couldn't be posted inline
-
-        Returns:
-            Updated body with comments appended
-        """
-        if not comments:
-            return body
-
-        lines = [body, "", "---", "", "## ⚠️ Additional Issues (could not post inline)", ""]
-
-        for comment in comments:
-            path = comment.get("path", "unknown")
-            line = comment.get("line", "?")
-            comment_body = comment.get("body", "")
-
-            lines.extend(
-                [
-                    f"### `{path}:{line}`",
-                    "",
-                    comment_body,
-                    "",
-                ]
-            )
-
-        return "\n".join(lines)
 
     def get_default_branch(self, owner: str, repo: str) -> str:
         """Get the default branch for a repository."""

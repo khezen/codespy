@@ -22,6 +22,7 @@
 
 ### Fixed
 
+- **Issues that can't be inline comments are listed in one review section.** The review had two lists for them: "Issues Without Line References" (issues with no line) and, after the cost section, an uncollapsed "Additional Issues (could not post inline)" written by the GitHub and GitLab clients for lines the platform rejected. Both now go in the one collapsible section "Issues without line reference or could not post inline", which shows `file:line` for each issue and moves to separate comments when the review is large. codespy checks each comment against the PR's diff before posting, and if the platform still rejects one, edits the review to add that issue to the same section. GitHub also no longer drops issues on files that are not in the PR.
 - **A missing path in a filesystem tool call was logged as a crash and the agent never saw why.** With mcp 2.2, a tool that raises anything other than `ToolError` is treated as a crash: logged at ERROR with a full traceback, and the client gets only `Error executing tool list_directory`. An agent probing `deploy/` or `infra/` in a scope without them filled the log with tracebacks and couldn't tell a missing directory from a broken tool. The filesystem MCP server now raises the expected failures (missing path, file vs directory, permission denied, path escaping the root) as `ToolError`, so the agent gets `Directory not found: deploy` and nothing is logged as a crash. Real crashes are unchanged.
 
 ## [2.4.3] - 2026-10-26

@@ -264,7 +264,7 @@ Each step lists its title, files, the change, how to verify it, the steps it dep
 
 | Output | Rendering |
 |--------|-----------|
-| PR/MR review body | Collapsible `🛠️ Implementation Plan` section after the recommendation. The full plan is in the body when it fits; otherwise issues without line references and the plan are posted as separate comments (marked so later runs ignore them as discussion). The plan is capped at about 60 KB in the separate comment (trailing steps dropped, with a note). |
+| PR/MR review body | Collapsible `🛠️ Implementation Plan` section after the recommendation. The full plan is in the body when it fits; otherwise issues that are not inline comments (see below) and the plan are posted as separate comments (marked so later runs ignore them as discussion). The plan is capped at about 60 KB in the separate comment (trailing steps dropped, with a note). |
 | `review-path` report PR description | Same section, capped at 20,000 chars, with a link to the full plan in the report file |
 | `review-path` report file, stdout markdown, MCP | Same collapsible section, uncapped |
 | JSON | `implementation_plan` field: an object `{goal, decisions, scopes: [{subroot, steps: [{number, title, scope, files, change, verification, addresses, depends_on}]}], risks, validation}` or `null` when there is no plan |

@@ -1,7 +1,7 @@
 """Abstract base class for Git platform clients."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -16,11 +16,13 @@ class SubmittedReview:
 
     Attributes:
         id: The review/note ID from the platform
-        body_suffix: Any content appended to the body (e.g., fallback inline comments)
+        rejected: ``issue_key`` of every inline comment that could not be posted
+            inline (file not in the PR, line not in the diff, platform rejection).
+            The reporter moves those issues into the review body.
         split: True when issues and plan were posted as separate comments
     """
     id: int
-    body_suffix: str = ""
+    rejected: list[str] = field(default_factory=list)
     split: bool = False
 
 
@@ -123,12 +125,14 @@ class GitClient(ABC):
                 - path: File path
                 - line: Line number
                 - body: Comment text
+                - issue_key: Opaque key of the issue (never sent to the platform)
             commit_sha: Commit SHA to review (defaults to head SHA)
             split: True when issues and plan were posted as separate comments
 
         Returns:
-            SubmittedReview with the review ID and any body suffix appended,
-            or None if no review was created.
+            SubmittedReview with the review ID and the ``issue_key`` of every
+            comment that could not be posted inline (``rejected``), or None if
+            no review was created. The body is posted unchanged.
         """
         ...
 

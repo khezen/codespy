@@ -443,10 +443,12 @@ class GitLabClient(GitClient):
                 - path: File path
                 - line: Line number
                 - body: Comment text
+                - issue_key: Opaque key of the issue (never sent to GitLab)
             commit_sha: Commit SHA to review (defaults to head SHA)
 
         Returns:
-            SubmittedReview with the note ID and body suffix, or None if no note was created.
+            SubmittedReview with the note ID and the ``issue_key`` of every comment that
+            could not be posted inline, or None if no note was created.
         """
         project_path = self._get_project_path(url)
         _, _, pr_number = self.parse_url(url)
@@ -495,7 +497,7 @@ class GitLabClient(GitClient):
                 previous_filename=change.get("old_path") if change.get("renamed_file") else None,
             )
 
-        # Track failed comments to append to body
+        # Comments that could not be posted inline: the reporter moves them to the body
         failed_comments: list[dict] = []
         successful_count = 0
 
@@ -545,19 +547,14 @@ class GitLabClient(GitClient):
                     logger.warning(f"Failed to create inline comment on {path}:{line}: {e}")
                     failed_comments.append(comment)
 
-        # Build final body with any failed comments
-        final_body = body
         if failed_comments:
-            final_body = self._append_comments_to_body(body, failed_comments)
-            logger.info(f"Moving {len(failed_comments)} comments to body (could not post inline)")
+            logger.info(f"{len(failed_comments)} comments could not be posted inline")
 
-        # Post main review body as a note (with any failed comments appended)
+        # Post main review body as a note (unchanged)
         note_id = 0
-        body_suffix = ""
-        if final_body:
-            note = gl_mr.notes.create({"body": final_body})
+        if body:
+            note = gl_mr.notes.create({"body": body})
             note_id = note.id
-            body_suffix = final_body[len(body):]
             logger.info(f"Posted review on {project_path}!{pr_number}")
 
         if comments:
@@ -567,7 +564,11 @@ class GitLabClient(GitClient):
             )
 
         if note_id:
-            return SubmittedReview(id=note_id, body_suffix=body_suffix, split=split)
+            return SubmittedReview(
+                id=note_id,
+                rejected=[k for k in (c.get("issue_key", "") for c in failed_comments) if k],
+                split=split,
+            )
         return None
 
     def update_review(
@@ -594,37 +595,6 @@ class GitLabClient(GitClient):
         note.body = body
         note.save()
         logger.info(f"Updated note {review.id} on {project_path}!{pr_number}")
-
-    def _append_comments_to_body(self, body: str, comments: list[dict]) -> str:
-        """Append inline comments to the review body when they can't be posted inline.
-
-        Args:
-            body: Original review body
-            comments: List of comment dicts that couldn't be posted inline
-
-        Returns:
-            Updated body with comments appended
-        """
-        if not comments:
-            return body
-
-        lines = [body, "", "---", "", "## ⚠️ Additional Issues (could not post inline)", ""]
-
-        for comment in comments:
-            path = comment.get("path", "unknown")
-            line = comment.get("line", "?")
-            comment_body = comment.get("body", "")
-
-            lines.extend(
-                [
-                    f"### `{path}:{line}`",
-                    "",
-                    comment_body,
-                    "",
-                ]
-            )
-
-        return "\n".join(lines)
 
     @staticmethod
     def _project_path(owner: str, repo: str) -> str:

@@ -165,7 +165,10 @@ def review(
             if settings.review.output_git:
                 console.print(f"[dim]Posting review to {platform.title()}...[/dim]")
                 git_reporter = GitReporter(url=pr_url, settings=settings)
-                handle = git_reporter.publish(result)
+                handle = git_reporter.publish(
+                    result,
+                    changed_files=pipeline.last_pr.changed_files if pipeline.last_pr else None,
+                )
                 console.print(f"[green]✓[/green] {platform.title()} review posted successfully")
         finally:
             # Run memory phase (saves, retain, consolidation)
