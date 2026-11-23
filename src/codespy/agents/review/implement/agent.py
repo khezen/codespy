@@ -230,7 +230,8 @@ class Implementer(dspy.Module):
         issues: list[Issue],
         review_context: ReviewContext,
     ) -> Any:
-        assert review_context.metadata is not None
+        if review_context.metadata is None:
+            raise ValueError("metadata required")
         max_iters, max_llm_calls = implement_budget(
             self._settings.get_max_iters("implement"),
             self._settings.get_max_llm_calls("implement"),
@@ -298,7 +299,8 @@ class Implementer(dspy.Module):
         if plan is None or plan.total_steps == 0:
             logger.info("Skipping implement: no plan")
             return None
-        assert review_context.metadata is not None
+        if review_context.metadata is None:
+            raise ValueError("metadata required")
         repo_path = review_context.metadata.repo_path
         if not (repo_path / ".git").exists():
             logger.warning(f"Skipping implement: {repo_path} is not a git clone")

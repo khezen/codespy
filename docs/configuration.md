@@ -260,7 +260,7 @@ How it runs:
 - Memory is read-only: the planner gets the run-level recall and the `recall_memory` tool, but writes no episode.
 - Soft-fail: a planner failure posts the review without a plan.
 
-Each step lists its title, files, the change, how to verify it, and the issues it addresses. Where it appears:
+Each step lists its title, files, the change, how to verify it, the steps it depends on, and the issues it addresses. With several scopes, steps are grouped under the scope they change. Where it appears:
 
 | Output | Rendering |
 |--------|-----------|

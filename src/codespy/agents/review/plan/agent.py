@@ -276,7 +276,8 @@ class ImplementationPlanner(dspy.Module):
         if not issues:
             logger.info("No issues to plan")
             return None
-        assert review_context.metadata is not None
+        if review_context.metadata is None:
+            raise ValueError("metadata required")
 
         subroots = [s.subroot for s in scopes]
         max_iters, max_llm_calls = plan_budget(

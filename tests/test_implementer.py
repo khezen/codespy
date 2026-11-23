@@ -263,6 +263,11 @@ class TestImplementer:
         assert asyncio.run(_implementer(tmp_path).aforward(empty, [], [], ctx)) is None
         called.assert_not_called()
 
+    def test_missing_metadata_raises_value_error(self, tmp_path):
+        ctx = _ctx(tmp_path).model_copy(update={"metadata": None})
+        with pytest.raises(ValueError, match="metadata required"):
+            asyncio.run(_implementer(tmp_path).aforward(_plan(), [_scope()], [], ctx))
+
     def test_run_collects_edits_and_restores_clone(self, monkeypatch, repo, tmp_path):
         async def run(**kwargs):
             (repo / "a.py").write_text("a = 2\n")

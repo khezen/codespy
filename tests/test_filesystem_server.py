@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 import pytest
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 
 import codespy.tools.storage.filesystem.server as fs_server
 from codespy.tools.storage.filesystem.client import FileSystem
@@ -36,6 +36,41 @@ def test_expected_errors_keep_reason_without_crash_log(server, caplog, tool, arg
         asyncio.run(server.call_tool(tool, args))
     assert reason in str(exc.value)
     assert "unexpected exception" not in caplog.text
+
+
+def test_invalid_path_is_readable_tool_error(server, caplog):
+    """A NUL byte makes resolve() fail: the agent gets the reason, not a crash."""
+    with caplog.at_level(logging.ERROR), pytest.raises(ToolError) as exc:
+        asyncio.run(server.call_tool("list_directory", {"path": "a\x00b"}))
+    assert "Invalid path" in str(exc.value)
+    assert not isinstance(exc.value, UnexpectedToolError)
+    assert "unexpected exception" not in caplog.text
+
+
+def test_plain_value_error_stays_a_crash(server, monkeypatch):
+    """Only InvalidPathError is mapped: other ValueErrors are bugs, not agent mistakes."""
+
+    def boom(*args):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(fs_server, "_list_directory_cached", boom)
+    with pytest.raises(UnexpectedToolError) as exc:
+        asyncio.run(server.call_tool("list_directory", {"path": ""}))
+    assert "boom" not in str(exc.value)  # the reason is withheld from the agent
+    assert isinstance(exc.value.__cause__, ValueError)
+
+
+def test_invalid_path_error_is_a_value_error(tmp_path):
+    """Existing `except ValueError` callers (exists, write_file...) keep working."""
+    from codespy.tools.storage.filesystem.client import InvalidPathError
+
+    assert issubclass(InvalidPathError, ValueError)
+    fs = FileSystem(str(tmp_path))
+    assert fs.exists("../..") is False
+    assert fs.exists("a\x00b") is False
+    assert fs.write_file("../x", "c").success is False
+    with pytest.raises(InvalidPathError, match="escapes root"):
+        fs._resolve_path("../..")
 
 
 def test_success_unchanged(server):

@@ -12,16 +12,17 @@ from typing import Any, TypeVar
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from codespy.tools.storage.filesystem.client import FileSystem
+from codespy.tools.storage.filesystem.client import FileSystem, InvalidPathError
 from codespy.tools.storage.filesystem.protected import is_protected_path, normalize_rel_path
 
 logger = logging.getLogger(__name__)
 
-# Failures caused by the agent's arguments (missing path, file vs directory, path
-# escaping the root). Raised as ToolError so MCP returns the message to the agent
-# instead of logging a crash traceback and hiding the reason.
+# Failures caused by the agent's arguments (missing path, file vs directory, a path
+# that escapes the root or is invalid). Raised as ToolError so MCP returns the message
+# to the agent instead of logging a crash traceback and hiding the reason. Other
+# ValueErrors are bugs and stay crashes.
 _EXPECTED_ERRORS = (FileNotFoundError, NotADirectoryError, IsADirectoryError,
-                    PermissionError, ValueError)
+                    PermissionError, InvalidPathError)
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -220,7 +221,7 @@ def _check_writable(path: str, operation: str) -> Path:
         current = current / part
         if current.is_symlink():
             raise ToolError(f"{operation} refused: symlink in path: {path!r}")
-    resolved = fs._resolve_path(rel)  # ValueError (-> ToolError) when escaping the root
+    resolved = fs._resolve_path(rel)  # InvalidPathError (-> ToolError) when escaping the root
     if is_protected_path(str(resolved.relative_to(fs.root))):
         raise ToolError(f"{operation} refused: protected path: {path!r}")
     return resolved

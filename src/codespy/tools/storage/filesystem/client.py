@@ -21,6 +21,15 @@ from codespy.tools.storage.models import (
 logger = logging.getLogger(__name__)
 
 
+class InvalidPathError(ValueError):
+    """A path the caller got wrong: it escapes the root or cannot be resolved.
+
+    Subclasses ``ValueError`` so existing ``except ValueError`` callers keep
+    working. The filesystem MCP server returns it to the agent as a readable
+    ``ToolError``.
+    """
+
+
 class FileSystem(Storage):
     """Local filesystem storage client.
 
@@ -70,17 +79,21 @@ class FileSystem(Storage):
             Absolute path.
 
         Raises:
-            ValueError: If path escapes root directory.
+            InvalidPathError: If the path escapes the root directory or cannot
+                be resolved (e.g. it contains a NUL byte).
         """
         if not path or path == ".":
             return self.root
 
-        resolved = (self.root / path).resolve()
+        try:
+            resolved = (self.root / path).resolve()
+        except (ValueError, OSError):
+            raise InvalidPathError(f"Invalid path: {path!r}") from None
 
         try:
             resolved.relative_to(self.root)
         except ValueError:
-            raise ValueError(f"Path escapes root directory: {path}") from None
+            raise InvalidPathError(f"Path escapes root directory: {path}") from None
 
         return resolved
 

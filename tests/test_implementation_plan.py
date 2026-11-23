@@ -268,6 +268,17 @@ class TestPlanner:
         assert asyncio.run(_planner().aforward([_scope(".")], [], ctx)) == []
         called.assert_not_called()
 
+    def test_missing_metadata_raises_value_error(self):
+        ctx = ReviewContext(
+            pr_context=PRContext(
+                repo_slug="github.com/o/r", pr_number=1, pr_title="T",
+                pr_url="https://github.com/o/r/pull/1", summary="S",
+            ),
+            metadata=None,
+        )
+        with pytest.raises(ValueError, match="metadata required"):
+            asyncio.run(_planner().aforward([_scope(".")], [_issue("a")], ctx))
+
     def _patch_run(self, monkeypatch, run):
         captured: dict = {"runs": 0, "roots": []}
 
