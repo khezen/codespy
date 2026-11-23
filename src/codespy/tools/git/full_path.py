@@ -49,6 +49,11 @@ def report_branch(path: str) -> str:
     return f"{REPORT_BRANCH_PREFIX}{path_slug(path)}"
 
 
+def fix_branch(pr_number: int) -> str:
+    """Branch of the fix PR/MR codespy opens against a reviewed PR's branch."""
+    return f"codespy/fix/{pr_number}"
+
+
 def report_file(path: str) -> str:
     return f"{REPORT_DIR}/reviews/{path_slug(path)}.md"
 
@@ -232,6 +237,7 @@ def build_pr_from_tree(
         changed_files=changed,
         platform=platform,
         web_url=tree_url(host, owner, repo, sha, path, platform),
+        is_fork=False,
     )
     return pr, stats
 

@@ -54,6 +54,11 @@ def plan_marker(run_id: str) -> str:
     return f"<!-- codespy:plan v={MARKER_VERSION} run_id={run_id} -->"
 
 
+def fix_marker(run_id: str) -> str:
+    """Hidden marker for a codespy fix PR/MR description."""
+    return f"<!-- codespy:fix v={MARKER_VERSION} run_id={run_id} -->"
+
+
 def issues_marker(run_id: str, part: int, total: int) -> str:
     """Hidden marker for a codespy issues overflow comment (part i/n)."""
     return f"<!-- codespy:issues v={MARKER_VERSION} run_id={run_id} part={part}/{total} -->"

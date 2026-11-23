@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from codespy.agents.review.implement.models import ImplementationResult
 from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
 from codespy.agents.review.plan.models import ImplementationPlan, ScopePlan
 
@@ -194,6 +195,10 @@ class ReviewResult(BaseModel):
     implementation_plan: ImplementationPlan | None = Field(
         default=None,
         description="Implementation plan generated from review findings (sections: Goal, Decisions, Tasks, Risks, Validation)",
+    )
+    implementation: ImplementationResult | None = Field(
+        default=None,
+        description="Implementation result with file changes and completed/skipped steps",
     )
 
     @property
@@ -418,6 +423,9 @@ class ReviewResult(BaseModel):
 
         # Implementation Plan (uncapped for report file / stdout / MCP)
         lines.extend(self.implementation_plan_markdown_lines())
+
+        # Implementation agent's changes
+        lines.extend(self.implementation_markdown_lines())
 
         return "\n".join(lines)
 
@@ -772,6 +780,50 @@ class ReviewResult(BaseModel):
         body.extend(post)
 
         return outer_head + body + outer_tail
+
+    def implementation_markdown_lines(self) -> list[str]:
+        """Collapsible section for the implementation agent's changes ([] when none).
+
+        Shows the summary, the completed and skipped steps, the changed files and
+        where the changes are: the fix PR (PR reviews), this PR (review-path), or
+        not published (dry run / publish failure).
+        """
+        impl = self.implementation
+        if impl is None:
+            return []
+        n_files = len(impl.changes)
+        summary = (
+            f"🤖 Implementation ({n_files} file{'' if n_files == 1 else 's'} changed, "
+            f"{len(impl.completed_steps)} step(s) done"
+            + (f", {len(impl.skipped_steps)} skipped" if impl.skipped_steps else "")
+            + ")"
+        )
+        body: list[str] = []
+        if impl.pull_request_url:
+            body.extend([f"**Fix PR:** {impl.pull_request_url}", ""])
+        elif self.full_path:
+            body.extend(["**Changes:** included in this PR's commit.", ""])
+        else:
+            body.extend(["**Changes:** not published.", ""])
+        if impl.summary:
+            body.extend([impl.summary, ""])
+        if impl.completed_steps:
+            body.extend(
+                ["**Completed steps:** " + ", ".join(str(n) for n in impl.completed_steps), ""]
+            )
+        if impl.skipped_steps:
+            body.append("**Skipped steps:**")
+            body.extend(f"- {s.number}: {s.reason}" for s in impl.skipped_steps)
+            body.append("")
+        body.append("**Changed files:**")
+        body.extend(
+            f"- `{c.path}`" + (" (deleted)" if c.content is None else "") for c in impl.changes
+        )
+        body.extend(
+            ["", "> The code was written by an agent that cannot run it: review and test it.", ""]
+        )
+        return ["<details>", f"<summary>{summary}</summary>", "<blockquote>", "", *body,
+                "</blockquote>", "</details>", ""]
 
     def to_json_dict(self) -> dict:
         """Convert to a JSON-serializable dictionary."""

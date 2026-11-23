@@ -198,33 +198,33 @@ class GitClient(ABC):
         ...
 
     @abstractmethod
-    def upsert_report_pull_request(
+    def upsert_branch_pull_request(
         self,
         owner: str,
         repo: str,
         base_branch: str,
         base_sha: str,
         head_branch: str,
-        file_path: str,
-        file_content: str,
+        files: dict[str, str | None],
         commit_message: str,
         title: str,
         body: str,
         update_comment: str,
+        executable: frozenset[str] = frozenset(),
     ) -> SubmittedPullRequest:
-        """Create or update a report pull request.
+        """Force-reset ``head_branch`` to one commit on ``base_sha``, then open/update its PR.
 
-        If an open PR exists with ``head_branch`` -> ``base_branch``, commits the
-        file to that branch, replaces the body and posts ``update_comment``.
-        Otherwise creates (or force-resets a stale) ``head_branch`` at
-        ``base_sha``, commits the file and opens the PR.
+        The commit writes ``files`` (repo-root-relative path -> UTF-8 content,
+        ``None`` deletes the file); paths in ``executable`` get mode 100755.
+        Earlier commits on ``head_branch`` are discarded (re-runs start fresh).
+        If an open PR exists for ``head_branch`` -> ``base_branch``, its body is
+        replaced and ``update_comment`` posted; otherwise a PR is opened.
 
         Returns:
             SubmittedPullRequest (number, url, created)
 
         Raises:
-            Exception: On failure. A branch created by this call is deleted
-                first; a branch that belongs to an open PR is never deleted.
+            Exception: On failure. A branch created by this call is deleted first.
         """
         ...
 

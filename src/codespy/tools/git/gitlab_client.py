@@ -189,6 +189,11 @@ class GitLabClient(GitClient):
         state_map = {"opened": "open", "closed": "closed", "merged": "merged"}
         state = state_map.get(gl_mr.state, gl_mr.state)
 
+        # Detect fork: source_project_id differs from target_project_id
+        is_fork = getattr(gl_mr, "source_project_id", None) != getattr(
+            gl_mr, "target_project_id", None
+        )
+
         pr = PullRequest(
             number=gl_mr.iid,
             title=gl_mr.title,
@@ -207,6 +212,7 @@ class GitLabClient(GitClient):
             changed_files=changed_files,
             labels=gl_mr.labels,
             platform=GitPlatform.GITLAB,
+            is_fork=is_fork,
         )
         self._fetch_conversation(gl_mr, pr)
         return pr
@@ -640,65 +646,77 @@ class GitLabClient(GitClient):
             ) from e
 
     @staticmethod
-    def _put_file(project: Any, path: str, content: str, message: str, branch: str) -> None:
-        """Create or update one file on ``branch`` in a single commit."""
+    def _exists_at(project: Any, path: str, ref: str) -> bool:
         try:
-            project.files.get(file_path=path, ref=branch)
-            action = "update"
+            project.files.get(file_path=path, ref=ref)
+            return True
         except gitlab.exceptions.GitlabGetError:
-            action = "create"
-        project.commits.create(
-            {
-                "branch": branch,
-                "commit_message": message,
-                "actions": [{"action": action, "file_path": path, "content": content}],
-            }
-        )
+            return False
 
-    def upsert_report_pull_request(
+    def upsert_branch_pull_request(
         self,
         owner: str,
         repo: str,
         base_branch: str,
         base_sha: str,
         head_branch: str,
-        file_path: str,
-        file_content: str,
+        files: dict[str, str | None],
         commit_message: str,
         title: str,
         body: str,
         update_comment: str,
+        executable: frozenset[str] = frozenset(),
     ) -> SubmittedPullRequest:
-        """Create or update the report MR for a full-path review."""
+        """One commit on ``base_sha`` (``force``), written to ``head_branch``."""
         project_path = self._project_path(owner, repo)
         project = self.gitlab_client.projects.get(project_path)
 
-        open_mrs = project.mergerequests.list(
-            state="opened", source_branch=head_branch, target_branch=base_branch
-        )
-        if open_mrs:
-            # Re-run: update the existing report MR, never touch its history
-            mr = project.mergerequests.get(open_mrs[0].iid)
-            self._put_file(project, file_path, file_content, commit_message, head_branch)
-            mr.description = body
-            mr.save()
-            mr.notes.create({"body": update_comment})
-            logger.info(f"Updated report MR !{mr.iid} on {project_path}")
-            return SubmittedPullRequest(number=mr.iid, url=mr.web_url, created=False)
+        actions: list[dict[str, Any]] = []
+        for path, content in sorted(files.items()):
+            exists = self._exists_at(project, path, base_sha)
+            if content is None:
+                if exists:
+                    actions.append({"action": "delete", "file_path": path})
+                continue
+            action: dict[str, Any] = {
+                "action": "update" if exists else "create",
+                "file_path": path,
+                "content": content,
+            }
+            if path in executable:
+                action["execute_filemode"] = True
+            actions.append(action)
+
+        try:
+            project.branches.get(head_branch)
+            branch_existed = True
+        except gitlab.exceptions.GitlabGetError:
+            branch_existed = False
 
         branch_created = False
         try:
-            try:
-                project.branches.get(head_branch)
-            except gitlab.exceptions.GitlabGetError:
-                pass
-            else:
-                # Stale branch from a closed/merged report MR: restart from base
-                project.branches.delete(head_branch)
-            project.branches.create({"branch": head_branch, "ref": base_sha})
-            branch_created = True
+            # start_sha + force: the branch is (re)written to one commit on base_sha
+            project.commits.create(
+                {
+                    "branch": head_branch,
+                    "start_sha": base_sha,
+                    "force": True,
+                    "commit_message": commit_message,
+                    "actions": actions,
+                }
+            )
+            branch_created = not branch_existed
 
-            self._put_file(project, file_path, file_content, commit_message, head_branch)
+            open_mrs = project.mergerequests.list(
+                state="opened", source_branch=head_branch, target_branch=base_branch
+            )
+            if open_mrs:
+                mr = project.mergerequests.get(open_mrs[0].iid)
+                mr.description = body
+                mr.save()
+                mr.notes.create({"body": update_comment})
+                logger.info(f"Updated MR !{mr.iid} ({head_branch}) on {project_path}")
+                return SubmittedPullRequest(number=mr.iid, url=mr.web_url, created=False)
             mr = project.mergerequests.create(
                 {
                     "source_branch": head_branch,
@@ -711,11 +729,11 @@ class GitLabClient(GitClient):
             if branch_created:
                 try:
                     project.branches.delete(head_branch)
-                    logger.warning(f"Deleted branch {head_branch} after a failed report MR")
+                    logger.warning(f"Deleted branch {head_branch} after a failed MR")
                 except Exception as cleanup_err:
                     logger.warning(f"Could not delete branch {head_branch}: {cleanup_err}")
             raise
-        logger.info(f"Opened report MR !{mr.iid} on {project_path}")
+        logger.info(f"Opened MR !{mr.iid} ({head_branch}) on {project_path}")
         return SubmittedPullRequest(number=mr.iid, url=mr.web_url, created=True)
 
     def update_pull_request_body(self, url: str, body: str) -> None:

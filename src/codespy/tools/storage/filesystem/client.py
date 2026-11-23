@@ -336,3 +336,64 @@ class FileSystem(Storage):
         except Exception as e:
             logger.error(f"delete_file failed for {path!r}: {e}")
             return OperationResult(success=False, path=path, error=str(e))
+
+    def replace_in_file(
+        self,
+        path: str,
+        old: str,
+        new: str,
+    ) -> OperationResult:
+        """Replace exact text in a file.
+
+        The old string must match exactly once. Creates no backup.
+
+        Args:
+            path: Relative file path.
+            old: Exact text to replace.
+            new: Replacement text.
+
+        Returns:
+            OperationResult indicating success or failure.
+        """
+        try:
+            resolved = self._resolve_path(path)
+        except ValueError as e:
+            return OperationResult(success=False, path=path, error=str(e))
+
+        if not resolved.exists():
+            return OperationResult(success=False, path=path, error=f"File not found: {path}")
+        if resolved.is_dir():
+            return OperationResult(success=False, path=path, error=f"Path is a directory: {path}")
+
+        try:
+            content = resolved.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return OperationResult(
+                success=False, path=path, error=f"Cannot read file as text: {path}"
+            )
+        except Exception as e:
+            return OperationResult(success=False, path=path, error=str(e))
+
+        count = content.count(old)
+        if count == 0:
+            return OperationResult(
+                success=False, path=path, error=f"Old text not found in file: {path}"
+            )
+        if count > 1:
+            return OperationResult(
+                success=False,
+                path=path,
+                error=f"Old text found {count} times in file, expected exactly 1: {path}",
+            )
+
+        new_content = content.replace(old, new, 1)
+        try:
+            resolved.write_text(new_content, encoding="utf-8")
+            return OperationResult(
+                success=True,
+                path=str(resolved.relative_to(self.root)),
+                message=f"Replaced text in {resolved}",
+            )
+        except Exception as e:
+            logger.error(f"replace_in_file failed for {path!r}: {e}")
+            return OperationResult(success=False, path=path, error=str(e))

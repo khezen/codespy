@@ -502,6 +502,9 @@ class GitReporter(BaseReporter):
                 lines.append(pointer)
                 lines.append("")
 
+        # Implementation agent's fix PR (small: kept in both layouts)
+        lines.extend(result.implementation_markdown_lines())
+
         # Memories section (collapsible, size-limited for GitHub's 65,536 char body limit)
         # Insert after header, before Summary
         if result.memories:

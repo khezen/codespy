@@ -10,6 +10,7 @@ from rich.markup import escape
 from rich.panel import Panel
 
 from codespy import __version__
+from codespy.cli_remote import _implement_display
 from codespy.config import get_settings
 from codespy.config_git import get_github_token_source, get_gitlab_token_source
 from codespy.config_utils import secret_value
@@ -138,6 +139,7 @@ def review_path(
         output_destinations.append(f"stdout ({settings.review.output_format})")
     if settings.review.output_git:
         output_destinations.append(f"{platform.title()} report PR (token needs {scopes})")
+    implement_where = "changes committed to the report PR"
     console.print(
         Panel(
             f"[bold blue]Reviewing path:[/bold blue] {escape(path)}\n"
@@ -146,6 +148,7 @@ def review_path(
             f"[bold]Model:[/bold] {settings.llm.default_model}\n"
             f"[bold]Caps:[/bold] {max_files or caps.max_files} files, {caps.max_bytes:,} bytes\n"
             f"[bold]Output:[/bold] {', '.join(output_destinations) or '[red]none[/red]'}\n"
+            f"[bold]Implement:[/bold] {_implement_display(settings, implement_where)}\n"
             f"[bold]{platform.title()} Token:[/bold] [green]found[/green] "
             f"[dim]({token_source})[/dim]",
             title=f"codespy v{__version__}",

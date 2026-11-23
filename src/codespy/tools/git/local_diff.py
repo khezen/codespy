@@ -204,6 +204,7 @@ def build_pr_from_diff(
             changed_files=[],
             commits=commits,
             platform=GitPlatform.GITHUB,  # Doesn't matter for local review
+            is_fork=False,
         )
 
     # Parse each changed file and get its patch
@@ -261,4 +262,5 @@ def build_pr_from_diff(
         changed_files=changed_files,
         commits=commits,
         platform=GitPlatform.GITHUB,  # Doesn't matter for local review
+        is_fork=False,
     )

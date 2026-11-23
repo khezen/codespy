@@ -121,6 +121,7 @@ def review(
             f"[bold]Platform:[/bold] {platform.title()}\n"
             f"[bold]Model:[/bold] {settings.llm.default_model}\n"
             f"[bold]Output:[/bold] {output_display}\n"
+            f"[bold]Implement:[/bold] {_implement_display(settings)}\n"
             f"[bold]{platform.title()} Token:[/bold] [green]found[/green] "
             f"[dim]({token_source})[/dim]",
             title=f"codespy v{__version__}",
@@ -130,7 +131,11 @@ def review(
     try:
         from codespy.workflows.review.models import RemoteReviewConfig
         from codespy.workflows.review.pipeline import ReviewPipeline
-        from codespy.workflows.review.reporters import GitReporter, StdoutReporter
+        from codespy.workflows.review.reporters import (
+            FixPullRequestReporter,
+            GitReporter,
+            StdoutReporter,
+        )
 
         pipeline = ReviewPipeline(settings)
 
@@ -143,6 +148,19 @@ def review(
 
         handle = None
         try:
+            # Fix PR first, so the review body can link it (failure keeps the review)
+            if settings.review.output_git and result.implementation and pipeline.last_pr:
+                console.print(f"[dim]Opening fix PR on {platform.title()}...[/dim]")
+                try:
+                    fix = FixPullRequestReporter(url=pr_url, settings=settings)
+                    fix_handle = fix.publish(result, pipeline.last_pr)
+                    if fix_handle:
+                        action = "Opened" if fix_handle.created else "Updated"
+                        console.print(f"[green]✓[/green] {action} fix PR: {fix_handle.url}")
+                except Exception as e:
+                    logging.exception("Fix PR publication failed")
+                    console.print(f"[red]Error publishing fix PR:[/red] {escape(str(e))}")
+
             # Publish to git platform after audit (before memory phase)
             if settings.review.output_git:
                 console.print(f"[dim]Posting review to {platform.title()}...[/dim]")
@@ -189,6 +207,15 @@ def review(
         console.print(f"[red]Error during review:[/red] {escape(str(e))}")
         logging.exception("Review failed")
         raise typer.Exit(1) from None
+
+
+def _implement_display(settings, where: str = "opens a fix PR against the PR branch") -> str:
+    """'on', 'off', or a warning when implement is on without the planner."""
+    if not settings.is_signature_enabled("implement"):
+        return "off"
+    if not settings.is_signature_enabled("plan"):
+        return "[yellow]on, but review.plan is disabled (skipped)[/yellow]"
+    return f"on ({where})"
 
 
 def _validate_url_and_token(pr_url: str, settings) -> tuple[str, str]:

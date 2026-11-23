@@ -5,7 +5,6 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any
 
 from git import Repo
 from github import Auth, Github, GithubException
@@ -118,6 +117,12 @@ class GitHubClient(GitClient):
                 )
             )
 
+        # Detect fork: head.repo is None (deleted fork) or different from base.repo
+        is_fork = (
+            gh_pr.head.repo is None
+            or gh_pr.head.repo.full_name != gh_pr.base.repo.full_name
+        )
+
         pr = PullRequest(
             number=gh_pr.number,
             title=gh_pr.title,
@@ -136,6 +141,7 @@ class GitHubClient(GitClient):
             changed_files=changed_files,
             labels=[label.name for label in gh_pr.labels],
             platform=GitPlatform.GITHUB,
+            is_fork=is_fork,
         )
         self._fetch_conversation(gh_pr, pr)
         return pr
@@ -590,48 +596,35 @@ class GitHubClient(GitClient):
                 ) from e
             raise
 
-    @staticmethod
-    def _put_file(gh_repo: Any, path: str, content: str, message: str, branch: str) -> None:
-        """Create or update one file on ``branch`` (one commit)."""
-        try:
-            existing = gh_repo.get_contents(path, ref=branch)
-        except GithubException as e:
-            if e.status != 404:
-                raise
-            gh_repo.create_file(path=path, message=message, content=content, branch=branch)
-            return
-        gh_repo.update_file(
-            path=path, message=message, content=content, sha=existing.sha, branch=branch
-        )
-
-    def upsert_report_pull_request(
+    def upsert_branch_pull_request(
         self,
         owner: str,
         repo: str,
         base_branch: str,
         base_sha: str,
         head_branch: str,
-        file_path: str,
-        file_content: str,
+        files: dict[str, str | None],
         commit_message: str,
         title: str,
         body: str,
         update_comment: str,
+        executable: frozenset[str] = frozenset(),
     ) -> SubmittedPullRequest:
-        """Create or update the report PR for a full-path review."""
-        gh_repo = self.github.get_repo(f"{owner}/{repo}")
+        """One commit on ``base_sha`` (git data API), force-pushed to ``head_branch``."""
+        from github import InputGitTreeElement
 
-        open_prs = list(
-            gh_repo.get_pulls(state="open", head=f"{owner}:{head_branch}", base=base_branch)
-        )
-        if open_prs:
-            # Re-run: update the existing report PR, never touch its history
-            gh_pr = open_prs[0]
-            self._put_file(gh_repo, file_path, file_content, commit_message, head_branch)
-            gh_pr.edit(body=body)
-            gh_pr.create_issue_comment(update_comment)
-            logger.info(f"Updated report PR #{gh_pr.number} on {owner}/{repo}")
-            return SubmittedPullRequest(number=gh_pr.number, url=gh_pr.html_url, created=False)
+        gh_repo = self.github.get_repo(f"{owner}/{repo}")
+        base_commit = gh_repo.get_git_commit(base_sha)
+        elements = [
+            InputGitTreeElement(path, "100644", "blob", sha=None)
+            if content is None
+            else InputGitTreeElement(
+                path, "100755" if path in executable else "100644", "blob", content=content
+            )
+            for path, content in sorted(files.items())
+        ]
+        tree = gh_repo.create_git_tree(elements, base_commit.tree)
+        commit = gh_repo.create_git_commit(commit_message, tree, [base_commit])
 
         branch_created = False
         try:
@@ -640,23 +633,31 @@ class GitHubClient(GitClient):
             except GithubException as e:
                 if e.status != 404:
                     raise
-                gh_repo.create_git_ref(f"refs/heads/{head_branch}", base_sha)
+                gh_repo.create_git_ref(f"refs/heads/{head_branch}", commit.sha)
                 branch_created = True
             else:
-                # Stale branch from a closed/merged report PR: restart from base
-                ref.edit(base_sha, force=True)
+                # Re-run or stale branch: discard earlier commits
+                ref.edit(commit.sha, force=True)
 
-            self._put_file(gh_repo, file_path, file_content, commit_message, head_branch)
+            open_prs = list(
+                gh_repo.get_pulls(state="open", head=f"{owner}:{head_branch}", base=base_branch)
+            )
+            if open_prs:
+                gh_pr = open_prs[0]
+                gh_pr.edit(body=body)
+                gh_pr.create_issue_comment(update_comment)
+                logger.info(f"Updated PR #{gh_pr.number} ({head_branch}) on {owner}/{repo}")
+                return SubmittedPullRequest(number=gh_pr.number, url=gh_pr.html_url, created=False)
             gh_pr = gh_repo.create_pull(title=title, body=body, base=base_branch, head=head_branch)
         except Exception:
             if branch_created:
                 try:
                     gh_repo.get_git_ref(f"heads/{head_branch}").delete()
-                    logger.warning(f"Deleted branch {head_branch} after a failed report PR")
+                    logger.warning(f"Deleted branch {head_branch} after a failed PR")
                 except Exception as cleanup_err:
                     logger.warning(f"Could not delete branch {head_branch}: {cleanup_err}")
             raise
-        logger.info(f"Opened report PR #{gh_pr.number} on {owner}/{repo}")
+        logger.info(f"Opened PR #{gh_pr.number} ({head_branch}) on {owner}/{repo}")
         return SubmittedPullRequest(number=gh_pr.number, url=gh_pr.html_url, created=True)
 
     def update_pull_request_body(self, url: str, body: str) -> None:

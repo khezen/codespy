@@ -354,6 +354,10 @@ class PullRequest(BaseModel):
         default="",
         description="Override for url (e.g. the tree URL of a full-path review).",
     )
+    is_fork: bool = Field(
+        default=False,
+        description="True when the head branch is from a fork repository",
+    )
 
     @property
     def repo_full_name(self) -> str:

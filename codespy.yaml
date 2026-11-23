@@ -298,3 +298,13 @@ review:
     reasoning_effort: null                                        # REVIEW_PLAN_REASONING_EFFORT
     temperature: null                                             # REVIEW_PLAN_TEMPERATURE
     max_tokens: null                                              # REVIEW_PLAN_MAX_TOKENS
+
+  # Implementation Agent (opt-in coding agent that implements the plan)
+  implement:
+    enabled: false                                               # REVIEW_IMPLEMENT_ENABLED
+    max_iters: null                                                  # REVIEW_IMPLEMENT_MAX_ITERS
+    max_llm_calls: null                                             # REVIEW_IMPLEMENT_MAX_LLM_CALLS
+    model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_IMPLEMENT_MODEL
+    reasoning_effort: null                                        # REVIEW_IMPLEMENT_REASONING_EFFORT
+    temperature: null                                             # REVIEW_IMPLEMENT_TEMPERATURE
+    max_tokens: null                                              # REVIEW_IMPLEMENT_MAX_TOKENS

@@ -84,7 +84,7 @@ How it works:
 1. `--ref` (default: the repo's default branch) is resolved to a commit through the API. It must be a branch, because it is also the base of the report PR. Tags and SHAs are rejected.
 2. codespy sparse-clones `--path` (default `.`, the whole repo) at that commit. The files directly in each parent directory are also checked out (manifests, lock files, `AGENTS.md`), but nothing else.
 3. There is no diff: every reviewable file under the path is presented as **newly added**, and the code is reviewed as-is. Binary, lock, minified and excluded-directory files are skipped, as in PR reviews, and so are symlinks, files larger than 512 KB, non-UTF-8 files and `.codespy/`. The skip counts are shown in the report.
-4. All scopes under the path are identified (every manifest or module-marker package is its own scope), and the full pipeline runs: summary, code, doc, SEO and supply-chain review, audit, the implementation plan (opt-in), and memory.
+4. All scopes under the path are identified (every manifest or module-marker package is its own scope), and the full pipeline runs: summary, code, doc, SEO and supply-chain review, audit, the implementation plan and the coding agent (both opt-in), and memory.
 
 ### The report PR
 
@@ -96,7 +96,7 @@ There is no PR to comment on, so codespy opens one itself:
 
 The PR is there to deliver the report. It can be closed without merging.
 
-**Re-runs** (e.g. a weekly schedule) update the same PR. When an open report PR exists for that path and branch, codespy commits the new report file to it, replaces the description and posts one `Updated by codespy run …` comment, so earlier reports stay in the branch history. When the branch exists but its PR was closed or merged, the branch is reset to the reviewed commit and a new PR is opened. Don't push your own work to `codespy/review/*` branches.
+**Re-runs** (e.g. a weekly schedule) update the same PR. codespy force-resets the `codespy/review/<path>` branch to one fresh commit on the reviewed commit (the report, plus the coding agent's changes when enabled). If a report PR for that path and branch is open, codespy replaces its description and posts one `Updated by codespy run …` comment; otherwise it opens a new PR. Earlier reports are not kept in the branch history. Don't push your own work to `codespy/review/*` branches: it is lost on the next run.
 
 The description is first posted before the memory phase, then rewritten with the final costs. `--no-open-pr` (or `review.output_git: false`) is a dry run: the report goes to stdout only and nothing is written to the repository.
 
@@ -244,6 +244,28 @@ REVIEW_PLAN_ENABLED=true codespy review-path https://github.com/owner/repo --pat
 ```
 
 One planner run sees every scope and issue, so steps are ordered by dependency across scopes (a shared library before its consumers), then by severity, and grouped per scope with global step numbers. The plan opens with a **Goal** and **Decisions** sections, then the **Tasks** (steps with files, change, verification, dependencies, and addressed issues), then **Risks** and **Validation** sections. When the review body would be too large, the issues without line references and the plan are posted as separate comments. See [Configuration → Implementation Plan](configuration.md#implementation-plan).
+
+## Implementation Agent
+
+Add the opt-in coding agent to have codespy implement the plan (it needs the planner):
+
+```bash
+REVIEW_PLAN_ENABLED=true REVIEW_IMPLEMENT_ENABLED=true codespy review https://github.com/owner/repo/pull/123
+REVIEW_PLAN_ENABLED=true REVIEW_IMPLEMENT_ENABLED=true codespy review-path https://github.com/owner/repo --path services/api
+```
+
+```yaml
+# GitHub Action
+- uses: khezen/codespy@v2
+  with:
+    plan-enabled: 'true'
+    implement-enabled: 'true'
+```
+
+- **PR/MR review:** codespy opens a fix PR from `codespy/fix/<number>` into the reviewed PR's branch, referencing the reviewed PR, and the review links it. Merge it into the PR branch to apply the fixes.
+- **`review-path`:** the changes are committed to the report PR together with the report.
+
+The agent edits files but cannot run commands or tests, so review its changes and let CI check them. With the Actions `GITHUB_TOKEN`, a maintainer has to approve CI runs on codespy's PRs; use a personal access token or GitHub App token to avoid that. Re-runs reset codespy's branch to one fresh commit. Fork PRs and local reviews are skipped. See [Configuration → Implementation Agent](configuration.md#implementation-agent).
 
 ## IDE Integration (MCP Server)
 
