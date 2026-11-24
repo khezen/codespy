@@ -250,6 +250,15 @@ To recalibrate:
 
 If relevant and unrelated facts overlap in score, a floor cannot separate them. In that case, keep `0`.
 
+### Delivery to agents
+
+The rendered memory is a series of `## <title>` sections (briefings, then the facets in order, then remote facts). Every agent that receives it is an RLM agent and gets it as the read-only REPL variable `prefrontal_memory`. The prompt shows only the variable's description and a 1,000-char head+tail preview; the model sees the rest only by printing it, and each print is cut by the step output cap (`max_output_chars`).
+
+- **MEMORY prompt block** (all 9 agents: summary, scope, code_review, doc, seo, supply_chain, audit, plan, implement): `with_prefrontal_memory` appends to the instructions what memory is (read-only, may be stale), what each section holds, and how to use it: read it first, check recurring patterns and prior findings against the changed files, respect recorded decisions (do not report what a decision accepts, report a change that breaks one), use it to direct tool calls, never report an issue from memory alone, trust the code when they disagree.
+- **SUBMIT gate** (code_review, doc, seo, supply_chain): `with_prefrontal_memory(..., require_read=True)` adds "print it in slices under the cap before reviewing", and `memory_check` sends an early `SUBMIT` back with the unseen sections and the `prefrontal_memory[a:b]` slices to print (adjacent sections merged, long ranges split under the cap). It works like the code_review diff gate (`combine_checks` puts unseen files and unseen memory in one rejection), has no config toggle, and accepts `SUBMIT` once `max_iters` / `max_llm_calls` is spent. The ContextSafe RLM fallback gets the same gate. The other 5 agents are only measured, giving a baseline of what models read on their own.
+- **Measurement**: a section is seen when at least 90% of its significant lines (stripped, 3+ chars) appear in what the model saw: each step's output after the cap, plus each step's code. The memory is split on known section titles only, so headings inside briefings or reflect answers stay in their section. Each run logs `memory_seen=<seen>/<total> sections` on its coverage line, with the unseen titles.
+- **Cost**: the gated agents print the whole memory (about 68k chars / 17k tokens on peaks-com/mono#10519), and dspy resends the REPL history on every step, so its size is added to every later step's prompt of each scope run. Long histories also make Bedrock `content_filter` refusals more likely; a refused step still ends through the extract path, possibly with memory coverage incomplete.
+
 ### `recall_memory` tool
 
 RLM agents (code_review, scope, seo, supply_chain, plan, implement) get `async recall_memory(query: str, reach: str = "local") -> str`. A reach above the configured one is clamped; at most `max_tool_calls` calls per agent call (then `"recall limit reached"`); errors return `"memory unavailable"`.
@@ -289,6 +298,8 @@ Every recall is logged:
 ```
 Prefrontal[review]: load status=ok 1 briefings, facets context=1 seen_before=3 ... remote=5 (512 tokens, reach=org, reflects=3) dropped remote=2 seen_before=1 decisions=0 patterns=3 model=... calls=3 in=5120 out=410 cost=$0.0042 latency=6400ms maps=0 thoughts=256 tools=...
 Prefrontal[code_review]: recall_memory reach=local status=ok mode=reflect model=... calls=2 in=2210 out=180 cost=$0.0017 latency=3100ms query='...'
+RLM[code_review] scope services/payments: iterations=9/20, end=SUBMIT, coverage_rejections=1, truncated_outputs=0 (cap 40,000), unseen_files=0, memory_seen=6/6 sections
+RLM[summary] scope acme/repo: iterations=4/10, end=SUBMIT, coverage_rejections=0, truncated_outputs=0 (cap 40,000), unseen_files=0, memory_seen=1/6 sections (unseen: Seen before, Decisions, Recurring patterns, What changed, Other repositories in acme — verify before relying on it)
 ```
 
 ### Episodic store

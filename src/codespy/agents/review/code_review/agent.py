@@ -25,7 +25,14 @@ from codespy.agents.review.helpers import (
 )
 from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
 from codespy.agents.review.scope.models import ScopeResult
-from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm, unseen_files
+from codespy.agents.rlm_tools import (
+    build_rlm_agent,
+    combine_checks,
+    log_rlm_outcome,
+    memory_check,
+    run_rlm,
+    unseen_files,
+)
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -351,7 +358,8 @@ class CodeReviewer(dspy.Module):
                 self._settings,
                 subroot=scope.subroot,
             )
-            sig = with_prefrontal_memory(base_sig) if review_context.prefrontal_memory else base_sig
+            memory = review_context.prefrontal_memory
+            sig = with_prefrontal_memory(base_sig, require_read=True) if memory else base_sig
             max_output_chars = self._settings.get_max_output_chars("code_review")
             sig = with_output_cap(sig, max_output_chars)
             recall_tool = pf.recall_tool() if pf else None
@@ -365,7 +373,10 @@ class CodeReviewer(dspy.Module):
                 max_llm_calls=self._settings.get_max_llm_calls("code_review"),
                 rlm_threshold=self._settings.get_rlm_threshold("react"),
                 max_output_chars=max_output_chars,
-                submit_check=coverage_check(scoped.changed_files, max_output_chars),
+                submit_check=combine_checks(
+                    coverage_check(scoped.changed_files, max_output_chars),
+                    memory_check(memory, max_output_chars),
+                ),
             )
             logger.info(
                 f"  Code review: scope {scope.subroot} ({len(scope.changed_files)} files)"
@@ -414,6 +425,7 @@ class CodeReviewer(dspy.Module):
                     changed_files=scoped.changed_files,
                     max_output_chars=max_output_chars,
                     max_iters=max_iters,
+                    memory=memory,
                 )
                 if unseen:
                     logger.warning(

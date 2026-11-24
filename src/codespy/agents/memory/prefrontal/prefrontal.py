@@ -32,6 +32,7 @@ from codespy.agents.memory.prefrontal.format import (
     filter_relevant,
     format_context_sections,
     format_facts,
+    join_sections,
     semantic_score,
 )
 from codespy.agents.memory.prefrontal.query import (
@@ -65,9 +66,40 @@ logger = logging.getLogger(__name__)
 PREFRONTAL_FIELD = "prefrontal_memory"
 PREFRONTAL_FIELD_DESC = (
     "Prior knowledge from earlier runs (read-only, may be stale or wrong). "
-    "Use it to skip rediscovery and to direct tool calls. "
-    "Verify anything you report as an issue with tools; never report an issue from memory alone."
+    "See MEMORY in the instructions."
 )
+
+# Appended to the signature instructions of every agent that receives memory.
+# No braces: code_review fills ``{max_output_chars}`` in its instructions later.
+MEMORY_BLOCK_HEADER = "MEMORY (prefrontal_memory)"
+MEMORY_BLOCK = f"""{MEMORY_BLOCK_HEADER}
+
+prefrontal_memory holds what earlier codespy runs learned about this repository.
+It is read-only and may be stale or wrong. It has "## <title>" sections:
+- Briefing: standing conventions of a scope.
+- Around this work: a synthesis of prior knowledge for this change.
+- Seen before: prior facts about the changed files.
+- Decisions: agreed choices and conventions.
+- Recurring patterns: issues found before.
+- What changed: beliefs that were revised.
+- Other repositories: facts from the same organisation; verify before relying on them.
+
+How to use it:
+- Read it before you start judging the change.
+- Check recurring patterns and prior findings against the changed files first.
+- Respect recorded decisions: do not report what a decision explicitly accepts;
+  do report a change that breaks a decision.
+- Use it to direct tool calls.
+- Never report an issue from memory alone: verify it in the code with tools.
+- When memory and code disagree, trust the code."""
+
+# Appended for agents whose SUBMIT is gated on reading memory (require_read).
+MEMORY_READ_BLOCK_HEADER = "Reading memory:"
+MEMORY_READ_BLOCK = f"""{MEMORY_READ_BLOCK_HEADER}
+- You only see what you print: the prefrontal_memory preview shows 1,000 characters.
+- Print prefrontal_memory in full early, before reviewing, in slices under the
+  output cap (print(prefrontal_memory[a:b])).
+- An early SUBMIT is sent back with the memory sections not read yet."""
 
 RECALL_LIMIT_REACHED = "recall limit reached"
 MEMORY_UNAVAILABLE = "memory unavailable"
@@ -98,28 +130,44 @@ def _tool_status(text: str) -> RecallStatus:
         return "error"
     return "ok"
 
-_SIGNATURES: dict[type, type] = {}
+_SIGNATURES: dict[tuple[type, bool], type] = {}
 
 
-def with_prefrontal_memory(signature: type[dspy.Signature]) -> type[dspy.Signature]:
+def with_prefrontal_memory(
+    signature: type[dspy.Signature], *, require_read: bool = False
+) -> type[dspy.Signature]:
     """Return ``signature`` with a leading ``prefrontal_memory: str`` input (idempotent).
+
+    Also appends the MEMORY block (what memory is, how to use it) to the
+    instructions, and with ``require_read`` the block telling the model to print
+    it before SUBMIT (pair with ``rlm_tools.memory_check``). Neither the field
+    nor a block is added twice.
 
     Must be applied before the module is built: ``dspy.RLM`` builds its
     predictors from the signature in ``__init__``. Use the same returned
     signature for ``ContextSafe`` so its RLM fallback has the field too.
     """
-    if PREFRONTAL_FIELD in signature.input_fields:
-        return signature
-    cached = _SIGNATURES.get(signature)
+    key = (signature, require_read)
+    cached = _SIGNATURES.get(key)
     if cached is not None:
         return cached
-    injected = signature.prepend(
-        PREFRONTAL_FIELD,
-        dspy.InputField(desc=PREFRONTAL_FIELD_DESC),
-        type_=str,
-    )
-    _SIGNATURES[signature] = injected
-    return injected
+    sig = signature
+    if PREFRONTAL_FIELD not in sig.input_fields:
+        sig = sig.prepend(
+            PREFRONTAL_FIELD,
+            dspy.InputField(desc=PREFRONTAL_FIELD_DESC),
+            type_=str,
+        )
+    instructions = sig.instructions or ""
+    blocks: list[str] = []
+    if MEMORY_BLOCK_HEADER not in instructions:
+        blocks.append(MEMORY_BLOCK)
+    if require_read and MEMORY_READ_BLOCK_HEADER not in instructions:
+        blocks.append(MEMORY_READ_BLOCK)
+    if blocks:
+        sig = sig.with_instructions("\n\n".join([instructions.rstrip(), *blocks]).lstrip())
+    _SIGNATURES[key] = sig
+    return sig
 
 
 class Prefrontal:
@@ -482,7 +530,7 @@ class Prefrontal:
         sections = format_context_sections(
             briefings, results, remote, self._repo, cfg.recall.reach
         )
-        text = "\n\n".join(f"## {t}\n{b}" for t, b in sections)
+        text = join_sections(sections)
 
         n_briefings = sum(
             1

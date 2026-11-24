@@ -160,7 +160,12 @@ class Summarizer(dspy.Module):
                 **pc_kwargs,
                 **pf_kwargs,
             )
-            log_rlm_outcome(result, "summary", repo_full_name)
+            log_rlm_outcome(
+                result, "summary", repo_full_name,
+                max_output_chars=self._settings.get_max_output_chars("summary"),
+                max_iters=self._settings.get_max_iters("summary"),
+                memory=prefrontal_memory,
+            )
             if hippo is not None:
                 await hippo.aobserve(result)
                 # Fire-and-forget episode save

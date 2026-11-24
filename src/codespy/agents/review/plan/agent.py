@@ -330,7 +330,12 @@ class ImplementationPlanner(dspy.Module):
                     **pc_kwargs,
                     **pf_kwargs,
                 )
-                log_rlm_outcome(result, "plan", ROOT)
+                log_rlm_outcome(
+                    result, "plan", ROOT,
+                    max_output_chars=self._settings.get_max_output_chars("plan"),
+                    max_iters=max_iters,
+                    memory=prefrontal_memory,
+                )
         finally:
             await cleanup_mcp_contexts(contexts)
 
