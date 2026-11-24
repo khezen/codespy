@@ -2,22 +2,34 @@
 
 import logging
 import time
-from typing import TYPE_CHECKING
-
 from collections import Counter
+from typing import TYPE_CHECKING
 
 from codespy import __version__
 from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
-from codespy.workflows.review.models import MAX_PLAN_CHARS, ReviewResult
-from codespy.workflows.review.reporters.base import BaseReporter
 from codespy.tools.git.base import SubmittedReview
 from codespy.tools.git.client import get_client
-from codespy.tools.git.conversation import fingerprint, issue_marker, review_marker
+from codespy.tools.git.conversation import (
+    fingerprint,
+    issue_marker,
+    issues_marker,
+    plan_marker,
+    review_marker,
+)
+from codespy.tools.git.models import ChangedFile
+from codespy.workflows.review.models import MAX_PLAN_CHARS, ReviewResult
+from codespy.workflows.review.reporters.base import BaseReporter
 
 if TYPE_CHECKING:
     from codespy.config import Settings
 
 logger = logging.getLogger(__name__)
+
+# Title of the one section for issues that are not inline comments
+BODY_ISSUES_TITLE = "Issues without line reference or could not post inline"
+
+# Appended to content cut to fit a comment
+TRUNCATED_MARKER = "…(truncated)"
 
 
 class GitReporter(BaseReporter):
@@ -52,53 +64,131 @@ class GitReporter(BaseReporter):
         self.client = get_client(url, settings)
 
     def report(self, result: ReviewResult) -> None:
-        """Post review result to the merge request (backward compatibility).
+        """Post review result to the merge request.
 
         Args:
             result: The review result to post.
         """
         self.publish(result)
 
-    def publish(self, result: ReviewResult) -> SubmittedReview | None:
+    @staticmethod
+    def _issue_key(issue: Issue) -> str:
+        """Opaque key of an inline comment, returned by the client when it is rejected."""
+        fp = fingerprint(issue.filename, issue.category.value, issue.title)
+        return f"{fp}:{issue.line_start}:{issue.line_end}"
+
+    def _partition(
+        self,
+        result: ReviewResult,
+        changed_files: list[ChangedFile] | None,
+        moved: set[str],
+    ) -> tuple[list[Issue], list[Issue], list[str]]:
+        """Split issues into inline comments and issues listed in the review body.
+
+        An issue goes to the body when it has no line, when its key is in ``moved``
+        (rejected by the platform), or, with ``changed_files``, when its file or
+        line is not part of the diff.
+
+        Returns:
+            (inline issues, body issues, keys of the issues moved by the diff check)
+        """
+        files = {f.filename: f for f in changed_files} if changed_files is not None else None
+        inline: list[Issue] = []
+        body: list[Issue] = []
+        pre_moved: list[str] = []
+        for issue in result.issues:
+            if issue.line_start is None:
+                body.append(issue)
+                continue
+            key = self._issue_key(issue)
+            if key in moved:
+                body.append(issue)
+                continue
+            if files is not None:
+                changed = files.get(issue.filename)
+                lines = [issue.line_start, issue.line_end or issue.line_start]
+                if changed is None or not all(changed.is_line_in_diff(n) for n in lines):
+                    body.append(issue)
+                    pre_moved.append(key)
+                    continue
+            inline.append(issue)
+        return inline, body, pre_moved
+
+    def publish(
+        self,
+        result: ReviewResult,
+        changed_files: list[ChangedFile] | None = None,
+    ) -> SubmittedReview | None:
         """Publish the review to the merge request.
 
         Posts the initial review after the audit phase (before memory phase).
         The review will show "Memory: pending" in costs if memory_pending is True.
 
+        Issues that can't be inline comments (no line, file or line not in the
+        diff, or rejected by the platform) are listed in one body section. When
+        the review body plus issues and plan would exceed the budget, that
+        section and the plan are posted as separate comments with hidden markers.
+
         Args:
             result: The review result to publish.
+            changed_files: The PR's changed files, to check that each inline
+                comment is in the diff. Without them, only platform rejections
+                move an issue to the body.
 
         Returns:
             SubmittedReview handle for later update, or None if publish failed.
         """
-        # Separate issues with and without line numbers
-        inline_issues: list[Issue] = []
-        body_issues: list[Issue] = []
+        inline_issues, body_issues, pre_moved = self._partition(result, changed_files, set())
 
-        for issue in result.issues:
-            if issue.line_start is not None:
-                inline_issues.append(issue)
-            else:
-                body_issues.append(issue)
+        # Decide if we need to split
+        split = self._needs_split(result, body_issues)
 
         # Build review body with collapsible sections
-        body = self._build_review_body(result, body_issues)
+        body = self._build_review_body(result, body_issues, split=split)
 
         # Build inline comments
         comments = self._build_inline_comments(inline_issues, run_id=result.run_id)
 
-        # Submit the review
+        # Submit the review first
         handle = self.client.submit_review(
             url=self.url,
             body=body,
             comments=comments,
+            split=split,
         )
 
-        if handle:
-            logger.info(
-                f"Posted {self.client.platform_name} review with {len(comments)} inline comments "
-                f"and {len(body_issues)} issues in body"
-            )
+        if not handle:
+            return None
+
+        # The platform rejected comments the diff check accepted: list them in the body
+        client_rejected = list(handle.rejected)
+        handle.rejected = [*pre_moved, *client_rejected]
+        if client_rejected:
+            _, body_issues, _ = self._partition(result, None, set(handle.rejected))
+            split = self._needs_split(result, body_issues)
+            handle.split = split
+            body = self._build_review_body(result, body_issues, split=split)
+            try:
+                self.client.update_review(self.url, handle, body)
+            except Exception as e:
+                logger.warning(f"Failed to add rejected inline issues to the review body: {e}")
+
+        # Post overflow comments if in split mode
+        if split:
+            overflow = self._overflow_comments(result, body_issues)
+            for idx, comment_body in enumerate(overflow, start=1):
+                try:
+                    self.client.post_comment(self.url, comment_body)
+                    logger.debug(f"Posted overflow comment {idx}/{len(overflow)}")
+                except Exception as e:
+                    logger.warning(f"Failed to post overflow comment {idx}: {e}")
+
+        issue_count = len(body_issues) if not split else 0
+        plan_in_body = "with plan" if (result.implementation_plan and not split) else "split mode"
+        logger.info(
+            f"Posted {self.client.platform_name} review with {len(comments)} inline comments, "
+            f"{issue_count} issues in body ({plan_in_body})"
+        )
         return handle
 
     def update(self, handle: SubmittedReview, result: ReviewResult) -> None:
@@ -106,27 +196,17 @@ class GitReporter(BaseReporter):
 
         Rebuilds the body with full costs and edits the review.
         Retries up to 3 times with exponential backoff on failure.
+        Does not touch overflow comments (issues and plan don't change).
 
         Args:
             handle: The SubmittedReview returned by publish().
             result: The updated review result with full costs.
         """
-        # Separate issues with and without line numbers
-        inline_issues: list[Issue] = []
-        body_issues: list[Issue] = []
+        # Same partition as publish: issues moved to the body stay there
+        _, body_issues, _ = self._partition(result, None, set(handle.rejected))
 
-        for issue in result.issues:
-            if issue.line_start is not None:
-                inline_issues.append(issue)
-            else:
-                body_issues.append(issue)
-
-        # Build review body, reserving space for the body suffix
-        body = self._build_review_body(result, body_issues, reserve=len(handle.body_suffix))
-
-        # Append the body suffix (fallback comments from original submission)
-        if handle.body_suffix:
-            body = body + handle.body_suffix
+        # Build review body in the same layout as publish
+        body = self._build_review_body(result, body_issues, split=handle.split)
 
         # Try to update with retries
         last_error: Exception | None = None
@@ -151,18 +231,187 @@ class GitReporter(BaseReporter):
         if last_error:
             logger.debug("Final update error", exc_info=last_error)
 
+    def _body_issue_lines(self, issue: Issue, run_id: str | None) -> list[str]:
+        """Build markdown lines for a single body issue (without line number).
+
+        Args:
+            issue: The issue to render.
+            run_id: Pipeline run ID for the hidden marker.
+
+        Returns:
+            Markdown lines for the issue block.
+        """
+        emoji = self.SEVERITY_EMOJI.get(issue.severity, "⚪")
+        confidence_pct = int(issue.confidence * 100)
+        lines = [
+            f"### {emoji} [{issue.severity.value.title()}] {issue.title}",
+            self._issue_marker(issue, run_id),
+            "",
+            f"**File:** `{issue.location}`",
+            f"**Category:** {issue.category.value} | **Confidence:** {confidence_pct}%",
+            "",
+            issue.description,
+            "",
+        ]
+
+        if issue.suggestion:
+            lines.extend(
+                [
+                    "**Suggestion:**",
+                    issue.suggestion,
+                    "",
+                ]
+            )
+
+        if issue.cwe_id:
+            cwe_number = issue.cwe_id.split("-")[1] if "-" in issue.cwe_id else issue.cwe_id
+            lines.append(
+                f"**Reference:** [{issue.cwe_id}](https://cwe.mitre.org/data/definitions/{cwe_number}.html)"
+            )
+            lines.append("")
+
+        lines.extend(["---", ""])
+        return lines
+
+    def _needs_split(self, result: ReviewResult, body_issues: list[Issue]) -> bool:
+        """Decide whether the body needs to split issues and plan into separate comments.
+
+        Split when the full body (with uncapped plan and all issues) would exceed
+        the body budget, or when the plan alone exceeds MAX_PLAN_CHARS.
+
+        Args:
+            result: The review result.
+            body_issues: Issues without line numbers.
+
+        Returns:
+            True if split mode is needed.
+        """
+        # Build the full body as if there were no split
+        full_body = self._build_review_body(result, body_issues, split=False)
+
+        # Check if the full body exceeds the budget
+        if len(full_body) > self.MAX_BODY_CHARS:
+            return True
+
+        # Check if the plan alone exceeds MAX_PLAN_CHARS
+        if result.implementation_plan:
+            plan_lines = result.implementation_plan_markdown_lines(max_chars=None)
+            plan_size = sum(len(line) + 1 for line in plan_lines)
+            if plan_size > MAX_PLAN_CHARS:
+                return True
+
+        return False
+
+    def _overflow_comments(
+        self, result: ReviewResult, body_issues: list[Issue]
+    ) -> list[str]:
+        """Build overflow comments for split mode.
+
+        Returns a list of comment bodies: first the issues comments (possibly
+        split into parts), then the plan comment. Each starts with a hidden marker.
+
+        Args:
+            result: The review result.
+            body_issues: Issues without line numbers.
+
+        Returns:
+            List of comment bodies, each ready to post.
+        """
+        comments: list[str] = []
+        run_id = result.run_id or ""
+
+        # Build issues comments
+        if body_issues:
+            issue_lines: list[str] = [
+                "<details>",
+                f"<summary>⚠️ {BODY_ISSUES_TITLE}</summary>",
+                "",
+            ]
+            for issue in body_issues:
+                issue_lines.extend(self._body_issue_lines(issue, run_id))
+            issue_lines.extend(["</details>", ""])
+
+            # Split into parts if needed
+            issue_text = "\n".join(issue_lines)
+            if len(issue_text) > self.MAX_BODY_CHARS:
+                # Split at issue boundaries
+                parts: list[list[str]] = []
+                current_part: list[str] = []
+                header = ["<details>", f"<summary>⚠️ {BODY_ISSUES_TITLE}</summary>", ""]
+                footer = ["</details>", ""]
+                header_size = sum(len(line) + 1 for line in header)
+                footer_size = sum(len(line) + 1 for line in footer)
+                available = self.MAX_BODY_CHARS - header_size - footer_size
+
+                for issue in body_issues:
+                    block = self._body_issue_lines(issue, run_id)
+                    block_size = sum(len(line) + 1 for line in block)
+                    if block_size > available:
+                        # Single issue too long - truncate it
+                        block = self._truncate_issue_block(block, available)
+                    if current_part and sum(len(line) + 1 for line in current_part) + block_size > available:
+                        # Start new part
+                        parts.append(current_part)
+                        current_part = block
+                    else:
+                        current_part.extend(block)
+                if current_part:
+                    parts.append(current_part)
+
+                total = len(parts)
+                for idx, part_lines in enumerate(parts, start=1):
+                    body = "\n".join([issues_marker(run_id, idx, total)] + header + part_lines + footer)
+                    comments.append(body)
+            else:
+                # Single issues comment
+                body = "\n".join([issues_marker(run_id, 1, 1)] + issue_lines)
+                comments.append(body)
+
+        # Build plan comment
+        if result.implementation_plan:
+            plan_lines = result.implementation_plan_markdown_lines(
+                max_chars=self.MAX_BODY_CHARS - len(plan_marker(run_id)) - 1
+            )
+            if plan_lines:
+                body = "\n".join([plan_marker(run_id)] + plan_lines)
+                comments.append(body)
+
+        return comments
+
+    def _truncate_issue_block(self, lines: list[str], max_chars: int) -> list[str]:
+        """Truncate an issue block to fit within max_chars.
+
+        Args:
+            lines: The issue block lines.
+            max_chars: Maximum character budget.
+
+        Returns:
+            Truncated lines with a truncation marker.
+        """
+        size = 0
+        result: list[str] = []
+        for line in lines:
+            line_size = len(line) + 1
+            if size + line_size > max_chars - len(TRUNCATED_MARKER) - 2:
+                result.append(f"> {TRUNCATED_MARKER}")
+                break
+            result.append(line)
+            size += line_size
+        return result
+
     def _build_review_body(
         self,
         result: ReviewResult,
         body_issues: list[Issue],
-        reserve: int = 0,
+        *,
+        split: bool = False,
     ) -> str:
         """Build the review body with collapsible sections.
 
         Args:
             result: The review result.
             body_issues: Issues without line numbers to include in body.
-            reserve: Number of characters to reserve for body suffix (e.g., appended comments).
+            split: True when issues and plan are posted as separate comments.
 
         Returns:
             Formatted markdown string for review body.
@@ -170,7 +419,6 @@ class GitReporter(BaseReporter):
         lines = []
 
         # Header with stats - link to CodeSpy repo
-        # Version goes after the header text: legacy detection anchors on the line start
         lines.append(
             f"# 🔍 Code[Spy](https://github.com/khezen/codespy) Review <sub>v{__version__}</sub>"
         )
@@ -243,50 +491,18 @@ class GitReporter(BaseReporter):
                 ]
             )
 
-        # Issues without line numbers
-        if body_issues:
+        # Issues without line numbers (only when not in split mode)
+        if body_issues and not split:
             lines.extend(
                 [
                     "<details>",
-                    "<summary>⚠️ Issues Without Line References</summary>",
+                    f"<summary>⚠️ {BODY_ISSUES_TITLE}</summary>",
                     "",
                 ]
             )
 
             for issue in body_issues:
-                emoji = self.SEVERITY_EMOJI.get(issue.severity, "⚪")
-                confidence_pct = int(issue.confidence * 100)
-                lines.extend(
-                    [
-                        f"### {emoji} [{issue.severity.value.title()}] {issue.title}",
-                        self._issue_marker(issue, result.run_id),
-                        "",
-                        f"**File:** `{issue.filename}`",
-                        f"**Category:** {issue.category.value} | **Confidence:** {confidence_pct}%",
-                        "",
-                        issue.description,
-                        "",
-                    ]
-                )
-
-                if issue.suggestion:
-                    lines.extend(
-                        [
-                            "**Suggestion:**",
-                            issue.suggestion,
-                            "",
-                        ]
-                    )
-
-                if issue.cwe_id:
-                    cwe_number = issue.cwe_id.split("-")[1] if "-" in issue.cwe_id else issue.cwe_id
-                    lines.append(
-                        f"**Reference:** [{issue.cwe_id}](https://cwe.mitre.org/data/definitions/{cwe_number}.html)"
-                    )
-                    lines.append("")
-
-                lines.append("---")
-                lines.append("")
+                lines.extend(self._body_issue_lines(issue, result.run_id))
 
             lines.extend(
                 [
@@ -309,18 +525,41 @@ class GitReporter(BaseReporter):
                 ]
             )
 
-        # Implementation Plan (after Recommendation; memories get what is left)
-        if result.implementation_plan:
-            used = len("\n".join(lines)) + 1
-            plan_budget = min(MAX_PLAN_CHARS, self.MAX_BODY_CHARS - reserve - used - 1)
-            lines.extend(result.implementation_plan_markdown_lines(max_chars=max(0, plan_budget)))
+        # Implementation Plan (only when not in split mode)
+        if result.implementation_plan and not split:
+            plan_lines = result.implementation_plan_markdown_lines(max_chars=None)
+            lines.extend(plan_lines)
+
+        # Split mode pointer
+        if split:
+            has_issues = bool(body_issues)
+            has_plan = bool(result.implementation_plan)
+            if has_issues and has_plan:
+                pointer = (
+                    "> ⚠️ Issues without line reference or that could not be posted inline, "
+                    "and the implementation plan, are posted as separate comments."
+                )
+            elif has_issues:
+                pointer = (
+                    "> ⚠️ Issues without line reference or that could not be posted inline "
+                    "are posted as separate comments."
+                )
+            elif has_plan:
+                pointer = "> ⚠️ The implementation plan is posted as a separate comment."
+            else:
+                pointer = ""
+            if pointer:
+                lines.append(pointer)
+                lines.append("")
+
+        # Implementation agent's fix PR (small: kept in both layouts)
+        lines.extend(result.implementation_markdown_lines())
 
         # Memories section (collapsible, size-limited for GitHub's 65,536 char body limit)
         # Insert after header, before Summary
         if result.memories:
-            # Calculate budget after building all other sections, minus reserve
-            other_sections_len = len("\n".join(lines)) + 1  # +1 for trailing newline
-            budget = self.MAX_BODY_CHARS - reserve - other_sections_len - 1
+            other_sections_len = len("\n".join(lines)) + 1
+            budget = self.MAX_BODY_CHARS - other_sections_len - 1
             memory_lines = result.memories_markdown_lines(
                 summary="🧠 memories", max_chars=max(0, budget)
             )
@@ -479,6 +718,7 @@ class GitReporter(BaseReporter):
                 "path": issue.filename,
                 "body": "\n".join(body_lines),
                 "line": issue.line_start,
+                "issue_key": self._issue_key(issue),
             }
 
             # Add multi-line support if applicable
@@ -489,7 +729,3 @@ class GitReporter(BaseReporter):
             comments.append(comment)
 
         return comments
-
-
-# Backward compatibility alias
-GitHubPRReporter = GitReporter

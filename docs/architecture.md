@@ -4,13 +4,14 @@
 
 ## Pipeline Overview
 
-CodeSpy's review pipeline follows a 5-step flow:
+CodeSpy's review pipeline follows a 6-step flow:
 
 1. **Scope Identifier** (RLM + tools) — Identifies code scopes (frontend, backend, infra, microservice in monorepo, etc.)
 2. **PR Summary** (RLM) — Generates 2-3 sentence PR summary
 3. **Parallel Review Modules** — Supply Chain Auditor, Code Reviewer, Doc Reviewer, and SEO Reviewer (opt-in) run simultaneously
 4. **Auditor** (RLM) — Generates quality assessment + recommendation (APPROVE / REQUEST_CHANGES / NEEDS_DISCUSSION)
-5. **Implementation Planner** (RLM + tools, opt-in) — Turns the findings into an ordered plan, one run per scope with issues, given the audit's assessment and recommendation. Skipped when there are no issues; a failure never blocks the review
+5. **Implementation Planner** (RLM + tools, opt-in) — Turns the findings into one structured plan in a single run over every scope and issue. The plan has sections: **Goal**, **Decisions**, **Tasks** (steps ordered by dependency across scopes, then grouped per scope), **Risks**, and **Validation**. Skipped when there are no issues; a failure never blocks the review
+6. **Implementation Agent** (RLM + write tools, opt-in) — Runs only when a plan exists. Edits the repo clone to carry out the plan with write-enabled filesystem tools (no command execution); the edits are read back from `git status` and the clone is restored. PR reviews publish them as a fix PR against the PR branch (`workflows/review/reporters/fix_pull_request.py`), `review-path` commits them to the report PR. Skipped for local reviews and fork PRs; a failure never blocks the review
 
 The same pipeline serves three input modes. `review` fetches a PR/MR diff. `review-local` and `review-uncommitted` build one from local git. `review-path` builds a synthetic PR from a repository path where every reviewable file is newly added (`tools/git/full_path.py`), and delivers the report as a PR/MR that codespy opens (`workflows/review/reporters/pull_request.py`) instead of review comments.
 
@@ -70,7 +71,12 @@ After scope resolution the set grows to each scope's full subtree. A root scope 
 │                             │                                       │
 │  ┌──────────────────────────▼─────────────────────────────────┐     │
 │  │ 5. Implementation Planner (RLM + tools, opt-in)            │     │
-│  │    Ordered fix plan per scope (collapsible section)        │     │
+│  │    One cross-scope plan, grouped per scope (collapsible)   │     │
+│  └──────────────────────────┬─────────────────────────────────┘     │
+│                             │                                       │
+│  ┌──────────────────────────▼─────────────────────────────────┐     │
+│  │ 6. Implementation Agent (RLM + write tools, opt-in)        │     │
+│  │    Edits the clone → fix PR (PR) / report PR (path)        │     │
 │  └────────────────────────────────────────────────────────────┘     │
 │                                                                     │
 │  ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┐           │
@@ -105,7 +111,8 @@ After scope resolution the set grows to each scope's full subtree. A root scope 
 | **SupplyChainSecuritySignature** | `supply_chain` | RLM | Analyzes artifacts (Dockerfiles) and dependencies for supply chain security |
 | **SEOReviewSignature** | `seo` | RLM | Opt-in. Detects website changes that hurt crawling, indexing, ranking, or AI citation. Runs only on scopes detected as websites (or whitelisted) with web-relevant changes. A regex hotspot pre-scan (`seo/hotspots.py`, no LLM) passes candidate render-gating shapes as an optional `hotspots` input. The model verifies them and also runs its own sweep. In `review-path` mode the prompt switches from diff review to a full-scope audit |
 | **AuditSignature** | `audit` | RLM | Generates quality assessment and recommendation |
-| **ImplementationPlanSignature** | `plan` | RLM | Opt-in. Turns the findings of one scope into ordered steps (files, change, verification, addressed issues), using filesystem, ripgrep and tree-sitter tools to check call sites and tests |
+| **ImplementationPlanSignature** | `plan` | RLM | Opt-in. One run over all scopes and issues that turns the findings into a structured plan with Goal, Decisions, Tasks, Risks, and Validation sections. Each step carries its scope, files, change, verification, `depends_on` and the issues it addresses. Uses repo-root filesystem, ripgrep and tree-sitter tools to check call sites and tests |
+| **ImplementSignature** | `implement` | RLM | Opt-in, runs only when a plan exists. Implements the plan steps with write-enabled filesystem tools (`write_file`, `replace_in_file`, `delete_file`; `.git`, `.github/workflows`, `.codespy` and symlinks refused) plus ripgrep and tree-sitter. No command execution. Outputs a summary and the completed and skipped steps |
 
 See [Configuration](configuration.md) for per-signature settings.
 

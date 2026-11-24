@@ -8,8 +8,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from codespy.agents.review.implement.models import ImplementationResult
 from codespy.agents.review.models import Issue, IssueCategory, IssueSeverity
-from codespy.agents.review.plan.models import ScopePlan
+from codespy.agents.review.plan.models import ImplementationPlan, ScopePlan
 
 # Appended to a memory text cut to fit the review body size limit
 TRUNCATED_MARKER = "…(truncated)"
@@ -191,9 +192,13 @@ class ReviewResult(BaseModel):
     full_path: FullPathInfo | None = Field(
         default=None, description="Full-path review info (None for PR reviews)"
     )
-    implementation_plan: list[ScopePlan] = Field(
-        default_factory=list,
-        description="Implementation plan generated from review findings",
+    implementation_plan: ImplementationPlan | None = Field(
+        default=None,
+        description="Implementation plan generated from review findings (sections: Goal, Decisions, Tasks, Risks, Validation)",
+    )
+    implementation: ImplementationResult | None = Field(
+        default=None,
+        description="Implementation result with file changes and completed/skipped steps",
     )
 
     @property
@@ -419,6 +424,9 @@ class ReviewResult(BaseModel):
         # Implementation Plan (uncapped for report file / stdout / MCP)
         lines.extend(self.implementation_plan_markdown_lines())
 
+        # Implementation agent's changes
+        lines.extend(self.implementation_markdown_lines())
+
         return "\n".join(lines)
 
     def cost_breakdown_markdown_lines(self, heading: str = "###") -> list[str]:
@@ -612,12 +620,30 @@ class ReviewResult(BaseModel):
           <details>
           <summary>🛠️ Implementation Plan (N steps)</summary>
           <blockquote>
+
+            #### Goal
+            ...
+
+            #### Decisions
+            - ...
+
+            #### Tasks
             [one scope] steps directly
             [several scopes] <details><summary>`subroot` (k steps)</summary>…</details>
+
+            #### Risks
+            - ...
+
+            #### Validation
+            - ...
+
           </blockquote>
           </details>
 
-        Steps show title, files, change, verification and addressed issues.
+        The plan is holistic: steps carry global numbers (dependency order across
+        scopes), so numbers inside one scope can have gaps. Steps show title,
+        files, change, verification, dependencies (with the scope of steps in
+        another scope) and addressed issues. Empty sections are omitted.
 
         Args:
             max_chars: Character budget for the section (None = unlimited).
@@ -626,10 +652,11 @@ class ReviewResult(BaseModel):
         Returns:
             Markdown lines, or ``[]`` when there is no plan or nothing fits.
         """
-        if not self.implementation_plan:
+        plan = self.implementation_plan
+        if plan is None:
             return []
-        plans = [sp for sp in self.implementation_plan if sp.steps]
-        total_steps = sum(len(sp.steps) for sp in plans)
+        scopes = [sp for sp in plan.scopes if sp.steps]
+        total_steps = sum(len(sp.steps) for sp in scopes)
         if total_steps == 0:
             return []
 
@@ -639,21 +666,56 @@ class ReviewResult(BaseModel):
         def plural(n: int, word: str) -> str:
             return f"{n} {word}{'' if n == 1 else 's'}"
 
-        def step_block(idx: int, step: Any) -> list[str]:
-            block = [f"**{idx}. {step.title}**", ""]
+        # Build pre sections (Goal, Decisions)
+        pre: list[str] = []
+        if plan.goal:
+            pre.extend(["#### Goal", "", plan.goal, ""])
+        if plan.decisions:
+            pre.extend(["#### Decisions", ""])
+            pre.extend([f"- {d}" for d in plan.decisions])
+            pre.append("")
+
+        # Build post sections (Risks, Validation)
+        post: list[str] = []
+        if plan.risks:
+            post.extend(["#### Risks", ""])
+            post.extend([f"- {r}" for r in plan.risks])
+            post.append("")
+        if plan.validation:
+            post.extend(["#### Validation", ""])
+            post.extend([f"- {v}" for v in plan.validation])
+            post.append("")
+
+        # Tasks header
+        tasks_header = ["#### Tasks", ""]
+
+        # Global step number -> scope subroot (for cross-scope "Depends on" labels)
+        scope_of: dict[int, str] = {}
+        for sp in scopes:
+            for step in sp.steps:
+                scope_of.setdefault(step.number, sp.subroot)
+
+        def step_block(step: Any, subroot: str) -> list[str]:
+            block = [f"**{step.number}. {step.title}**", ""]
             if step.files:
                 block.extend([f"**Files:** {', '.join(f'`{f}`' for f in step.files)}", ""])
             if step.change:
                 block.extend([step.change, ""])
             if step.verification:
                 block.extend([f"**Verify:** {step.verification}", ""])
+            if step.depends_on:
+                labels = []
+                for d in step.depends_on:
+                    other = scope_of.get(d)
+                    labels.append(f"{d} (`{other}`)" if other and other != subroot else str(d))
+                block.extend([f"**Depends on:** {', '.join(labels)}", ""])
             if step.addresses:
                 block.extend([f"**Addresses:** {'; '.join(step.addresses)}", ""])
             return block
 
-        nested = len(plans) > 1
+        nested = len(scopes) > 1
         summary = f"🛠️ Implementation Plan ({plural(total_steps, 'step')}"
-        summary += f" in {plural(len(plans), 'scope')})" if nested else ")"
+        summary += f" in {plural(len(scopes), 'scope')})" if nested else ")"
         outer_head = ["<details>", f"<summary>{summary}</summary>", "<blockquote>", ""]
         outer_tail = ["</blockquote>", "</details>", ""]
 
@@ -663,16 +725,21 @@ class ReviewResult(BaseModel):
                 note += f" See the [full plan]({overflow_link})."
             return [note, ""]
 
+        # Calculate reservation for fixed sections
         remaining: int | None = None
         if max_chars is not None:
-            # Reserve the frame and the worst-case truncation note up front
-            frame = size(outer_head) + size(outer_tail) + size(note_lines(total_steps))
-            remaining = max_chars - frame
+            # Reserve the frame, fixed sections, and the worst-case truncation note
+            fixed = size(pre) + size(tasks_header) + size(post) + size(outer_head) + size(outer_tail) + size(note_lines(total_steps))
+            remaining = max_chars - fixed
+            if remaining < 0:
+                # Fixed sections alone exceed budget - return nothing
+                return []
 
-        body: list[str] = []
+        # Build steps body with truncation
+        steps_body: list[str] = []
         shown = 0
         stopped = False
-        for sp in plans:
+        for sp in scopes:
             if stopped:
                 break
             head: list[str] = []
@@ -688,7 +755,7 @@ class ReviewResult(BaseModel):
             frame = size(head) + size(tail)
             scope_lines: list[str] = []
             for step in sp.steps:
-                block = step_block(shown + 1, step)
+                block = step_block(step, sp.subroot)
                 cost = size(block) + (frame if not scope_lines else 0)
                 if remaining is not None and cost > remaining:
                     stopped = True
@@ -698,13 +765,65 @@ class ReviewResult(BaseModel):
                 if remaining is not None:
                     remaining -= cost
             if scope_lines:
-                body.extend(head + scope_lines + tail)
+                steps_body.extend(head + scope_lines + tail)
 
         if shown == 0:
             return []
+
+        # Build final output: pre + tasks header + steps (+ note) + post
+        body: list[str] = []
+        body.extend(pre)
+        body.extend(tasks_header)
+        body.extend(steps_body)
         if shown < total_steps:
             body.extend(note_lines(total_steps - shown))
+        body.extend(post)
+
         return outer_head + body + outer_tail
+
+    def implementation_markdown_lines(self) -> list[str]:
+        """Collapsible section for the implementation agent's changes ([] when none).
+
+        Shows the summary, the completed and skipped steps, the changed files and
+        where the changes are: the fix PR (PR reviews), this PR (review-path), or
+        not published (dry run / publish failure).
+        """
+        impl = self.implementation
+        if impl is None:
+            return []
+        n_files = len(impl.changes)
+        summary = (
+            f"🤖 Implementation ({n_files} file{'' if n_files == 1 else 's'} changed, "
+            f"{len(impl.completed_steps)} step(s) done"
+            + (f", {len(impl.skipped_steps)} skipped" if impl.skipped_steps else "")
+            + ")"
+        )
+        body: list[str] = []
+        if impl.pull_request_url:
+            body.extend([f"**Fix PR:** {impl.pull_request_url}", ""])
+        elif self.full_path:
+            body.extend(["**Changes:** included in this PR's commit.", ""])
+        else:
+            body.extend(["**Changes:** not published.", ""])
+        if impl.summary:
+            body.extend([impl.summary, ""])
+        if impl.completed_steps:
+            body.extend(
+                ["**Completed steps:** " + ", ".join(str(n) for n in impl.completed_steps), ""]
+            )
+        if impl.skipped_steps:
+            body.append("**Skipped steps:**")
+            body.extend(f"- {s.number}: {s.reason}" for s in impl.skipped_steps)
+            body.append("")
+        body.append("**Changed files:**")
+        body.extend(
+            f"- `{c.path}`" + (" (deleted)" if c.content is None else "") for c in impl.changes
+        )
+        body.extend(
+            ["", "> The code was written by an agent that cannot run it: review and test it.", ""]
+        )
+        return ["<details>", f"<summary>{summary}</summary>", "<blockquote>", "", *body,
+                "</blockquote>", "</details>", ""]
 
     def to_json_dict(self) -> dict:
         """Convert to a JSON-serializable dictionary."""

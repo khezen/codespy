@@ -59,20 +59,27 @@ class PullRequestReporter:
         if fp is None:
             raise ValueError("PullRequestReporter needs a full-path ReviewResult")
 
-        handle = self.client.upsert_report_pull_request(
+        # One commit: the report file plus the implementation agent's edits (if any)
+        impl = result.implementation
+        files: dict[str, str | None] = dict(impl.files_payload()) if impl else {}
+        files[report_file(fp.path)] = result.to_markdown()
+        handle = self.client.upsert_branch_pull_request(
             owner=fp.owner,
             repo=fp.repo,
             base_branch=fp.ref,
             base_sha=fp.sha,
             head_branch=report_branch(fp.path),
-            file_path=report_file(fp.path),
-            file_content=result.to_markdown(),
-            commit_message=f"codespy: full review of {fp.path} @ {fp.sha[:8]}",
+            files=files,
+            executable=impl.executable_paths() if impl else frozenset(),
+            commit_message=f"codespy: full review of {fp.path} @ {fp.sha[:8]}"
+            + (f" with fixes for {len(impl.changes)} file(s)" if impl else ""),
             title=self.title(result),
             body=self.build_body(result),
             update_comment=(
                 f"Updated by codespy run `{result.run_id[:8]}` at `{fp.sha[:8]}`: "
-                f"{result.total_issues} issue(s) in {fp.files_reviewed} file(s)."
+                f"{result.total_issues} issue(s) in {fp.files_reviewed} file(s)"
+                + (f", {len(impl.changes)} file(s) changed" if impl else "")
+                + ". The branch was reset to one fresh commit."
             ),
         )
         action = "Opened" if handle.created else "Updated"
@@ -193,6 +200,9 @@ class PullRequestReporter:
                     max_chars=MAX_PLAN_CHARS, overflow_link=self.report_file_url(result)
                 )
             )
+
+        # Implementation agent's changes (committed with the report)
+        tail.extend(result.implementation_markdown_lines())
 
         if result.total_cost > 0 or result.llm_calls > 0:
             tail.extend(

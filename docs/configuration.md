@@ -149,6 +149,7 @@ Each signature supports env var overrides: `REVIEW_<SIGNATURE>_<SETTING>`
 | SEO & AI-visibility | `seo` | ENABLED (default `false`), SCOPES, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS. See [SEO Review](#seo-review) |
 | Auditor | `audit` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
 | Implementation Planner | `plan` | ENABLED (default `false`), MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS. See [Implementation Plan](#implementation-plan) |
+| Implementation Agent | `implement` | ENABLED (default `false`), MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS. See [Implementation Agent](#implementation-agent) |
 
 Example: `REVIEW_CODE_REVIEW_MODEL=anthropic/claude-sonnet-4-5-20250929`
 
@@ -218,7 +219,7 @@ See [Memory System](memory.md) for:
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| `review.max_concurrent_scopes` | `REVIEW_MAX_CONCURRENT_SCOPES` | `8` | Scopes reviewed at once by each of code_review, doc, seo and supply_chain (so up to 4× this value run in total), and by the planner after the audit. Modular repos (Swift packages, Gradle modules) can yield many scopes per PR; this bounds provider throttling and MCP subprocesses. Action input: `max-concurrent-scopes` |
+| `review.max_concurrent_scopes` | `REVIEW_MAX_CONCURRENT_SCOPES` | `8` | Scopes reviewed at once by each of code_review, doc, seo and supply_chain (so up to 4× this value run in total). Modular repos (Swift packages, Gradle modules) can yield many scopes per PR; this bounds provider throttling and MCP subprocesses. Action input: `max-concurrent-scopes` |
 
 ## Full-Path Review
 
@@ -244,30 +245,67 @@ The `plan` signature turns the review's findings into an ordered implementation 
 |---------|---------|---------|-------------|
 | `review.plan.enabled` | `REVIEW_PLAN_ENABLED` | `false` | Enable the planner. Action input: `plan-enabled` |
 | `review.plan.model` | `REVIEW_PLAN_MODEL` | `bedrock/converse/global.anthropic.claude-opus-5-5` | Model. Action input: `plan-model` |
-| `review.plan.max_iters` | `REVIEW_PLAN_MAX_ITERS` | `DEFAULT_MAX_ITERS` | RLM iterations per scope. Action input: `plan-max-iters` |
-| `review.plan.max_llm_calls` | `REVIEW_PLAN_MAX_LLM_CALLS` | `DEFAULT_MAX_LLM_CALLS` | RLM LLM-call budget per scope. Action input: `plan-max-llm-calls` |
+| `review.plan.max_iters` | `REVIEW_PLAN_MAX_ITERS` | `DEFAULT_MAX_ITERS` | RLM iterations per scope with issues (see below). Action input: `plan-max-iters` |
+| `review.plan.max_llm_calls` | `REVIEW_PLAN_MAX_LLM_CALLS` | `DEFAULT_MAX_LLM_CALLS` | RLM LLM-call budget per scope with issues (see below). Action input: `plan-max-llm-calls` |
 
 `reasoning_effort`, `temperature` and `max_tokens` work like they do for every other signature (Action inputs `plan-reasoning-effort`, `plan-temperature`, `plan-max-tokens`).
 
 How it runs:
 
 - After the audit, with the audit's quality assessment and recommendation as input. It adds one planner run to the time before the review is posted.
-- One run per scope that has issues, concurrently (bounded by `review.max_concurrent_scopes`). Each issue goes to the scope with the longest matching subroot; issues outside every scope are planned against the repo root.
-- Each run gets filesystem, ripgrep and tree-sitter tools rooted at its scope, to find the call sites and tests a fix touches.
+- One run over every scope and every issue, so work can be ordered across scopes (e.g. fix a shared library before the services that use it). Each step changes exactly one scope; work spanning scopes is split into one step per scope, linked by `depends_on`.
+- Budget: the run gets `max_iters` and `max_llm_calls` multiplied by the number of scopes with issues, at most ×8 (issues outside every scope count as the repo root). With the defaults and 3 scopes with issues: 15 iterations / 48 LLM calls.
+- The run gets filesystem, ripgrep and tree-sitter tools rooted at the repo root, to find the call sites and tests a fix touches. Only the scope subtrees (and the files in their parent directories) are checked out.
 - Every issue left after confidence filtering and rejected-feedback suppression is planned. With no issues the planner is skipped (no LLM call).
 - Memory is read-only: the planner gets the run-level recall and the `recall_memory` tool, but writes no episode.
-- Soft-fail: a failed scope is left out of the plan; a planner failure posts the review without a plan.
+- Soft-fail: a planner failure posts the review without a plan.
 
-Each step lists its title, files, the change, how to verify it, and the issues it addresses. Where it appears:
+Each step lists its title, files, the change, how to verify it, the steps it depends on, and the issues it addresses. With several scopes, steps are grouped under the scope they change. Where it appears:
 
 | Output | Rendering |
 |--------|-----------|
-| PR/MR review body | Collapsible `🛠️ Implementation Plan` section after the recommendation, capped at 20,000 chars (trailing steps dropped, with a note) |
-| `review-path` report PR description | Same section, same cap, with a link to the full plan in the report file |
+| PR/MR review body | Collapsible `🛠️ Implementation Plan` section after the recommendation. The full plan is in the body when it fits; otherwise issues that are not inline comments (see below) and the plan are posted as separate comments (marked so later runs ignore them as discussion). The plan is capped at about 60 KB in the separate comment (trailing steps dropped, with a note). |
+| `review-path` report PR description | Same section, capped at 20,000 chars, with a link to the full plan in the report file |
 | `review-path` report file, stdout markdown, MCP | Same collapsible section, uncapped |
-| JSON | `implementation_plan` field: a list of `{subroot, steps: [{title, files, change, verification, addresses}]}` |
+| JSON | `implementation_plan` field: an object `{goal, decisions, scopes: [{subroot, steps: [{number, title, scope, files, change, verification, addresses, depends_on}]}], risks, validation}` or `null` when there is no plan |
 
-With several scopes, each scope's steps are nested in their own collapsible section. The planner's cost appears as `plan` in the Review cost table.
+The plan sections render in this order: **Goal** → **Decisions** → **Tasks** (steps grouped per scope) → **Risks** → **Validation**. Empty sections are omitted. Steps are numbered globally in dependency order, then grouped per scope (scopes ordered by their first step), so numbers inside a scope can have gaps. With several scopes, each scope's steps are nested in their own collapsible section. A step with dependencies shows a **Depends on:** line (e.g. ``1 (`libs/common`), 3``), naming the scope of steps in another scope. The planner's cost appears as `plan` in the Review cost table.
+
+## Implementation Agent
+
+The `implement` signature is a coding agent that carries out the implementation plan. It is **off by default** and runs only when the planner produced a plan, so it needs `review.plan.enabled` too (with `implement` on and `plan` off, codespy logs a warning and skips it).
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `review.implement.enabled` | `REVIEW_IMPLEMENT_ENABLED` | `false` | Enable the coding agent. Action input: `implement-enabled` |
+| `review.implement.model` | `REVIEW_IMPLEMENT_MODEL` | `bedrock/converse/global.anthropic.claude-opus-5-5` | Model. Action input: `implement-model` |
+| `review.implement.max_iters` | `REVIEW_IMPLEMENT_MAX_ITERS` | `DEFAULT_MAX_ITERS` | RLM iterations per plan step (see below). Action input: `implement-max-iters` |
+| `review.implement.max_llm_calls` | `REVIEW_IMPLEMENT_MAX_LLM_CALLS` | `DEFAULT_MAX_LLM_CALLS` | RLM LLM-call budget per plan step (see below). Action input: `implement-max-llm-calls` |
+
+`reasoning_effort`, `temperature` and `max_tokens` work like they do for every other signature (Action inputs `implement-reasoning-effort`, `implement-temperature`, `implement-max-tokens`).
+
+How it runs:
+
+- One run after the planner, over the whole plan, with the filesystem, ripgrep and tree-sitter tools rooted at the repo clone. The filesystem tools are write-enabled for this agent only (`write_file`, `replace_in_file`, `delete_file`).
+- **No command execution.** The agent cannot run builds, tests or any other command, so its code is unverified: the fix PR says so, and human review and CI do the checking.
+- Budget: `max_iters` / `max_llm_calls` × the number of plan steps, at most ×8.
+- Protected paths: writes to `.git`, `.github/workflows/` and `.codespy/` and through symlinks are refused, and are ignored when the edits are collected.
+- The edits are read back from `git status` and the clone is restored, because PR clones are a cache reused by later runs. Fail-closed caps: over 100 changed files or 2 MB, or any non-UTF-8 file, discards every change. A changed file keeps its executable bit.
+- Skipped for local reviews (`review-local`, `review-uncommitted`), which run on your working tree, and for fork PRs, since codespy cannot push a branch next to a fork's head. With no file changes, nothing is published.
+- Memory is read-only, as for the planner. Soft-fail: an agent failure posts the review without changes.
+
+Where the changes go:
+
+| Mode | Result |
+|------|--------|
+| PR/MR review | A fix PR/MR from `codespy/fix/<number>` into the reviewed PR's head branch, starting at the reviewed head commit. Its description references the reviewed PR and lists the completed and skipped steps, the changed files and the plan. The codespy review body links it in a `🤖 Implementation` section. |
+| `review-path` | The changes are committed to the report PR, in the same commit as the report file. |
+| stdout, report file, MCP | `🤖 Implementation` section (summary, steps, changed files) |
+| JSON | `implementation` field: `{summary, completed_steps, skipped_steps: [{number, reason}], changes: [{path, executable, status}], changed_files, pull_request_url}` or `null`. File contents are not included. |
+
+Re-runs force-reset codespy's branch (`codespy/fix/<n>` to the PR's current head, the `review-path` report branch to the reviewed commit) to one fresh commit and update the open PR with a comment. Commits pushed by humans to those branches are lost. `--no-git-comment` / `--no-open-pr` still run the agent but publish nothing.
+
+The token needs to write contents and pull requests (GitLab: `api`). With the GitHub Actions `GITHUB_TOKEN`, CI on PRs opened by codespy starts in the approval-required state: a maintainer clicks **Approve workflows to run** (see GitHub's "When GITHUB_TOKEN triggers workflow runs"). Pass a personal access token or GitHub App token as the action's token to skip that step. The agent's cost appears as `implement` in the Review cost table.
 
 ## SEO Review
 

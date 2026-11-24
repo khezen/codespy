@@ -68,7 +68,8 @@ Built for **engineering teams that care about correctness, security, and control
 - 🐛 **Bug Detection** — Identifies logic errors, null references, resource leaks, edge cases
 - 📝 **Documentation Review** — Checks for missing docstrings, outdated comments, incomplete docs
 - 🌐 **SEO & AI-Visibility Review** (opt-in) — Flags website changes that hurt crawling, indexing, ranking, or citation by search engines and AI assistants (client-only content, noindex, missing redirects, robots/bot rules, structured data, hreflang, Core Web Vitals). See [SEO Review](docs/configuration.md#seo-review)
-- 🛠️ **Implementation Plan** (opt-in) — Turns the review's findings into an ordered, per-scope fix plan (files, change, how to verify), posted as a collapsible section in the PR review or full-path report. See [Implementation Plan](docs/configuration.md#implementation-plan)
+- 🛠️ **Implementation Plan** (opt-in) — Turns the review's findings into one fix plan across every scope (Goal, Decisions, Tasks, Risks, Validation). Steps are ordered by dependency, so a shared library is fixed before the services using it, and grouped per scope. Posted as a collapsible section in the PR review or full-path report. See [Implementation Plan](docs/configuration.md#implementation-plan)
+- 🤖 **Implementation Agent** (opt-in) — Carries out the plan by editing the code (no command execution). Opens a fix PR against the reviewed PR's branch, or commits the changes to the full-path report PR. See [Implementation Agent](docs/configuration.md#implementation-agent)
 - 🔍 **Intelligent Scope Detection** — Automatically identifies code scopes (frontend, backend, infra, microservice in monorepo, etc.)
 - 🧠 **Cross-Review Memory** — Agents learn patterns, constants, and domain knowledge from past reviews of the same codebase
 - 💰 **Cost Tracking** — Track LLM calls, tokens, and costs per review

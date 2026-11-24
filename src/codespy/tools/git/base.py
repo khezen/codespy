@@ -1,7 +1,7 @@
 """Abstract base class for Git platform clients."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -16,10 +16,14 @@ class SubmittedReview:
 
     Attributes:
         id: The review/note ID from the platform
-        body_suffix: Any content appended to the body (e.g., fallback inline comments)
+        rejected: ``issue_key`` of every inline comment that could not be posted
+            inline (file not in the PR, line not in the diff, platform rejection).
+            The reporter moves those issues into the review body.
+        split: True when issues and plan were posted as separate comments
     """
     id: int
-    body_suffix: str = ""
+    rejected: list[str] = field(default_factory=list)
+    split: bool = False
 
 
 @dataclass
@@ -109,6 +113,8 @@ class GitClient(ABC):
         body: str,
         comments: list[dict] | None = None,
         commit_sha: str | None = None,
+        *,
+        split: bool = False,
     ) -> SubmittedReview | None:
         """Submit a review on a pull request.
 
@@ -119,11 +125,14 @@ class GitClient(ABC):
                 - path: File path
                 - line: Line number
                 - body: Comment text
+                - issue_key: Opaque key of the issue (never sent to the platform)
             commit_sha: Commit SHA to review (defaults to head SHA)
+            split: True when issues and plan were posted as separate comments
 
         Returns:
-            SubmittedReview with the review ID and any body suffix appended,
-            or None if no review was created.
+            SubmittedReview with the review ID and the ``issue_key`` of every
+            comment that could not be posted inline (``rejected``), or None if
+            no review was created. The body is posted unchanged.
         """
         ...
 
@@ -193,33 +202,33 @@ class GitClient(ABC):
         ...
 
     @abstractmethod
-    def upsert_report_pull_request(
+    def upsert_branch_pull_request(
         self,
         owner: str,
         repo: str,
         base_branch: str,
         base_sha: str,
         head_branch: str,
-        file_path: str,
-        file_content: str,
+        files: dict[str, str | None],
         commit_message: str,
         title: str,
         body: str,
         update_comment: str,
+        executable: frozenset[str] = frozenset(),
     ) -> SubmittedPullRequest:
-        """Create or update a report pull request.
+        """Force-reset ``head_branch`` to one commit on ``base_sha``, then open/update its PR.
 
-        If an open PR exists with ``head_branch`` -> ``base_branch``, commits the
-        file to that branch, replaces the body and posts ``update_comment``.
-        Otherwise creates (or force-resets a stale) ``head_branch`` at
-        ``base_sha``, commits the file and opens the PR.
+        The commit writes ``files`` (repo-root-relative path -> UTF-8 content,
+        ``None`` deletes the file); paths in ``executable`` get mode 100755.
+        Earlier commits on ``head_branch`` are discarded (re-runs start fresh).
+        If an open PR exists for ``head_branch`` -> ``base_branch``, its body is
+        replaced and ``update_comment`` posted; otherwise a PR is opened.
 
         Returns:
             SubmittedPullRequest (number, url, created)
 
         Raises:
-            Exception: On failure. A branch created by this call is deleted
-                first; a branch that belongs to an open PR is never deleted.
+            Exception: On failure. A branch created by this call is deleted first.
         """
         ...
 
@@ -230,5 +239,18 @@ class GitClient(ABC):
         Args:
             url: Pull request URL
             body: New PR body
+        """
+        ...
+
+    @abstractmethod
+    def post_comment(self, url: str, body: str) -> int:
+        """Post a comment on the pull request.
+
+        Args:
+            url: Pull request URL
+            body: Comment body text
+
+        Returns:
+            The comment/note ID from the platform
         """
         ...

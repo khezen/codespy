@@ -18,6 +18,7 @@ from codespy.agents.review import (
     Auditor,
     CodeReviewer,
     DocReviewer,
+    Implementer,
     ImplementationPlanner,
     ScopeResolver,
     SEOReviewer,
@@ -30,7 +31,8 @@ from codespy.agents.memory.hippocampus.episode import (
     start_deferred_episode_saves,
 )
 from codespy.agents.review.helpers import build_patches
-from codespy.agents.review.plan import ScopePlan
+from codespy.agents.review.implement import ImplementationResult
+from codespy.agents.review.plan import ImplementationPlan
 from codespy.agents.review.scope.models import ScopeResult
 from codespy.agents.review.feedback import (
     drop_rejected,
@@ -80,6 +82,8 @@ class ReviewPipeline(dspy.Module):
         self.settings = settings or get_settings()
         self._git_client: GitClient | None = None
         self._path_info: FullPathInfo | None = None
+        # PR of the last forward() run (the fix PR reporter needs its head branch/sha)
+        self.last_pr: PullRequest | None = None
         self.cost_tracker = get_cost_tracker()
         configure_dspy(self.settings)
 
@@ -92,6 +96,7 @@ class ReviewPipeline(dspy.Module):
         self.summarizer = Summarizer()
         self.auditor = Auditor()
         self.planner = ImplementationPlanner()
+        self.implementer = Implementer()
 
     def _verify_code_interpreter(self) -> None:
         """Verify the Deno runtime that every RLM review agent needs.
@@ -337,7 +342,9 @@ class ReviewPipeline(dspy.Module):
         if config_path:
             logger.info(f"Config loaded from: {config_path}")
         logger.info(f"min_confidence={self.settings.review.min_confidence:.2f}")
-        for sig_name in ["code_review", "doc", "seo", "supply_chain", "summary", "audit", "plan"]:
+        for sig_name in (
+            "code_review", "doc", "seo", "supply_chain", "summary", "audit", "plan", "implement"
+        ):
             max_iters = self.settings.get_max_iters(sig_name)
             max_llm_calls = self.settings.get_max_llm_calls(sig_name)
             logger.info(f"  {sig_name}: max_iters={max_iters}, max_llm_calls={max_llm_calls}")
@@ -358,6 +365,8 @@ class ReviewPipeline(dspy.Module):
             pr, repo_path = path_setup
         else:
             raise ValueError(f"Invalid config type: {type(config)}")
+
+        self.last_pr = pr
 
         # Run the review phase with deferred episode saves
         try:
@@ -518,6 +527,11 @@ class ReviewPipeline(dspy.Module):
             scopes, all_issues, review_ctx, quality_assessment, recommendation
         )
 
+        # Step 6: Implementation agent (opt-in; implements the plan)
+        implementation_result = self._run_implementer(
+            scopes, all_issues, review_ctx, implementation_plan, is_local, pr.is_fork
+        )
+
         # Build memories list from scope and run-level Prefrontal loads
         # Run-level first (flat), then scope (nested)
         memories: list[RecalledMemory] = []
@@ -567,6 +581,7 @@ class ReviewPipeline(dspy.Module):
             memory_pending=True,
             full_path=full_path_info,
             implementation_plan=implementation_plan,
+            implementation=implementation_result,
         )
 
     def _run_planner(
@@ -576,10 +591,10 @@ class ReviewPipeline(dspy.Module):
         review_ctx: ReviewContext,
         quality_assessment: str,
         recommendation: str,
-    ) -> list[ScopePlan]:
+    ) -> ImplementationPlan | None:
         """Run the opt-in planner. Never raises: a failure yields no plan."""
         if not issues or not self.settings.is_signature_enabled("plan"):
-            return []
+            return None
         try:
             return asyncio.run(
                 self.planner.aforward(
@@ -592,7 +607,44 @@ class ReviewPipeline(dspy.Module):
             )
         except Exception:
             logger.error("Planner failed; publishing review without a plan", exc_info=True)
-            return []
+            return None
+
+    def _run_implementer(
+        self,
+        scopes: list[ScopeResult],
+        issues: list[Issue],
+        review_ctx: ReviewContext,
+        plan: ImplementationPlan | None,
+        is_local: bool,
+        is_fork: bool,
+    ) -> ImplementationResult | None:
+        """Run the opt-in implementation agent. Never raises: a failure yields none.
+
+        Skipped when disabled, without a plan, for local reviews (the user's
+        working tree) and for fork PRs (no branch can be pushed next to the head).
+        """
+        if not self.settings.is_signature_enabled("implement"):
+            return None
+        if not self.settings.is_signature_enabled("plan"):
+            logger.warning("review.implement needs review.plan.enabled; skipping implement")
+            return None
+        if plan is None:
+            return None
+        if is_local:
+            logger.info("Skipping implement: local reviews edit nothing")
+            return None
+        if is_fork:
+            logger.warning("Skipping implement: fork PR (codespy cannot push next to its head)")
+            return None
+        try:
+            return asyncio.run(
+                self.implementer.aforward(
+                    plan=plan, scopes=scopes, issues=issues, review_context=review_ctx
+                )
+            )
+        except Exception:
+            logger.error("Implementer failed; publishing review without changes", exc_info=True)
+            return None
 
     def _fill_conversation_context(self, pr_context: PRContext, pr: Any) -> None:
         """Render commits, human discussion and review feedback into ``pr_context``.

@@ -49,6 +49,21 @@ def issue_marker(run_id: str, fp: str, category: str, severity: str) -> str:
     )
 
 
+def plan_marker(run_id: str) -> str:
+    """Hidden marker for a codespy implementation plan overflow comment."""
+    return f"<!-- codespy:plan v={MARKER_VERSION} run_id={run_id} -->"
+
+
+def fix_marker(run_id: str) -> str:
+    """Hidden marker for a codespy fix PR/MR description."""
+    return f"<!-- codespy:fix v={MARKER_VERSION} run_id={run_id} -->"
+
+
+def issues_marker(run_id: str, part: int, total: int) -> str:
+    """Hidden marker for a codespy issues overflow comment (part i/n)."""
+    return f"<!-- codespy:issues v={MARKER_VERSION} run_id={run_id} part={part}/{total} -->"
+
+
 def parse_issue_marker(body: str) -> dict[str, str] | None:
     """Parse the first issue marker of ``body`` into a key/value dict."""
     m = ISSUE_MARKER_RE.search(body or "")

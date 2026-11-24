@@ -189,6 +189,11 @@ class GitLabClient(GitClient):
         state_map = {"opened": "open", "closed": "closed", "merged": "merged"}
         state = state_map.get(gl_mr.state, gl_mr.state)
 
+        # Detect fork: source_project_id differs from target_project_id
+        is_fork = getattr(gl_mr, "source_project_id", None) != getattr(
+            gl_mr, "target_project_id", None
+        )
+
         pr = PullRequest(
             number=gl_mr.iid,
             title=gl_mr.title,
@@ -207,6 +212,7 @@ class GitLabClient(GitClient):
             changed_files=changed_files,
             labels=gl_mr.labels,
             platform=GitPlatform.GITLAB,
+            is_fork=is_fork,
         )
         self._fetch_conversation(gl_mr, pr)
         return pr
@@ -419,6 +425,8 @@ class GitLabClient(GitClient):
         body: str,
         comments: list[dict] | None = None,
         commit_sha: str | None = None,
+        *,
+        split: bool = False,
     ) -> SubmittedReview | None:
         """Submit a review on a merge request.
 
@@ -435,10 +443,12 @@ class GitLabClient(GitClient):
                 - path: File path
                 - line: Line number
                 - body: Comment text
+                - issue_key: Opaque key of the issue (never sent to GitLab)
             commit_sha: Commit SHA to review (defaults to head SHA)
 
         Returns:
-            SubmittedReview with the note ID and body suffix, or None if no note was created.
+            SubmittedReview with the note ID and the ``issue_key`` of every comment that
+            could not be posted inline, or None if no note was created.
         """
         project_path = self._get_project_path(url)
         _, _, pr_number = self.parse_url(url)
@@ -487,7 +497,7 @@ class GitLabClient(GitClient):
                 previous_filename=change.get("old_path") if change.get("renamed_file") else None,
             )
 
-        # Track failed comments to append to body
+        # Comments that could not be posted inline: the reporter moves them to the body
         failed_comments: list[dict] = []
         successful_count = 0
 
@@ -537,19 +547,14 @@ class GitLabClient(GitClient):
                     logger.warning(f"Failed to create inline comment on {path}:{line}: {e}")
                     failed_comments.append(comment)
 
-        # Build final body with any failed comments
-        final_body = body
         if failed_comments:
-            final_body = self._append_comments_to_body(body, failed_comments)
-            logger.info(f"Moving {len(failed_comments)} comments to body (could not post inline)")
+            logger.info(f"{len(failed_comments)} comments could not be posted inline")
 
-        # Post main review body as a note (with any failed comments appended)
+        # Post main review body as a note (unchanged)
         note_id = 0
-        body_suffix = ""
-        if final_body:
-            note = gl_mr.notes.create({"body": final_body})
+        if body:
+            note = gl_mr.notes.create({"body": body})
             note_id = note.id
-            body_suffix = final_body[len(body):]
             logger.info(f"Posted review on {project_path}!{pr_number}")
 
         if comments:
@@ -559,7 +564,11 @@ class GitLabClient(GitClient):
             )
 
         if note_id:
-            return SubmittedReview(id=note_id, body_suffix=body_suffix)
+            return SubmittedReview(
+                id=note_id,
+                rejected=[k for k in (c.get("issue_key", "") for c in failed_comments) if k],
+                split=split,
+            )
         return None
 
     def update_review(
@@ -587,37 +596,6 @@ class GitLabClient(GitClient):
         note.save()
         logger.info(f"Updated note {review.id} on {project_path}!{pr_number}")
 
-    def _append_comments_to_body(self, body: str, comments: list[dict]) -> str:
-        """Append inline comments to the review body when they can't be posted inline.
-
-        Args:
-            body: Original review body
-            comments: List of comment dicts that couldn't be posted inline
-
-        Returns:
-            Updated body with comments appended
-        """
-        if not comments:
-            return body
-
-        lines = [body, "", "---", "", "## ⚠️ Additional Issues (could not post inline)", ""]
-
-        for comment in comments:
-            path = comment.get("path", "unknown")
-            line = comment.get("line", "?")
-            comment_body = comment.get("body", "")
-
-            lines.extend(
-                [
-                    f"### `{path}:{line}`",
-                    "",
-                    comment_body,
-                    "",
-                ]
-            )
-
-        return "\n".join(lines)
-
     @staticmethod
     def _project_path(owner: str, repo: str) -> str:
         return f"{owner}/{repo}" if owner else repo
@@ -638,65 +616,77 @@ class GitLabClient(GitClient):
             ) from e
 
     @staticmethod
-    def _put_file(project: Any, path: str, content: str, message: str, branch: str) -> None:
-        """Create or update one file on ``branch`` in a single commit."""
+    def _exists_at(project: Any, path: str, ref: str) -> bool:
         try:
-            project.files.get(file_path=path, ref=branch)
-            action = "update"
+            project.files.get(file_path=path, ref=ref)
+            return True
         except gitlab.exceptions.GitlabGetError:
-            action = "create"
-        project.commits.create(
-            {
-                "branch": branch,
-                "commit_message": message,
-                "actions": [{"action": action, "file_path": path, "content": content}],
-            }
-        )
+            return False
 
-    def upsert_report_pull_request(
+    def upsert_branch_pull_request(
         self,
         owner: str,
         repo: str,
         base_branch: str,
         base_sha: str,
         head_branch: str,
-        file_path: str,
-        file_content: str,
+        files: dict[str, str | None],
         commit_message: str,
         title: str,
         body: str,
         update_comment: str,
+        executable: frozenset[str] = frozenset(),
     ) -> SubmittedPullRequest:
-        """Create or update the report MR for a full-path review."""
+        """One commit on ``base_sha`` (``force``), written to ``head_branch``."""
         project_path = self._project_path(owner, repo)
         project = self.gitlab_client.projects.get(project_path)
 
-        open_mrs = project.mergerequests.list(
-            state="opened", source_branch=head_branch, target_branch=base_branch
-        )
-        if open_mrs:
-            # Re-run: update the existing report MR, never touch its history
-            mr = project.mergerequests.get(open_mrs[0].iid)
-            self._put_file(project, file_path, file_content, commit_message, head_branch)
-            mr.description = body
-            mr.save()
-            mr.notes.create({"body": update_comment})
-            logger.info(f"Updated report MR !{mr.iid} on {project_path}")
-            return SubmittedPullRequest(number=mr.iid, url=mr.web_url, created=False)
+        actions: list[dict[str, Any]] = []
+        for path, content in sorted(files.items()):
+            exists = self._exists_at(project, path, base_sha)
+            if content is None:
+                if exists:
+                    actions.append({"action": "delete", "file_path": path})
+                continue
+            action: dict[str, Any] = {
+                "action": "update" if exists else "create",
+                "file_path": path,
+                "content": content,
+            }
+            if path in executable:
+                action["execute_filemode"] = True
+            actions.append(action)
+
+        try:
+            project.branches.get(head_branch)
+            branch_existed = True
+        except gitlab.exceptions.GitlabGetError:
+            branch_existed = False
 
         branch_created = False
         try:
-            try:
-                project.branches.get(head_branch)
-            except gitlab.exceptions.GitlabGetError:
-                pass
-            else:
-                # Stale branch from a closed/merged report MR: restart from base
-                project.branches.delete(head_branch)
-            project.branches.create({"branch": head_branch, "ref": base_sha})
-            branch_created = True
+            # start_sha + force: the branch is (re)written to one commit on base_sha
+            project.commits.create(
+                {
+                    "branch": head_branch,
+                    "start_sha": base_sha,
+                    "force": True,
+                    "commit_message": commit_message,
+                    "actions": actions,
+                }
+            )
+            branch_created = not branch_existed
 
-            self._put_file(project, file_path, file_content, commit_message, head_branch)
+            open_mrs = project.mergerequests.list(
+                state="opened", source_branch=head_branch, target_branch=base_branch
+            )
+            if open_mrs:
+                mr = project.mergerequests.get(open_mrs[0].iid)
+                mr.description = body
+                mr.save()
+                mr.notes.create({"body": update_comment})
+                logger.info(f"Updated MR !{mr.iid} ({head_branch}) on {project_path}")
+                return SubmittedPullRequest(number=mr.iid, url=mr.web_url, created=False)
             mr = project.mergerequests.create(
                 {
                     "source_branch": head_branch,
@@ -709,11 +699,11 @@ class GitLabClient(GitClient):
             if branch_created:
                 try:
                     project.branches.delete(head_branch)
-                    logger.warning(f"Deleted branch {head_branch} after a failed report MR")
+                    logger.warning(f"Deleted branch {head_branch} after a failed MR")
                 except Exception as cleanup_err:
                     logger.warning(f"Could not delete branch {head_branch}: {cleanup_err}")
             raise
-        logger.info(f"Opened report MR !{mr.iid} on {project_path}")
+        logger.info(f"Opened MR !{mr.iid} ({head_branch}) on {project_path}")
         return SubmittedPullRequest(number=mr.iid, url=mr.web_url, created=True)
 
     def update_pull_request_body(self, url: str, body: str) -> None:
@@ -724,3 +714,21 @@ class GitLabClient(GitClient):
         mr.description = body
         mr.save()
         logger.info(f"Updated MR !{mr_iid} description on {project_path}")
+
+    def post_comment(self, url: str, body: str) -> int:
+        """Post a comment on the merge request.
+
+        Args:
+            url: GitLab MR URL
+            body: Comment body text
+
+        Returns:
+            The note ID
+        """
+        project_path = self._get_project_path(url)
+        _, _, mr_iid = self.parse_url(url)
+        project = self.gitlab_client.projects.get(project_path)
+        gl_mr = project.mergerequests.get(mr_iid)
+        note = gl_mr.notes.create({"body": body})
+        logger.debug(f"Posted comment {note.id} on {project_path}!{mr_iid}")
+        return note.id

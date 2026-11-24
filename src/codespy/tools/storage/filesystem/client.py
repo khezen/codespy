@@ -21,6 +21,15 @@ from codespy.tools.storage.models import (
 logger = logging.getLogger(__name__)
 
 
+class InvalidPathError(ValueError):
+    """A path the caller got wrong: it escapes the root or cannot be resolved.
+
+    Subclasses ``ValueError`` so existing ``except ValueError`` callers keep
+    working. The filesystem MCP server returns it to the agent as a readable
+    ``ToolError``.
+    """
+
+
 class FileSystem(Storage):
     """Local filesystem storage client.
 
@@ -60,7 +69,7 @@ class FileSystem(Storage):
         if not self.root.is_dir():
             raise ValueError(f"Root is not a directory: {self.root}")
 
-    def _resolve_path(self, path: str) -> Path:
+    def resolve_path(self, path: str) -> Path:
         """Resolve a path relative to root, with security checks.
 
         Args:
@@ -70,17 +79,21 @@ class FileSystem(Storage):
             Absolute path.
 
         Raises:
-            ValueError: If path escapes root directory.
+            InvalidPathError: If the path escapes the root directory or cannot
+                be resolved (e.g. it contains a NUL byte).
         """
         if not path or path == ".":
             return self.root
 
-        resolved = (self.root / path).resolve()
+        try:
+            resolved = (self.root / path).resolve()
+        except (ValueError, OSError):
+            raise InvalidPathError(f"Invalid path: {path!r}") from None
 
         try:
             resolved.relative_to(self.root)
         except ValueError:
-            raise ValueError(f"Path escapes root directory: {path}") from None
+            raise InvalidPathError(f"Path escapes root directory: {path}") from None
 
         return resolved
 
@@ -91,7 +104,7 @@ class FileSystem(Storage):
     def exists(self, path: str = "") -> bool:
         """Check if a path exists."""
         try:
-            resolved = self._resolve_path(path)
+            resolved = self.resolve_path(path)
             return resolved.exists()
         except ValueError:
             return False
@@ -113,7 +126,7 @@ class FileSystem(Storage):
 
     def get_info(self, path: str = "") -> Info:
         """Get information about a file or directory."""
-        resolved = self._resolve_path(path)
+        resolved = self.resolve_path(path)
         if not resolved.exists():
             raise FileNotFoundError(f"Path not found: {path}")
         return Info.from_path(resolved, self.root)
@@ -124,7 +137,7 @@ class FileSystem(Storage):
         include_hidden: bool = False,
     ) -> Listing:
         """List contents of a directory."""
-        resolved = self._resolve_path(path)
+        resolved = self.resolve_path(path)
 
         if not resolved.exists():
             raise FileNotFoundError(f"Directory not found: {path}")
@@ -181,7 +194,7 @@ class FileSystem(Storage):
         max_lines: int | None = None,
     ) -> Content:
         """Read contents of a file."""
-        resolved = self._resolve_path(path)
+        resolved = self.resolve_path(path)
 
         if not resolved.exists():
             return Content(path=path, error=f"File not found: {path}")
@@ -228,7 +241,7 @@ class FileSystem(Storage):
         include_hidden: bool = False,
     ) -> TreeNode:
         """Get a tree representation of a directory."""
-        resolved = self._resolve_path(path)
+        resolved = self.resolve_path(path)
 
         if not resolved.exists():
             raise FileNotFoundError(f"Directory not found: {path}")
@@ -288,7 +301,7 @@ class FileSystem(Storage):
             OperationResult indicating success or failure.
         """
         try:
-            resolved = self._resolve_path(path)
+            resolved = self.resolve_path(path)
         except ValueError as e:
             return OperationResult(success=False, path=path, error=str(e))
 
@@ -317,7 +330,7 @@ class FileSystem(Storage):
             OperationResult indicating success or failure.
         """
         try:
-            resolved = self._resolve_path(path)
+            resolved = self.resolve_path(path)
         except ValueError as e:
             return OperationResult(success=False, path=path, error=str(e))
 
@@ -335,4 +348,65 @@ class FileSystem(Storage):
             )
         except Exception as e:
             logger.error(f"delete_file failed for {path!r}: {e}")
+            return OperationResult(success=False, path=path, error=str(e))
+
+    def replace_in_file(
+        self,
+        path: str,
+        old: str,
+        new: str,
+    ) -> OperationResult:
+        """Replace exact text in a file.
+
+        The old string must match exactly once. Creates no backup.
+
+        Args:
+            path: Relative file path.
+            old: Exact text to replace.
+            new: Replacement text.
+
+        Returns:
+            OperationResult indicating success or failure.
+        """
+        try:
+            resolved = self.resolve_path(path)
+        except ValueError as e:
+            return OperationResult(success=False, path=path, error=str(e))
+
+        if not resolved.exists():
+            return OperationResult(success=False, path=path, error=f"File not found: {path}")
+        if resolved.is_dir():
+            return OperationResult(success=False, path=path, error=f"Path is a directory: {path}")
+
+        try:
+            content = resolved.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return OperationResult(
+                success=False, path=path, error=f"Cannot read file as text: {path}"
+            )
+        except Exception as e:
+            return OperationResult(success=False, path=path, error=str(e))
+
+        count = content.count(old)
+        if count == 0:
+            return OperationResult(
+                success=False, path=path, error=f"Old text not found in file: {path}"
+            )
+        if count > 1:
+            return OperationResult(
+                success=False,
+                path=path,
+                error=f"Old text found {count} times in file, expected exactly 1: {path}",
+            )
+
+        new_content = content.replace(old, new, 1)
+        try:
+            resolved.write_text(new_content, encoding="utf-8")
+            return OperationResult(
+                success=True,
+                path=str(resolved.relative_to(self.root)),
+                message=f"Replaced text in {resolved}",
+            )
+        except Exception as e:
+            logger.error(f"replace_in_file failed for {path!r}: {e}")
             return OperationResult(success=False, path=path, error=str(e))

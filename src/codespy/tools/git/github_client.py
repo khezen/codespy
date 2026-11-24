@@ -5,7 +5,6 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any
 
 from git import Repo
 from github import Auth, Github, GithubException
@@ -118,6 +117,12 @@ class GitHubClient(GitClient):
                 )
             )
 
+        # Detect fork: head.repo is None (deleted fork) or different from base.repo
+        is_fork = (
+            gh_pr.head.repo is None
+            or gh_pr.head.repo.full_name != gh_pr.base.repo.full_name
+        )
+
         pr = PullRequest(
             number=gh_pr.number,
             title=gh_pr.title,
@@ -136,6 +141,7 @@ class GitHubClient(GitClient):
             changed_files=changed_files,
             labels=[label.name for label in gh_pr.labels],
             platform=GitPlatform.GITHUB,
+            is_fork=is_fork,
         )
         self._fetch_conversation(gh_pr, pr)
         return pr
@@ -363,6 +369,8 @@ class GitHubClient(GitClient):
         body: str,
         comments: list[dict] | None = None,
         commit_sha: str | None = None,
+        *,
+        split: bool = False,
     ) -> SubmittedReview | None:
         """Submit a review on a pull request.
 
@@ -407,14 +415,14 @@ class GitHubClient(GitClient):
 
         # Build comments list for the API, filtering out invalid paths
         review_comments = []
-        skipped_path_comments = []
+        rejected: list[str] = []
         if comments:
             for comment in comments:
                 path = comment["path"]
-                # Skip comments for files not in the PR diff
+                # Comments for files not in the PR diff go to the review body
                 if path not in changed_files_map:
-                    skipped_path_comments.append(comment)
-                    logger.warning(f"Skipping comment for file not in PR: {path}")
+                    rejected.append(comment.get("issue_key", ""))
+                    logger.warning(f"Cannot post comment inline, file not in PR: {path}")
                     continue
 
                 review_comment = {
@@ -428,10 +436,14 @@ class GitHubClient(GitClient):
                 # Support multi-line comments
                 if "start_line" in comment and "line" in comment:
                     review_comment["start_line"] = comment["start_line"]
+                review_comment["issue_key"] = comment.get("issue_key", "")
                 review_comments.append(review_comment)
 
-        body_suffix = ""
         review_id = 0
+
+        def api_comments(items: list[dict]) -> list[dict]:
+            """Comments as the API expects them (without our ``issue_key``)."""
+            return [{k: v for k, v in c.items() if k != "issue_key"} for c in items]
 
         # Try to submit the review optimistically with all inline comments
         try:
@@ -439,7 +451,7 @@ class GitHubClient(GitClient):
                 commit=repo.get_commit(review_commit),
                 body=body,
                 event="COMMENT",
-                comments=review_comments,
+                comments=api_comments(review_comments),
             )
             review_id = review.id
             logger.info(
@@ -469,10 +481,8 @@ class GitHubClient(GitClient):
                         invalid_line_comments.append(comment)
                         logger.debug(f"Comment on {path}:{line} not in diff, moving to body")
 
-                # Build updated body with invalid line comments
-                updated_body = body
+                rejected.extend(c["issue_key"] for c in invalid_line_comments)
                 if invalid_line_comments:
-                    updated_body = self._append_comments_to_body(body, invalid_line_comments)
                     logger.info(
                         f"Moving {len(invalid_line_comments)} comments with invalid lines to body"
                     )
@@ -481,31 +491,28 @@ class GitHubClient(GitClient):
                 try:
                     review = gh_pr.create_review(
                         commit=repo.get_commit(review_commit),
-                        body=updated_body,
+                        body=body,
                         event="COMMENT",
-                        comments=valid_comments,
+                        comments=api_comments(valid_comments),
                     )
                     review_id = review.id
-                    body_suffix = updated_body[len(body):]
                     logger.info(
                         f"Submitted review on {owner}/{repo_name}#{pr_number} "
                         f"with {len(valid_comments)} inline comments (after validation)"
                     )
                 except Exception as retry_e:
-                    # Final fallback: all comments to body
+                    # Final fallback: every comment goes to the body
                     logger.warning(
                         f"Retry with valid comments also failed ({retry_e}), posting body only"
                     )
-                    all_failed_comments = review_comments  # All original comments
-                    final_body = self._append_comments_to_body(body, all_failed_comments)
+                    rejected.extend(c["issue_key"] for c in valid_comments)
                     review = gh_pr.create_review(
                         commit=repo.get_commit(review_commit),
-                        body=final_body,
+                        body=body,
                         event="COMMENT",
                         comments=[],
                     )
                     review_id = review.id
-                    body_suffix = final_body[len(body):]
                     logger.info(
                         f"Submitted review on {owner}/{repo_name}#{pr_number} "
                         f"(body only, all comments)"
@@ -513,10 +520,9 @@ class GitHubClient(GitClient):
             else:
                 raise
 
-        if skipped_path_comments:
-            logger.info(f"Skipped {len(skipped_path_comments)} comments for files not in PR")
-
-        return SubmittedReview(id=review_id, body_suffix=body_suffix)
+        return SubmittedReview(
+            id=review_id, rejected=[k for k in rejected if k], split=split
+        )
 
     def update_review(
         self,
@@ -540,37 +546,6 @@ class GitHubClient(GitClient):
         gh_review.edit(body=body)
         logger.info(f"Updated review {review.id} on {owner}/{repo_name}#{pr_number}")
 
-    def _append_comments_to_body(self, body: str, comments: list[dict]) -> str:
-        """Append inline comments to the review body when they can't be posted inline.
-
-        Args:
-            body: Original review body
-            comments: List of comment dicts that couldn't be posted inline
-
-        Returns:
-            Updated body with comments appended
-        """
-        if not comments:
-            return body
-
-        lines = [body, "", "---", "", "## ⚠️ Additional Issues (could not post inline)", ""]
-
-        for comment in comments:
-            path = comment.get("path", "unknown")
-            line = comment.get("line", "?")
-            comment_body = comment.get("body", "")
-
-            lines.extend(
-                [
-                    f"### `{path}:{line}`",
-                    "",
-                    comment_body,
-                    "",
-                ]
-            )
-
-        return "\n".join(lines)
-
     def get_default_branch(self, owner: str, repo: str) -> str:
         """Get the default branch for a repository."""
         return str(self.github.get_repo(f"{owner}/{repo}").default_branch)
@@ -588,48 +563,35 @@ class GitHubClient(GitClient):
                 ) from e
             raise
 
-    @staticmethod
-    def _put_file(gh_repo: Any, path: str, content: str, message: str, branch: str) -> None:
-        """Create or update one file on ``branch`` (one commit)."""
-        try:
-            existing = gh_repo.get_contents(path, ref=branch)
-        except GithubException as e:
-            if e.status != 404:
-                raise
-            gh_repo.create_file(path=path, message=message, content=content, branch=branch)
-            return
-        gh_repo.update_file(
-            path=path, message=message, content=content, sha=existing.sha, branch=branch
-        )
-
-    def upsert_report_pull_request(
+    def upsert_branch_pull_request(
         self,
         owner: str,
         repo: str,
         base_branch: str,
         base_sha: str,
         head_branch: str,
-        file_path: str,
-        file_content: str,
+        files: dict[str, str | None],
         commit_message: str,
         title: str,
         body: str,
         update_comment: str,
+        executable: frozenset[str] = frozenset(),
     ) -> SubmittedPullRequest:
-        """Create or update the report PR for a full-path review."""
-        gh_repo = self.github.get_repo(f"{owner}/{repo}")
+        """One commit on ``base_sha`` (git data API), force-pushed to ``head_branch``."""
+        from github import InputGitTreeElement
 
-        open_prs = list(
-            gh_repo.get_pulls(state="open", head=f"{owner}:{head_branch}", base=base_branch)
-        )
-        if open_prs:
-            # Re-run: update the existing report PR, never touch its history
-            gh_pr = open_prs[0]
-            self._put_file(gh_repo, file_path, file_content, commit_message, head_branch)
-            gh_pr.edit(body=body)
-            gh_pr.create_issue_comment(update_comment)
-            logger.info(f"Updated report PR #{gh_pr.number} on {owner}/{repo}")
-            return SubmittedPullRequest(number=gh_pr.number, url=gh_pr.html_url, created=False)
+        gh_repo = self.github.get_repo(f"{owner}/{repo}")
+        base_commit = gh_repo.get_git_commit(base_sha)
+        elements = [
+            InputGitTreeElement(path, "100644", "blob", sha=None)
+            if content is None
+            else InputGitTreeElement(
+                path, "100755" if path in executable else "100644", "blob", content=content
+            )
+            for path, content in sorted(files.items())
+        ]
+        tree = gh_repo.create_git_tree(elements, base_commit.tree)
+        commit = gh_repo.create_git_commit(commit_message, tree, [base_commit])
 
         branch_created = False
         try:
@@ -638,23 +600,31 @@ class GitHubClient(GitClient):
             except GithubException as e:
                 if e.status != 404:
                     raise
-                gh_repo.create_git_ref(f"refs/heads/{head_branch}", base_sha)
+                gh_repo.create_git_ref(f"refs/heads/{head_branch}", commit.sha)
                 branch_created = True
             else:
-                # Stale branch from a closed/merged report PR: restart from base
-                ref.edit(base_sha, force=True)
+                # Re-run or stale branch: discard earlier commits
+                ref.edit(commit.sha, force=True)
 
-            self._put_file(gh_repo, file_path, file_content, commit_message, head_branch)
+            open_prs = list(
+                gh_repo.get_pulls(state="open", head=f"{owner}:{head_branch}", base=base_branch)
+            )
+            if open_prs:
+                gh_pr = open_prs[0]
+                gh_pr.edit(body=body)
+                gh_pr.create_issue_comment(update_comment)
+                logger.info(f"Updated PR #{gh_pr.number} ({head_branch}) on {owner}/{repo}")
+                return SubmittedPullRequest(number=gh_pr.number, url=gh_pr.html_url, created=False)
             gh_pr = gh_repo.create_pull(title=title, body=body, base=base_branch, head=head_branch)
         except Exception:
             if branch_created:
                 try:
                     gh_repo.get_git_ref(f"heads/{head_branch}").delete()
-                    logger.warning(f"Deleted branch {head_branch} after a failed report PR")
+                    logger.warning(f"Deleted branch {head_branch} after a failed PR")
                 except Exception as cleanup_err:
                     logger.warning(f"Could not delete branch {head_branch}: {cleanup_err}")
             raise
-        logger.info(f"Opened report PR #{gh_pr.number} on {owner}/{repo}")
+        logger.info(f"Opened PR #{gh_pr.number} ({head_branch}) on {owner}/{repo}")
         return SubmittedPullRequest(number=gh_pr.number, url=gh_pr.html_url, created=True)
 
     def update_pull_request_body(self, url: str, body: str) -> None:
@@ -663,3 +633,20 @@ class GitHubClient(GitClient):
         gh_pr: GHPullRequest = self.github.get_repo(f"{owner}/{repo_name}").get_pull(pr_number)
         gh_pr.edit(body=body)
         logger.info(f"Updated PR #{pr_number} body on {owner}/{repo_name}")
+
+    def post_comment(self, url: str, body: str) -> int:
+        """Post a comment on the pull request.
+
+        Args:
+            url: GitHub PR URL
+            body: Comment body text
+
+        Returns:
+            The comment ID
+        """
+        owner, repo_name, pr_number = self.parse_url(url)
+        repo = self.github.get_repo(f"{owner}/{repo_name}")
+        gh_pr: GHPullRequest = repo.get_pull(pr_number)
+        comment = gh_pr.create_issue_comment(body)
+        logger.debug(f"Posted comment {comment.id} on {owner}/{repo_name}#{pr_number}")
+        return comment.id

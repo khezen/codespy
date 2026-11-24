@@ -382,11 +382,11 @@ inputs:
     required: false
 
   plan-max-iters:
-    description: 'Max iterations for implementation plan. Default from codespy.yaml: 5'
+    description: 'Max iterations for implementation plan, per scope with issues (scaled for the single run, at most x8). Default from codespy.yaml: 5'
     required: false
 
   plan-max-llm-calls:
-    description: 'Max LLM calls for implementation plan RLM fallback. Default from codespy.yaml: 16'
+    description: 'Max LLM calls for implementation plan RLM fallback, per scope with issues (scaled for the single run, at most x8). Default from codespy.yaml: 16'
     required: false
 
   plan-max-tokens:
@@ -399,6 +399,37 @@ inputs:
 
   plan-temperature:
     description: 'Temperature for implementation plan. Default from codespy.yaml: 1.0'
+    required: false
+
+  # ==========================================
+  # SIGNATURE: implement
+  # ==========================================
+  implement-enabled:
+    description: 'Enable implementation agent that implements the plan. Default from codespy.yaml: false'
+    required: false
+
+  implement-model:
+    description: 'Model for implementation agent (empty = use default). Default from codespy.yaml: bedrock/converse/global.anthropic.claude-opus-5-5'
+    required: false
+
+  implement-max-iters:
+    description: 'Max iterations for implementation agent, per step (scaled for the single run, at most x8). Default from codespy.yaml: 5'
+    required: false
+
+  implement-max-llm-calls:
+    description: 'Max LLM calls for implementation agent RLM fallback, per step (scaled for the single run, at most x8). Default from codespy.yaml: 16'
+    required: false
+
+  implement-max-tokens:
+    description: 'Max tokens for implementation agent. Default from codespy.yaml: default-max-tokens'
+    required: false
+
+  implement-reasoning-effort:
+    description: 'Reasoning effort for implementation agent (minimal|low|medium|high). Default from codespy.yaml: medium'
+    required: false
+
+  implement-temperature:
+    description: 'Temperature for implementation agent. Default from codespy.yaml: 1.0'
     required: false
 
   # ==========================================
@@ -737,6 +768,15 @@ runs:
         REVIEW_PLAN_MAX_TOKENS: ${{ inputs.plan-max-tokens }}
         REVIEW_PLAN_REASONING_EFFORT: ${{ inputs.plan-reasoning-effort }}
         REVIEW_PLAN_TEMPERATURE: ${{ inputs.plan-temperature }}
+
+        # Implement signature
+        REVIEW_IMPLEMENT_ENABLED: ${{ inputs.implement-enabled }}
+        REVIEW_IMPLEMENT_MODEL: ${{ inputs.implement-model }}
+        REVIEW_IMPLEMENT_MAX_ITERS: ${{ inputs.implement-max-iters }}
+        REVIEW_IMPLEMENT_MAX_LLM_CALLS: ${{ inputs.implement-max-llm-calls }}
+        REVIEW_IMPLEMENT_MAX_TOKENS: ${{ inputs.implement-max-tokens }}
+        REVIEW_IMPLEMENT_REASONING_EFFORT: ${{ inputs.implement-reasoning-effort }}
+        REVIEW_IMPLEMENT_TEMPERATURE: ${{ inputs.implement-temperature }}
 
         # Output settings (REVIEW_OUTPUT_FORMAT removed - only via CLI flag)
 

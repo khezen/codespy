@@ -494,18 +494,50 @@ class TestReportRendering:
     def test_publish_and_update(self):
         reporter = _reporter()
         handle = SubmittedPullRequest(number=7, url="https://github.com/o/r/pull/7", created=True)
-        reporter.client.upsert_report_pull_request.return_value = handle
+        reporter.client.upsert_branch_pull_request.return_value = handle
         result = _result()
         assert reporter.publish(result) is handle
-        kwargs = reporter.client.upsert_report_pull_request.call_args.kwargs
+        kwargs = reporter.client.upsert_branch_pull_request.call_args.kwargs
         assert kwargs["head_branch"] == "codespy/review/src"
-        assert kwargs["file_path"] == ".codespy/reviews/src.md"
+        assert kwargs["files"] == {".codespy/reviews/src.md": result.to_markdown()}
         assert kwargs["base_branch"] == "main"
         assert kwargs["base_sha"] == "s" * 40
-        assert kwargs["file_content"] == result.to_markdown()
         reporter.update(handle, result)
         reporter.client.update_pull_request_body.assert_called_once()
         assert reporter.client.update_pull_request_body.call_args.args[0] == handle.url
+
+    def test_code_changes_land_in_same_commit_as_report(self):
+        from codespy.agents.review.implement import FileChange, ImplementationResult
+
+        reporter = _reporter()
+        reporter.client.upsert_branch_pull_request.return_value = SubmittedPullRequest(
+            number=7, url="u", created=False
+        )
+        result = _result().model_copy(
+            update={
+                "implementation": ImplementationResult(
+                    summary="fixed",
+                    completed_steps=[1],
+                    changes=[
+                        FileChange(path="src/a.py", content="x = 1\n"),
+                        FileChange(path="src/run.sh", content="echo\n", executable=True),
+                        FileChange(path="src/old.py", content=None),
+                    ],
+                )
+            }
+        )
+        reporter.publish(result)
+        reporter.client.upsert_branch_pull_request.assert_called_once()
+        kwargs = reporter.client.upsert_branch_pull_request.call_args.kwargs
+        assert kwargs["files"] == {
+            "src/a.py": "x = 1\n",
+            "src/run.sh": "echo\n",
+            "src/old.py": None,
+            ".codespy/reviews/src.md": result.to_markdown(),
+        }
+        assert kwargs["executable"] == frozenset({"src/run.sh"})
+        assert "🤖 Implementation" in kwargs["body"]
+        assert "included in this PR" in kwargs["body"]
 
 
 # --- platform upsert --------------------------------------------------------------------
@@ -517,8 +549,8 @@ UPSERT = dict(
     base_branch="main",
     base_sha="base",
     head_branch="codespy/review/src",
-    file_path=".codespy/reviews/src.md",
-    file_content="# report",
+    files={".codespy/reviews/src.md": "# report", "src/gone.py": None, "bin/run": "x"},
+    executable=frozenset({"bin/run"}),
     commit_message="msg",
     title="t",
     body="b",
@@ -537,66 +569,57 @@ class TestGitHubUpsert:
         gh_repo = MagicMock()
         client._github = MagicMock()
         client._github.get_repo.return_value = gh_repo
+        gh_repo.create_git_commit.return_value = MagicMock(sha="new")
         not_found = GithubException(404, {"message": "Not Found"}, None)
         return client, gh_repo, not_found
 
-    def test_creates_branch_file_and_pr(self, setup):
+    def test_one_commit_on_base_with_all_files(self, setup):
         client, gh_repo, not_found = setup
-        gh_repo.get_pulls.return_value = []
         gh_repo.get_git_ref.side_effect = not_found
-        gh_repo.get_contents.side_effect = not_found
+        gh_repo.get_pulls.return_value = []
         gh_repo.create_pull.return_value = MagicMock(number=5, html_url="u5")
-        handle = client.upsert_report_pull_request(**UPSERT)
+        handle = client.upsert_branch_pull_request(**UPSERT)
         assert handle == SubmittedPullRequest(number=5, url="u5", created=True)
-        gh_repo.create_git_ref.assert_called_once_with("refs/heads/codespy/review/src", "base")
-        gh_repo.create_file.assert_called_once()
-        assert gh_repo.create_file.call_args.kwargs["branch"] == "codespy/review/src"
+        gh_repo.get_git_commit.assert_called_once_with("base")
+        elements = {e._identity["path"]: e._identity for e in gh_repo.create_git_tree.call_args.args[0]}
+        assert elements["src/gone.py"]["sha"] is None
+        assert elements["bin/run"]["mode"] == "100755"
+        assert elements[".codespy/reviews/src.md"]["mode"] == "100644"
+        assert gh_repo.create_git_tree.call_args.args[1] is gh_repo.get_git_commit.return_value.tree
+        gh_repo.create_git_ref.assert_called_once_with("refs/heads/codespy/review/src", "new")
 
-    def test_updates_open_pr(self, setup):
+    def test_existing_branch_force_reset_and_open_pr_updated(self, setup):
         client, gh_repo, _ = setup
+        ref = MagicMock()
+        gh_repo.get_git_ref.return_value = ref
         pr = MagicMock(number=9, html_url="u9")
         gh_repo.get_pulls.return_value = [pr]
-        gh_repo.get_contents.return_value = MagicMock(sha="blob")
-        handle = client.upsert_report_pull_request(**UPSERT)
+        handle = client.upsert_branch_pull_request(**UPSERT)
         assert handle == SubmittedPullRequest(number=9, url="u9", created=False)
-        gh_repo.update_file.assert_called_once()
-        assert gh_repo.update_file.call_args.kwargs["sha"] == "blob"
+        ref.edit.assert_called_once_with("new", force=True)
         pr.edit.assert_called_once_with(body="b")
         pr.create_issue_comment.assert_called_once_with("c")
         gh_repo.create_git_ref.assert_not_called()
         gh_repo.create_pull.assert_not_called()
 
-    def test_stale_branch_is_reset(self, setup):
-        client, gh_repo, not_found = setup
-        gh_repo.get_pulls.return_value = []
-        ref = MagicMock()
-        gh_repo.get_git_ref.return_value = ref
-        gh_repo.get_contents.side_effect = not_found
-        gh_repo.create_pull.return_value = MagicMock(number=1, html_url="u")
-        client.upsert_report_pull_request(**UPSERT)
-        ref.edit.assert_called_once_with("base", force=True)
-        gh_repo.create_git_ref.assert_not_called()
-
     def test_cleanup_only_created_branch(self, setup):
         client, gh_repo, not_found = setup
-        gh_repo.get_pulls.return_value = []
         created_ref = MagicMock()
         gh_repo.get_git_ref.side_effect = [not_found, created_ref]
-        gh_repo.get_contents.side_effect = not_found
+        gh_repo.get_pulls.return_value = []
         gh_repo.create_pull.side_effect = RuntimeError("forbidden")
         with pytest.raises(RuntimeError):
-            client.upsert_report_pull_request(**UPSERT)
+            client.upsert_branch_pull_request(**UPSERT)
         created_ref.delete.assert_called_once()
 
     def test_no_cleanup_of_existing_branch(self, setup):
-        client, gh_repo, not_found = setup
-        gh_repo.get_pulls.return_value = []
+        client, gh_repo, _ = setup
         ref = MagicMock()
         gh_repo.get_git_ref.return_value = ref
-        gh_repo.get_contents.side_effect = not_found
+        gh_repo.get_pulls.return_value = []
         gh_repo.create_pull.side_effect = RuntimeError("forbidden")
         with pytest.raises(RuntimeError):
-            client.upsert_report_pull_request(**UPSERT)
+            client.upsert_branch_pull_request(**UPSERT)
         ref.delete.assert_not_called()
 
     def test_resolve_branch_rejects_non_branch(self, setup):
@@ -619,44 +642,66 @@ class TestGitLabUpsert:
         client._gitlab.projects.get.return_value = project
         return client, project, gitlab.exceptions.GitlabGetError
 
-    def test_creates_branch_file_and_mr(self, setup):
-        client, project, get_error = setup
-        project.mergerequests.list.return_value = []
-        project.branches.get.side_effect = get_error()
-        project.files.get.side_effect = get_error()
-        project.mergerequests.create.return_value = MagicMock(iid=3, web_url="u3")
-        handle = client.upsert_report_pull_request(**UPSERT)
-        assert handle == SubmittedPullRequest(number=3, url="u3", created=True)
-        project.branches.create.assert_called_once_with(
-            {"branch": "codespy/review/src", "ref": "base"}
-        )
-        action = project.commits.create.call_args.args[0]["actions"][0]["action"]
-        assert action == "create"
-        project.branches.delete.assert_not_called()
+    def _files_exist(self, project, get_error, existing):
+        def get(file_path, ref):
+            assert ref == "base"
+            if file_path not in existing:
+                raise get_error()
+            return MagicMock()
 
-    def test_updates_open_mr(self, setup):
-        client, project, _ = setup
+        project.files.get.side_effect = get
+
+    def test_force_commit_on_base_and_mr_created(self, setup):
+        client, project, get_error = setup
+        self._files_exist(project, get_error, {"src/gone.py"})
+        project.branches.get.side_effect = get_error()
+        project.mergerequests.list.return_value = []
+        project.mergerequests.create.return_value = MagicMock(iid=3, web_url="u3")
+        handle = client.upsert_branch_pull_request(**UPSERT)
+        assert handle == SubmittedPullRequest(number=3, url="u3", created=True)
+        payload = project.commits.create.call_args.args[0]
+        assert payload["branch"] == "codespy/review/src"
+        assert payload["start_sha"] == "base"
+        assert payload["force"] is True
+        actions = {a["file_path"]: a for a in payload["actions"]}
+        assert actions["src/gone.py"]["action"] == "delete"
+        assert actions["bin/run"] == {
+            "action": "create", "file_path": "bin/run", "content": "x", "execute_filemode": True
+        }
+        assert actions[".codespy/reviews/src.md"]["action"] == "create"
+
+    def test_delete_of_missing_file_dropped_and_open_mr_updated(self, setup):
+        client, project, get_error = setup
+        self._files_exist(project, get_error, {".codespy/reviews/src.md"})
         project.mergerequests.list.return_value = [MagicMock(iid=4)]
         mr = MagicMock(iid=4, web_url="u4")
         project.mergerequests.get.return_value = mr
-        handle = client.upsert_report_pull_request(**UPSERT)
+        handle = client.upsert_branch_pull_request(**UPSERT)
         assert handle == SubmittedPullRequest(number=4, url="u4", created=False)
-        assert project.commits.create.call_args.args[0]["actions"][0]["action"] == "update"
+        actions = {a["file_path"]: a["action"] for a in project.commits.create.call_args.args[0]["actions"]}
+        assert actions == {".codespy/reviews/src.md": "update", "bin/run": "create"}
         assert mr.description == "b"
         mr.save.assert_called_once()
         mr.notes.create.assert_called_once_with({"body": "c"})
-        project.branches.create.assert_not_called()
 
-    def test_stale_branch_recreated_and_cleanup_on_failure(self, setup):
+    def test_cleanup_only_created_branch(self, setup):
         client, project, get_error = setup
+        self._files_exist(project, get_error, set())
+        project.branches.get.side_effect = get_error()
         project.mergerequests.list.return_value = []
-        project.files.get.side_effect = get_error()
         project.mergerequests.create.side_effect = RuntimeError("forbidden")
         with pytest.raises(RuntimeError):
-            client.upsert_report_pull_request(**UPSERT)
-        # Stale branch deleted, recreated at base, then cleaned up after the failure
-        assert project.branches.delete.call_count == 2
-        project.branches.create.assert_called_once()
+            client.upsert_branch_pull_request(**UPSERT)
+        project.branches.delete.assert_called_once_with("codespy/review/src")
+
+    def test_existing_branch_not_deleted_on_failure(self, setup):
+        client, project, get_error = setup
+        self._files_exist(project, get_error, set())
+        project.mergerequests.list.return_value = []
+        project.mergerequests.create.side_effect = RuntimeError("forbidden")
+        with pytest.raises(RuntimeError):
+            client.upsert_branch_pull_request(**UPSERT)
+        project.branches.delete.assert_not_called()
 
     def test_resolve_branch_rejects_non_branch(self, setup):
         client, project, get_error = setup
