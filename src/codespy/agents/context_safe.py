@@ -7,6 +7,7 @@ exceed the model's context window. Used to wrap all DSPy signature modules.
 import enum
 import logging
 import re
+import threading
 from collections.abc import Callable
 
 import dspy  # type: ignore[import-untyped]
@@ -73,6 +74,28 @@ COVERAGE_REJECTION_PREFIX = "[Coverage]"
 # SUBMIT back (loop continues), or None to accept it.
 SubmitCheck = Callable[[REPLHistory], "str | None"]
 
+# dspy.RLM's default ``max_output_chars`` (kept when codespy passes None).
+DSPY_DEFAULT_MAX_OUTPUT_CHARS = 10_000
+
+
+class _CountingBudget:
+    """Wraps dspy's per-forward sub-LLM budget and counts accepted charges.
+
+    ``reserve(n)`` delegates first: a charge dspy refuses (limit exceeded)
+    raises before it is counted. dspy does not refund failed LM calls, and
+    neither does this count.
+    """
+
+    def __init__(self, inner: object) -> None:
+        self.inner = inner
+        self.calls = 0
+        self._lock = threading.Lock()
+
+    def reserve(self, n: int = 1) -> None:
+        self.inner.reserve(n)  # type: ignore[attr-defined]
+        with self._lock:
+            self.calls += n
+
 
 class CodespyRLM(dspy.RLM):
     """dspy.RLM adjusted for codespy.
@@ -85,7 +108,7 @@ class CodespyRLM(dspy.RLM):
       history (one ``Output (`` -> ``Output: (`` edit clears it), so no wording
       avoids it reliably. Not a retry: the refused step is not re-sent.
     - Configurable ``max_output_chars`` (cap of one REPL step output shown to the
-      model; dspy's default 10k is kept when ``None``).
+      model; ``DSPY_DEFAULT_MAX_OUTPUT_CHARS`` is kept when ``None``).
     - Optional SUBMIT gate (``submit_check``): while it reports a message (e.g.
       unseen changed files) and budget remains, a valid SUBMIT is sent back to
       the model with that message and the loop continues. Once the budget is
@@ -106,12 +129,12 @@ class CodespyRLM(dspy.RLM):
         self._submit_check = submit_check
         self.coverage_rejections = 0
         self._iteration = 0
-        self._llm_budget = None
+        self._budget_proxy: _CountingBudget | None = None
 
     def _reset_gate_state(self) -> None:
         self.coverage_rejections = 0
         self._iteration = 0
-        self._llm_budget = None
+        self._budget_proxy = None
 
     def forward(self, **kwargs):  # type: ignore[no-untyped-def]
         self._reset_gate_state()
@@ -123,27 +146,36 @@ class CodespyRLM(dspy.RLM):
 
     # --- SUBMIT gate -------------------------------------------------------
 
+    # dspy 3.4.1 hands the per-forward sub-LLM budget to these two methods, and
+    # every charge goes through its `reserve(n)` (llm_query/llm_query_batched and
+    # sandbox sub-agents). Passing the same counting proxy to both keeps an exact
+    # count without reading the budget's fields (pinned by tests/test_rlm_coverage.py).
+
+    def _counting(self, budget: object | None) -> "_CountingBudget | None":
+        if budget is None:
+            return None
+        proxy = self._budget_proxy
+        if proxy is None or proxy.inner is not budget:
+            proxy = self._budget_proxy = _CountingBudget(budget)
+        return proxy
+
     def _make_llm_tools(self, budget=None, max_workers: int = 8):  # type: ignore[no-untyped-def]
-        # Keep the per-forward sub-LLM budget so the gate can tell when it is spent.
-        self._llm_budget = budget
-        return super()._make_llm_tools(budget, max_workers)
+        return super()._make_llm_tools(self._counting(budget), max_workers)
+
+    def _setup_facade(self, repl, budget, interpreter_factory):  # type: ignore[no-untyped-def]
+        return super()._setup_facade(repl, self._counting(budget), interpreter_factory)
 
     def _llm_budget_spent(self) -> bool:
-        # NOTE: `_count` / `_limit` are private attributes of dspy 3.4.1's
-        # `_LLMCallBudget` (pinned by tests/test_rlm_coverage.py).
-        budget = self._llm_budget
-        if budget is None:
-            return False
-        try:
-            return bool(budget._count >= budget._limit)
-        except AttributeError:
-            return False
+        proxy = self._budget_proxy
+        limit = self.max_llm_calls
+        return proxy is not None and limit is not None and proxy.calls >= limit
 
     def _budget_spent(self) -> bool:
         return self._iteration + 1 >= self.max_iters or self._llm_budget_spent()
 
     def _run_submit_check(self, history) -> str | None:  # type: ignore[no-untyped-def]
-        assert self._submit_check is not None
+        if self._submit_check is None:
+            return None
         try:
             message = self._submit_check(history)
         except Exception:

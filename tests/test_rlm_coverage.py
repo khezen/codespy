@@ -1,17 +1,23 @@
 """Coverage of changed files by the root RLM: helper, SUBMIT gate, plumbing."""
 
 import asyncio
+import inspect
 import logging
 from unittest.mock import MagicMock, patch
 
 import dspy  # type: ignore[import-untyped]
 import pytest
-from dspy.predict.rlm import _LLMCallBudget  # type: ignore[import-untyped]
 from dspy.primitives.code_interpreter import FinalOutput  # type: ignore[import-untyped]
 from dspy.primitives.repl_types import REPLEntry, REPLHistory  # type: ignore[import-untyped]
 from dspy.utils.dummies import DummyLM  # type: ignore[import-untyped]
 
-from codespy.agents.context_safe import COVERAGE_REJECTION_PREFIX, CodespyRLM, ContextSafe
+from codespy.agents.context_safe import (
+    COVERAGE_REJECTION_PREFIX,
+    DSPY_DEFAULT_MAX_OUTPUT_CHARS,
+    CodespyRLM,
+    ContextSafe,
+    _CountingBudget,
+)
 from codespy.agents.review.code_review.agent import (
     CodeReviewSignature,
     coverage_check,
@@ -144,6 +150,8 @@ SCRIPT = {
     "SUBMIT(answer='done')": FinalOutput({"answer": "done"}),
     "SUBMIT()": FinalOutput({}),
     "burn()": lambda tools: tools["llm_query"]("hello"),
+    "batch3()": lambda tools: "|".join(tools["llm_query_batched"](["a", "b", "c"])),
+    "batch0()": lambda tools: str(tools["llm_query_batched"]([])),
 }
 
 
@@ -166,13 +174,6 @@ def _outputs(pred) -> list[str]:
 
 
 class TestSubmitGate:
-    def test_pin_dspy_private_budget_attrs(self):
-        # CodespyRLM._llm_budget_spent reads these private attrs (dspy 3.4.1)
-        budget = _LLMCallBudget(3)
-        assert (budget._count, budget._limit) == (0, 3)
-        budget.reserve(3)
-        assert budget._count == 3
-
     def test_early_submit_rejected_then_accepted_once_covered(self):
         rlm = CodespyRLM(_Sig, max_iters=5, submit_check=_gate(_files(a=PATCH_A)))
         pred = _run(rlm, _actions("SUBMIT(answer='done')", "print(a)", "SUBMIT(answer='done')"))
@@ -259,6 +260,115 @@ class TestSubmitGate:
         assert rlm.coverage_rejections == 1
 
 
+
+class _CapturingFacade:
+    """Stands in for dspy's sandbox sub-agent setup; keeps its reserve callback."""
+
+    reserve = None
+
+    def __init__(self, *args, reserve=None, **kwargs):
+        type(self).reserve = reserve
+
+    def install(self, interpreter):
+        pass
+
+
+class TestLLMBudgetCount:
+    """The gate counts sub-LLM charges through a proxy on dspy's budget (dspy 3.4.1)."""
+
+    @staticmethod
+    def _rlm(max_llm_calls=10, **kw):
+        return CodespyRLM(
+            _Sig, max_iters=5, max_llm_calls=max_llm_calls, sub_lm=lambda p: ["ok"], **kw
+        )
+
+    def test_pin_budget_handed_to_tools_and_facade(self):
+        """dspy passes the same per-forward budget to both methods; both get the proxy."""
+        seen: dict = {}
+        orig_tools, orig_facade = dspy.RLM._make_llm_tools, dspy.RLM._setup_facade
+
+        def tools_spy(self, budget=None, max_workers=8):
+            seen["tools"] = budget
+            return orig_tools(self, budget, max_workers)
+
+        def facade_spy(self, repl, budget, factory):
+            seen["facade"] = budget
+            return orig_facade(self, repl, budget, factory)
+
+        with patch.object(dspy.RLM, "_make_llm_tools", tools_spy), \
+             patch.object(dspy.RLM, "_setup_facade", facade_spy):
+            rlm = self._rlm()
+            _run(rlm, _actions("SUBMIT(answer='done')"))
+        assert isinstance(seen["tools"], _CountingBudget)
+        assert seen["tools"] is seen["facade"] is rlm._budget_proxy
+        assert hasattr(seen["tools"].inner, "reserve")
+
+    def test_batched_counts_each_prompt_empty_counts_zero(self):
+        rlm = self._rlm()
+        _run(rlm, _actions("batch3()", "batch0()", "burn()", "SUBMIT(answer='done')"))
+        assert rlm._budget_proxy.calls == 4
+
+    def test_refused_charge_not_counted(self):
+        rlm = self._rlm(max_llm_calls=2)
+        _run(rlm, _actions("burn()", "SUBMIT(answer='done')"))
+        with pytest.raises(RuntimeError, match="LLM call limit exceeded"):
+            rlm._budget_proxy.reserve(3)  # 1 + 3 > 2: dspy refuses
+        assert rlm._budget_proxy.calls == 1
+
+    def test_sub_agent_charge_counts(self):
+        rlm = self._rlm(max_llm_calls=3, submit_check=_gate(_files(a=PATCH_A)))
+        script = {**SCRIPT, "sub()": lambda tools: _CapturingFacade.reserve(3)}
+        lm = DummyLM(_actions("sub()", "SUBMIT(answer='done')"))
+        with patch("dspy.predict.rlm.FacadeInvocation", _CapturingFacade), \
+             dspy.context(lm=lm, adapter=dspy.ChatAdapter()):
+            pred = rlm(changes="x", interpreter_factory=lambda: ScriptedInterpreter(script))
+        assert rlm._budget_proxy.calls == 3
+        # Budget spent through the sub-agent: SUBMIT accepted with a.py unseen
+        assert pred.answer == "done" and rlm.coverage_rejections == 0
+
+    def test_counter_resets_per_forward_sync_and_async(self):
+        rlm = self._rlm()
+        _run(rlm, _actions("burn()", "SUBMIT(answer='done')"))
+        assert rlm._budget_proxy.calls == 1
+        _run(rlm, _actions("SUBMIT(answer='done')"))
+        assert rlm._budget_proxy.calls == 0
+
+        lm = DummyLM(_actions("SUBMIT(answer='done')"))
+
+        async def run():
+            with dspy.context(lm=lm, adapter=dspy.ChatAdapter()):
+                return await rlm.acall(
+                    changes="x", interpreter_factory=lambda: ScriptedInterpreter(SCRIPT)
+                )
+
+        _run(rlm, _actions("burn()", "SUBMIT(answer='done')"))
+        asyncio.run(run())
+        assert rlm._budget_proxy.calls == 0
+
+    def test_async_budget_exhausted_accepts(self):
+        rlm = self._rlm(max_llm_calls=1, submit_check=_gate(_files(a=PATCH_A)))
+        lm = DummyLM(_actions("burn()", "SUBMIT(answer='done')"))
+
+        async def run():
+            with dspy.context(lm=lm, adapter=dspy.ChatAdapter()):
+                return await rlm.acall(
+                    changes="x", interpreter_factory=lambda: ScriptedInterpreter(SCRIPT)
+                )
+
+        assert asyncio.run(run()).answer == "done"
+        assert rlm.coverage_rejections == 0
+
+    def test_no_limit_never_spent(self):
+        rlm = self._rlm()
+        rlm._budget_proxy = _CountingBudget(MagicMock())
+        rlm._budget_proxy.calls = 10**6
+        rlm.max_llm_calls = None
+        assert rlm._llm_budget_spent() is False
+
+    def test_run_submit_check_without_check_returns_none(self):
+        assert CodespyRLM(_Sig, max_iters=2)._run_submit_check(_history("x")) is None
+
+
 # --------------------------------------------------------------------------
 # Plumbing
 # --------------------------------------------------------------------------
@@ -301,8 +411,10 @@ class TestPlumbing:
         assert fallback._submit_check is check
 
     def test_fallback_default_cap_is_dspy_default(self):
+        stock = inspect.signature(dspy.RLM.__init__).parameters["max_output_chars"].default
+        assert DSPY_DEFAULT_MAX_OUTPUT_CHARS == stock
         cs = ContextSafe(dspy.Predict(_Sig), _Sig, tools=[], name="t", max_iters=2, max_llm_calls=5)
-        assert cs._create_rlm_fallback().max_output_chars == 10_000
+        assert cs._create_rlm_fallback().max_output_chars == DSPY_DEFAULT_MAX_OUTPUT_CHARS
 
 
 class TestCodeReviewCoverage:

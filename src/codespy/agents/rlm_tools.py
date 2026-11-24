@@ -20,6 +20,7 @@ from dspy.primitives.repl_types import REPLEntry  # type: ignore[import-untyped]
 
 from codespy.agents.context_safe import (
     COVERAGE_REJECTION_PREFIX,
+    DSPY_DEFAULT_MAX_OUTPUT_CHARS,
     REFUSAL_EXTRACT_REASONING,
     CodespyRLM,
     ContextSafe,
@@ -412,7 +413,7 @@ def log_rlm_outcome(
     unseen: list[str] = []
     if changed_files is not None or max_output_chars is not None:
         trajectory = list(getattr(result, "trajectory", None) or [])
-        cap = max_output_chars or 10_000
+        cap = max_output_chars or DSPY_DEFAULT_MAX_OUTPUT_CHARS
         if changed_files is not None:
             unseen = unseen_files(changed_files, trajectory, cap)
         rejections = sum(
