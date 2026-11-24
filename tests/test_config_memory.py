@@ -588,10 +588,10 @@ class TestRecallConfig:
         with pytest.raises(ValidationError):
             RecallConfig(reach="world")
 
-    def test_min_similarity_default_off(self):
+    def test_min_similarity_default(self):
         from codespy.config_memory import RecallConfig
 
-        assert RecallConfig().min_similarity == 0.0
+        assert RecallConfig().min_similarity == 0.4
 
     @pytest.mark.parametrize("value", [-0.01, 1.01])
     def test_min_similarity_bounds(self, value):
