@@ -507,7 +507,7 @@ class TestReporters:
         result.memories = [
             RecalledMemory(task="review", sections=[MemorySection(title="M", text="z" * 50000)])
         ]
-        body = reporter._build_review_body(result, result.issues, reserve=1000)
+        body = reporter._build_review_body(result, result.issues, split=False)
         assert len(body) <= GitReporter.MAX_BODY_CHARS - 1000
         assert "🛠️ Implementation Plan" in body
         assert _balanced(body)

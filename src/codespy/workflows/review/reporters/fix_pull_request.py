@@ -43,7 +43,8 @@ class FixPullRequestReporter:
     def build_body(self, result: ReviewResult, pr: PullRequest) -> str:
         """Description: marker, reference to the reviewed PR, steps, files, plan."""
         impl = result.implementation
-        assert impl is not None
+        if impl is None:
+            raise ValueError("implementation required")
         titles = {
             s.number: s.title
             for sp in (result.implementation_plan.scopes if result.implementation_plan else [])

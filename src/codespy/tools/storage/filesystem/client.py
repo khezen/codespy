@@ -69,7 +69,7 @@ class FileSystem(Storage):
         if not self.root.is_dir():
             raise ValueError(f"Root is not a directory: {self.root}")
 
-    def _resolve_path(self, path: str) -> Path:
+    def resolve_path(self, path: str) -> Path:
         """Resolve a path relative to root, with security checks.
 
         Args:
@@ -104,7 +104,7 @@ class FileSystem(Storage):
     def exists(self, path: str = "") -> bool:
         """Check if a path exists."""
         try:
-            resolved = self._resolve_path(path)
+            resolved = self.resolve_path(path)
             return resolved.exists()
         except ValueError:
             return False
@@ -126,7 +126,7 @@ class FileSystem(Storage):
 
     def get_info(self, path: str = "") -> Info:
         """Get information about a file or directory."""
-        resolved = self._resolve_path(path)
+        resolved = self.resolve_path(path)
         if not resolved.exists():
             raise FileNotFoundError(f"Path not found: {path}")
         return Info.from_path(resolved, self.root)
@@ -137,7 +137,7 @@ class FileSystem(Storage):
         include_hidden: bool = False,
     ) -> Listing:
         """List contents of a directory."""
-        resolved = self._resolve_path(path)
+        resolved = self.resolve_path(path)
 
         if not resolved.exists():
             raise FileNotFoundError(f"Directory not found: {path}")
@@ -194,7 +194,7 @@ class FileSystem(Storage):
         max_lines: int | None = None,
     ) -> Content:
         """Read contents of a file."""
-        resolved = self._resolve_path(path)
+        resolved = self.resolve_path(path)
 
         if not resolved.exists():
             return Content(path=path, error=f"File not found: {path}")
@@ -241,7 +241,7 @@ class FileSystem(Storage):
         include_hidden: bool = False,
     ) -> TreeNode:
         """Get a tree representation of a directory."""
-        resolved = self._resolve_path(path)
+        resolved = self.resolve_path(path)
 
         if not resolved.exists():
             raise FileNotFoundError(f"Directory not found: {path}")
@@ -301,7 +301,7 @@ class FileSystem(Storage):
             OperationResult indicating success or failure.
         """
         try:
-            resolved = self._resolve_path(path)
+            resolved = self.resolve_path(path)
         except ValueError as e:
             return OperationResult(success=False, path=path, error=str(e))
 
@@ -330,7 +330,7 @@ class FileSystem(Storage):
             OperationResult indicating success or failure.
         """
         try:
-            resolved = self._resolve_path(path)
+            resolved = self.resolve_path(path)
         except ValueError as e:
             return OperationResult(success=False, path=path, error=str(e))
 
@@ -369,7 +369,7 @@ class FileSystem(Storage):
             OperationResult indicating success or failure.
         """
         try:
-            resolved = self._resolve_path(path)
+            resolved = self.resolve_path(path)
         except ValueError as e:
             return OperationResult(success=False, path=path, error=str(e))
 

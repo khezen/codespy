@@ -201,6 +201,14 @@ class TestCollectAndRestore:
         assert changes["run.sh"].executable is True
         assert changes["pkg/new.py"].executable is False
 
+    def test_preexisting_untracked_files_are_not_published(self, repo):
+        (repo / ".cache.json").write_text("stale")
+        before = untracked_files(repo)
+        (repo / "agent.py").write_text("new\n")
+        assert [c.path for c in collect_changes(repo, before)] == ["agent.py"]
+        # Without the snapshot the stale file would be published
+        assert {c.path for c in collect_changes(repo)} == {".cache.json", "agent.py"}
+
     def test_protected_paths_and_symlinks_skipped(self, repo):
         (repo / ".github" / "workflows").mkdir(parents=True)
         (repo / ".github" / "workflows" / "ci.yml").write_text("x")
@@ -295,6 +303,27 @@ class TestImplementer:
         assert result.summary == "Did it."
         assert _status(repo) == ""
 
+    def test_preexisting_untracked_file_kept_and_not_published(self, monkeypatch, repo, tmp_path):
+        (repo / "stale.log").write_text("from an earlier run")
+
+        async def run(**kwargs):
+            (repo / "a.py").write_text("a = 2\n")
+            return SimpleNamespace(summary="s", completed_steps=[1], skipped_steps=[])
+
+        _patch_run(monkeypatch, run)
+        result = asyncio.run(_implementer(tmp_path).aforward(_plan(), [_scope()], [], _ctx(repo)))
+        assert result is not None and [c.path for c in result.changes] == ["a.py"]
+        assert (repo / "stale.log").read_text() == "from an earlier run"
+        assert _status(repo) == "?? stale.log\n"
+
+    def test_dirty_tracked_clone_is_skipped(self, monkeypatch, repo, tmp_path):
+        (repo / "keep.txt").write_text("left over\n")
+        called = MagicMock()
+        monkeypatch.setattr(impl_agent, "connect_mcp_server", called)
+        assert asyncio.run(_implementer(tmp_path).aforward(_plan(), [_scope()], [], _ctx(repo))) is None
+        called.assert_not_called()
+        assert (repo / "keep.txt").read_text() == "left over\n"  # untouched
+
     def test_no_changes_yields_none(self, monkeypatch, repo, tmp_path):
         async def run(**kwargs):
             return SimpleNamespace(summary="nothing", completed_steps=[], skipped_steps=[])
@@ -379,9 +408,9 @@ class TestOutput:
         impl = _impl()
         impl.pull_request_url = "https://github.com/o/r/pull/13"
         reporter = GitReporter.__new__(GitReporter)
-        body = reporter._build_review_body(_result(impl), [], reserve=0, split=False)
+        body = reporter._build_review_body(_result(impl), [], split=False)
         assert "**Fix PR:** https://github.com/o/r/pull/13" in body
-        split_body = reporter._build_review_body(_result(impl), [], reserve=0, split=True)
+        split_body = reporter._build_review_body(_result(impl), [], split=True)
         assert "**Fix PR:** https://github.com/o/r/pull/13" in split_body
         assert body.count("<details>") == body.count("</details>")
 
@@ -418,6 +447,10 @@ class TestFixPullRequest:
         assert len(body) <= FixPullRequestReporter.MAX_BODY_CHARS
         assert result.implementation is not None
         assert result.implementation.pull_request_url == "https://github.com/o/r/pull/13"
+
+    def test_build_body_without_implementation_raises(self):
+        with pytest.raises(ValueError, match="implementation required"):
+            self._reporter().build_body(_result(None), _pr())
 
     def test_gitlab_title(self):
         assert self._reporter().title(_pr(platform=GitPlatform.GITLAB)) == "codespy: fixes for !12"

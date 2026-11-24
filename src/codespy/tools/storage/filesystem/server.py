@@ -221,7 +221,7 @@ def _check_writable(path: str, operation: str) -> Path:
         current = current / part
         if current.is_symlink():
             raise ToolError(f"{operation} refused: symlink in path: {path!r}")
-    resolved = fs._resolve_path(rel)  # InvalidPathError (-> ToolError) when escaping the root
+    resolved = fs.resolve_path(rel)  # InvalidPathError (-> ToolError) when escaping the root
     if is_protected_path(str(resolved.relative_to(fs.root))):
         raise ToolError(f"{operation} refused: protected path: {path!r}")
     return resolved

@@ -144,7 +144,7 @@ class GitReporter(BaseReporter):
         split = self._needs_split(result, body_issues)
 
         # Build review body with collapsible sections
-        body = self._build_review_body(result, body_issues, reserve=0, split=split)
+        body = self._build_review_body(result, body_issues, split=split)
 
         # Build inline comments
         comments = self._build_inline_comments(inline_issues, run_id=result.run_id)
@@ -167,7 +167,7 @@ class GitReporter(BaseReporter):
             _, body_issues, _ = self._partition(result, None, set(handle.rejected))
             split = self._needs_split(result, body_issues)
             handle.split = split
-            body = self._build_review_body(result, body_issues, reserve=0, split=split)
+            body = self._build_review_body(result, body_issues, split=split)
             try:
                 self.client.update_review(self.url, handle, body)
             except Exception as e:
@@ -206,7 +206,7 @@ class GitReporter(BaseReporter):
         _, body_issues, _ = self._partition(result, None, set(handle.rejected))
 
         # Build review body in the same layout as publish
-        body = self._build_review_body(result, body_issues, reserve=0, split=handle.split)
+        body = self._build_review_body(result, body_issues, split=handle.split)
 
         # Try to update with retries
         last_error: Exception | None = None
@@ -287,7 +287,7 @@ class GitReporter(BaseReporter):
             True if split mode is needed.
         """
         # Build the full body as if there were no split
-        full_body = self._build_review_body(result, body_issues, reserve=0, split=False)
+        full_body = self._build_review_body(result, body_issues, split=False)
 
         # Check if the full body exceeds the budget
         if len(full_body) > self.MAX_BODY_CHARS:
@@ -404,15 +404,13 @@ class GitReporter(BaseReporter):
         result: ReviewResult,
         body_issues: list[Issue],
         *,
-        reserve: int,
-        split: bool,
+        split: bool = False,
     ) -> str:
         """Build the review body with collapsible sections.
 
         Args:
             result: The review result.
             body_issues: Issues without line numbers to include in body.
-            reserve: Number of characters to reserve for body suffix.
             split: True when issues and plan are posted as separate comments.
 
         Returns:
@@ -561,7 +559,7 @@ class GitReporter(BaseReporter):
         # Insert after header, before Summary
         if result.memories:
             other_sections_len = len("\n".join(lines)) + 1
-            budget = self.MAX_BODY_CHARS - reserve - other_sections_len - 1
+            budget = self.MAX_BODY_CHARS - other_sections_len - 1
             memory_lines = result.memories_markdown_lines(
                 summary="🧠 memories", max_chars=max(0, budget)
             )

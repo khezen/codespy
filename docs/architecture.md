@@ -4,7 +4,7 @@
 
 ## Pipeline Overview
 
-CodeSpy's review pipeline follows a 5-step flow:
+CodeSpy's review pipeline follows a 6-step flow:
 
 1. **Scope Identifier** (RLM + tools) — Identifies code scopes (frontend, backend, infra, microservice in monorepo, etc.)
 2. **PR Summary** (RLM) — Generates 2-3 sentence PR summary

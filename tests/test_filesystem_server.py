@@ -70,7 +70,7 @@ def test_invalid_path_error_is_a_value_error(tmp_path):
     assert fs.exists("a\x00b") is False
     assert fs.write_file("../x", "c").success is False
     with pytest.raises(InvalidPathError, match="escapes root"):
-        fs._resolve_path("../..")
+        fs.resolve_path("../..")
 
 
 def test_success_unchanged(server):

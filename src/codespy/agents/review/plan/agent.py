@@ -228,7 +228,7 @@ def assemble_plan(steps: Sequence[PlanStepDraft], subroots: Sequence[str]) -> li
     return [ScopePlan(subroot=sr, steps=s) for sr, s in groups.items()]
 
 
-def _planner_scope(scope: ScopeResult) -> ScopeResult:
+def planner_scope(scope: ScopeResult) -> ScopeResult:
     """Copy of ``scope`` without diff patches (keeps the holistic input bounded)."""
     files = [f.model_copy(update={"patch": None}) for f in scope.changed_files]
     return scope.model_copy(update={"changed_files": files})
@@ -322,7 +322,7 @@ class ImplementationPlanner(dspy.Module):
             async with SignatureContext("plan", self._cost_tracker):
                 result = await run_rlm(
                     agent,
-                    scopes=[_planner_scope(s) for s in scopes],
+                    scopes=[planner_scope(s) for s in scopes],
                     issues=issues,
                     summary=pr_context.summary,
                     quality_assessment=quality_assessment,

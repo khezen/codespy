@@ -21,7 +21,7 @@ from codespy.agents.memory.prefrontal import with_prefrontal_memory
 from codespy.agents.review.feedback.signature import apply_pr_context
 from codespy.agents.review.implement.models import FileChange, ImplementationResult, SkippedStep
 from codespy.agents.review.models import Issue, ReviewContext
-from codespy.agents.review.plan.agent import _planner_scope
+from codespy.agents.review.plan.agent import planner_scope
 from codespy.agents.review.plan.models import ImplementationPlan
 from codespy.agents.review.scope.models import ScopeResult
 from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm
@@ -118,16 +118,26 @@ def untracked_files(repo_path: Path) -> set[str]:
     return {path for xy, path in _status_entries(repo_path) if xy == "??"}
 
 
-def collect_changes(repo_path: Path) -> list[FileChange]:
+def tracked_changes(repo_path: Path) -> set[str]:
+    """Tracked files that differ from HEAD (modified, added, deleted), repo-root-relative."""
+    return {path for xy, path in _status_entries(repo_path) if xy != "??"}
+
+
+def collect_changes(repo_path: Path, untracked_before: Iterable[str] = ()) -> list[FileChange]:
     """Read the agent's edits from ``git status`` (modified, added, deleted).
 
-    Protected paths and symlinks are skipped. Fails closed: over
-    MAX_CHANGED_FILES / MAX_CHANGED_BYTES, or on a non-UTF-8 file, every
-    change is discarded (``[]``) with a warning.
+    Untracked files listed in ``untracked_before`` existed before the run (e.g.
+    left in a cached clone) and are not the agent's: they are skipped, so an edit
+    the agent makes to one of them is dropped too. Protected paths and symlinks
+    are skipped. Fails closed: over MAX_CHANGED_FILES / MAX_CHANGED_BYTES, or on
+    a non-UTF-8 file, every change is discarded (``[]``) with a warning.
     """
+    preexisting = set(untracked_before)
     changes: list[FileChange] = []
     total_bytes = 0
     for xy, path in sorted(_status_entries(repo_path), key=lambda e: e[1]):
+        if xy == "??" and path in preexisting:
+            continue
         if is_protected_path(path):
             logger.warning(f"Implement: ignoring change to protected path {path}")
             continue
@@ -274,7 +284,7 @@ class Implementer(dspy.Module):
                 result = await run_rlm(
                     agent,
                     plan=plan,
-                    scopes=[_planner_scope(s) for s in scopes],
+                    scopes=[planner_scope(s) for s in scopes],
                     issues=issues,
                     pr_summary=pr_context.summary,
                     **pc_kwargs,
@@ -306,10 +316,19 @@ class Implementer(dspy.Module):
             logger.warning(f"Skipping implement: {repo_path} is not a git clone")
             return None
 
+        # A dirty clone would publish someone else's edits as the agent's: fail closed
+        dirty = tracked_changes(repo_path)
+        if dirty:
+            logger.warning(
+                f"Skipping implement: {repo_path} has {len(dirty)} uncommitted tracked "
+                f"change(s) before the run (e.g. {sorted(dirty)[0]})"
+            )
+            return None
+
         before = untracked_files(repo_path)
         try:
             result = await self._run(plan, scopes, issues, review_context)
-            changes = collect_changes(repo_path)
+            changes = collect_changes(repo_path, before)
         finally:
             restore_clone(repo_path, before, Path(self._settings.review.cache_dir))
 
@@ -349,5 +368,6 @@ __all__: Sequence[str] = (
     "collect_changes",
     "implement_budget",
     "restore_clone",
+    "tracked_changes",
     "untracked_files",
 )
