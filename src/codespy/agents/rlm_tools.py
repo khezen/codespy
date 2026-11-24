@@ -9,15 +9,31 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import math
 import threading
+from collections.abc import Iterable
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from typing import Any
 
 import dspy  # type: ignore[import-untyped]
+from dspy.primitives.repl_types import REPLEntry  # type: ignore[import-untyped]
 
-from codespy.agents.context_safe import CodespyRLM, ContextSafe
+from codespy.agents.context_safe import (
+    COVERAGE_REJECTION_PREFIX,
+    REFUSAL_EXTRACT_REASONING,
+    CodespyRLM,
+    ContextSafe,
+    SubmitCheck,
+)
 
 logger = logging.getLogger(__name__)
+
+# A changed file counts as seen when at least this share of its significant
+# patch lines appear in what the root LM saw. Below 100% to tolerate escaping
+# in reprs (e.g. `read_file` dict output).
+COVERAGE_THRESHOLD = 0.9
+_MIN_SIGNIFICANT_LINE_CHARS = 3
+_EXTRACT_REASONING = "Extract forced final output"
 
 # Thread id of the event loop at bridge time
 _bridge_thread_id: int | None = None
@@ -211,6 +227,8 @@ def build_rlm_agent(
     max_iters: int,
     max_llm_calls: int,
     rlm_threshold: float,
+    max_output_chars: int | None = None,
+    submit_check: SubmitCheck | None = None,
 ) -> ContextSafe:
     """Build an RLM agent with bridged tools.
 
@@ -219,10 +237,14 @@ def build_rlm_agent(
     Args:
         signature: DSPy signature for the agent
         tools: List of tools (will be bridged to the current loop)
-        name: Agent name for logging
+        name: Agent name for logging; also the signature name used to resolve
+            ``max_output_chars`` when not given
         max_iters: Maximum RLM iterations
         max_llm_calls: Maximum LLM calls for RLM fallback
         rlm_threshold: ContextSafe RLM fallback threshold
+        max_output_chars: Max chars of one REPL step output shown to the model
+            (``None``: ``settings.get_max_output_chars(name)``)
+        submit_check: Optional SUBMIT gate (see ``CodespyRLM``)
 
     Returns:
         ContextSafe wrapped RLM agent with bridged tools
@@ -232,6 +254,8 @@ def build_rlm_agent(
     settings = get_settings()
     loop = asyncio.get_running_loop()
     timeout = settings.llm.timeout
+    if max_output_chars is None:
+        max_output_chars = settings.get_max_output_chars(name)
 
     # Bridge tools to the current loop
     bridged_tools = bridge_tools_to_loop(tools, loop, timeout)
@@ -242,6 +266,8 @@ def build_rlm_agent(
         tools=bridged_tools,
         max_iters=max_iters,
         max_llm_calls=max_llm_calls,
+        max_output_chars=max_output_chars,
+        submit_check=submit_check,
         verbose=logger.isEnabledFor(logging.DEBUG),
     )
 
@@ -254,6 +280,8 @@ def build_rlm_agent(
         max_iters=max_iters,
         max_llm_calls=max_llm_calls,
         rlm_threshold=rlm_threshold,
+        max_output_chars=max_output_chars,
+        submit_check=submit_check,
     )
 
 
@@ -273,27 +301,144 @@ async def run_rlm(agent: ContextSafe, **kwargs: Any) -> Any:
     return await asyncio.to_thread(agent, **kwargs)
 
 
+def _entry_field(entry: Any, name: str) -> str:
+    """Read a field from a REPLEntry, a trajectory dict, or a REPLEntry-like object."""
+    value = entry.get(name, "") if isinstance(entry, dict) else getattr(entry, name, "")
+    return value if isinstance(value, str) else str(value or "")
+
+
+def _file_field(changed_file: Any, name: str) -> Any:
+    if isinstance(changed_file, dict):
+        return changed_file.get(name)
+    return getattr(changed_file, name, None)
+
+
+def _significant_lines(patch: str) -> set[str]:
+    """Patch lines that identify a file's content (diff markers and blanks dropped)."""
+    lines: set[str] = set()
+    for raw in patch.splitlines():
+        if raw.startswith("@@"):
+            continue
+        line = raw[1:] if raw[:1] in ("+", "-", " ") else raw
+        line = line.strip()
+        if len(line) >= _MIN_SIGNIFICANT_LINE_CHARS:
+            lines.add(line)
+    return lines
+
+
+def unseen_files(
+    changed_files: Iterable[Any],
+    history: Iterable[Any],
+    max_output_chars: int,
+) -> list[str]:
+    """Changed files whose patch the root LM has not actually seen.
+
+    The corpus is what the model saw: each history entry's output after the
+    ``max_output_chars`` cap (``REPLEntry.format_output``, the same rendering
+    the action prompt uses), plus the entry's code (pasted lines were seen).
+    A file is seen when at least ``COVERAGE_THRESHOLD`` of its significant patch
+    lines are substrings of the corpus. A file with no patch counts as seen.
+
+    Args:
+        changed_files: Objects or dicts with ``filename`` and ``patch``
+        history: ``REPLHistory``, or REPLEntry objects / trajectory dicts
+        max_output_chars: Output cap the model saw outputs under
+
+    Returns:
+        Filenames not seen yet, in input order.
+    """
+    chunks: list[str] = []
+    for entry in history:
+        chunks.append(REPLEntry.format_output(_entry_field(entry, "output"), max_output_chars))
+        chunks.append(_entry_field(entry, "code"))
+    corpus = "\n".join(chunks)
+    corpus_lines = {line.strip() for line in corpus.splitlines()}
+
+    missing: list[str] = []
+    for changed_file in changed_files:
+        patch = _file_field(changed_file, "patch")
+        if not patch:
+            continue
+        lines = _significant_lines(patch)
+        if not lines:
+            continue
+        allowed_misses = len(lines) - math.ceil(round(COVERAGE_THRESHOLD * len(lines), 9))
+        misses = 0
+        for line in lines:
+            if line in corpus_lines or line in corpus:
+                continue
+            misses += 1
+            if misses > allowed_misses:
+                missing.append(str(_file_field(changed_file, "filename")))
+                break
+    return missing
+
+
+def _end_reason(final_reasoning: Any) -> str:
+    if final_reasoning == REFUSAL_EXTRACT_REASONING:
+        return "refusal"
+    if final_reasoning == _EXTRACT_REASONING:
+        return "extract"
+    return "SUBMIT"
+
+
 def log_rlm_outcome(
     result: Any,
     module: str,
     scope: str,
-) -> None:
+    *,
+    changed_files: Iterable[Any] | None = None,
+    max_output_chars: int | None = None,
+    max_iters: int | None = None,
+) -> list[str]:
     """Log diagnostics for RLM outcomes, especially extract fallback cases.
+
+    With ``changed_files`` or ``max_output_chars``, also logs coverage
+    telemetry at INFO: iterations used, end reason, SUBMIT gate rejections,
+    truncated outputs and unseen changed files.
 
     Args:
         result: The prediction result from the RLM agent
         module: Module name (e.g., 'code_review', 'supply_chain')
         scope: Scope identifier for context
+        changed_files: Changed files the run had to cover (optional)
+        max_output_chars: Output cap the run used (optional)
+        max_iters: Iteration budget the run used (optional, for the log)
+
+    Returns:
+        Changed files not seen by the model (empty without ``changed_files``).
     """
-    # Check if this was an extract fallback
     final_reasoning = getattr(result, "final_reasoning", None)
-    if final_reasoning == "Extract after content_filter refusal":
+    unseen: list[str] = []
+    if changed_files is not None or max_output_chars is not None:
+        trajectory = list(getattr(result, "trajectory", None) or [])
+        cap = max_output_chars or 10_000
+        if changed_files is not None:
+            unseen = unseen_files(changed_files, trajectory, cap)
+        rejections = sum(
+            1 for e in trajectory if _entry_field(e, "output").startswith(COVERAGE_REJECTION_PREFIX)
+        )
+        truncated = sum(1 for e in trajectory if len(_entry_field(e, "output")) > cap)
+        logger.info(
+            f"RLM[{module}] scope {scope}: iterations={len(trajectory)}/{max_iters or '?'}, "
+            f"end={_end_reason(final_reasoning)}, coverage_rejections={rejections}, "
+            f"truncated_outputs={truncated} (cap {cap:,}), "
+            f"unseen_files={len(unseen)}{': ' + ', '.join(unseen) if unseen else ''}"
+        )
+
+    _log_fallback(result, module, scope, final_reasoning)
+    return unseen
+
+
+def _log_fallback(result: Any, module: str, scope: str, final_reasoning: Any) -> None:
+    """Warn on refusal/extract endings (tool errors in the trajectory)."""
+    if final_reasoning == REFUSAL_EXTRACT_REASONING:
         logger.warning(
             f"RLM[{module}] scope {scope}: action step refused (content_filter) after "
             f"{len(getattr(result, 'trajectory', []) or [])} steps; outputs extracted from history"
         )
         return
-    if final_reasoning != "Extract forced final output":
+    if final_reasoning != _EXTRACT_REASONING:
         return
 
     # Get trajectory if available

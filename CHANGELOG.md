@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Configurable RLM output cap (`llm.default_max_output_chars` / `review.<sig>.max_output_chars`).** Sets the max chars of one RLM REPL step output shown to the model; the head and tail are kept and the middle becomes `... (N characters omitted) ...`. Global default `40000` (`DEFAULT_MAX_OUTPUT_CHARS`, min `1000`), per-signature override `REVIEW_<SIG>_MAX_OUTPUT_CHARS` (default `null`: use the global value). Applies to every agent built through `build_rlm_agent` and to the ContextSafe RLM fallback. Action inputs: `default-max-output-chars`, `code-review-max-output-chars`.
+
+### Changed
+
+- **RLM REPL step outputs shown to the model are capped at 40,000 chars instead of dspy's 10,000**, for every RLM agent (code_review, doc, supply_chain, scope, summary, audit, seo, plan, implement). Expect fewer steps and larger prompts. Set `DEFAULT_MAX_OUTPUT_CHARS=10000` to restore the old behavior.
+
+### Fixed
+
+- **code_review submitted before reading the whole diff, so each run of the same PR found different issues.** The root model sees patches only through capped REPL prints and was told it had "very little time", so it stopped early; raising `max_iters` / `max_llm_calls` did not help. The prompt now requires per-file coverage (several files per print up to the cap, large files in slices, missing slices reprinted). Coverage is measured from what the model actually saw (each step output after the cap, plus its code). An early `SUBMIT` is sent back with the list of unseen files until every file is seen or the budget (`max_iters` / `max_llm_calls`) runs out; whatever was found by then is published, and the unseen files are logged as a WARNING. Each run logs iterations, end reason, gate rejections, truncated outputs and unseen files at INFO.
+
 ## [2.4.4] - 2026-10-27
 
 ### Added
