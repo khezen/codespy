@@ -392,7 +392,6 @@ def unseen_files(
 
 # --- Prefrontal memory coverage ---------------------------------------------
 
-MEMORY_VARIABLE = "prefrontal_memory"
 _UNTITLED_MEMORY_SECTION = "memory"
 
 
@@ -509,6 +508,8 @@ def memory_check(memory: str | None, max_output_chars: int) -> SubmitCheck | Non
 
     Returns None when ``memory`` is empty (nothing to gate on).
     """
+    from codespy.agents.memory.prefrontal.prefrontal import PREFRONTAL_FIELD
+
     if not memory or not memory_sections(memory):
         return None
 
@@ -520,7 +521,7 @@ def memory_check(memory: str | None, max_output_chars: int) -> SubmitCheck | Non
         return (
             f"{COVERAGE_REJECTION_PREFIX} Memory not read yet: "
             f"{', '.join(title for title, _, _ in unseen)}. "
-            f"Print {', '.join(f'{MEMORY_VARIABLE}[{a}:{b}]' for a, b in slices)} "
+            f"Print {', '.join(f'{PREFRONTAL_FIELD}[{a}:{b}]' for a, b in slices)} "
             f"(slices under the {max_output_chars:,}-char cap) before SUBMIT."
         )
 
