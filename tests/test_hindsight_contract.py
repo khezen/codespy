@@ -102,6 +102,35 @@ class TestMemoryEngineInternals:
         for name in ("detail", "limit", "offset", "request_context"):
             assert name in params, f"Cerebral._clear_legacy_placeholders passes {name}="
 
+    def test_recall_async_accepts_min_scores(self):
+        from hindsight_api import MemoryEngine
+
+        params = inspect.signature(MemoryEngine.recall_async).parameters
+        assert "min_scores" in params, (
+            "Cerebral.arecall passes min_scores=MinScores(semantic=...) "
+            "(Prefrontal._remote, facets._run_recall_facet)"
+        )
+
+    def test_min_scores_semantic(self):
+        from hindsight_api.engine.response_models import MinScores
+
+        assert "semantic" in MinScores.model_fields, (
+            "Cerebral.arecall builds MinScores(semantic=min_semantic)"
+        )
+        assert MinScores(semantic=0.4).semantic == 0.4, "Cerebral.arecall"
+
+    def test_memory_fact_scores_semantic(self):
+        from hindsight_api.engine.response_models import MemoryFact, RecallScores
+
+        assert "scores" in MemoryFact.model_fields, (
+            "format.semantic_score reads MemoryFact.scores "
+            "(Prefrontal._remote, facets._run_recall_facet)"
+        )
+        assert "semantic" in RecallScores.model_fields, (
+            "format.semantic_score reads RecallScores.semantic "
+            "(Prefrontal._remote, facets._run_recall_facet)"
+        )
+
 
 class TestImports:
     def test_imports(self):

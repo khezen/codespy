@@ -51,6 +51,9 @@ class FacetResult:
     changes: list[BeliefChange] = field(default_factory=list)
     failed: bool = False
     reflect_summary: Any = None  # ReflectSummary from areflect, when reflects > 0
+    dropped: int = 0  # facts removed by the relevance floor (min_similarity)
+    # Every fact before the relevance floor, as (fact, kept), for score logging.
+    scored: list[tuple[Any, bool]] = field(default_factory=list)
 
     @property
     def count(self) -> int:
@@ -67,6 +70,40 @@ def fget(fact: Any, name: str, default: Any = None) -> Any:
     if isinstance(fact, Mapping):
         return fact.get(name, default)
     return getattr(fact, name, default)
+
+
+def semantic_score(fact: Any) -> float | None:
+    """Cosine similarity of the fact to the query (``scores.semantic``), or None.
+
+    None when the fact carries no scores or the semantic arm did not surface it.
+    """
+    scores = fget(fact, "scores")
+    if scores is None:
+        return None
+    value = fget(scores, "semantic")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def filter_relevant(facts: Iterable[Any], floor: float) -> tuple[list[Any], list[Any]]:
+    """Split ``facts`` into (kept, dropped) by the relevance floor.
+
+    A fact is kept when its semantic score is not None and ``>= floor``.
+    With ``floor <= 0`` every fact is kept (no filtering).
+    """
+    facts = list(facts or [])
+    if floor <= 0:
+        return facts, []
+    kept: list[Any] = []
+    dropped: list[Any] = []
+    for fact in facts:
+        score = semantic_score(fact)
+        (kept if score is not None and score >= floor else dropped).append(fact)
+    return kept, dropped
 
 
 def _clean(text: str | None) -> str:

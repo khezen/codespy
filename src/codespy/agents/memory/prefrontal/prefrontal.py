@@ -29,8 +29,10 @@ from codespy.agents.memory.prefrontal.facets import run_facets
 from codespy.agents.memory.prefrontal.format import (
     estimate_tokens,
     fget,
+    filter_relevant,
     format_context_sections,
     format_facts,
+    semantic_score,
 )
 from codespy.agents.memory.prefrontal.query import (
     FACET_BELIEF_CHANGES,
@@ -43,12 +45,14 @@ from codespy.agents.memory.prefrontal.query import (
 )
 from codespy.agents.memory.prefrontal.reach import (
     REACH_LOCAL,
+    TAG_REPO,
     build_local_groups,
     build_reflect_groups,
     build_remote_groups,
     clamp_reach,
     is_own_repo_fact,
     mental_model_ids,
+    tag_value,
 )
 from codespy.agents.memory.recall import RecallRecord, RecallUsage, track_recall_usage
 
@@ -74,6 +78,12 @@ REMOTE_REFLECT_SUFFIX = (
 REMOTE_TOOL_HEADER = "Other repositories — verify before relying on it:"
 # Max query chars in the per-recall INFO log line.
 LOG_QUERY_CHARS = 120
+# Max fact-text chars in the per-fact score INFO log line.
+LOG_SCORE_TEXT_CHARS = 80
+# Sections whose per-fact semantic scores are logged and stored (calibration).
+SCORED_FACETS: tuple[str, ...] = (FACET_SEEN_BEFORE, FACET_DECISIONS, FACET_PATTERNS)
+SECTION_REMOTE = "remote"
+SECTION_TOOL_REMOTE = "tool_remote"
 
 RecallStatus = Literal["ok", "empty", "limit", "error"]
 
@@ -229,6 +239,41 @@ class Prefrontal:
             target = self._repo
         return f"{self._task} on {target}"
 
+    def _score_entries(
+        self, section: str, scored: Sequence[tuple[Any, bool]]
+    ) -> list[dict[str, Any]]:
+        """Score records for facts before the relevance floor; logs one INFO line each.
+
+        Used to calibrate ``memory.prefrontal.recall.min_similarity``.
+        """
+        entries: list[dict[str, Any]] = []
+        for fact, kept in scored:
+            score = semantic_score(fact)
+            repo = tag_value(fget(fact, "tags") or [], TAG_REPO)
+            entries.append(
+                {
+                    "id": fget(fact, "id"),
+                    "section": section,
+                    "repo": repo,
+                    "semantic": round(score, 3) if score is not None else None,
+                    "kept": kept,
+                }
+            )
+            logger.info(
+                "Prefrontal[%s] score section=%s semantic=%s kept=%s repo=%s text=%s",
+                self._task,
+                section,
+                f"{score:.3f}" if score is not None else "none",
+                "y" if kept else "n",
+                repo or "-",
+                " ".join((fget(fact, "text") or "").split())[:LOG_SCORE_TEXT_CHARS],
+            )
+        return entries
+
+    def _min_semantic_kwargs(self) -> dict[str, Any]:
+        floor = self._cfg.recall.min_similarity
+        return {"min_semantic": floor} if floor > 0 else {}
+
     # ------------------------------------------------------------------
     # Pre-call context
     # ------------------------------------------------------------------
@@ -284,6 +329,9 @@ class Prefrontal:
         def _n(name: str) -> int:
             return int((facet_counts.get(name) or {}).get("count", 0))
 
+        def _d(name: str) -> int:
+            return int((facet_counts.get(name) or {}).get("dropped", 0))
+
         # Reflect signals for monitoring split synthesis and quality
         reflect_info = details.get("reflect") or {}
         maps = reflect_info.get("map_calls", 0)
@@ -313,7 +361,8 @@ class Prefrontal:
         logger.info(
             "Prefrontal[%s]: load status=%s %d briefings, facets context=%d seen_before=%d "
             "decisions=%d patterns=%d belief_changes=%d, remote=%d (%d tokens, reach=%s, "
-            "reflects=%d) model=%s calls=%d in=%d out=%d cost=$%.4f latency=%dms maps=%d%s thoughts=%d tools=%s",
+            "reflects=%d) dropped remote=%d seen_before=%d decisions=%d patterns=%d "
+            "model=%s calls=%d in=%d out=%d cost=$%.4f latency=%dms maps=%d%s thoughts=%d tools=%s",
             self._task,
             status,
             int(details.get("briefings", 0)),
@@ -326,6 +375,10 @@ class Prefrontal:
             estimate_tokens(text),
             self._cfg.recall.reach,
             self._cfg.reflects,
+            int(details.get("remote_dropped", 0)),
+            _d(FACET_SEEN_BEFORE),
+            _d(FACET_DECISIONS),
+            _d(FACET_PATTERNS),
             usage.to_model_field() or "-",
             llm_calls,
             usage.input_tokens,
@@ -344,10 +397,16 @@ class Prefrontal:
         cfg = self._cfg
         now = datetime.now(UTC)
         local_groups = build_local_groups(self._repo, self._scope_ids, self._include_repo)
-        context_query = next((f.query for f in facets if f.name == FACET_CONTEXT), "")
+        ctx_facet = next((f for f in facets if f.name == FACET_CONTEXT), None)
+        context_query = ctx_facet.query if ctx_facet else ""
+        # Remote pool: the PR topic only (no task, repo/scope id or paths, which
+        # match every repo lexically). Falls back to the context query.
+        remote_query = (ctx_facet.remote_query if ctx_facet else "") or context_query
+        floor = cfg.recall.min_similarity
         local_tokens, remote_tokens = self._split_tokens(
             cfg.recall.max_tokens, cfg.recall.reach
         )
+        remote_scored: list[tuple[Any, bool]] = []
 
         async def _briefings() -> list[dict]:
             if cfg.reflects <= 0:
@@ -373,6 +432,7 @@ class Prefrontal:
                 question_date=now,
                 reflects=cfg.reflects,
                 reflect_context=self._reflect_context(),
+                min_similarity=floor,
             )
 
         def _extract_reflect_summary(results: dict) -> dict | None:
@@ -395,22 +455,27 @@ class Prefrontal:
 
         async def _remote() -> list[Any]:
             groups = build_remote_groups(self._repo, cfg.recall.reach)
-            if groups is None or remote_tokens <= 0 or not context_query:
+            if groups is None or remote_tokens <= 0 or not remote_query:
                 return []
             try:
                 facts = await self._cerebral.arecall(
-                    context_query,
+                    remote_query,
                     tag_groups=groups,
                     max_tokens=remote_tokens,
                     fact_type=["world", "observation"],
                     prefer_observations=True,
                     budget=self.RECALL_BUDGET,
                     question_date=now,
+                    **self._min_semantic_kwargs(),
                 )
             except Exception:
                 logger.warning("Prefrontal[%s]: remote recall failed", self._task, exc_info=True)
                 return []
-            return [f for f in facts or [] if not is_own_repo_fact(fget(f, "tags"), self._repo)]
+            facts = [f for f in facts or [] if not is_own_repo_fact(fget(f, "tags"), self._repo)]
+            kept, dropped = filter_relevant(facts, floor)
+            dropped_ids = {id(f) for f in dropped}
+            remote_scored.extend((f, id(f) not in dropped_ids) for f in facts)
+            return kept
 
         briefings, results, remote = await asyncio.gather(_briefings(), _facets(), _remote())
         # Compute sections once for structured rendering
@@ -431,12 +496,25 @@ class Prefrontal:
                 "query": f.query,
                 "count": r.count if r is not None else 0,
                 "failed": bool(r.failed) if r is not None else False,
+                "dropped": r.dropped if r is not None else 0,
             }
+        scores: list[dict[str, Any]] = []
+        for name in SCORED_FACETS:
+            r = results.get(name)
+            if r is not None:
+                scores.extend(self._score_entries(name, r.scored))
+        scores.extend(self._score_entries(SECTION_REMOTE, remote_scored))
         details: dict[str, Any] = {
             "briefings": n_briefings,
             "remote": len(remote),
+            "remote_query": remote_query,
+            "remote_dropped": sum(1 for _, kept in remote_scored if not kept),
+            "remote_scores": [
+                round(s, 3) for s in (semantic_score(f) for f in remote) if s is not None
+            ],
             "facets": facet_details,
             "reflect": _extract_reflect_summary(results),
+            "scores": scores,
         }
         return text, details, sections
 
@@ -589,11 +667,19 @@ class Prefrontal:
                     prefer_observations=True,
                     budget=self.RECALL_BUDGET,
                     question_date=now,
+                    **self._min_semantic_kwargs(),
                 )
                 facts = [
                     f for f in facts or [] if not is_own_repo_fact(fget(f, "tags"), self._repo)
                 ]
+                kept, dropped = filter_relevant(facts, cfg.recall.min_similarity)
+                dropped_ids = {id(f) for f in dropped}
+                details["scores"] = self._score_entries(
+                    SECTION_TOOL_REMOTE, [(f, id(f) not in dropped_ids) for f in facts]
+                )
+                facts = kept
                 details["remote"] = len(facts)
+                details["remote_dropped"] = len(dropped)
                 rendered = format_facts(facts, with_repo=True)
                 if rendered:
                     parts.append(f"{REMOTE_TOOL_HEADER}\n{rendered}")

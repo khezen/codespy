@@ -1550,6 +1550,20 @@ class TestCerebralReadApi:
         assert call.kwargs["prefer_observations"] is True
         assert call.kwargs["budget"] == Budget.HIGH
         assert call.kwargs["question_date"] == when
+        assert "min_scores" not in call.kwargs
+
+    def test_arecall_min_semantic_passes_min_scores(self, cerebral_async, async_engine):
+        import asyncio as _asyncio
+
+        pytest.importorskip("hindsight_api")
+        async_engine.recall_async.return_value = MagicMock(results=[])
+        _asyncio.run(cerebral_async.arecall("q", min_semantic=0.4))
+        min_scores = async_engine.recall_async.await_args.kwargs["min_scores"]
+        assert min_scores.semantic == 0.4
+        assert min_scores.keyword is None
+
+        _asyncio.run(cerebral_async.arecall("q", min_semantic=0.0))
+        assert "min_scores" not in async_engine.recall_async.await_args.kwargs
 
     def test_recall_sync(self, cerebral_async, async_engine):
         async_engine.recall_async.return_value = MagicMock(results=[])

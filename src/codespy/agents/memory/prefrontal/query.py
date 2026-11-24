@@ -47,6 +47,10 @@ class Facet:
 
     ``fact_types`` is None and ``query`` empty for ``belief_changes``, which
     is derived from the other facets' results (no recall).
+
+    ``remote_query`` (``context`` only) is the PR topic used for the remote
+    pool. ``relevance_floor`` marks facets whose raw-recall results are
+    filtered by ``memory.prefrontal.recall.min_similarity``.
     """
 
     name: str
@@ -54,6 +58,8 @@ class Facet:
     fact_types: tuple[str, ...] | None
     prefer_observations: bool
     share: float
+    remote_query: str = ""
+    relevance_floor: bool = False
 
 
 def truncate_chars(text: str, limit: int) -> str:
@@ -92,6 +98,12 @@ def _dedup(items: Sequence[str]) -> list[str]:
     return out
 
 
+def _topic_query(topic: str, phrasing: str) -> str:
+    """``<topic>. <phrasing>``, cutting the topic tail so the phrasing always fits."""
+    room = max(0, MAX_QUERY_WORDS - len(phrasing.split()))
+    return _join([truncate_words(topic, room), phrasing], ". ")
+
+
 def build_facets(
     task: str,
     target: str,
@@ -116,6 +128,7 @@ def build_facets(
     """
     paths = _dedup(paths)
     summary = truncate_chars(summary, MAX_SUMMARY_CHARS)
+    title = (pr_title or "").strip()
     head = _join([task, target], " ")
     if description:
         head = f"{head} — {truncate_chars(description, MAX_SUMMARY_CHARS)}"
@@ -123,24 +136,54 @@ def build_facets(
     context_q = _join(
         [
             head,
-            f"PR: {pr_title.strip()}" if pr_title and pr_title.strip() else "",
+            f"PR: {title}" if title else "",
             summary,
             f"Files: {', '.join(paths[:MAX_CONTEXT_PATHS])}" if paths else "",
         ],
         ". ",
     )
+    # PR topic: what the PR is about, without task, repo/scope id or paths
+    # (those match every fact of the scope, or of every repo, lexically and
+    # semantically). Used for the remote pool and decisions/patterns.
+    topic = _join(
+        [
+            truncate_chars(description, MAX_SUMMARY_CHARS),
+            f"PR: {title}" if title else "",
+            summary,
+        ],
+        ". ",
+    )
+
+    # seen_before: what the PR touches. The tag pool already restricts to the
+    # PR's scopes, so target/packages only inflate similarity for every scope fact.
     entities = _dedup([*paths, *symbols])[:MAX_ENTITY_TERMS]
-    seen_q = _join([target, *_dedup(packages), *entities], " ")
+    if entities:
+        seen_q, seen_floor = " ".join(entities), True
+    else:
+        seen_q, seen_floor = _join([target, *_dedup(packages)], " "), False
+
     decisions = (
         "decisions, trade-offs, chosen approaches, rejected alternatives, agreed conventions"
     )
     patterns = "recurring issues, repeated findings, patterns across changes"
-    decisions_q = f"{target}: {decisions}" if target else decisions
-    patterns_q = f"{target}: {patterns}" if target else patterns
+    if topic:
+        # Topic first: truncate_words cuts the summary tail, never the phrasing.
+        decisions_q = _topic_query(topic, decisions)
+        patterns_q = _topic_query(topic, patterns)
+        topic_floor = True
+    else:
+        decisions_q = f"{target}: {decisions}" if target else decisions
+        patterns_q = f"{target}: {patterns}" if target else patterns
+        topic_floor = False
 
     return [
         Facet(
-            FACET_CONTEXT, truncate_words(context_q), ("experience", "world"), False, SHARE_CONTEXT
+            FACET_CONTEXT,
+            truncate_words(context_q),
+            ("experience", "world"),
+            False,
+            SHARE_CONTEXT,
+            remote_query=truncate_words(topic),
         ),
         Facet(
             FACET_SEEN_BEFORE,
@@ -148,6 +191,7 @@ def build_facets(
             ("world", "observation"),
             True,
             SHARE_SEEN_BEFORE,
+            relevance_floor=seen_floor,
         ),
         Facet(
             FACET_DECISIONS,
@@ -155,7 +199,15 @@ def build_facets(
             ("world", "observation"),
             True,
             SHARE_DECISIONS,
+            relevance_floor=topic_floor,
         ),
-        Facet(FACET_PATTERNS, truncate_words(patterns_q), ("observation",), False, SHARE_PATTERNS),
+        Facet(
+            FACET_PATTERNS,
+            truncate_words(patterns_q),
+            ("observation",),
+            False,
+            SHARE_PATTERNS,
+            relevance_floor=topic_floor,
+        ),
         Facet(FACET_BELIEF_CHANGES, "", None, False, SHARE_BELIEF_CHANGES),
     ]

@@ -13,6 +13,7 @@ from codespy.agents.memory.prefrontal.format import (
     FacetResult,
     estimate_tokens,
     fget,
+    filter_relevant,
     render_change,
     render_fact,
 )
@@ -52,6 +53,7 @@ async def _run_recall_facet(
     question_date: datetime | None,
     reflects: int,
     reflect_context: str | None,
+    min_similarity: float = 0.0,
 ) -> FacetResult:
     if not facet.query:
         return FacetResult(facet.name)
@@ -65,16 +67,31 @@ async def _run_recall_facet(
                 context=reflect_context,
             )
             return FacetResult(facet.name, text=text or "", reflect_summary=summary)
-        facts = await cerebral.arecall(
-            facet.query,
-            tag_groups=tag_groups,
-            max_tokens=tokens,
-            fact_type=list(facet.fact_types) if facet.fact_types else None,
-            prefer_observations=facet.prefer_observations,
-            budget=budget,
-            question_date=question_date,
+        floor = min_similarity if facet.relevance_floor and min_similarity > 0 else 0.0
+        kwargs: dict[str, Any] = {}
+        if floor > 0:
+            kwargs["min_semantic"] = floor
+        facts = list(
+            await cerebral.arecall(
+                facet.query,
+                tag_groups=tag_groups,
+                max_tokens=tokens,
+                fact_type=list(facet.fact_types) if facet.fact_types else None,
+                prefer_observations=facet.prefer_observations,
+                budget=budget,
+                question_date=question_date,
+                **kwargs,
+            )
+            or []
         )
-        return FacetResult(facet.name, facts=list(facts or []))
+        kept, dropped = filter_relevant(facts, floor)
+        dropped_ids = {id(f) for f in dropped}
+        return FacetResult(
+            facet.name,
+            facts=kept,
+            dropped=len(dropped),
+            scored=[(f, id(f) not in dropped_ids) for f in facts],
+        )
     except Exception:
         logger.warning("Prefrontal: facet %s failed", facet.name, exc_info=True)
         return FacetResult(facet.name, failed=True)
@@ -177,12 +194,16 @@ async def run_facets(
     question_date: datetime | None = None,
     reflects: int = 0,
     reflect_context: str | None = None,
+    min_similarity: float = 0.0,
 ) -> dict[str, FacetResult]:
     """Run facets 1–4 concurrently, then facet 5 from their observations.
 
     With ``reflects > 0`` only the ``context`` facet runs Hindsight's reflect
     loop; the others stay raw recall. Each facet fails on its own and yields
     an empty section.
+
+    ``min_similarity`` > 0 drops facts below that semantic score from the
+    facets marked ``relevance_floor`` (never from ``context``).
     """
     recall_facets = [f for f in facets if f.name != FACET_BELIEF_CHANGES]
     gathered = await asyncio.gather(
@@ -196,6 +217,7 @@ async def run_facets(
                 question_date=question_date,
                 reflects=reflects,
                 reflect_context=reflect_context,
+                min_similarity=min_similarity,
             )
             for f in recall_facets
         )
