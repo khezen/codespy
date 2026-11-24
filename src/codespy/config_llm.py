@@ -281,6 +281,9 @@ class LLMConfig(BaseModel):
     extraction_model: str | None = "bedrock/converse/nvidia.nemotron-nano-3-30b"  # TwoStepAdapter extraction (falls back to default_model)
     default_max_iters: int = 5
     default_max_llm_calls: int = 16
+    # RLM: max chars of one REPL step output shown to the model (head+tail kept,
+    # middle replaced by "... (N characters omitted) ..."). dspy's default is 10k.
+    default_max_output_chars: int = Field(default=40_000, ge=1_000)
     default_reasoning_effort: ReasoningEffort = "medium"
     default_temperature: float = 1.0
     default_max_tokens: int = 32000

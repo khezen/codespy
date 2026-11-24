@@ -3,14 +3,14 @@
 import asyncio
 import logging
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
 import dspy  # type: ignore[import-untyped]
 
 from codespy.agents import SignatureContext, get_cost_tracker
-from codespy.agents.context_safe import ContextSafe
+from codespy.agents.context_safe import COVERAGE_REJECTION_PREFIX, ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
 from codespy.agents.memory.prefrontal import with_prefrontal_memory
@@ -25,7 +25,7 @@ from codespy.agents.review.helpers import (
 )
 from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
 from codespy.agents.review.scope.models import ScopeResult
-from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm
+from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm, unseen_files
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -36,11 +36,30 @@ logger = logging.getLogger(__name__)
 class CodeReviewSignature(dspy.Signature):
     """Detect VERIFIED code defects, security vulnerabilities, and code smells.
 
-    You are a busy Principal Engineer with very little time.
-    Be extremely terse. Use imperative mood ("Fix X", not "You should fix X").
+    You are a Principal Engineer reviewing EVERY changed file of this scope.
+    Use imperative mood ("Fix X", not "You should fix X").
     You have tools to explore the scope's filesystem, search for text, and analyze code.
     All file paths are relative to the scope root directory (the current tool root).
     Tools are restricted to this scope — you cannot access files outside it.
+
+    ═══════════════════════════════════════════════════════════════════════════════
+    COVERAGE
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    You only see what you print. Each step's output is capped at {max_output_chars}
+    characters: beyond that, its middle is replaced by "... (N characters omitted) ...".
+
+    - Review several files per step: print as many patches together as fit under
+      the cap, then review all of them against A, B and C before printing the next
+      group. Prefer related files in the same group.
+    - Keep the number of steps low: do not print one small file per step.
+    - Print a file whose patch is larger than the cap alone, in slices (patch[i:j]).
+    - If an output shows "characters omitted", print the missing slice before
+      judging the file.
+    - Do not reprint what you have already seen; keep notes in REPL variables.
+    - Use tools for code outside the diff.
+    - Call SUBMIT only after every changed file has been printed and reviewed.
+      An early SUBMIT is sent back with the list of files not reviewed yet.
 
     ═══════════════════════════════════════════════════════════════════════════════
     ANALYZE CHANGES
@@ -163,6 +182,36 @@ class CodeReviewSignature(dspy.Signature):
         "Titles <10 words. Descriptions ≤25 words, imperative. Empty list if none. "
         "File paths must be relative to scope root."
     )
+
+
+MAX_OUTPUT_CHARS_PLACEHOLDER = "{max_output_chars}"
+
+
+def with_output_cap(sig: Any, max_output_chars: int) -> Any:
+    """Fill the ``{max_output_chars}`` placeholder of the instructions with the cap."""
+    if MAX_OUTPUT_CHARS_PLACEHOLDER not in sig.instructions:
+        return sig
+    return sig.with_instructions(
+        sig.instructions.replace(MAX_OUTPUT_CHARS_PLACEHOLDER, f"{max_output_chars:,}")
+    )
+
+
+def coverage_check(
+    changed_files: Sequence[Any], max_output_chars: int
+) -> Callable[[Any], str | None]:
+    """SUBMIT gate: send SUBMIT back while changed files remain unseen by the model."""
+
+    def check(history: Any) -> str | None:
+        missing = unseen_files(changed_files, history, max_output_chars)
+        if not missing:
+            return None
+        return (
+            f"{COVERAGE_REJECTION_PREFIX} Not reviewed yet: {', '.join(missing)}. "
+            f"Print their patches (grouped, under the {max_output_chars:,}-char cap) "
+            "and review them before SUBMIT."
+        )
+
+    return check
 
 
 class CodeReviewer(dspy.Module):
@@ -303,8 +352,11 @@ class CodeReviewer(dspy.Module):
                 subroot=scope.subroot,
             )
             sig = with_prefrontal_memory(base_sig) if review_context.prefrontal_memory else base_sig
+            max_output_chars = self._settings.get_max_output_chars("code_review")
+            sig = with_output_cap(sig, max_output_chars)
             recall_tool = pf.recall_tool() if pf else None
             agent_tools = [*tools, recall_tool] if recall_tool else tools
+            scoped = make_scope_relative(scope)
             agent = build_rlm_agent(
                 sig,
                 agent_tools,
@@ -312,8 +364,9 @@ class CodeReviewer(dspy.Module):
                 max_iters=max_iters,
                 max_llm_calls=self._settings.get_max_llm_calls("code_review"),
                 rlm_threshold=self._settings.get_rlm_threshold("react"),
+                max_output_chars=max_output_chars,
+                submit_check=coverage_check(scoped.changed_files, max_output_chars),
             )
-            scoped = make_scope_relative(scope)
             logger.info(
                 f"  Code review: scope {scope.subroot} ({len(scope.changed_files)} files)"
             )
@@ -356,7 +409,18 @@ class CodeReviewer(dspy.Module):
                 result = await run_rlm(
                     agent, scope=scoped, categories=categories, **pc_kwargs, **pf_kwargs
                 )
-                log_rlm_outcome(result, "code_review", scope.subroot)
+                unseen = log_rlm_outcome(
+                    result, "code_review", scope.subroot,
+                    changed_files=scoped.changed_files,
+                    max_output_chars=max_output_chars,
+                    max_iters=max_iters,
+                )
+                if unseen:
+                    logger.warning(
+                        f"Code review scope {scope.subroot}: "
+                        f"{len(unseen)}/{len(scoped.changed_files)} changed files "
+                        f"not reviewed before the run ended: {', '.join(unseen)}"
+                    )
                 issues = filter_by_confidence(
                     result.issues, self._settings.review.min_confidence, "code_review", scope.subroot
                 )

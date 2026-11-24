@@ -177,6 +177,15 @@ class Settings(BaseSettings):
         config = self.get_signature_config(name)
         return config.max_llm_calls or self.llm.default_max_llm_calls
 
+    def get_max_output_chars(self, name: str) -> int:
+        """Get the RLM REPL output cap for a signature (name-specific or default).
+
+        Unknown names fall back to ``llm.default_max_output_chars``. Reflection
+        modules are not covered: they do not build agents via ``build_rlm_agent``.
+        """
+        config = self.get_signature_config(name)
+        return config.max_output_chars or self.llm.default_max_output_chars
+
     def get_llm_config(self, name: str) -> LLMSettings:
         """Resolve the LLM settings for one named unit of LLM work.
 

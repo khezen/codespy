@@ -93,6 +93,10 @@ inputs:
     description: 'Maximum LLM calls for RLM fallback (context overflow recovery). Default from codespy.yaml: 8'
     required: false
 
+  default-max-output-chars:
+    description: 'RLM: max chars of one REPL step output shown to the model (head+tail kept, min 1000). Default from codespy.yaml: 40000'
+    required: false
+
   # RLM fallback (context rot prevention)
   rlm-fallback-enabled:
     description: 'Enable proactive RLM fallback before context window overflow. Default from codespy.yaml: true'
@@ -193,6 +197,10 @@ inputs:
 
   code-review-max-llm-calls:
     description: 'Max LLM calls for code review RLM fallback. Default from codespy.yaml: 16'
+    required: false
+
+  code-review-max-output-chars:
+    description: 'Max chars of one RLM REPL step output shown to the code reviewer. Default from codespy.yaml: null (use default-max-output-chars)'
     required: false
 
   code-review-max-tokens:
@@ -679,6 +687,7 @@ runs:
         LLM_RETRIES: ${{ inputs.llm-retries }}
         LLM_TIMEOUT: ${{ inputs.llm-timeout }}
         DEFAULT_MAX_LLM_CALLS: ${{ inputs.default-max-llm-calls }}
+        DEFAULT_MAX_OUTPUT_CHARS: ${{ inputs.default-max-output-chars }}
         REVIEW_MIN_CONFIDENCE: ${{ inputs.min-confidence }}
         REVIEW_EXCLUDED_DIRECTORIES: ${{ inputs.excluded-directories }}
 
@@ -714,6 +723,7 @@ runs:
         REVIEW_CODE_REVIEW_MODEL: ${{ inputs.code-review-model }}
         REVIEW_CODE_REVIEW_MAX_ITERS: ${{ inputs.code-review-max-iters }}
         REVIEW_CODE_REVIEW_MAX_LLM_CALLS: ${{ inputs.code-review-max-llm-calls }}
+        REVIEW_CODE_REVIEW_MAX_OUTPUT_CHARS: ${{ inputs.code-review-max-output-chars }}
         REVIEW_CODE_REVIEW_REASONING_EFFORT: ${{ inputs.code-review-reasoning-effort }}
         REVIEW_CODE_REVIEW_TEMPERATURE: ${{ inputs.code-review-temperature }}
 
@@ -847,6 +857,7 @@ runs:
         [ -n "$LLM_RETRIES" ] && DOCKER_ARGS="$DOCKER_ARGS -e LLM_RETRIES"
         [ -n "$LLM_TIMEOUT" ] && DOCKER_ARGS="$DOCKER_ARGS -e LLM_TIMEOUT"
         [ -n "$DEFAULT_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_LLM_CALLS"
+        [ -n "$DEFAULT_MAX_OUTPUT_CHARS" ] && DOCKER_ARGS="$DOCKER_ARGS -e DEFAULT_MAX_OUTPUT_CHARS"
         [ -n "$REVIEW_MIN_CONFIDENCE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_MIN_CONFIDENCE"
         [ -n "$REVIEW_EXCLUDED_DIRECTORIES" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_EXCLUDED_DIRECTORIES"
 
@@ -882,6 +893,7 @@ runs:
         [ -n "$REVIEW_CODE_REVIEW_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_MODEL"
         [ -n "$REVIEW_CODE_REVIEW_MAX_ITERS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_MAX_ITERS"
         [ -n "$REVIEW_CODE_REVIEW_MAX_LLM_CALLS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_MAX_LLM_CALLS"
+        [ -n "$REVIEW_CODE_REVIEW_MAX_OUTPUT_CHARS" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_MAX_OUTPUT_CHARS"
         [ -n "$REVIEW_CODE_REVIEW_REASONING_EFFORT" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_REASONING_EFFORT"
         [ -n "$REVIEW_CODE_REVIEW_TEMPERATURE" ] && DOCKER_ARGS="$DOCKER_ARGS -e REVIEW_CODE_REVIEW_TEMPERATURE"
 

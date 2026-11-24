@@ -166,6 +166,7 @@ class TestBuildRlmAgent:
         """build_rlm_agent should return a ContextSafe-wrapped RLM."""
         mock_settings = MagicMock()
         mock_settings.llm.timeout = 240.0
+        mock_settings.get_max_output_chars.return_value = 40_000
         mock_get_settings.return_value = mock_settings
 
         try:

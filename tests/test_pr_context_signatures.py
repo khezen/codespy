@@ -68,6 +68,7 @@ def _settings():
     s.memory.enabled = False
     s.get_max_iters.return_value = 5
     s.get_max_llm_calls.return_value = 16
+    s.get_max_output_chars.return_value = 40_000
     s.get_rlm_threshold.return_value = 0.30
     s.review.min_confidence = 0.0
     s.review.pr_context = PRContextConfig()
