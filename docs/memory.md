@@ -214,12 +214,25 @@ Five facets answer different questions:
 
 Only the `context` facet runs the reflect loop; the others stay raw recall at MID budget. Facts are deduplicated across sections by id, then by exact text.
 
+Facet queries:
+
+- `context`: task, target, scope description, PR title, PR summary and changed paths. Not subject to the relevance floor: with `reflects > 0` an LLM already judges relevance.
+- `seen_before`: the changed paths and symbols only (the tag pool already restricts it to the PR's scopes; the scope id and package names would match every scope fact). Without paths or symbols it falls back to `<target> <packages>`, with no floor.
+- `decisions` / `patterns`: the **PR topic** (scope description + PR title + PR summary) followed by their phrasing, e.g. `<topic>. decisions, trade-offs, …`. The topic is cut first, so the phrasing always survives the word cap. Without a topic they fall back to `<target>: <phrasing>`, with no floor.
+- `belief_changes` (What changed) has no query: it reads the history of the top observations of facets 2–4 and moves their `RETRACTED`/`supersedes:` facts, so it is as relevant as those facets.
+
+`seen_before`, `decisions` and `patterns` are subject to the relevance floor (see [Reach](#reach)). Standing scope conventions the PR does not touch come from briefings (`reflects > 0`), not from the facets; with `reflects = 0` they only surface when relevant to the PR.
+
 ### Reach
 
 `memory.prefrontal.recall.reach` (`local` | `org` | `bank`, default `org`):
 
 - **Local pool** (always): `project_scope:<scope id>` for code_review, seo and supply_chain. Agents with `include_repo` (scope, run-level load) also get the repo-root scope `project_scope:<owner/repo>`. The run-level load includes all PR scopes plus the root. `repo:<owner/repo>` is never part of the local pool, because it matches every fact in the repo.
-- **Remote pool** (`org`: `org:<owner>` AND NOT `repo:<own>`; `bank`: NOT `repo:<own>`): always raw facts, labelled with their source repo. Takes a fixed 25% share of `max_tokens` (and of `max_tool_tokens` for the tool); local facets split the rest. With `local` reach the local pool gets the whole budget.
+- **Remote pool** (`org`: `org:<owner>` AND NOT `repo:<own>`; `bank`: NOT `repo:<own>`): always raw facts, labelled with their source repo. Takes a fixed 25% share of `max_tokens` (and of `max_tool_tokens` for the tool); local facets split the rest. With `local` reach the local pool gets the whole budget. The pre-call remote query is the **PR topic** only (scope description + PR title + PR summary): no task, repo/scope id or paths, which match every repo of the org lexically and never apply to another repo. The `recall_memory` tool uses the agent's own query.
+
+**Relevance floor**: Hindsight recall is top-k up to the token budget, so each pool is filled whether or not its facts relate to the PR. `memory.prefrontal.recall.min_similarity` (env `MEMORY_RECALL_MIN_SIMILARITY`, 0–1, default `0` = off) keeps a fact only when its `scores.semantic` (cosine similarity to the query) is set and `>=` the floor. It applies to the remote pool (pre-call and raw `recall_memory`) and to the `seen_before`, `decisions` and `patterns` facets; not to `context`, the tool's local recall or reflect mode. The floor is also passed to Hindsight as `min_scores.semantic` (an SQL pre-prune of the semantic arm only). Facts surfaced only by the keyword, graph or temporal arms carry no semantic score and are dropped. Returning nothing is valid: there is no minimum fill, and an empty section is omitted.
+
+The default stays `0` until calibrated: every fact of the floored sections is logged before filtering (`Prefrontal[<task>] score section=<name> semantic=<0.xxx|none> kept=<y|n> repo=<repo> text=…`) and stored in the RecallRecord `details.scores` (`{id, section, repo, semantic, kept}`; persisted with `memory.hippocampus.persist_recalls`). Run with the floor at `0`, label the facts, and set the floor just below the lowest-scoring relevant fact. If relevant and irrelevant facts overlap in score, a floor cannot separate them; keep `0`.
 
 ### `recall_memory` tool
 
@@ -258,7 +271,7 @@ RLM agents (code_review, scope, seo, supply_chain, plan, implement) get `async r
 Every recall is logged:
 
 ```
-Prefrontal[review]: load status=ok 1 briefings, facets context=1 seen_before=3 ... remote=5 (512 tokens, reach=org, reflects=3) model=... calls=3 in=5120 out=410 cost=$0.0042 latency=6400ms maps=0 thoughts=256 tools=...
+Prefrontal[review]: load status=ok 1 briefings, facets context=1 seen_before=3 ... remote=5 (512 tokens, reach=org, reflects=3) dropped remote=2 seen_before=1 decisions=0 patterns=3 model=... calls=3 in=5120 out=410 cost=$0.0042 latency=6400ms maps=0 thoughts=256 tools=...
 Prefrontal[code_review]: recall_memory reach=local status=ok mode=reflect model=... calls=2 in=2210 out=180 cost=$0.0017 latency=3100ms query='...'
 ```
 
@@ -468,6 +481,7 @@ LIMIT 50;
 | `MEMORY_RECALL_MAX_TOKENS` | `memory.prefrontal.recall.max_tokens` | `8192` | Pre-call context budget |
 | `MEMORY_RECALL_MAX_TOOL_TOKENS` | `memory.prefrontal.recall.max_tool_tokens` | `2048` | Tool result budget |
 | `MEMORY_RECALL_MAX_TOOL_CALLS` | `memory.prefrontal.recall.max_tool_calls` | `0` | Tool calls per agent call (0 = tool off) |
+| `MEMORY_RECALL_MIN_SIMILARITY` | `memory.prefrontal.recall.min_similarity` | `0` | Relevance floor on `scores.semantic` for remote facts and `seen_before`/`decisions`/`patterns` (0 = off) |
 
 ### Reflection Module LLM Overrides
 

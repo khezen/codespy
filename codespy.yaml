@@ -21,6 +21,7 @@
 #   - memory.prefrontal.recall.max_tokens → MEMORY_RECALL_MAX_TOKENS
 #   - memory.prefrontal.recall.max_tool_tokens → MEMORY_RECALL_MAX_TOOL_TOKENS
 #   - memory.prefrontal.recall.max_tool_calls → MEMORY_RECALL_MAX_TOOL_CALLS
+#   - memory.prefrontal.recall.min_similarity → MEMORY_RECALL_MIN_SIMILARITY
 #
 # Provider credentials keep their standard names:
 #   OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, AWS_*, AZURE_*
@@ -158,6 +159,7 @@ memory:
       max_tokens: 8192                # MEMORY_RECALL_MAX_TOKENS (pre-call context budget)
       max_tool_tokens: 2048           # MEMORY_RECALL_MAX_TOOL_TOKENS (tool result budget)
       max_tool_calls: 0                 # MEMORY_RECALL_MAX_TOOL_CALLS (0 = recall_memory tool off)
+      min_similarity: 0.0               # MEMORY_RECALL_MIN_SIMILARITY (relevance floor on semantic score for remote + seen_before/decisions/patterns; 0 = off)
 
 # ============================================================================
 # REVIEW

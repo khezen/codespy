@@ -176,6 +176,10 @@ class RecallConfig(BaseModel):
     max_tool_tokens: int = Field(default=2048, gt=0)
     # recall_memory tool call limit (0 = tool disabled).
     max_tool_calls: int = Field(default=0, ge=0)
+    # Relevance floor on scores.semantic (cosine similarity, 0–1) for remote facts
+    # and the seen_before/decisions/patterns facets: facts below it, or not surfaced
+    # by the semantic arm, are dropped. 0 = off (uncalibrated; see docs/memory.md).
+    min_similarity: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class PrefrontalConfig(BaseModel):

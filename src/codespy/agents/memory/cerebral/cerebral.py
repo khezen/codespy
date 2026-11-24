@@ -1224,10 +1224,22 @@ class Cerebral:
         prefer_observations: bool = False,
         budget: str | Budget = Budget.MID,
         question_date: datetime | None = None,
+        min_semantic: float | None = None,
     ) -> list[Any]:
-        """Raw recall (one embedding call, no LLM). Returns ``MemoryFact`` list."""
+        """Raw recall (one embedding call, no LLM). Returns ``MemoryFact`` list.
+
+        ``min_semantic`` > 0 is passed as ``MinScores(semantic=...)``: an SQL
+        pre-prune of the semantic arm only. Facts from the keyword, graph and
+        temporal arms still come back (with ``scores.semantic`` None), so callers
+        that need a relevance floor must also filter the results.
+        """
         if not await self._abank_exists():
             return []
+        extra: dict[str, Any] = {}
+        if min_semantic is not None and min_semantic > 0:
+            from hindsight_api.engine.response_models import MinScores
+
+            extra["min_scores"] = MinScores(semantic=min_semantic)
         result = await self._await(
             self._engine.recall_async(
                 self._bank_id,
@@ -1239,6 +1251,7 @@ class Cerebral:
                 question_date=question_date,
                 tag_groups=tag_groups,
                 request_context=RequestContext(),
+                **extra,
             )
         )
         return list(getattr(result, "results", None) or [])

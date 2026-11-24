@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Prefrontal recall filled its sections with facts unrelated to the PR (e.g. another repo's facts under "Other repositories").** Hindsight recall is top-k up to the token budget with no relevance floor, and the remote query (task, repo/scope id, paths) matched every repo of the org lexically. The remote query is now the PR topic only (scope description + PR title + PR summary). `seen_before` queries the changed paths and symbols only, and `decisions` / `patterns` query the PR topic followed by their phrasing, without the `<scope>:` prefix; each falls back to its old query, with no floor, when there is no path/symbol or topic. A new relevance floor, `memory.prefrontal.recall.min_similarity` (env `MEMORY_RECALL_MIN_SIMILARITY`, 0–1), keeps a fact only when its semantic score (`scores.semantic`) is at or above the floor, for the remote pool (pre-call and raw `recall_memory`) and the `seen_before`, `decisions` and `patterns` facets; empty sections are omitted. "Around this work" (reflect) and the tool's local recall are not filtered. The default is `0` (off) until calibrated: every fact of those sections is logged before filtering (`Prefrontal[<task>] score section=… semantic=… kept=…`) and stored in the recall record `details.scores`, and the load log and details gain `remote_dropped`, `remote_scores` and per-facet `dropped`.
+
 ## [2.4.4] - 2026-10-27
 
 ### Added

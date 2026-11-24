@@ -588,6 +588,30 @@ class TestRecallConfig:
         with pytest.raises(ValidationError):
             RecallConfig(reach="world")
 
+    def test_min_similarity_default_off(self):
+        from codespy.config_memory import RecallConfig
+
+        assert RecallConfig().min_similarity == 0.0
+
+    @pytest.mark.parametrize("value", [-0.01, 1.01])
+    def test_min_similarity_bounds(self, value):
+        from codespy.config_memory import RecallConfig
+
+        with pytest.raises(ValidationError):
+            RecallConfig(min_similarity=value)
+
+    def test_min_similarity_env_mapping(self, monkeypatch):
+        from codespy.config import _ENV_MAP
+        from codespy.config_memory import RecallConfig
+        from codespy.config_utils import apply_env_overrides
+
+        assert _ENV_MAP["MEMORY_RECALL_MIN_SIMILARITY"] == (
+            "memory", "prefrontal", "recall", "min_similarity"
+        )
+        monkeypatch.setenv("MEMORY_RECALL_MIN_SIMILARITY", "0.45")
+        result = apply_env_overrides({}, _ENV_MAP)["memory"]["prefrontal"]["recall"]
+        assert RecallConfig(**result).min_similarity == 0.45
+
 
 class TestMentalModelsConfig:
     """Tests for memory.cerebral.mental_models config and env mapping."""
