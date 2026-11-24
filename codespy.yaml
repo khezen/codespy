@@ -61,6 +61,7 @@ llm:
   extraction_model: bedrock/converse/nvidia.nemotron-nano-3-30b   # EXTRACTION_MODEL (falls back to default_model; also used by Cerebral two-step structured output for memory models litellm cannot schema-enforce)
   default_max_iters: 5                                              # DEFAULT_MAX_ITERS
   default_max_llm_calls: 16                                        # DEFAULT_MAX_LLM_CALLS
+  default_max_output_chars: 40000                                  # DEFAULT_MAX_OUTPUT_CHARS (RLM: max chars of one REPL step output shown to the model)
   default_reasoning_effort: medium                                  # DEFAULT_REASONING_EFFORT
   default_temperature: 1.0                                          # DEFAULT_TEMPERATURE
   default_max_tokens: 32000                                       # DEFAULT_MAX_TOKENS
@@ -218,6 +219,7 @@ review:
     enabled: true                                                 # REVIEW_SUPPLY_CHAIN_ENABLED
     max_iters: null                                               # REVIEW_SUPPLY_CHAIN_MAX_ITERS
     max_llm_calls: null                                           # REVIEW_SUPPLY_CHAIN_MAX_LLM_CALLS
+    max_output_chars: null                                         # REVIEW_SUPPLY_CHAIN_MAX_OUTPUT_CHARS
     model: bedrock/converse/nvidia.nemotron-super-3-120b         # REVIEW_SUPPLY_CHAIN_MODEL
     reasoning_effort: null                                        # REVIEW_SUPPLY_CHAIN_REASONING_EFFORT
     temperature: null                                             # REVIEW_SUPPLY_CHAIN_TEMPERATURE
@@ -229,6 +231,7 @@ review:
     enabled: true                                                 # REVIEW_CODE_REVIEW_ENABLED
     max_iters: null                                                # REVIEW_CODE_REVIEW_MAX_ITERS
     max_llm_calls: null                                            # REVIEW_CODE_REVIEW_MAX_LLM_CALLS
+    max_output_chars: null                                         # REVIEW_CODE_REVIEW_MAX_OUTPUT_CHARS
     model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_CODE_REVIEW_MODEL
     reasoning_effort: null                                        # REVIEW_CODE_REVIEW_REASONING_EFFORT
     temperature: null                                             # REVIEW_CODE_REVIEW_TEMPERATURE
@@ -239,6 +242,7 @@ review:
     enabled: true                                                 # REVIEW_DOC_ENABLED
     max_iters: null                                                  # REVIEW_DOC_MAX_ITERS
     max_llm_calls: null                                             # REVIEW_DOC_MAX_LLM_CALLS
+    max_output_chars: null                                         # REVIEW_DOC_MAX_OUTPUT_CHARS
     model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_DOC_MODEL
     reasoning_effort: null                                        # REVIEW_DOC_REASONING_EFFORT
     temperature: null                                             # REVIEW_DOC_TEMPERATURE
@@ -249,6 +253,7 @@ review:
     enabled: true                                                 # REVIEW_SCOPE_ENABLED
     max_iters: 3                                                  # REVIEW_SCOPE_MAX_ITERS
     max_llm_calls: 10                                              # REVIEW_SCOPE_MAX_LLM_CALLS
+    max_output_chars: null                                         # REVIEW_SCOPE_MAX_OUTPUT_CHARS
     model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_SCOPE_MODEL
     reasoning_effort: null                                        # REVIEW_SCOPE_REASONING_EFFORT
     temperature: null                                             # REVIEW_SCOPE_TEMPERATURE
@@ -263,6 +268,7 @@ review:
     enabled: true                                                 # REVIEW_SUMMARY_ENABLED
     max_iters: null                                                  # REVIEW_SUMMARY_MAX_ITERS
     max_llm_calls: null                                             # REVIEW_SUMMARY_MAX_LLM_CALLS
+    max_output_chars: null                                         # REVIEW_SUMMARY_MAX_OUTPUT_CHARS
     model: bedrock/converse/nvidia.nemotron-super-3-120b         # REVIEW_SUMMARY_MODEL
     reasoning_effort: null                                        # REVIEW_SUMMARY_REASONING_EFFORT
     temperature: null                                             # REVIEW_SUMMARY_TEMPERATURE
@@ -274,6 +280,7 @@ review:
     scopes: []                                                    # REVIEW_SEO_SCOPES (JSON array in env)
     max_iters: null                                                  # REVIEW_SEO_MAX_ITERS
     max_llm_calls: null                                             # REVIEW_SEO_MAX_LLM_CALLS
+    max_output_chars: null                                         # REVIEW_SEO_MAX_OUTPUT_CHARS
     model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_SEO_MODEL
     reasoning_effort: null                                        # REVIEW_SEO_REASONING_EFFORT
     temperature: null                                             # REVIEW_SEO_TEMPERATURE
@@ -284,6 +291,7 @@ review:
     enabled: true                                                 # REVIEW_AUDIT_ENABLED
     max_iters: null                                                  # REVIEW_AUDIT_MAX_ITERS
     max_llm_calls: null                                             # REVIEW_AUDIT_MAX_LLM_CALLS
+    max_output_chars: null                                         # REVIEW_AUDIT_MAX_OUTPUT_CHARS
     model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_AUDIT_MODEL
     reasoning_effort: null                                        # REVIEW_AUDIT_REASONING_EFFORT
     temperature: null                                             # REVIEW_AUDIT_TEMPERATURE
@@ -294,6 +302,7 @@ review:
     enabled: false                                               # REVIEW_PLAN_ENABLED
     max_iters: null                                                  # REVIEW_PLAN_MAX_ITERS
     max_llm_calls: null                                             # REVIEW_PLAN_MAX_LLM_CALLS
+    max_output_chars: null                                         # REVIEW_PLAN_MAX_OUTPUT_CHARS
     model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_PLAN_MODEL
     reasoning_effort: null                                        # REVIEW_PLAN_REASONING_EFFORT
     temperature: null                                             # REVIEW_PLAN_TEMPERATURE
@@ -304,6 +313,7 @@ review:
     enabled: false                                               # REVIEW_IMPLEMENT_ENABLED
     max_iters: null                                                  # REVIEW_IMPLEMENT_MAX_ITERS
     max_llm_calls: null                                             # REVIEW_IMPLEMENT_MAX_LLM_CALLS
+    max_output_chars: null                                         # REVIEW_IMPLEMENT_MAX_OUTPUT_CHARS
     model: bedrock/converse/global.anthropic.claude-opus-5-5     # REVIEW_IMPLEMENT_MODEL
     reasoning_effort: null                                        # REVIEW_IMPLEMENT_REASONING_EFFORT
     temperature: null                                             # REVIEW_IMPLEMENT_TEMPERATURE

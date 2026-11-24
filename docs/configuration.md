@@ -113,6 +113,7 @@ AUTO_DISCOVER_GEMINI=false
 | Max tokens | `DEFAULT_MAX_TOKENS` | `32000` | Output token budget per completion (reasoning tokens included) |
 | Temperature | `DEFAULT_TEMPERATURE` | `1.0` | Default temperature for LLM calls |
 | Max iterations | `DEFAULT_MAX_ITERS` | `5` | Maximum ReAct iterations for tool-using agents |
+| Max output chars | `DEFAULT_MAX_OUTPUT_CHARS` | `40000` | Max chars of one RLM REPL step output shown to the model (head+tail kept). Per-signature override: `REVIEW_<SIG>_MAX_OUTPUT_CHARS` |
 | RLM fallback | `RLM_FALLBACK_ENABLED` | `true` | Proactive RLM fallback for context rot prevention |
 | RLM react threshold | `RLM_FALLBACK_REACT_THRESHOLD` | `0.30` | Context ratio triggering RLM for ReAct modules |
 | RLM CoT threshold | `RLM_FALLBACK_CHAIN_OF_THOUGHT_THRESHOLD` | `0.40` | Context ratio triggering RLM for ChainOfThought modules |
@@ -141,15 +142,15 @@ Each signature supports env var overrides: `REVIEW_<SIGNATURE>_<SETTING>`
 
 | Signature | Config Key | Available Settings |
 |-----------|------------|-------------------|
-| Scope Identifier | `scope` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
-| PR Summary | `summary` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
-| Code Reviewer | `code_review` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
-| Doc Reviewer | `doc` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
-| Supply Chain | `supply_chain` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS, SCAN_UNCHANGED |
-| SEO & AI-visibility | `seo` | ENABLED (default `false`), SCOPES, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS. See [SEO Review](#seo-review) |
-| Auditor | `audit` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
-| Implementation Planner | `plan` | ENABLED (default `false`), MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS. See [Implementation Plan](#implementation-plan) |
-| Implementation Agent | `implement` | ENABLED (default `false`), MAX_ITERS, MAX_LLM_CALLS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS. See [Implementation Agent](#implementation-agent) |
+| Scope Identifier | `scope` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MAX_OUTPUT_CHARS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
+| PR Summary | `summary` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MAX_OUTPUT_CHARS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
+| Code Reviewer | `code_review` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MAX_OUTPUT_CHARS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
+| Doc Reviewer | `doc` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MAX_OUTPUT_CHARS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
+| Supply Chain | `supply_chain` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MAX_OUTPUT_CHARS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS, SCAN_UNCHANGED |
+| SEO & AI-visibility | `seo` | ENABLED (default `false`), SCOPES, MAX_ITERS, MAX_LLM_CALLS, MAX_OUTPUT_CHARS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS. See [SEO Review](#seo-review) |
+| Auditor | `audit` | ENABLED, MAX_ITERS, MAX_LLM_CALLS, MAX_OUTPUT_CHARS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS |
+| Implementation Planner | `plan` | ENABLED (default `false`), MAX_ITERS, MAX_LLM_CALLS, MAX_OUTPUT_CHARS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS. See [Implementation Plan](#implementation-plan) |
+| Implementation Agent | `implement` | ENABLED (default `false`), MAX_ITERS, MAX_LLM_CALLS, MAX_OUTPUT_CHARS, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS. See [Implementation Agent](#implementation-agent) |
 
 Example: `REVIEW_CODE_REVIEW_MODEL=anthropic/claude-sonnet-4-5-20250929`
 

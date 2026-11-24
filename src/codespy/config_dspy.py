@@ -37,6 +37,8 @@ class SignatureConfig(BaseModel):
     enabled: bool = True
     max_iters: int | None = None
     max_llm_calls: int | None = None  # RLM fallback max calls (default_max_llm_calls if None)
+    # RLM: max chars of one REPL step output shown to the model (default_max_output_chars if None)
+    max_output_chars: int | None = Field(default=None, ge=1_000)
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None  # Provider reasoning budget
     temperature: float | None = None

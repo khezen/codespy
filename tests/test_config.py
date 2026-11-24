@@ -457,3 +457,59 @@ class TestPRContextConfig:
         assert Settings().review.pr_context.trusted_authors == ["github-actions[bot]"]
         monkeypatch.setenv("REVIEW_PR_CONTEXT_TRUSTED_AUTHORS", '["codespy-app[bot]"]')
         assert Settings().review.pr_context.trusted_authors == ["codespy-app[bot]"]
+
+
+class TestMaxOutputChars:
+    """RLM REPL output cap: llm.default_max_output_chars + review.<sig>.max_output_chars."""
+
+    def test_defaults(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        settings = Settings()
+        assert settings.llm.default_max_output_chars == 40000
+        for sig_config in settings.review.signatures().values():
+            assert sig_config.max_output_chars is None
+        assert settings.get_max_output_chars("code_review") == 40000
+
+    def test_global_env_override(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DEFAULT_MAX_OUTPUT_CHARS", "10000")
+        settings = Settings()
+        assert settings.llm.default_max_output_chars == 10000
+        assert settings.get_max_output_chars("doc") == 10000
+
+    def test_signature_env_override(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("REVIEW_CODE_REVIEW_MAX_OUTPUT_CHARS", "20000")
+        settings = Settings()
+        assert settings.review.code_review.max_output_chars == 20000
+        assert settings.get_max_output_chars("code_review") == 20000
+        assert settings.get_max_output_chars("doc") == 40000
+
+    def test_precedence(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DEFAULT_MAX_OUTPUT_CHARS", "15000")
+        monkeypatch.setenv("REVIEW_SEO_MAX_OUTPUT_CHARS", "25000")
+        settings = Settings()
+        assert settings.get_max_output_chars("seo") == 25000
+        assert settings.get_max_output_chars("summary") == 15000
+        # Unknown names fall back to the global default
+        assert settings.get_max_output_chars("not_a_signature") == 15000
+
+    def test_yaml_override(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "codespy.yaml").write_text(
+            "llm:\n  default_max_output_chars: 12000\n"
+            "review:\n  doc:\n    max_output_chars: 30000\n"
+        )
+        settings = Settings()
+        assert settings.get_max_output_chars("doc") == 30000
+        assert settings.get_max_output_chars("code_review") == 12000
+
+    @pytest.mark.parametrize("env", ["DEFAULT_MAX_OUTPUT_CHARS", "REVIEW_CODE_REVIEW_MAX_OUTPUT_CHARS"])
+    def test_minimum_1000(self, monkeypatch, tmp_path, env):
+        from pydantic import ValidationError
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv(env, "999")
+        with pytest.raises(ValidationError):
+            Settings()

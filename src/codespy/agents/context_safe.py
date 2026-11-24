@@ -7,9 +7,13 @@ exceed the model's context window. Used to wrap all DSPy signature modules.
 import enum
 import logging
 import re
+import threading
+from collections.abc import Callable
 
 import dspy  # type: ignore[import-untyped]
 import litellm  # type: ignore[import-untyped]
+from dspy.primitives.code_interpreter import FinalOutput  # type: ignore[import-untyped]
+from dspy.primitives.repl_types import REPLHistory  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +67,35 @@ def is_content_filter_refusal(exc: BaseException) -> bool:
 
 REFUSAL_EXTRACT_REASONING = "Extract after content_filter refusal"
 
+# Prefix of the REPL output that sends an early SUBMIT back to the model.
+COVERAGE_REJECTION_PREFIX = "[Coverage]"
+
+# Called with the REPL history on a valid SUBMIT; returns a message to send the
+# SUBMIT back (loop continues), or None to accept it.
+SubmitCheck = Callable[[REPLHistory], "str | None"]
+
+# dspy.RLM's default ``max_output_chars`` (kept when codespy passes None).
+DSPY_DEFAULT_MAX_OUTPUT_CHARS = 10_000
+
+
+class _CountingBudget:
+    """Wraps dspy's per-forward sub-LLM budget and counts accepted charges.
+
+    ``reserve(n)`` delegates first: a charge dspy refuses (limit exceeded)
+    raises before it is counted. dspy does not refund failed LM calls, and
+    neither does this count.
+    """
+
+    def __init__(self, inner: object) -> None:
+        self.inner = inner
+        self.calls = 0
+        self._lock = threading.Lock()
+
+    def reserve(self, n: int = 1) -> None:
+        self.inner.reserve(n)  # type: ignore[attr-defined]
+        with self._lock:
+            self.calls += n
+
 
 class CodespyRLM(dspy.RLM):
     """dspy.RLM adjusted for codespy.
@@ -74,13 +107,109 @@ class CodespyRLM(dspy.RLM):
       finding. Bedrock's classifier flips on byte-level changes of a long REPL
       history (one ``Output (`` -> ``Output: (`` edit clears it), so no wording
       avoids it reliably. Not a retry: the refused step is not re-sent.
+    - Configurable ``max_output_chars`` (cap of one REPL step output shown to the
+      model; ``DSPY_DEFAULT_MAX_OUTPUT_CHARS`` is kept when ``None``).
+    - Optional SUBMIT gate (``submit_check``): while it reports a message (e.g.
+      unseen changed files) and budget remains, a valid SUBMIT is sent back to
+      the model with that message and the loop continues. Once the budget is
+      spent (last iteration, or ``max_llm_calls`` exhausted) SUBMIT is accepted.
+      No rejection cap: the loop is bounded by ``max_iters``.
     """
 
+    def __init__(  # type: ignore[no-untyped-def]
+        self,
+        *args,
+        max_output_chars: int | None = None,
+        submit_check: SubmitCheck | None = None,
+        **kwargs,
+    ):
+        if max_output_chars is not None:
+            kwargs["max_output_chars"] = max_output_chars
+        super().__init__(*args, **kwargs)
+        self._submit_check = submit_check
+        self.coverage_rejections = 0
+        self._iteration = 0
+        self._budget_proxy: _CountingBudget | None = None
+
+    def _reset_gate_state(self) -> None:
+        self.coverage_rejections = 0
+        self._iteration = 0
+        self._budget_proxy = None
+
     def forward(self, **kwargs):  # type: ignore[no-untyped-def]
+        self._reset_gate_state()
         return super().forward(**{k: _plain(v) for k, v in kwargs.items()})
 
     async def aforward(self, **kwargs):  # type: ignore[no-untyped-def]
+        self._reset_gate_state()
         return await super().aforward(**{k: _plain(v) for k, v in kwargs.items()})
+
+    # --- SUBMIT gate -------------------------------------------------------
+
+    # dspy 3.4.1 hands the per-forward sub-LLM budget to these two methods, and
+    # every charge goes through its `reserve(n)` (llm_query/llm_query_batched and
+    # sandbox sub-agents). Passing the same counting proxy to both keeps an exact
+    # count without reading the budget's fields (pinned by tests/test_rlm_coverage.py).
+
+    def _counting(self, budget: object | None) -> "_CountingBudget | None":
+        if budget is None:
+            return None
+        proxy = self._budget_proxy
+        if proxy is None or proxy.inner is not budget:
+            proxy = self._budget_proxy = _CountingBudget(budget)
+        return proxy
+
+    def _make_llm_tools(self, budget=None, max_workers: int = 8):  # type: ignore[no-untyped-def]
+        return super()._make_llm_tools(self._counting(budget), max_workers)
+
+    def _setup_facade(self, repl, budget, interpreter_factory):  # type: ignore[no-untyped-def]
+        return super()._setup_facade(repl, self._counting(budget), interpreter_factory)
+
+    def _llm_budget_spent(self) -> bool:
+        proxy = self._budget_proxy
+        limit = self.max_llm_calls
+        return proxy is not None and limit is not None and proxy.calls >= limit
+
+    def _budget_spent(self) -> bool:
+        return self._iteration + 1 >= self.max_iters or self._llm_budget_spent()
+
+    def _run_submit_check(self, history) -> str | None:  # type: ignore[no-untyped-def]
+        if self._submit_check is None:
+            return None
+        try:
+            message = self._submit_check(history)
+        except Exception:
+            logger.warning("RLM submit_check failed; accepting SUBMIT", exc_info=True)
+            return None
+        if not message:
+            return None
+        if not message.startswith(COVERAGE_REJECTION_PREFIX):
+            message = f"{COVERAGE_REJECTION_PREFIX} {message}"
+        return message
+
+    def _process_execution_result(  # type: ignore[no-untyped-def]
+        self, pred, code, result, history, output_field_names
+    ):
+        if self._submit_check is not None and isinstance(result, FinalOutput):
+            _, error = self._process_final_output(result, output_field_names)
+            if error is None:
+                message = self._run_submit_check(history)
+                if message:
+                    if self._budget_spent():
+                        logger.warning(
+                            "RLM SUBMIT accepted at step %d/%d with budget spent; %s",
+                            self._iteration + 1, self.max_iters,
+                            message[len(COVERAGE_REJECTION_PREFIX):].strip(),
+                        )
+                    else:
+                        self.coverage_rejections += 1
+                        logger.info(
+                            "RLM SUBMIT rejected at step %d/%d (rejection %d): %s",
+                            self._iteration + 1, self.max_iters, self.coverage_rejections,
+                            message[len(COVERAGE_REJECTION_PREFIX):].strip(),
+                        )
+                        return history.append(reasoning=pred.reasoning, code=code, output=message)
+        return super()._process_execution_result(pred, code, result, history, output_field_names)
 
     def _refusal_warning(self, iteration: int, history) -> None:  # type: ignore[no-untyped-def]
         logger.warning(
@@ -97,6 +226,7 @@ class CodespyRLM(dspy.RLM):
     def _execute_iteration(  # type: ignore[no-untyped-def]
         self, repl, variables, history, iteration, input_args, output_field_names, *args, **kw
     ):
+        self._iteration = iteration
         try:
             return super()._execute_iteration(
                 repl, variables, history, iteration, input_args, output_field_names, *args, **kw
@@ -111,6 +241,7 @@ class CodespyRLM(dspy.RLM):
     async def _aexecute_iteration(  # type: ignore[no-untyped-def]
         self, repl, variables, history, iteration, input_args, output_field_names, *args, **kw
     ):
+        self._iteration = iteration
         try:
             return await super()._aexecute_iteration(
                 repl, variables, history, iteration, input_args, output_field_names, *args, **kw
@@ -186,6 +317,8 @@ class ContextSafe(dspy.Module):
         max_iters: int | None = None,
         max_llm_calls: int | None = None,
         rlm_threshold: float = 1.0,
+        max_output_chars: int | None = None,
+        submit_check: SubmitCheck | None = None,
     ):
         super().__init__()
         self.module = module
@@ -195,6 +328,8 @@ class ContextSafe(dspy.Module):
         self._max_iters = max_iters
         self._max_llm_calls = max_llm_calls
         self._rlm_threshold = rlm_threshold
+        self._max_output_chars = max_output_chars
+        self._submit_check = submit_check
 
     @property
     def signature(self):
@@ -316,5 +451,7 @@ class ContextSafe(dspy.Module):
             tools=self._tools,
             max_iters=self._max_iters,
             max_llm_calls=self._max_llm_calls,
+            max_output_chars=self._max_output_chars,
+            submit_check=self._submit_check,
             verbose=logger.isEnabledFor(logging.DEBUG),
         )

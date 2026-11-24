@@ -347,7 +347,11 @@ class ReviewPipeline(dspy.Module):
         ):
             max_iters = self.settings.get_max_iters(sig_name)
             max_llm_calls = self.settings.get_max_llm_calls(sig_name)
-            logger.info(f"  {sig_name}: max_iters={max_iters}, max_llm_calls={max_llm_calls}")
+            max_output_chars = self.settings.get_max_output_chars(sig_name)
+            logger.info(
+                f"  {sig_name}: max_iters={max_iters}, max_llm_calls={max_llm_calls}, "
+                f"max_output_chars={max_output_chars}"
+            )
 
         # Determine mode and fetch/build PR accordingly
         if isinstance(config, RemoteReviewConfig):
