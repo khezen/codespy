@@ -304,8 +304,59 @@ def format_rlm_input(value: Any) -> str:
     return str(value)
 
 
+# Printed in the REPL when an action step has no code: the model gets told its
+# answer was not run, instead of the extraction model inventing code for it.
+NO_CODE_FEEDBACK = (
+    "[Format] Your last answer had no Python code, so nothing ran. Each step must "
+    "end with a ```python code block. If you already know the answer, finish now: "
+    "put SUBMIT(<output field>=<value>, ...) in that block."
+)
+
+
+def _strip_think(completion: str) -> str:
+    """Drop a leaked reasoning preamble up to the last ``</think>`` tag."""
+    end = completion.rfind("</think>")
+    return completion[end + len("</think>"):] if end != -1 else completion
+
+
+def _json_action(text: str) -> dict[str, str] | None:
+    """``{"reasoning": ..., "code": ...}`` answered as JSON (nemotron does this)."""
+    stripped = text.strip()
+    if not (stripped.startswith("{") and stripped.endswith("}")):
+        return None
+    try:
+        data = json.loads(stripped)
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("code"), str):
+        return None
+    return {"reasoning": str(data.get("reasoning") or ""), "code": data["code"]}
+
+
+def _fence_is_empty(code: str) -> bool:
+    """Only fence markers and language tags (e.g. a lone ```` ``` ````), no code."""
+    for line in code.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            continue
+        if stripped:
+            return False
+    return True
+
+
+def _is_python(text: str) -> bool:
+    """Bare code: compiles and has a call or assignment (a lone word also compiles)."""
+    if "(" not in text and "=" not in text:
+        return False
+    try:
+        compile(text, "<rlm-action>", "exec")
+    except (SyntaxError, ValueError):
+        return False
+    return True
+
+
 def split_rlm_action(completion: str) -> dict[str, str] | None:
-    """Split an RLM action completion into its plan and its fenced code block.
+    """Split an RLM action completion into its plan and its code, locally.
 
     The main LM answers an RLM step as free text: a short plan, then a fenced
     code block. Splitting that locally keeps the extraction model away from
@@ -314,16 +365,34 @@ def split_rlm_action(completion: str) -> dict[str, str] | None:
     replayed to the main LM as REPL history and saved to memory, and Bedrock
     refuses those prompts with ``content_filter``.
 
-    Returns None when the completion has no code fence, so the caller can fall
-    back to model extraction.
+    Also handled locally (seen with nemotron-super, which then looped to
+    ``max_iters`` because the extraction model invented comment-only "code"):
+
+    - a leaked ``…</think>`` preamble is dropped;
+    - a JSON ``{"reasoning", "code"}`` object is read as such;
+    - bare Python without a fence is used as code;
+    - prose with no code (often the final answer, without SUBMIT) becomes a step
+      that prints ``NO_CODE_FEEDBACK``, so the model learns to call SUBMIT.
+
+    Returns None only for an empty completion, so the caller's empty-response
+    handling still applies.
     """
-    fence = completion.find("```")
-    if fence == -1:
+    text = _strip_think(completion).strip()
+    if not text:
         return None
-    reasoning = completion[:fence].strip()
-    # dspy.RLM strips the fence itself; keep it so non-Python tags are still rejected there
-    code = completion[fence:].strip()
-    return {"reasoning": reasoning, "code": code}
+    action = _json_action(text)
+    if action is not None:
+        return action
+    fence = text.find("```")
+    if fence != -1:
+        reasoning, code = text[:fence].strip(), text[fence:].strip()
+        if _fence_is_empty(code):
+            return {"reasoning": reasoning, "code": f"print({NO_CODE_FEEDBACK!r})"}
+        # dspy.RLM strips the fence itself; keep it so non-Python tags are still rejected there
+        return {"reasoning": reasoning, "code": code}
+    if _is_python(text):
+        return {"reasoning": "", "code": text}
+    return {"reasoning": text, "code": f"print({NO_CODE_FEEDBACK!r})"}
 
 
 class DiagnosticTwoStepAdapter(TwoStepAdapter):
