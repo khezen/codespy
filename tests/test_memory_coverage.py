@@ -541,9 +541,30 @@ class TestMemoryInPrompt:
     def test_no_memory(self):
         assert pf_mod.gated_memory_signature(_PlainSig, "", True) == (_PlainSig, "")
 
-    def test_code_review_cap_filled_once(self):
-        sig = with_output_cap(
-            pf_mod.with_memory_in_prompt(CodeReviewSignature, "## Decisions\n- x"), 40_000
+    def test_cap_applied_before_memory_leaves_memory_literal(self):
+        # agent order: cap on the base signature, then memory into the instructions
+        sig, repl = pf_mod.gated_memory_signature(
+            with_output_cap(CodeReviewSignature, 40_000), self.MEM, True
         )
-        assert "{max_output_chars}" not in sig.instructions
-        assert "40,000" in sig.instructions
+        assert repl == ""
+        head, body = sig.instructions.split(pf_mod.MEMORY_PROMPT_BEGIN, 1)
+        assert "{max_output_chars}" not in head and "40,000" in head
+        assert self.MEM in body
+
+    def test_with_output_cap_returns_same_class(self):
+        assert with_output_cap(CodeReviewSignature, 40_000) is with_output_cap(
+            CodeReviewSignature, 40_000
+        )
+        assert with_output_cap(CodeReviewSignature, 10_000) is not with_output_cap(
+            CodeReviewSignature, 40_000
+        )
+
+    def test_variable_mode_cache_does_not_grow_per_run(self):
+        def build():
+            return pf_mod.gated_memory_signature(
+                with_output_cap(CodeReviewSignature, 40_000), self.MEM, False
+            )[0]
+
+        first = build()
+        size = len(pf_mod._SIGNATURES)
+        assert build() is first and len(pf_mod._SIGNATURES) == size

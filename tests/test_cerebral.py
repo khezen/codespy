@@ -1388,6 +1388,20 @@ class TestBriefingSizeGuard:
         assert [x["heading"] for x in structure["sections"]] == ["S0", "S1", "S2", "S3"]
         async_engine.submit_async_refresh_mental_model.assert_not_awaited()
 
+    def test_attempts_follow_temperatures(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.return_value = {"content": _briefing(2400)}
+        temps: list[float] = []
+
+        async def never_fits(messages, temperature):
+            temps.append(temperature)
+            return _briefing(1500 - 50 * len(temps))
+
+        cerebral_async._briefing_shorten_model = "fake/kimi"
+        cerebral_async._complete_shorten = never_fits
+        cerebral_async._enforce_briefing_size([self.SCOPE])
+        assert temps == list(briefing_size.TEMPERATURES)
+        assert briefing_size.MAX_ATTEMPTS == len(briefing_size.TEMPERATURES)
+
     def test_over_budget_sent_back_with_size(self, cerebral_async, async_engine):
         async_engine.get_mental_model.return_value = {"content": _briefing(2400)}
         seen = self._model(cerebral_async, [_briefing(1500), _briefing(950)])

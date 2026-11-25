@@ -1154,11 +1154,7 @@ class Cerebral:
 
     async def _complete_shorten(self, messages: list[dict[str, str]], temperature: float) -> str:
         """One briefing rewrite call on ``mental_models.shorten_model``, metered as memory_mental_models."""
-        import time
-
         import litellm
-
-        from codespy.agents.memory.cerebral.cost import CerebralCostRecorder
 
         model = self._briefing_shorten_model or ""
         start = time.time()

@@ -194,13 +194,27 @@ class CodeReviewSignature(dspy.Signature):
 MAX_OUTPUT_CHARS_PLACEHOLDER = "{max_output_chars}"
 
 
+_CAPPED_SIGNATURES: dict[tuple[Any, int], Any] = {}
+
+
 def with_output_cap(sig: Any, max_output_chars: int) -> Any:
-    """Fill the ``{max_output_chars}`` placeholder of the instructions with the cap."""
+    """Fill the ``{max_output_chars}`` placeholder of the instructions with the cap.
+
+    Apply it to the base signature, before memory is added to the instructions:
+    the replace would also rewrite a literal placeholder inside memory text. Cached
+    by ``(sig, cap)`` so the same class comes back, which keeps the signature
+    caches downstream of it (``with_prefrontal_memory``) from growing per run.
+    """
     if MAX_OUTPUT_CHARS_PLACEHOLDER not in sig.instructions:
         return sig
-    return sig.with_instructions(
-        sig.instructions.replace(MAX_OUTPUT_CHARS_PLACEHOLDER, f"{max_output_chars:,}")
-    )
+    key = (sig, max_output_chars)
+    cached = _CAPPED_SIGNATURES.get(key)
+    if cached is None:
+        cached = sig.with_instructions(
+            sig.instructions.replace(MAX_OUTPUT_CHARS_PLACEHOLDER, f"{max_output_chars:,}")
+        )
+        _CAPPED_SIGNATURES[key] = cached
+    return cached
 
 
 def coverage_check(
@@ -358,12 +372,13 @@ class CodeReviewer(dspy.Module):
                 self._settings,
                 subroot=scope.subroot,
             )
+            max_output_chars = self._settings.get_max_output_chars("code_review")
             memory = review_context.memory_for_scope(scope_topic_id)
             sig, memory = gated_memory_signature(
-                base_sig, memory, self._settings.memory.prefrontal.in_prompt
+                with_output_cap(base_sig, max_output_chars),
+                memory,
+                self._settings.memory.prefrontal.in_prompt,
             )
-            max_output_chars = self._settings.get_max_output_chars("code_review")
-            sig = with_output_cap(sig, max_output_chars)
             recall_tool = pf.recall_tool() if pf else None
             agent_tools = [*tools, recall_tool] if recall_tool else tools
             scoped = make_scope_relative(scope)

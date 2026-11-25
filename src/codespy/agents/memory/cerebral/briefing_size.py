@@ -25,8 +25,6 @@ logger = logging.getLogger(__name__)
 
 # A rewrite below this share of the budget lost too much: sent back.
 COLLAPSE_RATIO = 0.25
-# Rewrite attempts per briefing (Kimi K2.5 fit mono#10519's briefings in 2).
-MAX_ATTEMPTS = 4
 # Word ceiling as a share of the budget: models overshoot word targets, and
 # Hindsight tokens per word vary, so the ceiling sits under the budget.
 AIM_RATIO = 0.75
@@ -38,8 +36,10 @@ STUCK_RATIO = 0.95
 # (chat messages, temperature) -> completion text
 Complete = Callable[[list[dict[str, str]], float], Awaitable[str]]
 
-# Temperature per attempt: retries vary more, so a stuck near miss can move.
+# Temperature per attempt: retries vary more, so a stuck near miss can move. One
+# entry per attempt (Kimi K2.5 fit mono#10519's briefings in 1-2 of 4).
 TEMPERATURES = (0.2, 0.6, 0.9, 0.9)
+MAX_ATTEMPTS = len(TEMPERATURES)
 
 SYSTEM_PROMPT = (
     "You rewrite an engineering briefing about a codebase so it is shorter. The briefing is "
@@ -122,7 +122,7 @@ async def enforce(markdown: str, budget: int, complete: Complete | None) -> Size
     source, source_tokens = markdown, before
     feedback = ""
     prev: int | None = None
-    for attempt in range(MAX_ATTEMPTS):
+    for temperature in TEMPERATURES:
         # Fresh conversation each attempt, on the best valid rewrite so far: in a
         # growing conversation Kimi repeated its previous answer word for word.
         system = SYSTEM_PROMPT.format(
@@ -133,7 +133,7 @@ async def enforce(markdown: str, budget: int, complete: Complete | None) -> Size
             {"role": "user", "content": source},
         ]
         try:
-            text = _strip_fence(await complete(messages, TEMPERATURES[attempt]))
+            text = _strip_fence(await complete(messages, temperature))
         except Exception:
             logger.warning("cerebral: briefing rewrite call failed", exc_info=True)
             break
