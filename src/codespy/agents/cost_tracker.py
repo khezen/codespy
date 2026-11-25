@@ -355,6 +355,25 @@ def _calculate_costs_from_entries(
     )
 
 
+def _cache_tokens(entries: list[dict], exclude_uuids: set[str]) -> tuple[int, int]:
+    """Prompt-cache (read, write) input tokens of the new entries; never raises."""
+    read = write = 0
+    for entry in entries:
+        try:
+            if not isinstance(entry, dict) or entry.get("uuid", "") in exclude_uuids:
+                continue
+            usage = entry.get("usage") or {}
+            if not isinstance(usage, dict):
+                continue
+            details = usage.get("prompt_tokens_details") or {}
+            cached = details.get("cached_tokens") if isinstance(details, dict) else None
+            read += int(_as_number(usage.get("cache_read_input_tokens") or cached))
+            write += int(_as_number(usage.get("cache_creation_input_tokens")))
+        except Exception:
+            continue
+    return read, write
+
+
 def _calculate_split_cost(
     entry: dict, prompt_tokens: int, completion_tokens: int, fallback_cost: float
 ) -> tuple[float, float]:
@@ -533,6 +552,16 @@ class SignatureContext:
             input_cost = main_result[5] + extraction_result[5]
             output_cost = main_result[6] + extraction_result[6]
 
+            cache_read, cache_write = _cache_tokens(main_entries, self._before_uuids)
+            if input_tokens:
+                logger.info(
+                    "Cost[%s]: prompt cache read=%d write=%d of %d input tokens (%d calls)",
+                    self.signature_name,
+                    cache_read,
+                    cache_write,
+                    input_tokens,
+                    call_count,
+                )
             self.tracker.end_signature(
                 self.signature_name,
                 cost=cost,

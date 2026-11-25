@@ -86,7 +86,7 @@ inputs:
     required: false
 
   llm-timeout:
-    description: 'Timeout in seconds for LLM calls. Default from codespy.yaml: 240'
+    description: 'Timeout in seconds for LLM calls. Default from codespy.yaml: 300'
     required: false
 
   default-max-llm-calls:
@@ -574,7 +574,15 @@ inputs:
     required: false
 
   memory-mental-models-max-tokens:
-    description: 'Briefing size. Default from codespy.yaml: 2048'
+    description: 'Briefing size. Default from codespy.yaml: 1024'
+    required: false
+
+  memory-prefrontal-in-prompt:
+    description: 'Give code_review/doc/seo/supply_chain memory in the cached system prompt (true) or as a REPL variable with a SUBMIT read gate (false). Default from codespy.yaml: true'
+    required: false
+
+  memory-mental-models-shorten-model:
+    description: 'Model that rewrites briefings over memory-mental-models-max-tokens down to size. Default from codespy.yaml: bedrock/converse/moonshotai.kimi-k2.5'
     required: false
 
   memory-mental-models-min-refresh-seconds:
@@ -821,6 +829,8 @@ runs:
         MEMORY_CARTOGRAPHER_MAX_TOKENS: ${{ inputs.memory-cartographer-max-tokens }}
         MEMORY_MENTAL_MODELS_MODEL: ${{ inputs.memory-mental-models-model }}
         MEMORY_MENTAL_MODELS_MAX_TOKENS: ${{ inputs.memory-mental-models-max-tokens }}
+        MEMORY_MENTAL_MODELS_SHORTEN_MODEL: ${{ inputs.memory-mental-models-shorten-model }}
+        MEMORY_PREFRONTAL_IN_PROMPT: ${{ inputs.memory-prefrontal-in-prompt }}
         MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS: ${{ inputs.memory-mental-models-min-refresh-seconds }}
         MEMORY_EMBEDDINGS_MAX_INPUT_CHARS: ${{ inputs.memory-embeddings-max-input-chars }}
         MEMORY_PREFRONTAL_REFLECTS: ${{ inputs.memory-prefrontal-reflects }}
@@ -994,6 +1004,8 @@ runs:
         [ -n "$MEMORY_CARTOGRAPHER_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_CARTOGRAPHER_MAX_TOKENS"
         [ -n "$MEMORY_MENTAL_MODELS_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MENTAL_MODELS_MODEL"
         [ -n "$MEMORY_MENTAL_MODELS_MAX_TOKENS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MENTAL_MODELS_MAX_TOKENS"
+        [ -n "$MEMORY_PREFRONTAL_IN_PROMPT" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_PREFRONTAL_IN_PROMPT"
+        [ -n "$MEMORY_MENTAL_MODELS_SHORTEN_MODEL" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MENTAL_MODELS_SHORTEN_MODEL"
         [ -n "$MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS"
         [ -n "$MEMORY_EMBEDDINGS_MAX_INPUT_CHARS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_EMBEDDINGS_MAX_INPUT_CHARS"
         [ -n "$MEMORY_PREFRONTAL_REFLECTS" ] && DOCKER_ARGS="$DOCKER_ARGS -e MEMORY_PREFRONTAL_REFLECTS"

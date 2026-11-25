@@ -29,6 +29,25 @@ SECTION_TITLES: dict[str, str] = {
     FACET_PATTERNS: "Recurring patterns",
     FACET_BELIEF_CHANGES: "What changed",
 }
+# Title prefixes of the briefing and remote-facts sections (titles vary).
+BRIEFING_TITLE_PREFIX = "Briefing"
+REMOTE_TITLE_PREFIX = "Other repositories"
+# Rendered section header: ``## <title>`` on its own line.
+SECTION_HEADER_PREFIX = "## "
+
+
+def is_section_title(title: str) -> bool:
+    """Whether ``title`` is one :func:`format_context_sections` renders.
+
+    Used to split rendered memory on known headers only: briefing bodies and
+    reflect answers carry their own markdown headings.
+    """
+    title = title.strip()
+    return (
+        title in SECTION_TITLES.values()
+        or title.startswith(BRIEFING_TITLE_PREFIX)
+        or title.startswith(REMOTE_TITLE_PREFIX)
+    )
 
 
 @dataclass(frozen=True)
@@ -193,9 +212,9 @@ def format_context_sections(
         content = (mm.get("content") or "").strip()
         if not content:
             continue
-        name = (mm.get("name") or "Briefing").strip()
-        if not name.startswith("Briefing"):
-            name = f"Briefing: {name}"
+        name = (mm.get("name") or BRIEFING_TITLE_PREFIX).strip()
+        if not name.startswith(BRIEFING_TITLE_PREFIX):
+            name = f"{BRIEFING_TITLE_PREFIX}: {name}"
         sections.append((name, content))
 
     dedup = _Dedup()
@@ -225,7 +244,7 @@ def format_context_sections(
     ]
     if remote_lines:
         where = "" if reach == REACH_BANK else f" in {org_of(repo)}"
-        title = f"Other repositories{where} — verify before relying on it"
+        title = f"{REMOTE_TITLE_PREFIX}{where} — verify before relying on it"
         sections.append((title, "\n".join(remote_lines)))
 
     return sections
@@ -244,7 +263,12 @@ def format_context(
     the first occurrence. Empty sections are omitted; nothing at all → ``""``.
     """
     sections = format_context_sections(briefings, facet_results, remote_facts, repo, reach)
-    return "\n\n".join(f"## {title}\n{body}" for title, body in sections)
+    return join_sections(sections)
+
+
+def join_sections(sections: Sequence[tuple[str, str]]) -> str:
+    """Render (title, body) sections as ``## <title>\\n<body>`` blocks."""
+    return "\n\n".join(f"{SECTION_HEADER_PREFIX}{title}\n{body}" for title, body in sections)
 
 
 def format_facts(facts: Sequence[Any], *, with_repo: bool = False) -> str:

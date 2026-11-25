@@ -160,7 +160,7 @@ Mental models are the abstraction layer ("when X happens, consider Y because Z")
 
 **Repo-root scope**: fed by scope-agent episodes (always bound to the root topic only, never to the PR's scopes), root-level PRs (`subroot="."`), and episodes without a `project_scope` topic.
 
-**Size guard**: delta refreshes only add content. After each `consolidate_run`, any touched briefing larger than `BRIEFING_FULL_REFRESH_FACTOR` (1.5) × `max_tokens` gets one full refresh: its trigger switches to `mode=full`, an explicit refresh runs inline, and the delta trigger is restored.
+**Size guard**: Hindsight treats a briefing's `max_tokens` as a target, not a limit: delta refreshes never shrink a briefing, and a full refresh shortens once without checking (on mono#10519 full refreshes at 1024 stored 1,403–2,607 tokens). After each `consolidate_run`, codespy enforces it on every touched briefing plus the repo-wide one (`briefing_size.py`), measuring in Hindsight's tokens. `mental_models.shorten_model` (default Kimi K2.5) rewrites the briefing, and each result is checked: it must fit, keep every `##` section heading, and keep at least 25% of the budget. A failed result is retried (up to 4 attempts) in a fresh conversation on the best valid rewrite so far, with the failure stated, a lower word ceiling when it barely moved, and a higher temperature. Nothing is ever truncated: if no attempt fits, the best valid rewrite (or the original) is kept and a warning is logged. Content and structure are written back together, so the next delta refresh edits the rewritten document. The calls are metered as `memory_mental_models`. Logged as `cerebral: briefing … over size (N > B tokens); rewrites A -> B (model); stored M tokens`. Model choice, on mono#10519's two oversized briefings (about 2,150 tokens, limit 1024): Kimi K2.5 fit 10/10 runs, all headings kept; Opus 5.5 fit in 2–3 attempts at several times the tokens; Sonnet 5.5 crept to about 1,080; nemotron-super got stuck at 1,279–2,063. When `max_tokens` changes, existing briefings get the new value. Default `1024` (was `2048`).
 
 When an existing briefing's name or source query differs from the expected one, codespy updates it (never deletes it). Hindsight falls back to a full refresh when the source query changed.
 
@@ -199,6 +199,14 @@ Prefrontal reads Cerebral and injects prior knowledge into agents.
 ### Run-level load vs scope load
 
 **One run-level load** (`task="review"`, all project scopes + the repo-root scope) shared by summary, code_review, doc, seo, supply_chain, audit, plan, implement. Only the **scope** agent does its own load when model refinement runs. The other agents create a per-agent Prefrontal only for the `recall_memory` tool.
+
+**Per-scope subset**: the per-scope agents (code_review, doc, seo, supply_chain) do not get the whole run-level text. After the load, `Prefrontal.scoped_text(<scope id>)` re-renders it for each scope, with no new recall:
+- the scope's briefing and the repo-root briefing (not the other scopes' briefings);
+- the facts tagged with that scope or the repo root (facts with no `project_scope:` tag are kept);
+- the belief changes of the kept observations;
+- the shared "Around this work" synthesis and the remote facts.
+
+Summary, audit, plan and implement still get the whole run-level text. Each subset's size is logged: `Prefrontal[review]: scope <subroot> memory <n> tokens (run-level <m>)`.
 
 ### Facets
 
@@ -250,6 +258,16 @@ To recalibrate:
 
 If relevant and unrelated facts overlap in score, a floor cannot separate them. In that case, keep `0`.
 
+### Delivery to agents
+
+The rendered memory is a series of `## <title>` sections (briefings, then the facets in order, then remote facts). Every agent that receives it is an RLM agent. Summary, scope, audit, plan and implement get it as the read-only REPL variable `prefrontal_memory`, as do code_review, doc, seo and supply_chain when `memory.prefrontal.in_prompt` is `false`. The prompt shows only the variable's description and a 1,000-char head+tail preview; the model sees the rest only by printing it, and each print is cut by the step output cap (`max_output_chars`). With `in_prompt: true` (default), those four agents get their scope's memory in the system prompt instead (below).
+
+- **MEMORY prompt block** (all 9 agents: summary, scope, code_review, doc, seo, supply_chain, audit, plan, implement): `with_prefrontal_memory` appends to the instructions what memory is (read-only, may be stale), what each section holds, and how to use it: read it first, check recurring patterns and prior findings against the changed files, respect recorded decisions (do not report what a decision accepts, report a change that breaks one), use it to direct tool calls, never report an issue from memory alone, trust the code when they disagree.
+- **In the system prompt** (code_review, doc, seo, supply_chain; default, `memory.prefrontal.in_prompt: true`, `MEMORY_PREFRONTAL_IN_PROMPT`): the scope's memory text goes into the instructions between `<prefrontal_memory>` tags, after the MEMORY block. dspy RLM sends the instructions as the system message, which is the same on every step and carries codespy's cache marker, so on Claude (Anthropic/Bedrock) step 1 writes the cache and later steps read it at about a tenth of the input price; the REPL history, where a printed variable lands, is never cached. No `prefrontal_memory` variable, no read gate, no `memory_seen` for these agents. Each signature logs `Cost[<name>]: prompt cache read=… write=… of … input tokens`.
+- **SUBMIT gate** (code_review, doc, seo, supply_chain, with `in_prompt: false`): `with_prefrontal_memory(..., require_read=True)` adds "print it in slices under the cap before reviewing", and `memory_check` sends an early `SUBMIT` back with the unseen sections and the `prefrontal_memory[a:b]` slices to print (adjacent sections merged, long ranges split under the cap). It works like the code_review diff gate (`combine_checks` puts unseen files and unseen memory in one rejection), applies only with `in_prompt: false`, and accepts `SUBMIT` once `max_iters` / `max_llm_calls` is spent. The ContextSafe RLM fallback gets the same gate. The other 5 agents are only measured, giving a baseline of what models read on their own.
+- **Measurement**: a section is seen when at least 90% of its significant lines (stripped, 3+ chars) appear in what the model saw: each step's output after the cap, plus each step's code. The memory is split on known section titles only, so headings inside briefings or reflect answers stay in their section. Each run logs `memory_seen=<seen>/<total> sections` on its coverage line, with the unseen titles.
+- **Cost**: the gated agents print their whole memory. dspy resends the REPL history on every step, so its size is added to every later step's prompt of each scope run. That is why they get the per-scope subset (see [Run-level load vs scope load](#run-level-load-vs-scope-load)): on peaks-com/mono#10519 the run-level text was about 68k chars / 17k tokens, including 4 briefings, for 3 scopes. Long histories also make Bedrock `content_filter` refusals more likely; a refused step still ends through the extract path, possibly with memory coverage incomplete.
+
 ### `recall_memory` tool
 
 RLM agents (code_review, scope, seo, supply_chain, plan, implement) get `async recall_memory(query: str, reach: str = "local") -> str`. A reach above the configured one is clamped; at most `max_tool_calls` calls per agent call (then `"recall limit reached"`); errors return `"memory unavailable"`.
@@ -289,6 +307,8 @@ Every recall is logged:
 ```
 Prefrontal[review]: load status=ok 1 briefings, facets context=1 seen_before=3 ... remote=5 (512 tokens, reach=org, reflects=3) dropped remote=2 seen_before=1 decisions=0 patterns=3 model=... calls=3 in=5120 out=410 cost=$0.0042 latency=6400ms maps=0 thoughts=256 tools=...
 Prefrontal[code_review]: recall_memory reach=local status=ok mode=reflect model=... calls=2 in=2210 out=180 cost=$0.0017 latency=3100ms query='...'
+RLM[code_review] scope services/payments: iterations=9/20, end=SUBMIT, coverage_rejections=1, truncated_outputs=0 (cap 40,000), unseen_files=0, memory_seen=6/6 sections
+RLM[summary] scope acme/repo: iterations=4/10, end=SUBMIT, coverage_rejections=0, truncated_outputs=0 (cap 40,000), unseen_files=0, memory_seen=1/6 sections (unseen: Seen before, Decisions, Recurring patterns, What changed, Other repositories in acme — verify before relying on it)
 ```
 
 ### Episodic store
@@ -482,7 +502,8 @@ LIMIT 50;
 | `MEMORY_CONSOLIDATION_MODEL` | `memory.cerebral.consolidation.model` | → retain | Model for consolidation |
 | `MEMORY_CONSOLIDATION_MAX_OBSERVATIONS_PER_SCOPE` | `memory.cerebral.consolidation.max_observations_per_scope` | `100` | Per-scope cap (-1=unlimited, 0=no new) |
 | `MEMORY_MENTAL_MODELS_MODEL` | `memory.cerebral.mental_models.model` | Nemotron Super | Briefing refresh model |
-| `MEMORY_MENTAL_MODELS_MAX_TOKENS` | `memory.cerebral.mental_models.max_tokens` | `2048` | Briefing size |
+| `MEMORY_MENTAL_MODELS_MAX_TOKENS` | `memory.cerebral.mental_models.max_tokens` | `1024` | Briefing size |
+| `MEMORY_MENTAL_MODELS_SHORTEN_MODEL` | `memory.cerebral.mental_models.shorten_model` | `bedrock/converse/moonshotai.kimi-k2.5` | Rewrites briefings over `max_tokens` down to size |
 | `MEMORY_MENTAL_MODELS_MIN_REFRESH_SECONDS` | `memory.cerebral.mental_models.min_refresh_seconds` | `0` | Min seconds between refreshes |
 | `MEMORY_EMBEDDINGS_MODEL` | `memory.cerebral.embeddings.model` | Auto-derived | Embeddings model |
 | `MEMORY_EMBEDDINGS_MAX_INPUT_CHARS` | `memory.cerebral.embeddings.max_input_chars` | `null` | Max chars per embedding (null=auto, 0=off, N=cap) |
@@ -492,6 +513,7 @@ LIMIT 50;
 | Env Var | YAML Path | Default | Description |
 |---------|-----------|---------|-------------|
 | `MEMORY_PREFRONTAL_REFLECTS` | `memory.prefrontal.reflects` | `3` | Reflect iterations; 0 = raw facts, no LLM, no briefings |
+| `MEMORY_PREFRONTAL_IN_PROMPT` | `memory.prefrontal.in_prompt` | `true` | code_review/doc/seo/supply_chain get their scope's memory in the cached system prompt; `false` = REPL variable + SUBMIT read gate |
 | `MEMORY_RECALL_MODEL` | `memory.prefrontal.recall.model` | Nemotron Super | Reflect loop model; also mental-model fallback |
 | `MEMORY_RECALL_REACH` | `memory.prefrontal.recall.reach` | `org` | `local`, `org` or `bank` |
 | `MEMORY_RECALL_MAX_TOKENS` | `memory.prefrontal.recall.max_tokens` | `8192` | Pre-call context budget |

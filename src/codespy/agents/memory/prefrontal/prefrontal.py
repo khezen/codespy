@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import dataclasses
 import logging
 import time
 from collections.abc import Callable, Sequence
@@ -27,11 +28,14 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents.memory.prefrontal.facets import run_facets
 from codespy.agents.memory.prefrontal.format import (
+    BeliefChange,
+    FacetResult,
     estimate_tokens,
     fget,
     filter_relevant,
     format_context_sections,
     format_facts,
+    join_sections,
     semantic_score,
 )
 from codespy.agents.memory.prefrontal.query import (
@@ -45,12 +49,14 @@ from codespy.agents.memory.prefrontal.query import (
 )
 from codespy.agents.memory.prefrontal.reach import (
     REACH_LOCAL,
+    TAG_PROJECT_SCOPE,
     TAG_REPO,
     build_local_groups,
     build_reflect_groups,
     build_remote_groups,
     clamp_reach,
     is_own_repo_fact,
+    local_tags,
     mental_model_ids,
     tag_value,
 )
@@ -65,9 +71,40 @@ logger = logging.getLogger(__name__)
 PREFRONTAL_FIELD = "prefrontal_memory"
 PREFRONTAL_FIELD_DESC = (
     "Prior knowledge from earlier runs (read-only, may be stale or wrong). "
-    "Use it to skip rediscovery and to direct tool calls. "
-    "Verify anything you report as an issue with tools; never report an issue from memory alone."
+    "See MEMORY in the instructions."
 )
+
+# Appended to the signature instructions of every agent that receives memory.
+# No braces: code_review fills ``{max_output_chars}`` in its instructions later.
+MEMORY_BLOCK_HEADER = "MEMORY (prefrontal_memory)"
+MEMORY_BLOCK = f"""{MEMORY_BLOCK_HEADER}
+
+prefrontal_memory holds what earlier codespy runs learned about this repository.
+It is read-only and may be stale or wrong. It has "## <title>" sections:
+- Briefing: standing conventions of a scope.
+- Around this work: a synthesis of prior knowledge for this change.
+- Seen before: prior facts about the changed files.
+- Decisions: agreed choices and conventions.
+- Recurring patterns: issues found before.
+- What changed: beliefs that were revised.
+- Other repositories: facts from the same organisation; verify before relying on them.
+
+How to use it:
+- Read it before you start judging the change.
+- Check recurring patterns and prior findings against the changed files first.
+- Respect recorded decisions: do not report what a decision explicitly accepts;
+  do report a change that breaks a decision.
+- Use it to direct tool calls.
+- Never report an issue from memory alone: verify it in the code with tools.
+- When memory and code disagree, trust the code."""
+
+# Appended for agents whose SUBMIT is gated on reading memory (require_read).
+MEMORY_READ_BLOCK_HEADER = "Reading memory:"
+MEMORY_READ_BLOCK = f"""{MEMORY_READ_BLOCK_HEADER}
+- You only see what you print: the prefrontal_memory preview shows 1,000 characters.
+- Print prefrontal_memory in full early, before reviewing, in slices under the
+  output cap (print(prefrontal_memory[a:b])).
+- An early SUBMIT is sent back with the memory sections not read yet."""
 
 RECALL_LIMIT_REACHED = "recall limit reached"
 MEMORY_UNAVAILABLE = "memory unavailable"
@@ -98,28 +135,104 @@ def _tool_status(text: str) -> RecallStatus:
         return "error"
     return "ok"
 
-_SIGNATURES: dict[type, type] = {}
+_SIGNATURES: dict[tuple[type, bool], type] = {}
 
 
-def with_prefrontal_memory(signature: type[dspy.Signature]) -> type[dspy.Signature]:
+def _change_observation_id(change: BeliefChange) -> str:
+    """Observation id of a belief change (id ``history:<observation id>:<i>``)."""
+    cid = change.id or ""
+    if cid.startswith("history:"):
+        return cid[len("history:"):].rsplit(":", 1)[0]
+    return cid
+
+
+# Delimits the memory text when it is placed in the instructions (in_prompt).
+MEMORY_PROMPT_BEGIN = "<prefrontal_memory>"
+MEMORY_PROMPT_END = "</prefrontal_memory>"
+
+
+def with_memory_in_prompt(signature: type[dspy.Signature], memory: str) -> type[dspy.Signature]:
+    """Return ``signature`` with ``memory`` itself in its instructions (no input field).
+
+    dspy RLM puts the instructions in the system message, which stays the same on
+    every step and carries codespy's prompt-cache marker, while the REPL history
+    (where a printed variable lands) is in the uncached user message. Placed here,
+    memory is read from step 1 with no print and, on Anthropic/Bedrock Claude,
+    billed at the cache-read rate from step 2. Not cached in ``_SIGNATURES``:
+    the text differs per scope run.
+    """
+    instructions = (signature.instructions or "").rstrip()
+    block = MEMORY_BLOCK.replace(
+        f"{PREFRONTAL_FIELD} holds", f"The {MEMORY_PROMPT_BEGIN} block below holds", 1
+    )
+    text = "\n\n".join(
+        part
+        for part in (
+            instructions,
+            block,
+            f"{MEMORY_PROMPT_BEGIN}\n{memory.strip()}\n{MEMORY_PROMPT_END}",
+        )
+        if part
+    )
+    return signature.with_instructions(text)
+
+
+def gated_memory_signature(
+    signature: type[dspy.Signature], memory: str | None, in_prompt: bool
+) -> tuple[type[dspy.Signature], str]:
+    """Signature and REPL memory for an agent whose SUBMIT is gated on reading memory.
+
+    ``in_prompt``: memory goes into the instructions (``with_memory_in_prompt``)
+    and the returned memory is ``""``, so the caller passes no
+    ``prefrontal_memory`` variable, builds no ``memory_check`` gate and logs no
+    ``memory_seen`` (it is always fully in the prompt). Otherwise the REPL variable
+    plus the read instructions (``with_prefrontal_memory(require_read=True)``).
+    """
+    if not memory:
+        return signature, ""
+    if in_prompt:
+        logger.info(
+            "Prefrontal: memory in the system prompt (%d tokens)", estimate_tokens(memory)
+        )
+        return with_memory_in_prompt(signature, memory), ""
+    return with_prefrontal_memory(signature, require_read=True), memory
+
+
+def with_prefrontal_memory(
+    signature: type[dspy.Signature], *, require_read: bool = False
+) -> type[dspy.Signature]:
     """Return ``signature`` with a leading ``prefrontal_memory: str`` input (idempotent).
+
+    Also appends the MEMORY block (what memory is, how to use it) to the
+    instructions, and with ``require_read`` the block telling the model to print
+    it before SUBMIT (pair with ``rlm_tools.memory_check``). Neither the field
+    nor a block is added twice.
 
     Must be applied before the module is built: ``dspy.RLM`` builds its
     predictors from the signature in ``__init__``. Use the same returned
     signature for ``ContextSafe`` so its RLM fallback has the field too.
     """
-    if PREFRONTAL_FIELD in signature.input_fields:
-        return signature
-    cached = _SIGNATURES.get(signature)
+    key = (signature, require_read)
+    cached = _SIGNATURES.get(key)
     if cached is not None:
         return cached
-    injected = signature.prepend(
-        PREFRONTAL_FIELD,
-        dspy.InputField(desc=PREFRONTAL_FIELD_DESC),
-        type_=str,
-    )
-    _SIGNATURES[signature] = injected
-    return injected
+    sig = signature
+    if PREFRONTAL_FIELD not in sig.input_fields:
+        sig = sig.prepend(
+            PREFRONTAL_FIELD,
+            dspy.InputField(desc=PREFRONTAL_FIELD_DESC),
+            type_=str,
+        )
+    instructions = sig.instructions or ""
+    blocks: list[str] = []
+    if MEMORY_BLOCK_HEADER not in instructions:
+        blocks.append(MEMORY_BLOCK)
+    if require_read and MEMORY_READ_BLOCK_HEADER not in instructions:
+        blocks.append(MEMORY_READ_BLOCK)
+    if blocks:
+        sig = sig.with_instructions("\n\n".join([instructions.rstrip(), *blocks]).lstrip())
+    _SIGNATURES[key] = sig
+    return sig
 
 
 class Prefrontal:
@@ -156,6 +269,9 @@ class Prefrontal:
         self._records: list[RecallRecord] = []
         # Sections from the last aload() call, for structured memory rendering.
         self._last_sections: list[tuple[str, str]] = []
+        # Inputs of the last render (briefings, facet results, remote facts),
+        # kept so scoped_text() can re-render a per-scope subset without a recall.
+        self._last_parts: tuple[list[dict], dict[str, FacetResult], list[Any]] | None = None
 
     @property
     def recalls(self) -> list[RecallRecord]:
@@ -166,6 +282,43 @@ class Prefrontal:
     def last_sections(self) -> list[tuple[str, str]]:
         """Sections from the last aload() call as (title, body) tuples."""
         return list(self._last_sections)
+
+    def scoped_text(self, scope_topic_id: str) -> str | None:
+        """Re-render the last load for one scope, without a new recall.
+
+        Keeps the briefings of ``scope_topic_id`` and of the repo-root scope,
+        the facts tagged with either scope (facts without any ``project_scope:``
+        tag are kept), the belief changes of kept observations, the shared
+        "Around this work" synthesis and the remote facts (already filtered by
+        the PR topic and the relevance floor).
+
+        Returns None when nothing was loaded yet (callers fall back to the
+        run-level text).
+        """
+        if self._last_parts is None:
+            return None
+        briefings, results, remote = self._last_parts
+        keep_mm = set(mental_model_ids(self._repo, [scope_topic_id], True))
+        keep_tags = set(local_tags(self._repo, [scope_topic_id], True))
+
+        def in_scope(fact: Any) -> bool:
+            scopes = [t for t in fget(fact, "tags") or [] if t.startswith(TAG_PROJECT_SCOPE)]
+            return not scopes or any(t in keep_tags for t in scopes)
+
+        kept_briefings = [mm for mm in briefings if not mm.get("id") or mm.get("id") in keep_mm]
+        kept_obs = {fget(f, "id") for r in results.values() for f in r.facts if in_scope(f)}
+        dropped_obs = {fget(f, "id") for r in results.values() for f in r.facts} - kept_obs
+        scoped: dict[str, FacetResult] = {}
+        for name, r in results.items():
+            scoped[name] = dataclasses.replace(
+                r,
+                facts=[f for f in r.facts if in_scope(f)],
+                changes=[c for c in r.changes if _change_observation_id(c) not in dropped_obs],
+            )
+        sections = format_context_sections(
+            kept_briefings, scoped, remote, self._repo, self._cfg.recall.reach
+        )
+        return join_sections(sections)
 
     def _record(
         self,
@@ -297,6 +450,7 @@ class Prefrontal:
         """
         self._tool_calls = 0
         self._last_sections = []
+        self._last_parts = None
         facet_list = list(facets)
         context_query = next((f.query for f in facet_list if f.name == FACET_CONTEXT), "")
         started_at = datetime.now(UTC)
@@ -478,11 +632,12 @@ class Prefrontal:
             return kept
 
         briefings, results, remote = await asyncio.gather(_briefings(), _facets(), _remote())
+        self._last_parts = (list(briefings or []), dict(results or {}), list(remote or []))
         # Compute sections once for structured rendering
         sections = format_context_sections(
             briefings, results, remote, self._repo, cfg.recall.reach
         )
-        text = "\n\n".join(f"## {t}\n{b}" for t, b in sections)
+        text = join_sections(sections)
 
         n_briefings = sum(
             1

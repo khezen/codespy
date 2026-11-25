@@ -12,9 +12,10 @@ from codespy.agents.review.scope.models import ScopeResult, ScopeType
 from codespy.tools.git.models import ChangedFile, FileStatus
 
 
-def _run_doc_review(tmp_path, prefrontal_memory: str) -> dict:
+def _run_doc_review(tmp_path, prefrontal_memory: str, in_prompt: bool = False) -> dict:
     """Run DocReviewer on a single scope and return the kwargs passed to run_rlm."""
     mock_settings = MagicMock()
+    mock_settings.memory.prefrontal.in_prompt = in_prompt
     mock_settings.is_signature_enabled.return_value = True
     mock_settings.memory.enabled = False
     mock_settings.get_max_iters.return_value = 5
@@ -85,6 +86,10 @@ class TestDocReviewerRlmInputs:
         kwargs = _run_doc_review(tmp_path, prefrontal_memory="m")
         assert set(kwargs) == set(with_prefrontal_memory(DocReviewSignature).input_fields)
         assert kwargs["prefrontal_memory"] == "m"
+
+    def test_memory_in_prompt_is_not_an_input(self, tmp_path):
+        kwargs = _run_doc_review(tmp_path, prefrontal_memory="m", in_prompt=True)
+        assert set(kwargs) == set(DocReviewSignature.input_fields)
 
 
 if __name__ == "__main__":

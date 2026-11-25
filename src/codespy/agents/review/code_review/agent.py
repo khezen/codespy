@@ -13,7 +13,7 @@ from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.context_safe import COVERAGE_REJECTION_PREFIX, ContextSafe
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
-from codespy.agents.memory.prefrontal import with_prefrontal_memory
+from codespy.agents.memory.prefrontal import gated_memory_signature
 from codespy.agents.review.feedback.signature import apply_pr_context
 from codespy.agents.review.helpers import (
     filter_by_confidence,
@@ -25,7 +25,14 @@ from codespy.agents.review.helpers import (
 )
 from codespy.agents.review.models import Issue, IssueCategory, ReviewContext
 from codespy.agents.review.scope.models import ScopeResult
-from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm, unseen_files
+from codespy.agents.rlm_tools import (
+    build_rlm_agent,
+    combine_checks,
+    log_rlm_outcome,
+    memory_check,
+    run_rlm,
+    unseen_files,
+)
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -187,13 +194,27 @@ class CodeReviewSignature(dspy.Signature):
 MAX_OUTPUT_CHARS_PLACEHOLDER = "{max_output_chars}"
 
 
+_CAPPED_SIGNATURES: dict[tuple[Any, int], Any] = {}
+
+
 def with_output_cap(sig: Any, max_output_chars: int) -> Any:
-    """Fill the ``{max_output_chars}`` placeholder of the instructions with the cap."""
+    """Fill the ``{max_output_chars}`` placeholder of the instructions with the cap.
+
+    Apply it to the base signature, before memory is added to the instructions:
+    the replace would also rewrite a literal placeholder inside memory text. Cached
+    by ``(sig, cap)`` so the same class comes back, which keeps the signature
+    caches downstream of it (``with_prefrontal_memory``) from growing per run.
+    """
     if MAX_OUTPUT_CHARS_PLACEHOLDER not in sig.instructions:
         return sig
-    return sig.with_instructions(
-        sig.instructions.replace(MAX_OUTPUT_CHARS_PLACEHOLDER, f"{max_output_chars:,}")
-    )
+    key = (sig, max_output_chars)
+    cached = _CAPPED_SIGNATURES.get(key)
+    if cached is None:
+        cached = sig.with_instructions(
+            sig.instructions.replace(MAX_OUTPUT_CHARS_PLACEHOLDER, f"{max_output_chars:,}")
+        )
+        _CAPPED_SIGNATURES[key] = cached
+    return cached
 
 
 def coverage_check(
@@ -351,9 +372,13 @@ class CodeReviewer(dspy.Module):
                 self._settings,
                 subroot=scope.subroot,
             )
-            sig = with_prefrontal_memory(base_sig) if review_context.prefrontal_memory else base_sig
             max_output_chars = self._settings.get_max_output_chars("code_review")
-            sig = with_output_cap(sig, max_output_chars)
+            memory = review_context.memory_for_scope(scope_topic_id)
+            sig, memory = gated_memory_signature(
+                with_output_cap(base_sig, max_output_chars),
+                memory,
+                self._settings.memory.prefrontal.in_prompt,
+            )
             recall_tool = pf.recall_tool() if pf else None
             agent_tools = [*tools, recall_tool] if recall_tool else tools
             scoped = make_scope_relative(scope)
@@ -365,7 +390,10 @@ class CodeReviewer(dspy.Module):
                 max_llm_calls=self._settings.get_max_llm_calls("code_review"),
                 rlm_threshold=self._settings.get_rlm_threshold("react"),
                 max_output_chars=max_output_chars,
-                submit_check=coverage_check(scoped.changed_files, max_output_chars),
+                submit_check=combine_checks(
+                    coverage_check(scoped.changed_files, max_output_chars),
+                    memory_check(memory, max_output_chars),
+                ),
             )
             logger.info(
                 f"  Code review: scope {scope.subroot} ({len(scope.changed_files)} files)"
@@ -374,8 +402,8 @@ class CodeReviewer(dspy.Module):
             async with SignatureContext("code_review", self._cost_tracker):
                 # Prefrontal: use shared run-level recall (never given to Hippocampus)
                 pf_kwargs: dict[str, Any] = {}
-                if review_context.prefrontal_memory:
-                    pf_kwargs["prefrontal_memory"] = review_context.prefrontal_memory
+                if memory:
+                    pf_kwargs["prefrontal_memory"] = memory
                 # Load own prior "code_review" episode for this scope
                 scope_initial_memory: ContextMemory | None = None
                 store = None
@@ -414,6 +442,7 @@ class CodeReviewer(dspy.Module):
                     changed_files=scoped.changed_files,
                     max_output_chars=max_output_chars,
                     max_iters=max_iters,
+                    memory=memory,
                 )
                 if unseen:
                     logger.warning(

@@ -621,7 +621,8 @@ class TestMentalModelsConfig:
 
         cfg = CerebralConfig().mental_models
         assert cfg.model == "bedrock/converse/nvidia.nemotron-super-3-120b"
-        assert cfg.max_tokens == 2048
+        assert cfg.max_tokens == 1024
+        assert cfg.shorten_model == "bedrock/converse/moonshotai.kimi-k2.5"
         assert cfg.min_refresh_seconds == 0
 
     def test_env_mapping(self, monkeypatch):

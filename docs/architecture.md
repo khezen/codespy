@@ -151,8 +151,10 @@ CodeSpy's memory system has three independent components:
 - **Cerebral**: Retains Hippocampus episodes into Hindsight semantic memory, consolidates
   observations, and refreshes mental models (briefings).
 
-- **Prefrontal**: Reads Cerebral before agent calls and injects a read-only `prefrontal_memory`
-  input (briefings, recalled facts). RLM agents also get a `recall_memory` tool.
+- **Prefrontal**: Reads Cerebral before agent calls and injects read-only memory (briefings,
+  recalled facts): a `prefrontal_memory` input for most agents, and for code_review, doc, seo and
+  supply_chain, by default, the scope's memory in the cached system prompt
+  (`memory.prefrontal.in_prompt`). RLM agents also get a `recall_memory` tool.
 
 See [Memory System](memory.md) for implementation details.
 

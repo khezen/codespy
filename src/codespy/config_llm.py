@@ -290,7 +290,7 @@ class LLMConfig(BaseModel):
 
     # Global LLM reliability settings
     retries: int = 2  # LLM_RETRIES
-    timeout: int = 240  # LLM_TIMEOUT
+    timeout: int = 300  # LLM_TIMEOUT
 
     # RLM fallback configuration
     rlm_fallback: RLMFallbackConfig = Field(default_factory=RLMFallbackConfig)

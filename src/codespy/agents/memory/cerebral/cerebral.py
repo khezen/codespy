@@ -217,6 +217,7 @@ class _SchemaSyncTaskBackend(SyncTaskBackend):
                 exc_info=True,
             )
 
+from codespy.agents.memory.cerebral import briefing_size  # noqa: E402
 from codespy.agents.memory.cerebral.cost import (
     BUCKET_MEMORY_CONSOLIDATION,
     BUCKET_MEMORY_MENTAL_MODELS,
@@ -310,14 +311,11 @@ ROOT_MENTAL_MODEL_SOURCE_QUERY = (
     "or review findings; omit anything that is true for only one scope."
 )
 
-# A delta refresh only adds content, so briefings grow past max_tokens. Past this
-# factor of max_tokens, consolidate_run forces one full refresh (rewrite from scratch).
-BRIEFING_FULL_REFRESH_FACTOR = 1.5
+# Briefing limit, as a factor of max_tokens (Hindsight tokens). After each
+# consolidate_run, briefings over it are rewritten to size (see briefing_size).
+# 1.0: every briefing an agent receives is within max_tokens.
+BRIEFING_FULL_REFRESH_FACTOR = 1.0
 
-
-def _estimate_tokens(text: str) -> int:
-    """Cheap token estimate (~4 chars per token), same heuristic as prefrontal.format."""
-    return (len(text or "") + 3) // 4
 
 OBSERVATIONS_MISSION = (
     "Merge facts about the same subject into one observation. Keep details that matter only "
@@ -356,7 +354,8 @@ class Cerebral:
         embeddings_model: str = "openai/text-embedding-3-small",
         retain_chunk_size: int = 12288,
         mental_models: bool = True,
-        max_mental_model_tokens: int = 2048,
+        max_mental_model_tokens: int = 1024,
+        briefing_shorten_model: str | None = None,
         reflect_llm_model: str | None = None,
         reflect_llm_api_key: str | None = None,
         reflect_llm_base_url: str | None = None,
@@ -499,6 +498,7 @@ class Cerebral:
         self._retain_chunk_size = retain_chunk_size
         self._mental_models = mental_models
         self._max_mental_model_tokens = max_mental_model_tokens
+        self._briefing_shorten_model = briefing_shorten_model
         self._min_mental_model_refresh_seconds = min_mental_model_refresh_seconds
         self._max_observations_per_scope = max_observations_per_scope
         # Mental-model ids already ensured by this process.
@@ -918,6 +918,26 @@ class Cerebral:
         return None
 
     @classmethod
+    def _with_root_scopes(cls, scopes: Sequence[Sequence[str]]) -> list[list[str]]:
+        """``scopes`` plus the repo-root scope of each repo in them (deduped).
+
+        The repo-wide briefing goes to every scope run but is only touched by
+        runs that write repo-root facts, so the size guard checks it on every run.
+        """
+        out = [list(sc) for sc in scopes]
+        seen = {tuple(sorted(sc)) for sc in out}
+        for sc in scopes:
+            repo = cls._repo_of(sc)
+            if not repo:
+                continue
+            root = scope_tags(repo, root_scope_id(repo))
+            key = tuple(sorted(root))
+            if key not in seen:
+                seen.add(key)
+                out.append(root)
+        return out
+
+    @classmethod
     def _is_root_briefing(cls, tags: Sequence[str]) -> bool:
         scope_id = cls._scope_id_of(tags)
         repo = cls._repo_of(tags)
@@ -1047,6 +1067,25 @@ class Cerebral:
                             mm_id,
                             desired_name,
                         )
+                    # Size budget drift (mental_models.max_tokens changed): Hindsight
+                    # rewrites to the stored max_tokens, so sync it; the size guard
+                    # then rewrites briefings over the new budget.
+                    stored_max = existing.get("max_tokens")
+                    if stored_max is not None and stored_max != self._max_mental_model_tokens:
+                        self._run_async(
+                            self._engine.update_mental_model(
+                                self._bank_id,
+                                mm_id,
+                                max_tokens=self._max_mental_model_tokens,
+                                request_context=ctx,
+                            )
+                        )
+                        logger.info(
+                            "cerebral: briefing %s max_tokens %s -> %d",
+                            mm_id,
+                            stored_max,
+                            self._max_mental_model_tokens,
+                        )
 
                 self._ensured_mental_models.add(mm_id)
             except Exception:
@@ -1061,65 +1100,76 @@ class Cerebral:
         }
 
     def _enforce_briefing_size(self, scopes: Sequence[Sequence[str]]) -> None:
-        """Force a full refresh of briefings grown past the size limit. Never raises.
+        """Bring every briefing of ``scopes`` within ``max_mental_model_tokens``. Never raises.
 
-        Delta refreshes only add content, so a briefing drifts past
-        ``max_mental_model_tokens``. Above ``BRIEFING_FULL_REFRESH_FACTOR`` times
-        that budget, the briefing is rewritten from scratch once: the trigger is
-        switched to ``mode=full``, one explicit refresh runs inline (sync task
-        backend), then the delta trigger is restored. Never deletes anything.
+        Hindsight treats ``max_tokens`` as a target (delta refreshes never shrink,
+        full refreshes shorten once, unchecked), so codespy enforces it: a model
+        (``mental_models.shorten_model``) rewrites the briefing, and each result is
+        checked for size, headings and collapse (see ``briefing_size``). Nothing is
+        cut mechanically. Content and structure are written back together, so
+        Hindsight's next delta refresh edits the rewritten document. Never deletes
+        a briefing.
         """
         if not self._mental_models or not scopes:
             return
-        limit = int(self._max_mental_model_tokens * BRIEFING_FULL_REFRESH_FACTOR)
+        budget = int(self._max_mental_model_tokens * BRIEFING_FULL_REFRESH_FACTOR)
         for tags in scopes:
             mm_id = mental_model_id(tags)
             try:
-                ctx = RequestContext()
-                mm = self._run_async(
-                    self._engine.get_mental_model(self._bank_id, mm_id, request_context=ctx)
-                )
-                if not mm:
-                    continue
-                before = _estimate_tokens((mm.get("content") or "").strip())
-                if before <= limit:
-                    continue
-                desired = self._desired_trigger()
-                self._run_async(
-                    self._engine.update_mental_model(
-                        self._bank_id,
-                        mm_id,
-                        trigger={**desired, "mode": "full"},
-                        request_context=ctx,
-                    )
-                )
-                try:
-                    self._run_async(
-                        self._engine.submit_async_refresh_mental_model(
-                            self._bank_id, mm_id, request_context=ctx
-                        )
-                    )
-                finally:
-                    self._run_async(
-                        self._engine.update_mental_model(
-                            self._bank_id, mm_id, trigger=desired, request_context=ctx
-                        )
-                    )
-                after_mm = self._run_async(
-                    self._engine.get_mental_model(self._bank_id, mm_id, request_context=ctx)
-                )
-                after = _estimate_tokens(((after_mm or {}).get("content") or "").strip())
-                logger.info(
-                    "cerebral: briefing %s (%s) over size (%d > %d tokens); "
-                    "full refresh -> %d tokens",
-                    mm_id,
-                    self._mental_model_name(tags),
-                    before,
-                    limit,
-                    after,
-                )
+                self._run_async(self._enforce_one_briefing(mm_id, tags, budget))
             except Exception:
                 logger.warning("cerebral: briefing size guard failed for %s", mm_id, exc_info=True)
+
+    async def _enforce_one_briefing(self, mm_id: str, tags: Sequence[str], budget: int) -> None:
+        ctx = RequestContext()
+        mm = await self._engine.get_mental_model(self._bank_id, mm_id, request_context=ctx)
+        content = ((mm or {}).get("content") or "").strip()
+        if not content or briefing_size.count_tokens(content) <= budget:
+            return
+        complete = self._complete_shorten if self._briefing_shorten_model else None
+        result = await briefing_size.enforce(content, budget, complete)
+        if result is None:
+            return
+        if result.changed:
+            await self._engine.update_mental_model(
+                self._bank_id,
+                mm_id,
+                content=result.markdown,
+                structured_content=result.structure.model_dump(),
+                request_context=ctx,
+            )
+        attempts = " -> ".join(str(n) for n in result.attempts) or "none"
+        log = logger.info if result.fits else logger.warning
+        log(
+            "cerebral: briefing %s (%s) over size (%d > %d tokens); rewrites %s (%s); stored %d tokens%s",
+            mm_id,
+            self._mental_model_name(tags),
+            result.before,
+            budget,
+            attempts,
+            self._briefing_shorten_model or "no shorten_model",
+            result.after,
+            "" if result.fits else ", still over",
+        )
+
+    async def _complete_shorten(self, messages: list[dict[str, str]], temperature: float) -> str:
+        """One briefing rewrite call on ``mental_models.shorten_model``, metered as memory_mental_models."""
+        import litellm
+
+        model = self._briefing_shorten_model or ""
+        start = time.time()
+        response = await litellm.acompletion(
+            model=model, messages=messages, temperature=temperature, max_tokens=8192
+        )
+        usage = getattr(response, "usage", None)
+        CerebralCostRecorder().record_llm_call(
+            model=model,
+            scope="mental_model_shorten",
+            input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+            output_tokens=getattr(usage, "completion_tokens", 0) or 0,
+            duration=time.time() - start,
+        )
+        return response.choices[0].message.content or ""
 
     def consolidate_run(self, run_id: str) -> None:
         """Trigger one consolidation for all scopes touched during a run.
@@ -1168,7 +1218,7 @@ class Cerebral:
                     )
                 )
                 # Rewrite briefings that delta refreshes grew past their budget
-                self._enforce_briefing_size(scopes)
+                self._enforce_briefing_size(self._with_root_scopes(scopes))
 
             delta = {b: _calls(b) - baseline[b] for b in buckets}
             logger.info(

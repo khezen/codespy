@@ -16,7 +16,7 @@ import dspy  # type: ignore[import-untyped]
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
-from codespy.agents.memory.prefrontal import with_prefrontal_memory
+from codespy.agents.memory.prefrontal import gated_memory_signature
 from codespy.agents.review.feedback.signature import apply_pr_context
 from codespy.agents.review.helpers import (
     filter_by_confidence,
@@ -37,7 +37,7 @@ from codespy.agents.review.seo.hotspots import (
 )
 from codespy.agents.review.seo.site_files import SiteConfigTools, find_site_config_files
 from codespy.agents.review.seo.web_filter import has_web_relevant_changes, is_web_scope
-from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, run_rlm
+from codespy.agents.rlm_tools import build_rlm_agent, log_rlm_outcome, memory_check, run_rlm
 from codespy.config import get_settings
 from codespy.config_memory import get_cerebral, get_episode_store, get_prefrontal
 from codespy.tools.mcp_utils import cleanup_mcp_contexts, connect_mcp_server
@@ -496,7 +496,11 @@ class SEOReviewer(dspy.Module):
             if hotspots_text:
                 base_sig = with_hotspots(base_sig)
                 hs_kwargs["hotspots"] = hotspots_text
-            sig = with_prefrontal_memory(base_sig) if review_context.prefrontal_memory else base_sig
+            memory = review_context.memory_for_scope(scope_topic_id)
+            sig, memory = gated_memory_signature(
+                base_sig, memory, self._settings.memory.prefrontal.in_prompt
+            )
+            max_output_chars = self._settings.get_max_output_chars("seo")
             recall_tool = pf.recall_tool() if pf else None
             agent_tools = [*tools, recall_tool] if recall_tool else tools
             agent = build_rlm_agent(
@@ -506,13 +510,15 @@ class SEOReviewer(dspy.Module):
                 max_iters=max_iters,
                 max_llm_calls=self._settings.get_max_llm_calls("seo"),
                 rlm_threshold=self._settings.get_rlm_threshold("react"),
+                max_output_chars=max_output_chars,
+                submit_check=memory_check(memory, max_output_chars),
             )
             logger.info(f"  SEO review: scope {scope.subroot} ({len(scope.changed_files)} files)")
             hippo: Hippocampus | None = None
             async with SignatureContext("seo", self._cost_tracker):
                 pf_kwargs: dict[str, Any] = {}
-                if review_context.prefrontal_memory:
-                    pf_kwargs["prefrontal_memory"] = review_context.prefrontal_memory
+                if memory:
+                    pf_kwargs["prefrontal_memory"] = memory
                 scope_initial_memory: ContextMemory | None = None
                 store = None
                 if self._settings.memory.enabled:
@@ -550,7 +556,12 @@ class SEOReviewer(dspy.Module):
                     **pc_kwargs,
                     **pf_kwargs,
                 )
-                log_rlm_outcome(result, "seo", scope.subroot)
+                log_rlm_outcome(
+                    result, "seo", scope.subroot,
+                    max_output_chars=max_output_chars,
+                    max_iters=max_iters,
+                    memory=memory,
+                )
                 issues = filter_by_confidence(
                     result.issues, self._settings.review.min_confidence, "seo", scope.subroot
                 )

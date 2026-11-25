@@ -141,6 +141,18 @@ class ReviewContext(BaseModel):
         default="",
         description="Shared run-level Prefrontal recall text, loaded once and passed to all consumer agents",
     )
+    prefrontal_scoped: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Per-scope subset of the run-level recall text, by scope topic id "
+            "(the scope's and the repo-root briefings and facts, shared synthesis, remote facts)"
+        ),
+    )
+
+    def memory_for_scope(self, scope_topic_id: str) -> str:
+        """Prefrontal text for one scope run; the run-level text when no subset exists."""
+        scoped = self.prefrontal_scoped.get(scope_topic_id)
+        return self.prefrontal_memory if scoped is None else scoped
 
 
 class Issue(BaseModel):

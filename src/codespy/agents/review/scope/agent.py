@@ -1512,7 +1512,12 @@ class ScopeResolver(dspy.Module):
                     **pc_kwargs,
                     **pf_kwargs,
                 )
-                log_rlm_outcome(result, "scope", pr.repo_full_name)
+                log_rlm_outcome(
+                    result, "scope", pr.repo_full_name,
+                    max_output_chars=self._settings.get_max_output_chars("scope"),
+                    max_iters=max_iters,
+                    memory=pf_kwargs.get("prefrontal_memory"),
+                )
                 if hippo is not None:
                     await hippo.aobserve(result)
 

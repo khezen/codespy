@@ -12,6 +12,7 @@ from codespy.agents import configure_dspy, get_cost_tracker, verify_model_access
 
 from codespy.agents.memory.hippocampus.context_memory import Topic
 from codespy.agents.memory.prefrontal import build_facets
+from codespy.agents.memory.prefrontal.format import estimate_tokens
 from codespy.agents.memory.prefrontal.query import MAX_CONTEXT_PATHS, MAX_ENTITY_TERMS
 from codespy.agents.review.models import Issue, PRContext, ReviewContext, ReviewMetadata
 from codespy.agents.review import (
@@ -71,6 +72,37 @@ from codespy.workflows.review.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def scoped_memory(
+    run_pf: Any, scopes: list[ScopeResult], repo_full_name: str, run_text: str
+) -> dict[str, str]:
+    """Per-scope subsets of the run-level Prefrontal text, by scope topic id.
+
+    Per-scope agents (code_review, doc, seo, supply_chain) get their scope's
+    subset instead of every scope's briefings and facts. Never raises: a
+    failure leaves the scope on the run-level text.
+    """
+    if not run_text:
+        return {}
+    out: dict[str, str] = {}
+    for scope in scopes:
+        try:
+            topic_id = scope.topic(repo_full_name).id
+            text = run_pf.scoped_text(topic_id)
+        except Exception:
+            logger.warning("Prefrontal: scoped memory failed for %s", scope.subroot, exc_info=True)
+            continue
+        if not isinstance(text, str):
+            continue
+        out[topic_id] = text
+        logger.info(
+            "Prefrontal[review]: scope %s memory %d tokens (run-level %d)",
+            scope.subroot,
+            estimate_tokens(text),
+            estimate_tokens(run_text),
+        )
+    return out
 
 
 class ReviewPipeline(dspy.Module):
@@ -461,6 +493,7 @@ class ReviewPipeline(dspy.Module):
         # Run-level Prefrontal recall: one load shared by all consumer agents
         run_pf = get_run_prefrontal(self.settings, pr.repo_full_name, scope_topic_ids)
         pf_text = ""
+        pf_scoped: dict[str, str] = {}
         if run_pf:
             # Build facets for the run-level load
             all_paths = list({f.filename for s in scopes for f in s.changed_files})
@@ -478,6 +511,7 @@ class ReviewPipeline(dspy.Module):
                 packages=all_packages[:MAX_ENTITY_TERMS],
             )
             pf_text = run_pf.load(facets)
+            pf_scoped = scoped_memory(run_pf, scopes, pr.repo_full_name, pf_text)
             # Persist run-level recalls (opt-in: memory.hippocampus.persist_recalls)
             try:
                 store = get_episode_store(self.settings)
@@ -504,7 +538,11 @@ class ReviewPipeline(dspy.Module):
         # Enrich review_ctx with actual summary and prefrontal_memory
         pr_context.summary = pr_summary
         review_ctx = ReviewContext(
-            pr_context=pr_context, memory=None, metadata=metadata, prefrontal_memory=pf_text
+            pr_context=pr_context,
+            memory=None,
+            metadata=metadata,
+            prefrontal_memory=pf_text,
+            prefrontal_scoped=pf_scoped,
         )
 
         # Step 3: Run review modules concurrently via asyncio.gather

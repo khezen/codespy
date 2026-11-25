@@ -327,6 +327,39 @@ def _significant_lines(patch: str) -> set[str]:
     return lines
 
 
+def _seen_corpus(history: Iterable[Any], max_output_chars: int) -> tuple[str, set[str]]:
+    """What the root LM saw: each step's capped output plus its code.
+
+    Outputs are rendered with ``REPLEntry.format_output`` under
+    ``max_output_chars`` (the same rendering the action prompt uses); code is
+    included because pasted lines were seen.
+
+    Returns:
+        ``(corpus, corpus_lines)``: the joined text and its stripped lines.
+    """
+    chunks: list[str] = []
+    for entry in history:
+        chunks.append(REPLEntry.format_output(_entry_field(entry, "output"), max_output_chars))
+        chunks.append(_entry_field(entry, "code"))
+    corpus = "\n".join(chunks)
+    return corpus, {line.strip() for line in corpus.splitlines()}
+
+
+def _lines_seen(lines: set[str], corpus: str, corpus_lines: set[str]) -> bool:
+    """At least ``COVERAGE_THRESHOLD`` of ``lines`` appear in the corpus."""
+    if not lines:
+        return True
+    allowed_misses = len(lines) - math.ceil(round(COVERAGE_THRESHOLD * len(lines), 9))
+    misses = 0
+    for line in lines:
+        if line in corpus_lines or line in corpus:
+            continue
+        misses += 1
+        if misses > allowed_misses:
+            return False
+    return True
+
+
 def unseen_files(
     changed_files: Iterable[Any],
     history: Iterable[Any],
@@ -334,11 +367,9 @@ def unseen_files(
 ) -> list[str]:
     """Changed files whose patch the root LM has not actually seen.
 
-    The corpus is what the model saw: each history entry's output after the
-    ``max_output_chars`` cap (``REPLEntry.format_output``, the same rendering
-    the action prompt uses), plus the entry's code (pasted lines were seen).
-    A file is seen when at least ``COVERAGE_THRESHOLD`` of its significant patch
-    lines are substrings of the corpus. A file with no patch counts as seen.
+    The corpus is what the model saw (see ``_seen_corpus``). A file is seen when
+    at least ``COVERAGE_THRESHOLD`` of its significant patch lines are
+    substrings of the corpus. A file with no patch counts as seen.
 
     Args:
         changed_files: Objects or dicts with ``filename`` and ``patch``
@@ -348,31 +379,181 @@ def unseen_files(
     Returns:
         Filenames not seen yet, in input order.
     """
-    chunks: list[str] = []
-    for entry in history:
-        chunks.append(REPLEntry.format_output(_entry_field(entry, "output"), max_output_chars))
-        chunks.append(_entry_field(entry, "code"))
-    corpus = "\n".join(chunks)
-    corpus_lines = {line.strip() for line in corpus.splitlines()}
-
+    corpus, corpus_lines = _seen_corpus(history, max_output_chars)
     missing: list[str] = []
     for changed_file in changed_files:
         patch = _file_field(changed_file, "patch")
         if not patch:
             continue
-        lines = _significant_lines(patch)
-        if not lines:
-            continue
-        allowed_misses = len(lines) - math.ceil(round(COVERAGE_THRESHOLD * len(lines), 9))
-        misses = 0
-        for line in lines:
-            if line in corpus_lines or line in corpus:
-                continue
-            misses += 1
-            if misses > allowed_misses:
-                missing.append(str(_file_field(changed_file, "filename")))
-                break
+        if not _lines_seen(_significant_lines(patch), corpus, corpus_lines):
+            missing.append(str(_file_field(changed_file, "filename")))
     return missing
+
+
+# --- Prefrontal memory coverage ---------------------------------------------
+
+_UNTITLED_MEMORY_SECTION = "memory"
+
+
+def memory_sections(text: str | None) -> list[tuple[str, int, int, str]]:
+    """Split rendered Prefrontal memory into its sections.
+
+    Splits only on known section headers (``## <title>`` lines where the title
+    is one ``format_context_sections`` renders), so markdown headings inside a
+    briefing or a reflect answer stay in their section. Text before the first
+    header (or the whole text, without any header) is a section titled
+    ``memory``.
+
+    Returns:
+        ``(title, start, end, body)`` per section, in order. ``text[start:end]``
+        is the header line plus the body (trailing blank lines excluded).
+    """
+    from codespy.agents.memory.prefrontal.format import (
+        SECTION_HEADER_PREFIX,
+        is_section_title,
+    )
+
+    if not text or not text.strip():
+        return []
+    # (title, header_start, body_start)
+    headers: list[tuple[str, int, int]] = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        bare = line.rstrip("\r\n")
+        if bare.startswith(SECTION_HEADER_PREFIX):
+            title = bare[len(SECTION_HEADER_PREFIX):].strip()
+            if title and is_section_title(title):
+                headers.append((title, offset, offset + len(line)))
+        offset += len(line)
+
+    sections: list[tuple[str, int, int, str]] = []
+
+    def add(title: str, start: int, body_start: int, stop: int) -> None:
+        end = start + len(text[start:stop].rstrip())
+        body = text[body_start:max(body_start, end)]
+        sections.append((title, start, max(end, start), body))
+
+    first = headers[0][1] if headers else len(text)
+    if text[:first].strip():
+        add(_UNTITLED_MEMORY_SECTION, 0, 0, first)
+    for i, (title, start, body_start) in enumerate(headers):
+        stop = headers[i + 1][1] if i + 1 < len(headers) else len(text)
+        add(title, start, body_start, stop)
+    return sections
+
+
+def _memory_lines(body: str) -> set[str]:
+    return {
+        line.strip()
+        for line in body.splitlines()
+        if len(line.strip()) >= _MIN_SIGNIFICANT_LINE_CHARS
+    }
+
+
+def unseen_memory_sections(
+    memory: str | None,
+    history: Iterable[Any],
+    max_output_chars: int,
+) -> list[tuple[str, int, int]]:
+    """Memory sections the root LM has not actually seen.
+
+    Same rule as ``unseen_files``: a section is seen when at least
+    ``COVERAGE_THRESHOLD`` of its significant body lines appear in the corpus.
+
+    Returns:
+        ``(title, start, end)`` of unseen sections (offsets into ``memory``).
+    """
+    sections = memory_sections(memory)
+    if not sections:
+        return []
+    corpus, corpus_lines = _seen_corpus(history, max_output_chars)
+    return [
+        (title, start, end)
+        for title, start, end, body in sections
+        if not _lines_seen(_memory_lines(body), corpus, corpus_lines)
+    ]
+
+
+def memory_slices(
+    memory: str, ranges: Iterable[tuple[int, int]], max_output_chars: int
+) -> list[tuple[int, int]]:
+    """Printable ``memory[a:b]`` slices covering ``ranges``.
+
+    Ranges separated only by whitespace are merged; a range longer than the cap
+    is split, at a line break when possible, so that ``print(memory[a:b])``
+    (slice plus newline) stays under ``max_output_chars``.
+    """
+    merged: list[list[int]] = []
+    for start, end in sorted(ranges):
+        if merged and not memory[merged[-1][1]:start].strip():
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    limit = max(1, max_output_chars - 1)
+    slices: list[tuple[int, int]] = []
+    for start, end in merged:
+        a = start
+        while end - a > limit:
+            cut = memory.rfind("\n", a + 1, a + limit + 1)
+            b = cut + 1 if cut > a else a + limit
+            slices.append((a, b))
+            a = b
+        if end > a:
+            slices.append((a, end))
+    return slices
+
+
+def memory_check(memory: str | None, max_output_chars: int) -> SubmitCheck | None:
+    """SUBMIT gate: send SUBMIT back while memory sections remain unseen.
+
+    Returns None when ``memory`` is empty (nothing to gate on).
+    """
+    from codespy.agents.memory.prefrontal.prefrontal import PREFRONTAL_FIELD
+
+    if not memory or not memory_sections(memory):
+        return None
+
+    def check(history: Any) -> str | None:
+        unseen = unseen_memory_sections(memory, history, max_output_chars)
+        if not unseen:
+            return None
+        slices = memory_slices(memory, [(s, e) for _, s, e in unseen], max_output_chars)
+        return (
+            f"{COVERAGE_REJECTION_PREFIX} Memory not read yet: "
+            f"{', '.join(title for title, _, _ in unseen)}. "
+            f"Print {', '.join(f'{PREFRONTAL_FIELD}[{a}:{b}]' for a, b in slices)} "
+            f"(slices under the {max_output_chars:,}-char cap) before SUBMIT."
+        )
+
+    return check
+
+
+def combine_checks(*checks: SubmitCheck | None) -> SubmitCheck | None:
+    """Run every non-None check; join their messages (None when all pass).
+
+    Returns None when no check is given, so callers can pass it straight to
+    ``build_rlm_agent(submit_check=...)``.
+    """
+    active = [c for c in checks if c is not None]
+    if not active:
+        return None
+    if len(active) == 1:
+        return active[0]
+
+    def check(history: Any) -> str | None:
+        messages: list[str] = []
+        for one in active:
+            message = one(history)
+            if not message:
+                continue
+            if message.startswith(COVERAGE_REJECTION_PREFIX):
+                message = message[len(COVERAGE_REJECTION_PREFIX):].strip()
+            messages.append(message)
+        if not messages:
+            return None
+        return f"{COVERAGE_REJECTION_PREFIX} {' '.join(messages)}"
+
+    return check
 
 
 def _end_reason(final_reasoning: Any) -> str:
@@ -391,12 +572,15 @@ def log_rlm_outcome(
     changed_files: Iterable[Any] | None = None,
     max_output_chars: int | None = None,
     max_iters: int | None = None,
+    memory: str | None = None,
 ) -> list[str]:
     """Log diagnostics for RLM outcomes, especially extract fallback cases.
 
-    With ``changed_files`` or ``max_output_chars``, also logs coverage
-    telemetry at INFO: iterations used, end reason, SUBMIT gate rejections,
-    truncated outputs and unseen changed files.
+    With ``changed_files``, ``max_output_chars`` or a non-empty ``memory``, also
+    logs coverage telemetry at INFO: iterations used, end reason, SUBMIT gate
+    rejections, truncated outputs, unseen changed files and (with ``memory``)
+    ``memory_seen=<seen>/<total> sections`` plus the unseen section titles.
+    Use ``unseen_memory_sections`` for the unseen sections themselves.
 
     Args:
         result: The prediction result from the RLM agent
@@ -405,13 +589,14 @@ def log_rlm_outcome(
         changed_files: Changed files the run had to cover (optional)
         max_output_chars: Output cap the run used (optional)
         max_iters: Iteration budget the run used (optional, for the log)
+        memory: ``prefrontal_memory`` text the run received (optional)
 
     Returns:
         Changed files not seen by the model (empty without ``changed_files``).
     """
     final_reasoning = getattr(result, "final_reasoning", None)
     unseen: list[str] = []
-    if changed_files is not None or max_output_chars is not None:
+    if changed_files is not None or max_output_chars is not None or memory:
         trajectory = list(getattr(result, "trajectory", None) or [])
         cap = max_output_chars or DSPY_DEFAULT_MAX_OUTPUT_CHARS
         if changed_files is not None:
@@ -420,11 +605,20 @@ def log_rlm_outcome(
             1 for e in trajectory if _entry_field(e, "output").startswith(COVERAGE_REJECTION_PREFIX)
         )
         truncated = sum(1 for e in trajectory if len(_entry_field(e, "output")) > cap)
+        memory_part = ""
+        if memory:
+            total = len(memory_sections(memory))
+            unseen_memory = [t for t, _, _ in unseen_memory_sections(memory, trajectory, cap)]
+            memory_part = (
+                f", memory_seen={total - len(unseen_memory)}/{total} sections"
+                f"{' (unseen: ' + ', '.join(unseen_memory) + ')' if unseen_memory else ''}"
+            )
         logger.info(
             f"RLM[{module}] scope {scope}: iterations={len(trajectory)}/{max_iters or '?'}, "
             f"end={_end_reason(final_reasoning)}, coverage_rejections={rejections}, "
             f"truncated_outputs={truncated} (cap {cap:,}), "
             f"unseen_files={len(unseen)}{': ' + ', '.join(unseen) if unseen else ''}"
+            f"{memory_part}"
         )
 
     _log_fallback(result, module, scope, final_reasoning)
@@ -480,3 +674,28 @@ def _log_fallback(result: Any, module: str, scope: str, final_reasoning: Any) ->
             f"RLM[{module}] scope {scope}: extract fallback after {len(trajectory)} "
             "trajectory entries, no tool errors"
         )
+    _log_last_steps(trajectory, module, scope)
+
+
+# Steps and chars per step shown when a run ends without SUBMIT.
+_LAST_STEPS = 3
+_LAST_STEP_CHARS = 200
+
+
+def _clip(text: str, n: int = _LAST_STEP_CHARS) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= n else text[:n] + "..."
+
+
+def _log_last_steps(trajectory: Any, module: str, scope: str) -> None:
+    """INFO: the code and output head of the last steps, to see why SUBMIT never came."""
+    entries = list(trajectory or [])[-_LAST_STEPS:]
+    if not entries:
+        return
+    first = len(list(trajectory)) - len(entries) + 1
+    steps = "; ".join(
+        f"step {first + i}: code={_clip(_entry_field(e, 'code'))!r} "
+        f"output={_clip(_entry_field(e, 'output'))!r}"
+        for i, e in enumerate(entries)
+    )
+    logger.info(f"RLM[{module}] scope {scope}: last steps before extract: {steps}")

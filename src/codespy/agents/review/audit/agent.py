@@ -126,7 +126,12 @@ class Auditor(dspy.Module):
             **(pr_context_kwargs or {}),
             **pf_kwargs,
         )
-        log_rlm_outcome(result, "audit", review_context.pr_context.repo_full_name)
+        log_rlm_outcome(
+            result, "audit", review_context.pr_context.repo_full_name,
+            max_output_chars=self._settings.get_max_output_chars("audit"),
+            max_iters=self._settings.get_max_iters("audit"),
+            memory=prefrontal_memory,
+        )
         if hippo is not None:
             await hippo.aobserve(result)
             _artifacts = {
