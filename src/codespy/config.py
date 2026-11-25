@@ -84,6 +84,7 @@ _ENV_MAP = build_env_map(
         ("llm", "retries"),
         ("llm", "timeout"),
         ("memory", "prefrontal", "reflects"),
+        ("memory", "prefrontal", "in_prompt"),
     },
 )
 

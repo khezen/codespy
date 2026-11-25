@@ -9,6 +9,8 @@ from codespy.agents.memory.prefrontal.prefrontal import (
     PREFRONTAL_FIELD_DESC,
     RECALL_LIMIT_REACHED,
     Prefrontal,
+    gated_memory_signature,
+    with_memory_in_prompt,
     with_prefrontal_memory,
 )
 from codespy.agents.memory.prefrontal.query import Facet, build_facets
@@ -42,5 +44,7 @@ __all__ = [
     "mental_model_ids",
     "org_of",
     "run_facets",
+    "gated_memory_signature",
+    "with_memory_in_prompt",
     "with_prefrontal_memory",
 ]

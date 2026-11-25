@@ -11,7 +11,7 @@ import dspy  # type: ignore[import-untyped]
 from codespy.agents import SignatureContext, get_cost_tracker
 from codespy.agents.memory.hippocampus import ContextMemory, Hippocampus
 from codespy.agents.memory.hippocampus.episode import submit_episode_save
-from codespy.agents.memory.prefrontal import with_prefrontal_memory
+from codespy.agents.memory.prefrontal import gated_memory_signature
 from codespy.agents.review.doc.doc_extractor import extract_documentation
 from codespy.agents.review.feedback.signature import apply_pr_context
 from codespy.agents.review.helpers import (
@@ -228,7 +228,9 @@ class DocReviewer(dspy.Module):
                 subroot=scope.subroot,
             )
             memory = review_context.memory_for_scope(scope.topic(repo_full_name).id)
-            sig = with_prefrontal_memory(base_sig, require_read=True) if memory else base_sig
+            sig, memory = gated_memory_signature(
+                base_sig, memory, self._settings.memory.prefrontal.in_prompt
+            )
             max_output_chars = self._settings.get_max_output_chars("doc")
             recall_tool = pf.recall_tool() if pf else None
             agent_tools = [recall_tool] if recall_tool else []

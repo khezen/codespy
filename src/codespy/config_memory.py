@@ -195,6 +195,10 @@ class PrefrontalConfig(BaseModel):
     # briefing refreshes). Uses Hindsight's LOW budget (0.5× multiplier), so the
     # global cap is set to 2× reflects to achieve exactly reflects iterations.
     reflects: int = Field(default=3, ge=0)
+    # Where the per-scope agents (code_review, doc, seo, supply_chain) get memory.
+    # True: in the instructions (system message, prompt-cached on Claude), no read
+    # gate. False: the prefrontal_memory REPL variable plus the SUBMIT read gate.
+    in_prompt: bool = True
     # Recall settings (read-time context injection).
     recall: RecallConfig = Field(default_factory=RecallConfig)
 

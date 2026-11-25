@@ -472,7 +472,8 @@ MEASURED = ["summary", "audit", "plan", "implement", "scope"]
 @pytest.mark.parametrize("name", GATED)
 def test_gated_agents_wire_memory_gate(name):
     src = (_REVIEW / name / "agent.py").read_text()
-    assert "with_prefrontal_memory(base_sig, require_read=True)" in src
+    assert "gated_memory_signature(" in src
+    assert "self._settings.memory.prefrontal.in_prompt" in src
     assert "memory_check(memory, max_output_chars)" in src
     assert f'get_max_output_chars("{name}")' in src
     assert "max_output_chars=max_output_chars," in src
@@ -512,3 +513,37 @@ class TestLastStepsLog:
         with caplog.at_level(logging.INFO, logger="codespy.agents.rlm_tools"):
             log_rlm_outcome(pred, "summary", "repo")
         assert "last steps" not in caplog.text
+
+
+class TestMemoryInPrompt:
+    MEM = "## Decisions\n- keep {braces} and the {max_output_chars} placeholder literal"
+
+    def test_text_in_instructions_no_field(self):
+        sig = pf_mod.with_memory_in_prompt(_PlainSig, self.MEM)
+        assert PREFRONTAL_FIELD not in sig.input_fields
+        assert sig.instructions.startswith("Do the task.")
+        assert MEMORY_BLOCK_HEADER in sig.instructions
+        assert MEMORY_READ_BLOCK_HEADER not in sig.instructions
+        body = sig.instructions.split(pf_mod.MEMORY_PROMPT_BEGIN, 1)[1]
+        assert self.MEM in body and body.rstrip().endswith(pf_mod.MEMORY_PROMPT_END)
+
+    def test_gated_in_prompt_returns_no_repl_memory(self):
+        sig, repl = pf_mod.gated_memory_signature(_PlainSig, MEMORY, True)
+        assert repl == ""
+        assert "Recurring patterns" in sig.instructions
+        assert memory_check(repl, 10_000) is None
+
+    def test_gated_variable_mode_unchanged(self):
+        sig, repl = pf_mod.gated_memory_signature(_PlainSig, MEMORY, False)
+        assert repl == MEMORY
+        assert sig is with_prefrontal_memory(_PlainSig, require_read=True)
+
+    def test_no_memory(self):
+        assert pf_mod.gated_memory_signature(_PlainSig, "", True) == (_PlainSig, "")
+
+    def test_code_review_cap_filled_once(self):
+        sig = with_output_cap(
+            pf_mod.with_memory_in_prompt(CodeReviewSignature, "## Decisions\n- x"), 40_000
+        )
+        assert "{max_output_chars}" not in sig.instructions
+        assert "40,000" in sig.instructions

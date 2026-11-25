@@ -146,6 +146,58 @@ def _change_observation_id(change: BeliefChange) -> str:
     return cid
 
 
+# Delimits the memory text when it is placed in the instructions (in_prompt).
+MEMORY_PROMPT_BEGIN = "<prefrontal_memory>"
+MEMORY_PROMPT_END = "</prefrontal_memory>"
+
+
+def with_memory_in_prompt(signature: type[dspy.Signature], memory: str) -> type[dspy.Signature]:
+    """Return ``signature`` with ``memory`` itself in its instructions (no input field).
+
+    dspy RLM puts the instructions in the system message, which stays the same on
+    every step and carries codespy's prompt-cache marker, while the REPL history
+    (where a printed variable lands) is in the uncached user message. Placed here,
+    memory is read from step 1 with no print and, on Anthropic/Bedrock Claude,
+    billed at the cache-read rate from step 2. Not cached in ``_SIGNATURES``:
+    the text differs per scope run.
+    """
+    instructions = (signature.instructions or "").rstrip()
+    block = MEMORY_BLOCK.replace(
+        f"{PREFRONTAL_FIELD} holds", f"The {MEMORY_PROMPT_BEGIN} block below holds", 1
+    )
+    text = "\n\n".join(
+        part
+        for part in (
+            instructions,
+            block,
+            f"{MEMORY_PROMPT_BEGIN}\n{memory.strip()}\n{MEMORY_PROMPT_END}",
+        )
+        if part
+    )
+    return signature.with_instructions(text)
+
+
+def gated_memory_signature(
+    signature: type[dspy.Signature], memory: str | None, in_prompt: bool
+) -> tuple[type[dspy.Signature], str]:
+    """Signature and REPL memory for an agent whose SUBMIT is gated on reading memory.
+
+    ``in_prompt``: memory goes into the instructions (``with_memory_in_prompt``)
+    and the returned memory is ``""``, so the caller passes no
+    ``prefrontal_memory`` variable, builds no ``memory_check`` gate and logs no
+    ``memory_seen`` (it is always fully in the prompt). Otherwise the REPL variable
+    plus the read instructions (``with_prefrontal_memory(require_read=True)``).
+    """
+    if not memory:
+        return signature, ""
+    if in_prompt:
+        logger.info(
+            "Prefrontal: memory in the system prompt (%d tokens)", estimate_tokens(memory)
+        )
+        return with_memory_in_prompt(signature, memory), ""
+    return with_prefrontal_memory(signature, require_read=True), memory
+
+
 def with_prefrontal_memory(
     signature: type[dspy.Signature], *, require_read: bool = False
 ) -> type[dspy.Signature]:
