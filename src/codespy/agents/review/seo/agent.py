@@ -496,7 +496,7 @@ class SEOReviewer(dspy.Module):
             if hotspots_text:
                 base_sig = with_hotspots(base_sig)
                 hs_kwargs["hotspots"] = hotspots_text
-            memory = review_context.prefrontal_memory
+            memory = review_context.memory_for_scope(scope_topic_id)
             sig = with_prefrontal_memory(base_sig, require_read=True) if memory else base_sig
             max_output_chars = self._settings.get_max_output_chars("seo")
             recall_tool = pf.recall_tool() if pf else None
@@ -515,8 +515,8 @@ class SEOReviewer(dspy.Module):
             hippo: Hippocampus | None = None
             async with SignatureContext("seo", self._cost_tracker):
                 pf_kwargs: dict[str, Any] = {}
-                if review_context.prefrontal_memory:
-                    pf_kwargs["prefrontal_memory"] = review_context.prefrontal_memory
+                if memory:
+                    pf_kwargs["prefrontal_memory"] = memory
                 scope_initial_memory: ContextMemory | None = None
                 store = None
                 if self._settings.memory.enabled:

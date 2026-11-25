@@ -227,7 +227,7 @@ class DocReviewer(dspy.Module):
                 self._settings,
                 subroot=scope.subroot,
             )
-            memory = review_context.prefrontal_memory
+            memory = review_context.memory_for_scope(scope.topic(repo_full_name).id)
             sig = with_prefrontal_memory(base_sig, require_read=True) if memory else base_sig
             max_output_chars = self._settings.get_max_output_chars("doc")
             recall_tool = pf.recall_tool() if pf else None
@@ -249,8 +249,8 @@ class DocReviewer(dspy.Module):
             async with SignatureContext("doc", self._cost_tracker):
                 # Prefrontal: use shared run-level recall (never given to Hippocampus)
                 pf_kwargs: dict[str, Any] = {}
-                if review_context.prefrontal_memory:
-                    pf_kwargs["prefrontal_memory"] = review_context.prefrontal_memory
+                if memory:
+                    pf_kwargs["prefrontal_memory"] = memory
                 # Load own prior "doc" episode for this scope
                 scope_initial_memory: ContextMemory | None = None
                 store = None

@@ -674,3 +674,28 @@ def _log_fallback(result: Any, module: str, scope: str, final_reasoning: Any) ->
             f"RLM[{module}] scope {scope}: extract fallback after {len(trajectory)} "
             "trajectory entries, no tool errors"
         )
+    _log_last_steps(trajectory, module, scope)
+
+
+# Steps and chars per step shown when a run ends without SUBMIT.
+_LAST_STEPS = 3
+_LAST_STEP_CHARS = 200
+
+
+def _clip(text: str, n: int = _LAST_STEP_CHARS) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= n else text[:n] + "..."
+
+
+def _log_last_steps(trajectory: Any, module: str, scope: str) -> None:
+    """INFO: the code and output head of the last steps, to see why SUBMIT never came."""
+    entries = list(trajectory or [])[-_LAST_STEPS:]
+    if not entries:
+        return
+    first = len(list(trajectory)) - len(entries) + 1
+    steps = "; ".join(
+        f"step {first + i}: code={_clip(_entry_field(e, 'code'))!r} "
+        f"output={_clip(_entry_field(e, 'output'))!r}"
+        for i, e in enumerate(entries)
+    )
+    logger.info(f"RLM[{module}] scope {scope}: last steps before extract: {steps}")

@@ -486,3 +486,29 @@ def test_measured_agents_not_gated(name):
     assert "memory_check" not in src
     call = re.search(r"log_rlm_outcome\(.*?\n\s*\)", src, re.S)
     assert call and "memory=" in call.group(0)
+
+
+class TestLastStepsLog:
+    def test_logged_on_extract(self, caplog):
+        pred = dspy.Prediction(
+            answer="x",
+            final_reasoning="Extract forced final output",
+            trajectory=[
+                {"reasoning": "r", "code": f"print({i})", "output": f"out {i}"} for i in range(5)
+            ],
+        )
+        with caplog.at_level(logging.INFO, logger="codespy.agents.rlm_tools"):
+            log_rlm_outcome(pred, "summary", "repo")
+        text = caplog.text
+        assert "last steps before extract" in text
+        assert "step 3: code='print(2)'" in text and "step 5: code='print(4)'" in text
+        assert "print(1)" not in text
+
+    def test_not_logged_on_submit(self, caplog):
+        pred = dspy.Prediction(
+            answer="x", final_reasoning="done",
+            trajectory=[{"reasoning": "r", "code": "c", "output": "o"}],
+        )
+        with caplog.at_level(logging.INFO, logger="codespy.agents.rlm_tools"):
+            log_rlm_outcome(pred, "summary", "repo")
+        assert "last steps" not in caplog.text

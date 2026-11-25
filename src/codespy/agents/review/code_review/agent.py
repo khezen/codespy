@@ -358,7 +358,7 @@ class CodeReviewer(dspy.Module):
                 self._settings,
                 subroot=scope.subroot,
             )
-            memory = review_context.prefrontal_memory
+            memory = review_context.memory_for_scope(scope_topic_id)
             sig = with_prefrontal_memory(base_sig, require_read=True) if memory else base_sig
             max_output_chars = self._settings.get_max_output_chars("code_review")
             sig = with_output_cap(sig, max_output_chars)
@@ -385,8 +385,8 @@ class CodeReviewer(dspy.Module):
             async with SignatureContext("code_review", self._cost_tracker):
                 # Prefrontal: use shared run-level recall (never given to Hippocampus)
                 pf_kwargs: dict[str, Any] = {}
-                if review_context.prefrontal_memory:
-                    pf_kwargs["prefrontal_memory"] = review_context.prefrontal_memory
+                if memory:
+                    pf_kwargs["prefrontal_memory"] = memory
                 # Load own prior "code_review" episode for this scope
                 scope_initial_memory: ContextMemory | None = None
                 store = None

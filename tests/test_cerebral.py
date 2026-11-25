@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from codespy.agents.memory.cerebral import Cerebral
+from codespy.agents.memory.cerebral import Cerebral, briefing_size
 from codespy.agents.memory.cerebral.cost import MeteredLiteLLMSDKEmbeddings
 from codespy.agents.memory.hippocampus.context_memory import (
     ContextMemory,
@@ -1353,34 +1353,104 @@ class TestConsolidateRun:
         assert episode.run_id not in cerebral_async._pending_scopes
 
 
+def _briefing(tokens: int, sections=("S0", "S1", "S2", "S3")) -> str:
+    """Markdown briefing of about ``tokens`` Hindsight tokens (" word" is one token)."""
+    per = max(1, tokens // len(sections))
+    return "\n\n".join(f"## {h}\n\n" + " ".join(["word"] * per) for h in sections)
+
+
 class TestBriefingSizeGuard:
     SCOPE = ["org:o", "repo:o/r", "project_scope:o/r/svc"]
 
-    def _content(self, cerebral, factor):
-        # chars/4 token heuristic
-        return "x" * int(cerebral._max_mental_model_tokens * factor * 4)
+    def _model(self, cerebral, replies):
+        """Fake shorten model returning ``replies`` in turn; records the messages it got."""
+        seen: list[list[dict]] = []
 
-    def test_oversized_gets_one_full_refresh_then_delta_restored(self, cerebral_async, async_engine):
-        async_engine.get_mental_model.return_value = {
-            "content": self._content(cerebral_async, BRIEFING_FULL_REFRESH_FACTOR + 1)
-        }
-        cerebral_async._enforce_briefing_size([self.SCOPE])
-        async_engine.submit_async_refresh_mental_model.assert_awaited_once()
-        assert async_engine.submit_async_refresh_mental_model.await_args.args[1] == mental_model_id(self.SCOPE)
-        triggers = [c.kwargs["trigger"]["mode"] for c in async_engine.update_mental_model.await_args_list]
-        assert triggers == ["full", "delta"]
+        async def complete(messages, temperature):
+            seen.append(list(messages))
+            return replies[len(seen) - 1]
 
-    def test_under_limit_untouched(self, cerebral_async, async_engine):
-        async_engine.get_mental_model.return_value = {"content": self._content(cerebral_async, 1.0)}
+        cerebral._briefing_shorten_model = "fake/kimi"
+        cerebral._complete_shorten = complete
+        return seen
+
+    def _stored(self, async_engine):
+        kwargs = async_engine.update_mental_model.await_args.kwargs
+        return kwargs["content"], kwargs["structured_content"]
+
+    def test_rewrite_that_fits_is_stored(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.return_value = {"content": _briefing(2400)}
+        seen = self._model(cerebral_async, [_briefing(900)])
         cerebral_async._enforce_briefing_size([self.SCOPE])
+        assert len(seen) == 1
+        content, structure = self._stored(async_engine)
+        assert 800 <= briefing_size.count_tokens(content) <= 1024
+        assert [x["heading"] for x in structure["sections"]] == ["S0", "S1", "S2", "S3"]
         async_engine.submit_async_refresh_mental_model.assert_not_awaited()
+
+    def test_over_budget_sent_back_with_size(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.return_value = {"content": _briefing(2400)}
+        seen = self._model(cerebral_async, [_briefing(1500), _briefing(950)])
+        cerebral_async._enforce_briefing_size([self.SCOPE])
+        assert len(seen) == 2
+        system, source = seen[1][0]["content"], seen[1][1]["content"]
+        assert "over the 1024-token limit" in system and "at most" in system
+        assert source == _briefing(1500)  # retried on the best rewrite so far
+        content, _ = self._stored(async_engine)
+        assert briefing_size.count_tokens(content) <= 1024
+
+    def test_dropped_section_sent_back(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.return_value = {"content": _briefing(2400)}
+        seen = self._model(
+            cerebral_async, [_briefing(900, ("S0", "S1", "S2")), _briefing(900)]
+        )
+        cerebral_async._enforce_briefing_size([self.SCOPE])
+        assert "'## S3'" in seen[1][0]["content"]
+        _, structure = self._stored(async_engine)
+        assert len(structure["sections"]) == 4
+
+    def test_collapse_sent_back(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.return_value = {"content": _briefing(2400)}
+        seen = self._model(cerebral_async, [_briefing(100), _briefing(900)])
+        cerebral_async._enforce_briefing_size([self.SCOPE])
+        assert "lost most of the content" in seen[1][0]["content"]
+        content, _ = self._stored(async_engine)
+        assert briefing_size.count_tokens(content) >= 800
+
+    def test_never_fits_keeps_best_rewrite_no_cut(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.return_value = {"content": _briefing(2400)}
+        replies = [_briefing(1800), _briefing(1300), _briefing(1500), _briefing(1400)]
+        self._model(cerebral_async, replies)
+        cerebral_async._enforce_briefing_size([self.SCOPE])
+        content, _ = self._stored(async_engine)
+        # best valid rewrite, untouched: nothing cut to force a fit
+        assert briefing_size.count_tokens(content) == briefing_size.count_tokens(
+            briefing_size.to_document(_briefing(1300)).markdown
+        )
+
+    def test_no_valid_rewrite_leaves_briefing(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.return_value = {"content": _briefing(2400)}
+        self._model(cerebral_async, [_briefing(900, ("S0",))] * 4)
+        cerebral_async._enforce_briefing_size([self.SCOPE])
         async_engine.update_mental_model.assert_not_awaited()
 
-    def test_refresh_failure_swallowed_and_delta_restored(self, cerebral_async, async_engine):
-        async_engine.get_mental_model.return_value = {"content": self._content(cerebral_async, 3)}
-        async_engine.submit_async_refresh_mental_model.side_effect = RuntimeError("boom")
+    def test_call_failure_leaves_briefing(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.return_value = {"content": _briefing(2400)}
+
+        async def boom(messages, temperature):
+            raise RuntimeError("bedrock down")
+
+        cerebral_async._briefing_shorten_model = "fake/kimi"
+        cerebral_async._complete_shorten = boom
         cerebral_async._enforce_briefing_size([self.SCOPE])  # no raise
-        assert async_engine.update_mental_model.await_args.kwargs["trigger"]["mode"] == "delta"
+        async_engine.update_mental_model.assert_not_awaited()
+
+    def test_under_limit_untouched(self, cerebral_async, async_engine):
+        async_engine.get_mental_model.return_value = {"content": _briefing(900)}
+        seen = self._model(cerebral_async, [])
+        cerebral_async._enforce_briefing_size([self.SCOPE])
+        assert seen == []
+        async_engine.update_mental_model.assert_not_awaited()
 
     def test_disabled_without_mental_models(self, cerebral_async, async_engine):
         cerebral_async._mental_models = False
@@ -1393,7 +1463,17 @@ class TestBriefingSizeGuard:
             cerebral_async.retain_episode(episode, repo_full_name="test/repo")
             cerebral_async.consolidate_run(episode.run_id)
         guard.assert_called_once()
-        assert guard.call_args.args[0] == [["org:test", "repo:test/repo", "project_scope:test/repo/package"]]
+        # The touched scope, plus the repo-root scope (its briefing goes to every scope run)
+        assert guard.call_args.args[0] == [
+            ["org:test", "repo:test/repo", "project_scope:test/repo/package"],
+            ["org:test", "repo:test/repo", "project_scope:test/repo"],
+        ]
+
+    def test_with_root_scopes_dedupes(self):
+        root = ["org:o", "repo:o/r", "project_scope:o/r"]
+        assert Cerebral._with_root_scopes([self.SCOPE, root]) == [self.SCOPE, root]
+        assert Cerebral._with_root_scopes([self.SCOPE]) == [self.SCOPE, root]
+        assert Cerebral._with_root_scopes([]) == []
 
 
 class TestEnsureMentalModels:
@@ -1422,7 +1502,7 @@ class TestEnsureMentalModels:
         assert trigger["mode"] == "delta"
         assert trigger["budget"] == "low"
         assert trigger["keep_trace"] is True
-        assert first.kwargs["max_tokens"] == 2048
+        assert first.kwargs["max_tokens"] == 1024
 
     def test_root_briefing_created_with_repo_wide_query(self, cerebral_async, async_engine):
         root = ["org:o", "repo:o/r", "project_scope:o/r"]
@@ -1478,6 +1558,32 @@ class TestEnsureMentalModels:
         kwargs = async_engine.update_mental_model.await_args.kwargs
         assert kwargs["trigger"]["budget"] == "low"
         assert kwargs["trigger"]["keep_trace"] is True
+
+    def test_existing_briefing_max_tokens_synced(self, cerebral_async, async_engine):
+        scope = ["org:o", "repo:o/r", "project_scope:o/r/svc"]
+        async_engine.get_mental_model.return_value = {
+            "name": "Briefing: o/r/svc",
+            "source_query": MENTAL_MODEL_SOURCE_QUERY,
+            "content": "c",
+            "trigger": cerebral_async._desired_trigger(),
+            "max_tokens": 2048,
+        }
+        cerebral_async._sync_briefing_triggers([scope])
+        kwargs = async_engine.update_mental_model.await_args.kwargs
+        assert kwargs["max_tokens"] == cerebral_async._max_mental_model_tokens == 1024
+        assert "trigger" not in kwargs
+
+    def test_existing_briefing_max_tokens_current_untouched(self, cerebral_async, async_engine):
+        scope = ["org:o", "repo:o/r", "project_scope:o/r/svc"]
+        async_engine.get_mental_model.return_value = {
+            "name": "Briefing: o/r/svc",
+            "source_query": MENTAL_MODEL_SOURCE_QUERY,
+            "content": "c",
+            "trigger": cerebral_async._desired_trigger(),
+            "max_tokens": 1024,
+        }
+        cerebral_async._sync_briefing_triggers([scope])
+        async_engine.update_mental_model.assert_not_awaited()
 
     def test_never_deletes(self, cerebral_async, async_engine, episode):
         async_engine.submit_async_consolidation = AsyncMock(return_value={})

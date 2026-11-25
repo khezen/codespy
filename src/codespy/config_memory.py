@@ -132,7 +132,11 @@ class MentalModelsConfig(BaseModel):
     """
 
     model: str | None = "bedrock/converse/nvidia.nemotron-super-3-120b"  # Falls back to prefrontal.recall.model → retain → default
-    max_tokens: int = Field(default=2048, gt=0)  # Briefing size
+    max_tokens: int = Field(default=1024, gt=0)  # Briefing size
+    # Rewrites a briefing over max_tokens down to size after each refresh. Kimi K2.5
+    # fit 2,150-token briefings into 1,024 in 2 attempts; nemotron-super got stuck
+    # at 1,279-2,063 and Sonnet 5.5 crept to 1,080 after 5.
+    shorten_model: str = "bedrock/converse/moonshotai.kimi-k2.5"
     min_refresh_seconds: int = Field(default=0, ge=0)  # Minimum seconds between refreshes
 
 
@@ -597,6 +601,7 @@ def get_cerebral(settings: "Settings") -> "Cerebral" | None:
                 retain_chunk_size=settings.memory.cerebral.retain.chunk_size,
                 mental_models=settings.memory.prefrontal.reflects > 0,
                 max_mental_model_tokens=settings.memory.cerebral.mental_models.max_tokens,
+                briefing_shorten_model=settings.memory.cerebral.mental_models.shorten_model,
                 embeddings_max_input_chars=settings.memory.cerebral.embeddings.max_input_chars,
                 min_mental_model_refresh_seconds=settings.memory.cerebral.mental_models.min_refresh_seconds,
                 max_observations_per_scope=settings.memory.cerebral.consolidation.max_observations_per_scope,

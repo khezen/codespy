@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import dataclasses
 import logging
 import time
 from collections.abc import Callable, Sequence
@@ -27,6 +28,8 @@ import dspy  # type: ignore[import-untyped]
 
 from codespy.agents.memory.prefrontal.facets import run_facets
 from codespy.agents.memory.prefrontal.format import (
+    BeliefChange,
+    FacetResult,
     estimate_tokens,
     fget,
     filter_relevant,
@@ -46,12 +49,14 @@ from codespy.agents.memory.prefrontal.query import (
 )
 from codespy.agents.memory.prefrontal.reach import (
     REACH_LOCAL,
+    TAG_PROJECT_SCOPE,
     TAG_REPO,
     build_local_groups,
     build_reflect_groups,
     build_remote_groups,
     clamp_reach,
     is_own_repo_fact,
+    local_tags,
     mental_model_ids,
     tag_value,
 )
@@ -133,6 +138,14 @@ def _tool_status(text: str) -> RecallStatus:
 _SIGNATURES: dict[tuple[type, bool], type] = {}
 
 
+def _change_observation_id(change: BeliefChange) -> str:
+    """Observation id of a belief change (id ``history:<observation id>:<i>``)."""
+    cid = change.id or ""
+    if cid.startswith("history:"):
+        return cid[len("history:"):].rsplit(":", 1)[0]
+    return cid
+
+
 def with_prefrontal_memory(
     signature: type[dspy.Signature], *, require_read: bool = False
 ) -> type[dspy.Signature]:
@@ -204,6 +217,9 @@ class Prefrontal:
         self._records: list[RecallRecord] = []
         # Sections from the last aload() call, for structured memory rendering.
         self._last_sections: list[tuple[str, str]] = []
+        # Inputs of the last render (briefings, facet results, remote facts),
+        # kept so scoped_text() can re-render a per-scope subset without a recall.
+        self._last_parts: tuple[list[dict], dict[str, FacetResult], list[Any]] | None = None
 
     @property
     def recalls(self) -> list[RecallRecord]:
@@ -214,6 +230,43 @@ class Prefrontal:
     def last_sections(self) -> list[tuple[str, str]]:
         """Sections from the last aload() call as (title, body) tuples."""
         return list(self._last_sections)
+
+    def scoped_text(self, scope_topic_id: str) -> str | None:
+        """Re-render the last load for one scope, without a new recall.
+
+        Keeps the briefings of ``scope_topic_id`` and of the repo-root scope,
+        the facts tagged with either scope (facts without any ``project_scope:``
+        tag are kept), the belief changes of kept observations, the shared
+        "Around this work" synthesis and the remote facts (already filtered by
+        the PR topic and the relevance floor).
+
+        Returns None when nothing was loaded yet (callers fall back to the
+        run-level text).
+        """
+        if self._last_parts is None:
+            return None
+        briefings, results, remote = self._last_parts
+        keep_mm = set(mental_model_ids(self._repo, [scope_topic_id], True))
+        keep_tags = set(local_tags(self._repo, [scope_topic_id], True))
+
+        def in_scope(fact: Any) -> bool:
+            scopes = [t for t in fget(fact, "tags") or [] if t.startswith(TAG_PROJECT_SCOPE)]
+            return not scopes or any(t in keep_tags for t in scopes)
+
+        kept_briefings = [mm for mm in briefings if not mm.get("id") or mm.get("id") in keep_mm]
+        kept_obs = {fget(f, "id") for r in results.values() for f in r.facts if in_scope(f)}
+        dropped_obs = {fget(f, "id") for r in results.values() for f in r.facts} - kept_obs
+        scoped: dict[str, FacetResult] = {}
+        for name, r in results.items():
+            scoped[name] = dataclasses.replace(
+                r,
+                facts=[f for f in r.facts if in_scope(f)],
+                changes=[c for c in r.changes if _change_observation_id(c) not in dropped_obs],
+            )
+        sections = format_context_sections(
+            kept_briefings, scoped, remote, self._repo, self._cfg.recall.reach
+        )
+        return join_sections(sections)
 
     def _record(
         self,
@@ -345,6 +398,7 @@ class Prefrontal:
         """
         self._tool_calls = 0
         self._last_sections = []
+        self._last_parts = None
         facet_list = list(facets)
         context_query = next((f.query for f in facet_list if f.name == FACET_CONTEXT), "")
         started_at = datetime.now(UTC)
@@ -526,6 +580,7 @@ class Prefrontal:
             return kept
 
         briefings, results, remote = await asyncio.gather(_briefings(), _facets(), _remote())
+        self._last_parts = (list(briefings or []), dict(results or {}), list(remote or []))
         # Compute sections once for structured rendering
         sections = format_context_sections(
             briefings, results, remote, self._repo, cfg.recall.reach
